@@ -1188,6 +1188,11 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                         .HasColumnType("boolean")
                         .HasDefaultValue(false);
 
+                    b.Property<bool>("IsLater")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<bool>("IsMuted")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
@@ -1259,6 +1264,8 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("TenantId", "ConversationId", "UserId")
                         .IsUnique();
+
+                    b.HasIndex("TenantId", "UserId", "IsLater");
 
                     b.ToTable("conversation_members", (string)null);
                 });
@@ -2529,6 +2536,45 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("message_attachments", (string)null);
+                });
+
+            modelBuilder.Entity("AipPortal.Domain.Entities.MessageFollowUp", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("MessageId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("MessageId");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("TenantId", "UserId", "MessageId")
+                        .IsUnique();
+
+                    b.HasIndex("TenantId", "UserId", "CreatedAt", "Id");
+
+                    b.ToTable("message_follow_ups", (string)null);
                 });
 
             modelBuilder.Entity("AipPortal.Domain.Entities.Milestone", b =>
@@ -6311,6 +6357,25 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                     b.Navigation("Attachment");
 
                     b.Navigation("Message");
+                });
+
+            modelBuilder.Entity("AipPortal.Domain.Entities.MessageFollowUp", b =>
+                {
+                    b.HasOne("AipPortal.Domain.Entities.Message", "Message")
+                        .WithMany()
+                        .HasForeignKey("MessageId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("AipPortal.Domain.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Message");
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("AipPortal.Domain.Entities.Milestone", b =>

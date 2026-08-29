@@ -45,6 +45,7 @@ public static class DependencyInjection
         // closed there; AddInfrastructure() registers the real implementations
         // later and therefore overrides these single-service fallbacks.
         services.AddScoped<ICapabilityGrantRepository, UnavailableCapabilityGrantRepository>();
+        services.AddScoped<IMessageFollowUpRepository, UnavailableMessageFollowUpRepository>();
         services.AddScoped<IDefaultConversationStore, UnavailableDefaultConversationStore>();
         services.AddScoped<ICreateIdempotencyCoordinator, UnavailableCreateIdempotencyCoordinator>();
         services.AddScoped<IProjectActivationWorkflowStore, UnavailableProjectActivationWorkflowStore>();
@@ -68,6 +69,7 @@ public static class DependencyInjection
         services.AddScoped<IChannelAuthorizationService, ChannelAuthorizationService>();
         services.AddScoped<IConversationAuthorizationService, ConversationAuthorizationService>();
         services.AddScoped<IMessageIdempotencyCommitCoordinator, UnitOfWorkMessageIdempotencyCommitCoordinator>();
+        services.AddScoped<IMessageFollowUpCommitCoordinator, UnitOfWorkMessageFollowUpCommitCoordinator>();
         services.AddScoped<ProjectAuthorizationService>();
         services.AddScoped<IProjectAuthorizationService>(provider => provider.GetRequiredService<ProjectAuthorizationService>());
         services.AddScoped<ITaskAuthorizationService>(provider => provider.GetRequiredService<ProjectAuthorizationService>());
@@ -98,6 +100,7 @@ public static class DependencyInjection
         services.AddScoped<IGroupService, GroupService>();
         services.AddScoped<IChannelService, ChannelService>();
         services.AddScoped<IConversationService, ConversationService>();
+        services.AddScoped<IMessageFollowUpService, MessageFollowUpService>();
         services.AddScoped<IntegrationService>();
         services.AddScoped<IIntegrationService>(provider => provider.GetRequiredService<IntegrationService>());
         services.AddScoped<IApiTokenValidator>(provider => provider.GetRequiredService<IntegrationService>());

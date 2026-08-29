@@ -80,6 +80,78 @@ describe('Issue 362 message thread contract', () => {
     expect(facade.thread().replies.map((reply) => reply.id)).toEqual(['reply-a', 'reply-b']);
   });
 
+  it('loads and preserves an exact saved-reply anchor outside the latest thread window', async () => {
+    const events = new Subject<DurableRealtimeEvent>();
+    const { httpMock, facade } = await configureFacade(events);
+    openConversation(httpMock, facade);
+
+    facade.openThread('root-a', 'thread-trigger-root-a', 'reply-oldest');
+    const initial = httpMock.expectOne((request) =>
+      request.url === '/api/messages/root-a/thread' &&
+      request.params.get('anchorReplyMessageId') === 'reply-oldest'
+    );
+    expect(initial.request.method).toBe('GET');
+    expect(initial.request.withCredentials).toBe(true);
+    initial.flush(threadDto({
+      replies: [threadReply('reply-oldest'), threadReply('reply-newest')],
+      summary: threadSummary(101, ['Mock User B']),
+      hasMore: true
+    }));
+
+    expect(facade.thread()).toMatchObject({
+      status: 'ready',
+      hasMore: true,
+      maximumReplies: 100,
+      anchorReplyMessageId: 'reply-oldest',
+      summary: { replyCount: 101 }
+    });
+    expect(facade.thread().replies.map((reply) => reply.id)).toContain('reply-oldest');
+
+    events.next(realtimeEvent('Messaging.ThreadChanged.v1', {
+      conversationId: 'conversation-a',
+      threadRootMessageId: 'root-a',
+      replyCount: 102,
+      requiresRefetch: true
+    }));
+    const refresh = httpMock.expectOne((request) =>
+      request.url === '/api/messages/root-a/thread' &&
+      request.params.get('anchorReplyMessageId') === 'reply-oldest'
+    );
+    refresh.flush(threadDto({
+      replies: [threadReply('reply-oldest'), threadReply('reply-latest')],
+      summary: threadSummary(102, ['Mock User B']),
+      hasMore: true
+    }));
+
+    expect(facade.thread().replies.map((reply) => reply.id)).toContain('reply-oldest');
+  });
+
+  it('fails closed when an anchored thread response omits the exact non-deleted reply', async () => {
+    const { httpMock, facade } = await configureFacade();
+    openConversation(httpMock, facade);
+
+    facade.openThread('root-a', 'thread-trigger-root-a', 'reply-oldest');
+    httpMock.expectOne((request) =>
+      request.url === '/api/messages/root-a/thread' &&
+      request.params.get('anchorReplyMessageId') === 'reply-oldest'
+    ).flush(threadDto({ replies: [threadReply('reply-newest')] }));
+
+    expect(facade.thread()).toMatchObject({
+      status: 'error',
+      rootMessageId: 'root-a',
+      replies: []
+    });
+    expect(facade.thread().anchorReplyMessageId).toBeUndefined();
+
+    facade.openThread('root-a', 'thread-trigger-root-a');
+    const ordinary = httpMock.expectOne((request) =>
+      request.url === '/api/messages/root-a/thread' &&
+      !request.params.has('anchorReplyMessageId')
+    );
+    ordinary.flush(threadDto());
+    expect(facade.thread()).toMatchObject({ status: 'ready', rootMessageId: 'root-a' });
+  });
+
   it('retains the protected projection, oversized draft, and retry key after a POST 400 revalidates successfully', async () => {
     const { httpMock, facade } = await configureFacade();
     openConversation(httpMock, facade);
@@ -605,6 +677,18 @@ describe('ThreadPreviewComponent', () => {
       'Replying in thread to Mock User B'
     );
     expect(document.activeElement).toBe(root.querySelector('[data-testid="thread-preview"]'));
+  });
+
+  it('truthfully identifies an exact selected reply inside the bounded projection', () => {
+    fixture.componentRef.setInput('thread', {
+      ...threadViewModel(),
+      anchorReplyMessageId: 'reply-a'
+    });
+    fixture.detectChanges();
+
+    expect((fixture.nativeElement as HTMLElement)
+      .querySelector('[data-testid="thread-bounded-notice"]')?.textContent)
+      .toContain('including the selected reply');
   });
 
   it('supports Enter, Shift+Enter, IME, Escape, and native back/close controls', () => {

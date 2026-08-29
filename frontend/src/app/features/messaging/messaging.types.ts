@@ -21,7 +21,7 @@ export type MessageDeliveryState = 'confirmed' | 'sending' | 'failed';
 
 export type MessagingMessageActionMode = 'idle' | 'editing' | 'confirmDelete' | 'confirmReport';
 
-export type MessagingMessageActionPending = 'edit' | 'delete' | 'report';
+export type MessagingMessageActionPending = 'edit' | 'delete' | 'report' | 'saveForLater';
 
 export interface MessagingMessageActionFeedback {
   readonly id: number;
@@ -71,6 +71,27 @@ export interface MessagingConversationListItem {
   readonly viewerIsParticipant: boolean;
   readonly unreadCount?: number;
   readonly hasMention?: boolean;
+  readonly isLater?: boolean;
+}
+
+export type MessagingInboxView = 'All' | 'Unread' | 'Mentions' | 'Later';
+
+export interface MessagingInboxCounts {
+  readonly all: number;
+  readonly unread: number;
+  readonly mentions: number;
+  readonly later: number;
+}
+
+export type MessagingInboxStatus = 'loading' | 'ready' | 'unavailable' | 'error';
+
+export interface MessagingInboxViewModel {
+  readonly view: MessagingInboxView;
+  readonly requestedView?: MessagingInboxView;
+  readonly counts: MessagingInboxCounts;
+  readonly status: MessagingInboxStatus;
+  readonly laterPendingConversationId?: string;
+  readonly error?: string;
 }
 
 export interface MessagingMentionCandidate {
@@ -129,6 +150,7 @@ export interface MessagingThreadViewModel {
   readonly summary?: MessagingThreadSummaryViewModel;
   readonly hasMore: boolean;
   readonly maximumReplies: number;
+  readonly anchorReplyMessageId?: string;
   readonly draft: string;
   readonly sending: boolean;
   readonly pendingClientRequestId?: string;

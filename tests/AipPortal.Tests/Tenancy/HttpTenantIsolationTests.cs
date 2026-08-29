@@ -1804,6 +1804,102 @@ public sealed class HttpTenantIsolationTests
     }
 
     [Fact]
+    [Trait("Scope", "Issue368")]
+    public async Task ThreadReplyAnchorIncludesAnOlderExactReplyAndRejectsDeletedOrMismatchedAnchorsWithoutDisclosure()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+        var seeded = await app.SeedBoundedMessageThreadAsync(data);
+
+        string readCursorBefore;
+        int unreadBefore;
+        using (var stateBefore = await app.SendAsync(
+                   data.CrossTenantUser,
+                   data.TenantA.Slug,
+                   $"/api/conversations/{data.ConversationA.Id:D}/state"))
+        using (var stateDocument = JsonDocument.Parse(await stateBefore.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.OK, stateBefore.StatusCode);
+            readCursorBefore = stateDocument.RootElement.GetProperty("lastReadMessageId").GetRawText();
+            unreadBefore = stateDocument.RootElement.GetProperty("unreadCount").GetInt32();
+        }
+
+        Guid[] ordinaryReplyIds;
+        using (var ordinary = await app.SendAsync(
+                   data.CrossTenantUser,
+                   data.TenantA.Slug,
+                   $"/api/messages/{data.MessageA.Id:D}/thread"))
+        using (var ordinaryDocument = JsonDocument.Parse(await ordinary.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.OK, ordinary.StatusCode);
+            ordinaryReplyIds = ordinaryDocument.RootElement
+                .GetProperty("replies")
+                .EnumerateArray()
+                .Select(reply => reply.GetProperty("id").GetGuid())
+                .ToArray();
+            Assert.Equal(100, ordinaryReplyIds.Length);
+            Assert.DoesNotContain(seeded.OldestReplyId, ordinaryReplyIds);
+        }
+
+        using (var response = await app.SendAsync(
+                   data.CrossTenantUser,
+                   data.TenantA.Slug,
+                   $"/api/messages/{data.MessageA.Id:D}/thread?anchorReplyMessageId={seeded.OldestReplyId:D}"))
+        using (var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var replies = document.RootElement.GetProperty("replies").EnumerateArray().ToArray();
+            Assert.Equal(100, replies.Length);
+            Assert.Equal(101, document.RootElement.GetProperty("summary").GetProperty("replyCount").GetInt32());
+            Assert.True(document.RootElement.GetProperty("hasMore").GetBoolean());
+            Assert.Equal(100, document.RootElement.GetProperty("maximumReplies").GetInt32());
+            var anchor = Assert.Single(
+                replies,
+                reply => reply.GetProperty("id").GetGuid() == seeded.OldestReplyId);
+            Assert.Equal("bounded authorized reply 0", anchor.GetProperty("body").GetString());
+            var anchoredReplyIds = replies.Select(reply => reply.GetProperty("id").GetGuid()).ToArray();
+            Assert.Equal(99, ordinaryReplyIds.Intersect(anchoredReplyIds).Count());
+            Assert.Single(ordinaryReplyIds.Except(anchoredReplyIds));
+        }
+
+        foreach (var deniedAnchorId in new[]
+                 {
+                     seeded.TombstoneReplyId,
+                     data.MessageA.Id,
+                     seeded.WrongRootReplyId,
+                     seeded.CrossConversationReplyId,
+                     seeded.CrossTenantReplyId,
+                     Guid.NewGuid()
+                 })
+        {
+            using var denied = await app.SendAsync(
+                data.CrossTenantUser,
+                data.TenantA.Slug,
+                $"/api/messages/{data.MessageA.Id:D}/thread?anchorReplyMessageId={deniedAnchorId:D}");
+            var deniedBody = await denied.Content.ReadAsStringAsync();
+
+            Assert.Equal(HttpStatusCode.BadRequest, denied.StatusCode);
+            Assert.Contains("Message thread not found.", deniedBody, StringComparison.Ordinal);
+            Assert.DoesNotContain("replyCount", deniedBody, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("bounded authorized reply", deniedBody, StringComparison.Ordinal);
+            Assert.DoesNotContain(seeded.CrossConversationBody, deniedBody, StringComparison.Ordinal);
+            Assert.DoesNotContain(seeded.CrossTenantBody, deniedBody, StringComparison.Ordinal);
+            Assert.DoesNotContain(seeded.WrongRootBody, deniedBody, StringComparison.Ordinal);
+        }
+
+        using (var stateAfter = await app.SendAsync(
+                   data.CrossTenantUser,
+                   data.TenantA.Slug,
+                   $"/api/conversations/{data.ConversationA.Id:D}/state"))
+        using (var stateDocument = JsonDocument.Parse(await stateAfter.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.OK, stateAfter.StatusCode);
+            Assert.Equal(readCursorBefore, stateDocument.RootElement.GetProperty("lastReadMessageId").GetRawText());
+            Assert.Equal(unreadBefore, stateDocument.RootElement.GetProperty("unreadCount").GetInt32());
+        }
+    }
+
+    [Fact]
     public async Task DmBodyAndMessageListStayParticipantOnlyEvenForElevatedTenantUsers()
     {
         await using var app = await HttpTenantIsolationTestApp.CreateAsync();
@@ -2491,6 +2587,282 @@ public sealed class HttpTenantIsolationTests
         Assert.Contains(@"""isMuted"":true", listBody, StringComparison.OrdinalIgnoreCase);
         Assert.Contains(@"""isArchived"":true", listBody, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain(data.TenantAMember.Email, listBody, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    [Trait("Scope", "Issue355")]
+    public async Task InboxViewsUseCurrentReadableConversationsAndKeepLaterIndependentFromReadState()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+
+        using (var mentionContent = JsonContent($$"""
+            {"body":"Issue 355 mention","mentionedUserIds":["{{data.CrossTenantUser.Id:D}}"]}
+            """))
+        using (var mentionResponse = await app.SendAsync(
+                   data.TenantAMember,
+                   data.TenantA.Slug,
+                   $"/api/conversations/{data.ConversationA.Id:D}/messages",
+                   HttpMethod.Post,
+                   mentionContent))
+        {
+            Assert.Equal(HttpStatusCode.OK, mentionResponse.StatusCode);
+        }
+
+        using (var allResponse = await app.SendAsync(
+                   data.CrossTenantUser,
+                   data.TenantA.Slug,
+                   "/api/conversations?view=All"))
+        using (var allDocument = JsonDocument.Parse(await allResponse.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.OK, allResponse.StatusCode);
+            var root = allDocument.RootElement;
+            Assert.Equal(1, root.GetProperty("counts").GetProperty("all").GetInt32());
+            Assert.Equal(1, root.GetProperty("counts").GetProperty("unread").GetInt32());
+            Assert.Equal(1, root.GetProperty("counts").GetProperty("mentions").GetInt32());
+            Assert.Equal(0, root.GetProperty("counts").GetProperty("later").GetInt32());
+            Assert.Equal(data.ConversationA.Id, Assert.Single(root.GetProperty("items").EnumerateArray()).GetProperty("id").GetGuid());
+        }
+
+        int unreadBeforeLater;
+        using (var unreadResponse = await app.SendAsync(
+                   data.CrossTenantUser,
+                   data.TenantA.Slug,
+                   "/api/conversations?view=Unread"))
+        using (var unreadDocument = JsonDocument.Parse(await unreadResponse.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.OK, unreadResponse.StatusCode);
+            unreadBeforeLater = Assert.Single(unreadDocument.RootElement.GetProperty("items").EnumerateArray())
+                .GetProperty("unreadCount")
+                .GetInt32();
+            Assert.True(unreadBeforeLater > 0);
+        }
+
+        using (var laterContent = JsonContent("""{"isLater":true}"""))
+        using (var laterResponse = await app.SendAsync(
+                   data.CrossTenantUser,
+                   data.TenantA.Slug,
+                   $"/api/conversations/{data.ConversationA.Id:D}/state",
+                   HttpMethod.Patch,
+                   laterContent))
+        using (var laterState = JsonDocument.Parse(await laterResponse.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.OK, laterResponse.StatusCode);
+            Assert.True(laterState.RootElement.GetProperty("isLater").GetBoolean());
+            Assert.Equal(unreadBeforeLater, laterState.RootElement.GetProperty("unreadCount").GetInt32());
+            Assert.Equal(JsonValueKind.Null, laterState.RootElement.GetProperty("lastReadMessageId").ValueKind);
+        }
+
+        using (var laterListResponse = await app.SendAsync(
+                   data.CrossTenantUser,
+                   data.TenantA.Slug,
+                   "/api/conversations?view=Later"))
+        using (var laterList = JsonDocument.Parse(await laterListResponse.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.OK, laterListResponse.StatusCode);
+            Assert.Equal(1, laterList.RootElement.GetProperty("counts").GetProperty("later").GetInt32());
+            var item = Assert.Single(laterList.RootElement.GetProperty("items").EnumerateArray());
+            Assert.Equal(data.ConversationA.Id, item.GetProperty("id").GetGuid());
+            Assert.True(item.GetProperty("isLater").GetBoolean());
+            Assert.Equal(unreadBeforeLater, item.GetProperty("unreadCount").GetInt32());
+        }
+
+        using (var deniedListResponse = await app.SendAsync(
+                   data.TenantAAdmin,
+                   data.TenantA.Slug,
+                   "/api/conversations?view=All"))
+        {
+            var deniedBody = await deniedListResponse.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.OK, deniedListResponse.StatusCode);
+            Assert.Contains("\"all\":0", deniedBody, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain(data.ConversationA.Title!, deniedBody, StringComparison.Ordinal);
+            Assert.DoesNotContain("Issue 355 mention", deniedBody, StringComparison.Ordinal);
+            Assert.DoesNotContain(data.ConversationB.Title!, deniedBody, StringComparison.Ordinal);
+            Assert.DoesNotContain(data.MessageB.Body, deniedBody, StringComparison.Ordinal);
+        }
+
+        using (var invalidViewResponse = await app.SendAsync(
+                   data.CrossTenantUser,
+                   data.TenantA.Slug,
+                   "/api/conversations?view=99"))
+        {
+            var invalidViewBody = await invalidViewResponse.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.BadRequest, invalidViewResponse.StatusCode);
+            Assert.DoesNotContain(data.ConversationA.Title!, invalidViewBody, StringComparison.Ordinal);
+            Assert.DoesNotContain("Issue 355 mention", invalidViewBody, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    [Trait("Scope", "Issue368")]
+    public async Task MessageFollowUpsArePrivateIdempotentReauthorizedAndDoNotMutateReadState()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+
+        using (var readContent = JsonContent($$"""{"lastReadMessageId":"{{data.MessageA.Id:D}}"}"""))
+        using (var readResponse = await app.SendAsync(
+                   data.CrossTenantUser,
+                   data.TenantA.Slug,
+                   $"/api/conversations/{data.ConversationA.Id:D}/read",
+                   HttpMethod.Post,
+                   readContent))
+        {
+            Assert.Equal(HttpStatusCode.OK, readResponse.StatusCode);
+        }
+
+        using var stateBeforeResponse = await app.SendAsync(
+            data.CrossTenantUser,
+            data.TenantA.Slug,
+            $"/api/conversations/{data.ConversationA.Id:D}/state");
+        using var stateBefore = JsonDocument.Parse(await stateBeforeResponse.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.OK, stateBeforeResponse.StatusCode);
+        var readMessageBefore = stateBefore.RootElement.GetProperty("lastReadMessageId").GetGuid();
+        var unreadBefore = stateBefore.RootElement.GetProperty("unreadCount").GetInt32();
+
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            using var saveResponse = await app.SendAsync(
+                data.CrossTenantUser,
+                data.TenantA.Slug,
+                $"/api/me/message-follow-ups/{data.MessageA.Id:D}",
+                HttpMethod.Put,
+                JsonContent("{}"));
+            using var saved = JsonDocument.Parse(await saveResponse.Content.ReadAsStringAsync());
+            Assert.Equal(HttpStatusCode.OK, saveResponse.StatusCode);
+            Assert.Equal(data.MessageA.Id, saved.RootElement.GetProperty("messageId").GetGuid());
+            Assert.True(saved.RootElement.GetProperty("isSaved").GetBoolean());
+        }
+
+        using (var listResponse = await app.SendAsync(
+                   data.CrossTenantUser,
+                   data.TenantA.Slug,
+                   "/api/me/message-follow-ups?page=1&pageSize=20"))
+        using (var list = JsonDocument.Parse(await listResponse.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.OK, listResponse.StatusCode);
+            Assert.Equal(1, list.RootElement.GetProperty("totalCount").GetInt32());
+            var item = Assert.Single(list.RootElement.GetProperty("items").EnumerateArray());
+            Assert.Equal(data.MessageA.Id, item.GetProperty("messageId").GetGuid());
+            Assert.Equal(data.ConversationA.Id, item.GetProperty("conversationId").GetGuid());
+            Assert.Equal(data.MessageA.Body, item.GetProperty("body").GetString());
+        }
+
+        using (var otherParticipantList = await app.SendAsync(
+                   data.TenantAMember,
+                   data.TenantA.Slug,
+                   "/api/me/message-follow-ups?page=1&pageSize=20"))
+        using (var otherParticipantDocument = JsonDocument.Parse(await otherParticipantList.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.OK, otherParticipantList.StatusCode);
+            Assert.Equal(0, otherParticipantDocument.RootElement.GetProperty("totalCount").GetInt32());
+            Assert.Empty(otherParticipantDocument.RootElement.GetProperty("items").EnumerateArray());
+        }
+
+        using (var anchorResponse = await app.SendAsync(
+                   data.CrossTenantUser,
+                   data.TenantA.Slug,
+                   $"/api/conversations/{data.ConversationA.Id:D}/messages?anchorMessageId={data.MessageA.Id:D}"))
+        using (var anchorDocument = JsonDocument.Parse(await anchorResponse.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.OK, anchorResponse.StatusCode);
+            Assert.Contains(
+                anchorDocument.RootElement.GetProperty("items").EnumerateArray(),
+                item => item.GetProperty("id").GetGuid() == data.MessageA.Id);
+        }
+
+        using (var stateAfterSaveResponse = await app.SendAsync(
+                   data.CrossTenantUser,
+                   data.TenantA.Slug,
+                   $"/api/conversations/{data.ConversationA.Id:D}/state"))
+        using (var stateAfterSave = JsonDocument.Parse(await stateAfterSaveResponse.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(readMessageBefore, stateAfterSave.RootElement.GetProperty("lastReadMessageId").GetGuid());
+            Assert.Equal(unreadBefore, stateAfterSave.RootElement.GetProperty("unreadCount").GetInt32());
+        }
+
+        using (var crossTenantSave = await app.SendAsync(
+                   data.CrossTenantUser,
+                   data.TenantA.Slug,
+                   $"/api/me/message-follow-ups/{data.MessageB.Id:D}",
+                   HttpMethod.Put,
+                   JsonContent("{}")))
+        {
+            var deniedBody = await crossTenantSave.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.BadRequest, crossTenantSave.StatusCode);
+            Assert.DoesNotContain(data.MessageB.Body, deniedBody, StringComparison.Ordinal);
+            Assert.DoesNotContain(data.ConversationB.Title!, deniedBody, StringComparison.Ordinal);
+        }
+
+        using (var nonParticipantSave = await app.SendAsync(
+                   data.TenantAAdmin,
+                   data.TenantA.Slug,
+                   $"/api/me/message-follow-ups/{data.MessageA.Id:D}",
+                   HttpMethod.Put,
+                   JsonContent("{}")))
+        {
+            var deniedBody = await nonParticipantSave.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.BadRequest, nonParticipantSave.StatusCode);
+            Assert.DoesNotContain(data.MessageA.Body, deniedBody, StringComparison.Ordinal);
+            Assert.DoesNotContain(data.ConversationA.Title!, deniedBody, StringComparison.Ordinal);
+        }
+
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            using var removeResponse = await app.SendAsync(
+                data.CrossTenantUser,
+                data.TenantA.Slug,
+                $"/api/me/message-follow-ups/{data.MessageA.Id:D}",
+                HttpMethod.Delete);
+            using var removed = JsonDocument.Parse(await removeResponse.Content.ReadAsStringAsync());
+            Assert.Equal(HttpStatusCode.OK, removeResponse.StatusCode);
+            Assert.False(removed.RootElement.GetProperty("isSaved").GetBoolean());
+        }
+
+        using (var resaveResponse = await app.SendAsync(
+                   data.CrossTenantUser,
+                   data.TenantA.Slug,
+                   $"/api/me/message-follow-ups/{data.MessageA.Id:D}",
+                   HttpMethod.Put,
+                   JsonContent("{}")))
+        {
+            Assert.Equal(HttpStatusCode.OK, resaveResponse.StatusCode);
+        }
+        await app.UpdateConversationMemberAsync(
+            data.TenantA.Id,
+            data.TenantA.Slug,
+            data.ConversationA.Id,
+            data.CrossTenantUser.Id,
+            member =>
+            {
+                member.CanRead = false;
+                member.RemovedAt = DateTimeOffset.UtcNow;
+            });
+
+        using (var revokedListResponse = await app.SendAsync(
+                   data.CrossTenantUser,
+                   data.TenantA.Slug,
+                   "/api/me/message-follow-ups?page=1&pageSize=20"))
+        using (var revokedList = JsonDocument.Parse(await revokedListResponse.Content.ReadAsStringAsync()))
+        {
+            var revokedBody = await revokedListResponse.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.OK, revokedListResponse.StatusCode);
+            Assert.Equal(0, revokedList.RootElement.GetProperty("totalCount").GetInt32());
+            Assert.Empty(revokedList.RootElement.GetProperty("items").EnumerateArray());
+            Assert.DoesNotContain(data.MessageA.Body, revokedBody, StringComparison.Ordinal);
+            Assert.DoesNotContain(data.ConversationA.Title!, revokedBody, StringComparison.Ordinal);
+        }
+
+        using (var revokedRemove = await app.SendAsync(
+                   data.CrossTenantUser,
+                   data.TenantA.Slug,
+                   $"/api/me/message-follow-ups/{data.MessageA.Id:D}",
+                   HttpMethod.Delete))
+        {
+            var deniedBody = await revokedRemove.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.BadRequest, revokedRemove.StatusCode);
+            Assert.DoesNotContain(data.MessageA.Body, deniedBody, StringComparison.Ordinal);
+        }
     }
 
     [Fact]
@@ -4002,7 +4374,15 @@ public sealed class HttpTenantIsolationTests
                 .ToListAsync();
         }
 
-        public async Task<(Guid TombstoneReplyId, string CrossConversationBody, string CrossTenantBody)>
+        public async Task<(
+            Guid OldestReplyId,
+            Guid TombstoneReplyId,
+            Guid WrongRootReplyId,
+            Guid CrossConversationReplyId,
+            Guid CrossTenantReplyId,
+            string WrongRootBody,
+            string CrossConversationBody,
+            string CrossTenantBody)>
             SeedBoundedMessageThreadAsync(TenantIsolationTestData data)
         {
             await using var scope = App.Services.CreateAsyncScope();
@@ -4037,6 +4417,28 @@ public sealed class HttpTenantIsolationTests
             };
             const string crossConversationBody = "cross-conversation corrupt reply must never project";
             const string crossTenantBody = "cross-tenant corrupt reply must never project";
+            const string wrongRootBody = "same-conversation wrong-root reply must never project";
+            var otherRoot = new Message
+            {
+                TenantId = data.TenantA.Id,
+                WorkspaceId = data.WorkspaceA.Id,
+                ConversationId = data.ConversationA.Id,
+                AuthorUserId = data.TenantAMember.Id,
+                Body = "other bounded thread root",
+                CreatedAt = baseTime.AddMinutes(8),
+                Version = 1
+            };
+            var wrongRootReply = new Message
+            {
+                TenantId = data.TenantA.Id,
+                WorkspaceId = data.WorkspaceA.Id,
+                ConversationId = data.ConversationA.Id,
+                ThreadRootMessageId = otherRoot.Id,
+                AuthorUserId = data.TenantAMember.Id,
+                Body = wrongRootBody,
+                CreatedAt = baseTime.AddMinutes(9),
+                Version = 1
+            };
             var crossConversationReply = new Message
             {
                 TenantId = data.TenantA.Id,
@@ -4062,9 +4464,29 @@ public sealed class HttpTenantIsolationTests
 
             dbContext.Conversations.Add(otherConversation);
             dbContext.Messages.AddRange(replies);
-            dbContext.Messages.AddRange(crossConversationReply, crossTenantReply);
+            dbContext.Messages.AddRange(otherRoot, wrongRootReply, crossConversationReply, crossTenantReply);
             await dbContext.SaveChangesAsync();
-            return (tombstone.Id, crossConversationBody, crossTenantBody);
+            for (var index = 0; index < replies.Count; index++)
+            {
+                // AppDbContext stamps newly added audited rows with one current
+                // time. Reapply the fixture ordering after insertion so the
+                // oldest reply is deterministically outside the latest 100.
+                replies[index].CreatedAt = baseTime.AddSeconds(index);
+            }
+            crossConversationReply.CreatedAt = baseTime.AddMinutes(10);
+            crossTenantReply.CreatedAt = baseTime.AddMinutes(11);
+            otherRoot.CreatedAt = baseTime.AddMinutes(8);
+            wrongRootReply.CreatedAt = baseTime.AddMinutes(9);
+            await dbContext.SaveChangesAsync();
+            return (
+                replies[0].Id,
+                tombstone.Id,
+                wrongRootReply.Id,
+                crossConversationReply.Id,
+                crossTenantReply.Id,
+                wrongRootBody,
+                crossConversationBody,
+                crossTenantBody);
         }
 
         public async Task<(
@@ -4309,6 +4731,7 @@ public sealed class HttpTenantIsolationTests
             services.AddScoped<IGroupRepository, GroupRepository>();
             services.AddScoped<IChannelRepository, ChannelRepository>();
             services.AddScoped<IMessagingRepository, MessagingRepository>();
+            services.AddScoped<IMessageFollowUpRepository, MessageFollowUpRepository>();
             services.AddScoped<IProjectRepository, ProjectRepository>();
             services.AddScoped<ITaskExecutionScopeRepository, TaskExecutionScopeRepository>();
             services.AddScoped<IEventRepository, EventRepository>();

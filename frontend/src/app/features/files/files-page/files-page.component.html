@@ -1,4 +1,6 @@
 @let vm = page();
+@let list = displayedList();
+@let searchVm = search();
 
 <section class="files-page" data-testid="files-page">
   <header class="files-page__header">
@@ -26,10 +28,116 @@
 
       <app-file-quota-state [quota]="vm.quota" />
 
-      <section class="files-page__panel" aria-label="Recent files">
+      <section class="files-page__search" aria-labelledby="files-search-title" data-testid="files-search-surface">
+        <form
+          class="files-page__search-form"
+          role="search"
+          [attr.aria-busy]="searchVm.status === 'loading'"
+          (submit)="submitFileSearch($event)"
+        >
+          <div class="files-page__search-heading">
+            <div>
+              <h2 id="files-search-title">Search and filter files</h2>
+              <p id="files-search-scope">
+                Scope: {{ activeWorkspaceLabel() }}. Results and counts include only files you are currently authorized to view.
+              </p>
+            </div>
+            @if (searchApplied()) {
+              <button type="button" class="files-page__search-clear" (click)="clearFileSearch()" data-testid="files-search-clear">
+                Clear search and filters
+              </button>
+            }
+          </div>
+
+          <div class="files-page__search-controls">
+            <label class="files-page__search-query">
+              <span>File name</span>
+              <input
+                type="search"
+                autocomplete="off"
+                maxlength="120"
+                placeholder="Search file names"
+                aria-describedby="files-search-scope files-search-status"
+                [value]="searchQuery()"
+                (input)="updateSearchQuery($event)"
+                data-testid="files-search-input"
+              />
+            </label>
+            <label>
+              <span>Type</span>
+              <select [value]="searchKind()" (change)="updateSearchKind($event)" data-testid="files-filter-type">
+                <option value="all">Any type</option>
+                <option value="document">Documents</option>
+                <option value="image">Images</option>
+                <option value="pdf">PDF</option>
+                <option value="video">Video</option>
+                <option value="archive">Archives</option>
+              </select>
+            </label>
+            <label>
+              <span>Modified</span>
+              <select [value]="searchModified()" (change)="updateSearchModified($event)" data-testid="files-filter-modified">
+                <option value="any">Any time</option>
+                <option value="last7Days">Last 7 days</option>
+                <option value="last30Days">Last 30 days</option>
+                <option value="last90Days">Last 90 days</option>
+              </select>
+            </label>
+            <label>
+              <span>Owner</span>
+              <select [value]="searchOwner()" (change)="updateSearchOwner($event)" data-testid="files-filter-owner">
+                <option value="any">Anyone</option>
+                <option value="me">Uploaded by me</option>
+              </select>
+            </label>
+            <button type="submit" class="files-page__search-submit" [disabled]="searchVm.status === 'loading'" data-testid="files-search-submit">
+              {{ searchVm.status === 'loading' ? 'Searching' : 'Search' }}
+            </button>
+          </div>
+
+          @if (
+            searchApplied() &&
+            (searchVm.filters.kind !== 'all' || searchVm.filters.modified !== 'any' || searchVm.filters.owner !== 'any')
+          ) {
+            <div class="files-page__filter-chips" aria-label="Active file filters" data-testid="files-filter-chips">
+              @if (searchVm.filters.kind !== 'all') {
+                <app-aip-filter-chip
+                  label="Type"
+                  [value]="searchKindLabel(searchVm.filters.kind)"
+                  (removed)="removeSearchFilter('kind')"
+                />
+              }
+              @if (searchVm.filters.modified !== 'any') {
+                <app-aip-filter-chip
+                  label="Modified"
+                  [value]="searchModifiedLabel(searchVm.filters.modified)"
+                  (removed)="removeSearchFilter('modified')"
+                />
+              }
+              @if (searchVm.filters.owner !== 'any') {
+                <app-aip-filter-chip
+                  label="Owner"
+                  value="Uploaded by me"
+                  (removed)="removeSearchFilter('owner')"
+                />
+              }
+            </div>
+          }
+
+          <p
+            id="files-search-status"
+            class="files-page__search-status"
+            [attr.role]="searchVm.status === 'error' || searchVm.status === 'invalid' ? 'alert' : 'status'"
+            aria-live="polite"
+            data-testid="files-search-status"
+          >@if (searchApplied()) { {{ searchVm.message }} }</p>
+        </form>
+      </section>
+
+      <section class="files-page__panel" [attr.aria-label]="searchApplied() ? 'File search results' : 'Recent files'">
         <div class="files-page__panel-header">
           <div>
-            <p>Recent files</p>
+            <p>{{ searchApplied() ? 'Search results' : 'Recent files' }}</p>
             <strong>Choose files with checkboxes. Preview a file from its name.</strong>
           </div>
         </div>
@@ -112,9 +220,9 @@
             rowIdField="id"
             selectionMode="multiple"
             [rowHeight]="density() === 'compact' ? 36 : 48"
-            [defaultPageSize]="vm.pageSize"
-            [maximumPageSize]="vm.pageSize"
-            [rows]="vm.recentFiles"
+            [defaultPageSize]="list.pageSize"
+            [maximumPageSize]="list.pageSize"
+            [rows]="list.files"
             [columns]="columns()"
             (actionInvoked)="handleGridAction($event)"
             (selectionChanged)="handleSelectionChanged($event)"
@@ -122,7 +230,7 @@
         </div>
         <div class="files-page__mobile-list">
           <app-recent-files-list
-            [files]="vm.recentFiles"
+            [files]="list.files"
             [selectedFileIds]="selectedFileIds()"
             (previewRequested)="openPreview($event)"
             (selectionChanged)="handleMobileSelection($event)"
@@ -130,9 +238,9 @@
           />
         </div>
         <nav class="files-page__pagination" aria-label="File list pages">
-          <button type="button" data-testid="files-page-previous" [disabled]="vm.page <= 1" (click)="goToPreviousPage()">Previous</button>
-          <span data-testid="files-page-pagination-status">Page {{ vm.page }} of {{ totalPages() }} · {{ vm.totalCount }} files</span>
-          <button type="button" data-testid="files-page-next" [disabled]="!vm.hasMore" (click)="goToNextPage()">Next</button>
+          <button type="button" data-testid="files-page-previous" [disabled]="list.page <= 1" (click)="goToPreviousPage()">Previous</button>
+          <span data-testid="files-page-pagination-status">Page {{ list.page }} of {{ totalPages() }} · {{ list.totalCount }} files</span>
+          <button type="button" data-testid="files-page-next" [disabled]="!list.hasMore" (click)="goToNextPage()">Next</button>
         </nav>
       </section>
     </div>
@@ -163,7 +271,7 @@
         @if (previewFile(); as file) {
           <header class="files-page__preview-header">
             <div>
-              <p>Preview</p>
+              <p>File inspector</p>
               <h2 id="files-preview-title">{{ file.originalFileName }}</h2>
             </div>
             <button
@@ -175,94 +283,185 @@
             >Close</button>
           </header>
 
-          <div class="files-page__preview-actions" role="toolbar" aria-label="Preview actions">
-            <a
-              class="files-page__preview-action"
-              [attr.href]="previewCanOpen() ? previewUrl() : null"
-              [attr.aria-disabled]="!previewCanOpen()"
-              [attr.tabindex]="previewCanOpen() ? 0 : -1"
-              target="_blank"
-              rel="noopener noreferrer"
-              data-testid="files-preview-open"
-            >Open</a>
+          <div class="files-page__inspector-tabs" role="tablist" aria-label="File inspector views">
             <button
               type="button"
-              [disabled]="!file.canonicalFileId"
-              (click)="copyPreviewCitation()"
-              data-testid="files-preview-cite"
-            >Cite</button>
-            <a
-              class="files-page__preview-action"
-              [attr.href]="researchHandoffHref()"
-              [attr.aria-disabled]="!researchHandoffHref()"
-              [attr.tabindex]="researchHandoffHref() ? 0 : -1"
-              data-testid="files-preview-research"
-            >Researchに追加</a>
+              id="files-inspector-tab-preview"
+              role="tab"
+              data-inspector-tab="preview"
+              data-testid="files-inspector-tab-preview"
+              aria-controls="files-inspector-panel-preview"
+              [attr.aria-selected]="inspectorTab() === 'preview'"
+              [attr.tabindex]="inspectorTab() === 'preview' ? 0 : -1"
+              (click)="selectInspectorTab('preview')"
+              (keydown)="handleInspectorTabKeydown($event, 'preview')"
+            >Preview</button>
             <button
               type="button"
-              [disabled]="!previewCanShare()"
-              (click)="sharePreview()"
-              data-testid="files-preview-share"
-            >Share</button>
-            <details>
-              <summary class="files-page__preview-action" aria-label="More preview actions" data-testid="files-preview-more">…</summary>
-              <button
-                type="button"
-                [disabled]="!previewCanDownload()"
-                (click)="downloadPreviewFile()"
-                data-testid="files-preview-download"
-              >Download</button>
-            </details>
+              id="files-inspector-tab-details"
+              role="tab"
+              data-inspector-tab="details"
+              data-testid="files-inspector-tab-details"
+              aria-controls="files-inspector-panel-details"
+              [attr.aria-selected]="inspectorTab() === 'details'"
+              [attr.tabindex]="inspectorTab() === 'details' ? 0 : -1"
+              (click)="selectInspectorTab('details')"
+              (keydown)="handleInspectorTabKeydown($event, 'details')"
+            >Details</button>
+            <button
+              type="button"
+              id="files-inspector-tab-activity"
+              role="tab"
+              data-inspector-tab="activity"
+              data-testid="files-inspector-tab-activity"
+              aria-controls="files-inspector-panel-activity"
+              [attr.aria-selected]="inspectorTab() === 'activity'"
+              [attr.tabindex]="inspectorTab() === 'activity' ? 0 : -1"
+              (click)="selectInspectorTab('activity')"
+              (keydown)="handleInspectorTabKeydown($event, 'activity')"
+            >Activity</button>
           </div>
-          @if (previewActionStatus()) {
-            <p role="status" aria-live="polite" data-testid="files-preview-action-status">{{ previewActionStatus() }}</p>
+
+          @if (inspectorTab() === 'preview') {
+            <section
+              id="files-inspector-panel-preview"
+              class="files-page__inspector-panel"
+              role="tabpanel"
+              aria-labelledby="files-inspector-tab-preview"
+              tabindex="0"
+              data-testid="files-inspector-panel-preview"
+            >
+              <div class="files-page__preview-actions" role="toolbar" aria-label="Preview actions">
+                <a
+                  class="files-page__preview-action"
+                  [attr.href]="previewCanOpen() ? previewUrl() : null"
+                  [attr.aria-disabled]="!previewCanOpen()"
+                  [attr.tabindex]="previewCanOpen() ? 0 : -1"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  data-testid="files-preview-open"
+                >Open</a>
+                <button
+                  type="button"
+                  [disabled]="!file.canonicalFileId"
+                  (click)="copyPreviewCitation()"
+                  data-testid="files-preview-cite"
+                >Cite</button>
+                <a
+                  class="files-page__preview-action"
+                  [attr.href]="researchHandoffHref()"
+                  [attr.aria-disabled]="!researchHandoffHref()"
+                  [attr.tabindex]="researchHandoffHref() ? 0 : -1"
+                  data-testid="files-preview-research"
+                >Researchに追加</a>
+                <button
+                  type="button"
+                  [disabled]="!previewCanShare()"
+                  (click)="sharePreview()"
+                  data-testid="files-preview-share"
+                >Share</button>
+                <details>
+                  <summary class="files-page__preview-action" aria-label="More preview actions" data-testid="files-preview-more">…</summary>
+                  <button
+                    type="button"
+                    [disabled]="!previewCanDownload()"
+                    (click)="downloadPreviewFile()"
+                    data-testid="files-preview-download"
+                  >Download</button>
+                </details>
+              </div>
+              @if (previewActionStatus()) {
+                <p role="status" aria-live="polite" data-testid="files-preview-action-status">{{ previewActionStatus() }}</p>
+              }
+
+              <div class="files-page__preview-body">
+                @if (previewState() === 'loading') {
+                  <p role="status" aria-live="polite" data-testid="files-preview-loading">Authorizing preview…</p>
+                } @else if (previewState() === 'failed') {
+                  <p role="alert" data-testid="files-preview-error">{{ previewMessage() }}</p>
+                } @else if (previewState() === 'unsupported') {
+                  <p role="status" data-testid="files-preview-unsupported">{{ previewMessage() }}</p>
+                } @else if (previewState() === 'ready') {
+                  @switch (previewRenderer()) {
+                    @case ('image') {
+                      <img
+                        class="files-page__preview-media"
+                        [src]="previewUrl()"
+                        [alt]="file.originalFileName"
+                        data-testid="files-preview-image"
+                      />
+                    }
+                    @case ('pdf') {
+                      <iframe
+                        class="files-page__preview-document"
+                        [src]="previewResourceUrl()"
+                        [title]="'Preview of ' + file.originalFileName"
+                        data-testid="files-preview-pdf"
+                      ></iframe>
+                    }
+                    @case ('video') {
+                      <video
+                        class="files-page__preview-media"
+                        [src]="previewUrl()"
+                        controls
+                        preload="metadata"
+                        data-testid="files-preview-video"
+                      ></video>
+                    }
+                    @case ('text') {
+                      <pre class="files-page__preview-text" data-testid="files-preview-text">{{ previewText() }}</pre>
+                    }
+                  }
+                  @if (previewMessage()) {
+                    <p class="files-page__preview-note" role="status">{{ previewMessage() }}</p>
+                  }
+                }
+              </div>
+            </section>
+          } @else if (inspectorTab() === 'details') {
+            <section
+              id="files-inspector-panel-details"
+              class="files-page__inspector-panel files-page__details"
+              role="tabpanel"
+              aria-labelledby="files-inspector-tab-details"
+              tabindex="0"
+              data-testid="files-inspector-panel-details"
+            >
+              <h3>Essential metadata</h3>
+              <dl>
+                <div><dt>Type</dt><dd>{{ file.contentType }}</dd></div>
+                <div><dt>Size</dt><dd>{{ formatBytes(file.sizeBytes) }}</dd></div>
+                <div><dt>Owner</dt><dd>{{ file.uploadedByDisplay }}</dd></div>
+                <div><dt>Modified</dt><dd>{{ file.modifiedAtLabel }}</dd></div>
+                <div><dt>Location</dt><dd>{{ fileLocationLabel() }}</dd></div>
+                <div><dt>Access</dt><dd>{{ fileAccessLabel(file) }}</dd></div>
+              </dl>
+              <details class="files-page__details-secondary" data-testid="files-inspector-more-details">
+                <summary>More metadata</summary>
+                <dl>
+                  <div><dt>Created</dt><dd>{{ file.createdAtLabel }}</dd></div>
+                  <div><dt>Scan status</dt><dd>{{ fileScanStatusLabels[file.scanStatus] }}</dd></div>
+                  <div><dt>File ID</dt><dd>{{ file.canonicalFileId || 'Unavailable' }}</dd></div>
+                </dl>
+              </details>
+              <p class="files-page__details-note">
+                This API projects no editable file fields. The inspector never infers edit authority from browser state.
+              </p>
+            </section>
+          } @else {
+            <section
+              id="files-inspector-panel-activity"
+              class="files-page__inspector-panel files-page__activity"
+              role="tabpanel"
+              aria-labelledby="files-inspector-tab-activity"
+              tabindex="0"
+              data-testid="files-inspector-panel-activity"
+            >
+              <h3>Activity</h3>
+              <p>No file activity or version history is available from the current authorized Files API.</p>
+              <p>This view does not query the broader Audit log or expose actor, correlation, or storage metadata.</p>
+            </section>
           }
-
-          <p class="files-page__preview-meta">{{ file.contentType }} · {{ formatBytes(file.sizeBytes) }}</p>
-
-          <div class="files-page__preview-body">
-            @if (previewState() === 'loading') {
-              <p role="status" aria-live="polite" data-testid="files-preview-loading">Authorizing preview…</p>
-            } @else if (previewState() === 'failed') {
-              <p role="alert" data-testid="files-preview-error">{{ previewMessage() }}</p>
-            } @else if (previewState() === 'unsupported') {
-              <p role="status" data-testid="files-preview-unsupported">{{ previewMessage() }}</p>
-            } @else if (previewState() === 'ready') {
-              @switch (previewRenderer()) {
-                @case ('image') {
-                  <img
-                    class="files-page__preview-media"
-                    [src]="previewUrl()"
-                    [alt]="file.originalFileName"
-                    data-testid="files-preview-image"
-                  />
-                }
-                @case ('pdf') {
-                  <iframe
-                    class="files-page__preview-document"
-                    [src]="previewResourceUrl()"
-                    [title]="'Preview of ' + file.originalFileName"
-                    data-testid="files-preview-pdf"
-                  ></iframe>
-                }
-                @case ('video') {
-                  <video
-                    class="files-page__preview-media"
-                    [src]="previewUrl()"
-                    controls
-                    preload="metadata"
-                    data-testid="files-preview-video"
-                  ></video>
-                }
-                @case ('text') {
-                  <pre class="files-page__preview-text" data-testid="files-preview-text">{{ previewText() }}</pre>
-                }
-              }
-              @if (previewMessage()) {
-                <p class="files-page__preview-note" role="status">{{ previewMessage() }}</p>
-              }
-            }
-          </div>
         } @else {
           <div class="files-page__preview-empty" data-testid="files-preview-empty">
             <strong>Select a file name to preview.</strong>

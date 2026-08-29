@@ -43,6 +43,7 @@ public sealed class AppDbContext(
     public DbSet<ConversationMember> ConversationMembers => Set<ConversationMember>();
     public DbSet<Message> Messages => Set<Message>();
     public DbSet<MessageAttachment> MessageAttachments => Set<MessageAttachment>();
+    public DbSet<MessageFollowUp> MessageFollowUps => Set<MessageFollowUp>();
     public DbSet<ReadState> ReadStates => Set<ReadState>();
     public DbSet<Notification> Notifications => Set<Notification>();
     public DbSet<NotificationUserState> NotificationUserStates => Set<NotificationUserState>();

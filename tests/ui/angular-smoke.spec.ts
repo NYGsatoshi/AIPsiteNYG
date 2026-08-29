@@ -239,13 +239,31 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
 
   test('keeps the redacted audit drawer deep-linkable, focus-safe, and accessible at 320px', async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 800 });
-    await installAuditGridApi(page, auditGridFixtures(8));
+    const rows = auditGridFixtures(8);
+    await installAuditGridApi(page, rows, {
+      canViewSensitiveMetadata: true,
+      sensitiveMetadata: {
+        [rows[0].id]: {
+          outcome: 'Allowed',
+          change: { category: '<img src=x onerror=alert(1)>' },
+        },
+      },
+      redactionApplied: true,
+    });
+    let sensitiveMetadataRequests = 0;
+    page.on('request', (request) => {
+      if (new URL(request.url()).pathname.endsWith('/sensitive-metadata')) {
+        sensitiveMetadataRequests += 1;
+      }
+    });
 
     const firstAuditId = auditGridFixtureId(0);
     await page.goto(`/app/admin/audit?event=${firstAuditId}`);
     const drawer = page.getByTestId('audit-detail-drawer');
     await expect(drawer).toBeVisible();
     await expect(drawer).toContainText('Audit row 001 was opened with safe fields.');
+    await expect(page.getByTestId('audit-sensitive-metadata-toggle')).toBeVisible();
+    expect(sensitiveMetadataRequests).toBe(0);
     await page.getByTestId('audit-detail-close').click();
     await expect(page).toHaveURL(/\/app\/admin\/audit$/);
     await expect(page.getByTestId('audit-log-title')).toBeFocused();
@@ -267,6 +285,19 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await expect(drawer).toContainText('Audit row 001 was opened with safe fields.');
     await expect(drawer).not.toContainText('restricted body must stay hidden');
     await expect(drawer).not.toContainText('tenant/private/key');
+    const disclosure = page.getByTestId('audit-sensitive-metadata-toggle');
+    await disclosure.focus();
+    await page.keyboard.press('Enter');
+    await expect.poll(() => sensitiveMetadataRequests).toBe(1);
+    await expect(page.getByTestId('audit-sensitive-metadata-json')).toContainText('Allowed');
+    await expect(page.getByTestId('audit-sensitive-metadata-json')).toContainText('<img src=x onerror=alert(1)>');
+    await expect(drawer.locator('img')).toHaveCount(0);
+    await expect(page.getByTestId('audit-sensitive-metadata-redacted')).toContainText('Prohibited fields were removed by the server.');
+    await expect(disclosure).toBeFocused();
+    await page.keyboard.press('Space');
+    await expect(page.getByTestId('audit-sensitive-metadata-json')).toHaveCount(0);
+    await expect(disclosure).toHaveText('Show sensitive metadata');
+    await expect(disclosure).toBeFocused();
     await expectNoDocumentHorizontalOverflow(page);
     await expectNoAccessibilityViolations(page);
 
@@ -279,6 +310,62 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await page.keyboard.press('Escape');
     await expect(page).toHaveURL(/\/app\/admin\/audit$/);
     await expect(opener).toBeFocused();
+  });
+
+  test('keeps Audit filters, chips, URL state, and saved views keyboard-accessible at 320px', async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 900 });
+    await installAuditGridApi(page, auditGridFixtures(8), { applyListFilters: true });
+    await page.goto('/app/admin/audit');
+
+    const search = page.getByTestId('audit-filter-search');
+    const severity = page.getByTestId('audit-filter-severity');
+    const apply = page.getByTestId('audit-apply-filters');
+    await search.fill('Audit row 002');
+    await severity.selectOption('warning');
+    await apply.focus();
+    await page.keyboard.press('Enter');
+
+    await expect.poll(() => {
+      const url = new URL(page.url());
+      return `${url.searchParams.get('q')}|${url.searchParams.get('severity')}`;
+    }).toBe('Audit row 002|warning');
+    await expect(page.getByTestId('audit-result-count')).toContainText('1 authorized result');
+    await expect(page.getByTestId('audit-log-mobile-list')).toContainText('Audit row 002 was opened with safe fields.');
+    await expect(page.getByLabel('Remove filter Search: Audit row 002')).toBeVisible();
+    await expect(page.getByLabel('Remove filter Severity: Warning')).toBeVisible();
+
+    const name = page.getByTestId('audit-saved-view-name');
+    const save = page.getByTestId('audit-save-view');
+    await name.fill('Warning row evidence');
+    await save.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByTestId('audit-saved-view-select')).toContainText('Warning row evidence');
+
+    const removeSearch = page.getByLabel('Remove filter Search: Audit row 002');
+    await removeSearch.focus();
+    await page.keyboard.press('Enter');
+    await expect(removeSearch).toHaveCount(0);
+    await expect.poll(() => new URL(page.url()).searchParams.has('q')).toBe(false);
+    await expect(page.getByTestId('audit-result-count')).toContainText('3 authorized results');
+
+    await page.getByTestId('audit-clear-all').focus();
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(/\/app\/admin\/audit$/);
+    await expect(page.getByTestId('audit-result-count')).toContainText('8 authorized results');
+
+    await page.getByTestId('audit-saved-view-select').selectOption({ label: 'Warning row evidence' });
+    const applySaved = page.getByTestId('audit-apply-saved-view');
+    await applySaved.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByTestId('audit-result-count')).toContainText('1 authorized result');
+    await expect.poll(() => new URL(page.url()).searchParams.get('q')).toBe('Audit row 002');
+
+    await page.reload();
+    await expect(page.getByTestId('audit-result-count')).toContainText('1 authorized result');
+    await expect(page.getByTestId('audit-saved-view-select')).toContainText('Warning row evidence');
+    await expectNoDocumentHorizontalOverflow(page);
+    await expectNoAccessibilityViolations(page);
+    await expectHealthyAngularPage(page);
   });
 
   test('keeps the audit header fixed and restores bounded AG scroll context after drawer close', async ({ page }, testInfo) => {
@@ -553,6 +640,105 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await expect(page.getByTestId('workspace-research-status')).toHaveText(/Status unavailable/);
   });
 
+  test('keeps one keyboard-accessible File inspector with staged metadata at 320px', async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 800 });
+    const workspace: WorkspaceContextFixture = {
+      id: '35600000-0000-4000-8000-000000000001',
+      name: 'Inspector Workspace',
+      canAddFiles: true,
+      runningProjectCount: 0,
+      needsReviewProjectCount: 0
+    };
+    const fileObjectId = '35600000-0000-4000-8000-000000000002';
+    const sensitiveRequests: string[] = [];
+    page.on('request', (request) => {
+      const path = new URL(request.url()).pathname;
+      if (/audit|activity|version/i.test(path)) sensitiveRequests.push(path);
+    });
+
+    await installWorkspaceContextApi(page, [workspace], workspace);
+    await page.route('**/api/files**', async (route) => {
+      const request = route.request();
+      const url = new URL(request.url());
+      if (request.method() !== 'GET' || url.pathname !== '/api/files') {
+        await route.fulfill({ status: 404 });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json; charset=utf-8',
+        body: JSON.stringify({
+          items: [{
+            id: '35600000-0000-4000-8000-000000000003',
+            fileObjectId,
+            workspaceId: workspace.id,
+            originalFileName: 'inspector-evidence.zip',
+            contentType: 'application/zip',
+            sizeBytes: 4096,
+            status: 'Active',
+            scanStatus: 'Clean',
+            uploadedByUserId: 'mock-user-a',
+            uploadedByDisplayName: 'Mock User A',
+            createdAt: '2026-08-28T02:00:00Z',
+            updatedAt: '2026-08-29T03:30:00Z',
+            canDelete: false
+          }],
+          page: 1,
+          pageSize: 20,
+          totalCount: 1,
+          hasMore: false
+        })
+      });
+    });
+
+    await page.goto('/app/files');
+    const previewAction = page.getByRole('button', { name: 'Preview inspector-evidence.zip' });
+    await expect(previewAction).toBeVisible();
+    await previewAction.focus();
+    await page.keyboard.press('Enter');
+
+    const inspector = page.getByTestId('files-preview-pane');
+    await expect(inspector).toHaveAttribute('role', 'dialog');
+    const previewTab = inspector.getByRole('tab', { name: 'Preview' });
+    const detailsTab = inspector.getByRole('tab', { name: 'Details' });
+    const activityTab = inspector.getByRole('tab', { name: 'Activity' });
+    await expect(inspector.getByRole('tab')).toHaveCount(3);
+    await expect(previewTab).toHaveAttribute('aria-selected', 'true');
+    await expect(inspector.getByTestId('files-inspector-panel-preview')).toBeVisible();
+
+    await detailsTab.focus();
+    await page.keyboard.press('ArrowRight');
+    await expect(activityTab).toBeFocused();
+    await expect(activityTab).toHaveAttribute('aria-selected', 'true');
+    await page.keyboard.press('Home');
+    await expect(previewTab).toBeFocused();
+    await expect(previewTab).toHaveAttribute('aria-selected', 'true');
+
+    await detailsTab.click();
+    const details = inspector.getByTestId('files-inspector-panel-details');
+    await expect(details).toContainText('Essential metadata');
+    for (const label of ['Type', 'Size', 'Owner', 'Modified', 'Location', 'Access']) {
+      await expect(details.getByText(label, { exact: true })).toBeVisible();
+    }
+    await expect(details.getByRole('textbox')).toHaveCount(0);
+    const moreDetails = details.getByTestId('files-inspector-more-details');
+    expect(await moreDetails.getAttribute('open')).toBeNull();
+    await moreDetails.getByText('More metadata', { exact: true }).click();
+    await expect(moreDetails).toHaveAttribute('open', '');
+    await expect(moreDetails).toContainText(fileObjectId);
+
+    await activityTab.click();
+    await expect(inspector.getByTestId('files-inspector-panel-activity')).toContainText(
+      'No file activity or version history is available from the current authorized Files API.'
+    );
+    expect(sensitiveRequests).toEqual([]);
+    await expectNoDocumentHorizontalOverflow(page);
+    await expectNoAccessibilityViolations(page, '[data-testid="files-preview-pane"]');
+
+    await inspector.getByTestId('files-preview-close').click();
+    await expect(previewAction).toBeFocused();
+  });
+
   test('keeps the canonical Research Quick Create flow accessible and duplicate-safe at 320px', async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 800 });
     const workspace: WorkspaceContextFixture = {
@@ -656,6 +842,95 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     expect(createRequests[0]?.body).toEqual({ title: 'U-22 Quick Research' });
     expect(createRequests[0]?.idempotencyKey).toMatch(/^workspace-research-/);
     expect(createRequests[0]?.csrfToken).toBe('csrf-workspace-create');
+  });
+
+  test('keeps scoped Files search and removable filter chips keyboard-accessible at 320px', async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 800 });
+    const workspace: WorkspaceContextFixture = {
+      id: '34100000-0000-4000-8000-000000000001',
+      name: 'Files Search Workspace',
+      runningProjectCount: 0,
+      needsReviewProjectCount: 0,
+    };
+    const fileId = '34100000-0000-4000-8000-000000000002';
+    const searchRequests: URL[] = [];
+    await installWorkspaceContextApi(page, [workspace], workspace);
+    await page.route('**/api/files?**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json; charset=utf-8',
+        body: JSON.stringify({ items: [], page: 1, pageSize: 50, totalCount: 0, hasMore: false }),
+      });
+    });
+    await page.route('**/api/search?**', async (route) => {
+      const url = new URL(route.request().url());
+      searchRequests.push(url);
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json; charset=utf-8',
+        body: JSON.stringify({
+          page: 1,
+          pageSize: 50,
+          totalCount: 1,
+          items: [{
+            type: 13,
+            id: fileId,
+            title: 'authorized-report.pdf',
+            workspaceId: workspace.id,
+            createdAt: '2026-08-20T00:00:00Z',
+            updatedAt: '2026-08-28T00:00:00Z',
+            authorDisplayName: 'Mock User A',
+            contentType: 'application/pdf',
+            sizeBytes: 2048,
+            status: 'Active',
+            scanStatus: 'Allowed',
+            snippet: 'restricted body snippet must stay hidden',
+            storageKey: 'tenant/private/authorized-report.pdf',
+          }],
+        }),
+      });
+    });
+
+    await page.goto(`/app/workspaces/${workspace.id}/files`);
+    const surface = page.getByTestId('files-search-surface');
+    await expect(surface).toBeVisible();
+    await expect(surface).toContainText('Scope: Files Search Workspace');
+    await page.getByTestId('files-search-input').fill('report');
+    await page.getByTestId('files-filter-type').selectOption('pdf');
+    await page.getByTestId('files-filter-modified').selectOption('last30Days');
+    await page.getByTestId('files-filter-owner').selectOption('me');
+
+    const submit = page.getByTestId('files-search-submit');
+    await submit.focus();
+    await page.keyboard.press('Enter');
+    await expect.poll(() => searchRequests.length).toBe(1);
+    expect(searchRequests[0]?.searchParams.get('type')).toBe('File');
+    expect(searchRequests[0]?.searchParams.get('workspaceId')).toBe(workspace.id);
+    expect(searchRequests[0]?.searchParams.get('q')).toBe('report');
+    expect(searchRequests[0]?.searchParams.get('fileKind')).toBe('Pdf');
+    expect(searchRequests[0]?.searchParams.get('fromDate')).toBeTruthy();
+    expect(searchRequests[0]?.searchParams.get('authorUserId')).toBe('mock-user-a');
+
+    await expect(page.getByTestId('files-filter-chips')).toContainText('Type: PDF');
+    await expect(page.getByTestId('files-filter-chips')).toContainText('Modified: Last 30 days');
+    await expect(page.getByTestId('files-filter-chips')).toContainText('Owner: Uploaded by me');
+    await expect(page.getByTestId('files-search-status')).toContainText('1 currently authorized file matches.');
+    await expect(page.getByTestId('preview-action')).toHaveText('authorized-report.pdf');
+    await expect(page.getByText('restricted body snippet must stay hidden')).toHaveCount(0);
+    await expect(page.getByText('tenant/private/authorized-report.pdf')).toHaveCount(0);
+
+    const removeType = page.getByRole('button', { name: 'Remove filter Type: PDF' });
+    await removeType.focus();
+    await page.keyboard.press('Enter');
+    await expect.poll(() => searchRequests.length).toBe(2);
+    expect(searchRequests[1]?.searchParams.has('fileKind')).toBe(false);
+    await expect(removeType).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Remove filter Modified: Last 30 days' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Remove filter Owner: Uploaded by me' })).toBeVisible();
+
+    await expectNoDocumentHorizontalOverflow(page);
+    await expectNoAccessibilityViolations(page);
+    await expectHealthyAngularPage(page);
   });
 
   test('keeps Announcement publish validation and preserved failures accessible at 320px', async ({ page }) => {
@@ -1689,6 +1964,16 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
 
     const scope = page.getByTestId('task-execution-scope');
     await expect(scope).toBeVisible();
+    const contextSummary = scope.getByTestId('task-context-summary');
+    await expect(contextSummary).toBeVisible();
+    await expect(contextSummary).toContainText('1 of 2 source kinds allowed');
+    await expect(contextSummary.getByTestId('task-context-summary-origin')).toContainText('Task override');
+    await expect(contextSummary.getByTestId('task-context-summary-web')).toHaveText('Web: Allow');
+    await expect(contextSummary.getByTestId('task-context-summary-files')).toHaveText('Project files: Exclude');
+    await expect(contextSummary).toContainText('not a file, site, or app inventory count');
+    await contextSummary.focus();
+    await page.keyboard.press('Enter');
+    await expect(scope.getByTestId('task-context-details')).toBeFocused();
     await expect(scope.getByTestId('task-execution-scope-origin')).toHaveText('Task override');
     await expect(scope.getByTestId('task-execution-scope-web')).toHaveText('Enabled');
     await expect(scope.getByTestId('task-execution-scope-web-policy')).toHaveText('Allow — eligible under this Task scope');
@@ -3451,6 +3736,13 @@ interface AuditGridFixture {
   readonly requestId: string | null;
 }
 
+interface AuditGridApiOptions {
+  readonly canViewSensitiveMetadata?: boolean;
+  readonly sensitiveMetadata?: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
+  readonly redactionApplied?: boolean;
+  readonly applyListFilters?: boolean;
+}
+
 function auditGridFixtures(count: number): readonly AuditGridFixture[] {
   return Array.from({ length: count }, (_, index) => {
     const number = String(index + 1).padStart(3, '0');
@@ -3473,7 +3765,25 @@ function auditGridFixtureId(index: number): string {
   return `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`;
 }
 
-async function installAuditGridApi(page: Page, rows: readonly AuditGridFixture[]): Promise<void> {
+async function installAuditGridApi(
+  page: Page,
+  rows: readonly AuditGridFixture[],
+  options: AuditGridApiOptions = {},
+): Promise<void> {
+  await page.route('**/api/audit/capabilities', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json; charset=utf-8',
+      body: JSON.stringify({
+        canView: true,
+        canReview: true,
+        canApprove: false,
+        canExport: false,
+        canViewSensitiveMetadata: options.canViewSensitiveMetadata === true,
+      }),
+    });
+  });
+
   await page.route('**/api/admin/audit-grid**', async (route) => {
     const request = route.request();
     if (request.method() !== 'GET') {
@@ -3483,15 +3793,40 @@ async function installAuditGridApi(page: Page, rows: readonly AuditGridFixture[]
 
     const url = new URL(request.url());
     if (url.pathname === '/api/admin/audit-grid') {
+      const filteredRows = options.applyListFilters ? applyAuditFixtureFilters(rows, url.searchParams) : rows;
       await route.fulfill({
         status: 200,
         contentType: 'application/json; charset=utf-8',
-        body: JSON.stringify({ items: rows, page: 1, pageSize: 100, totalCount: rows.length }),
+        body: JSON.stringify({ items: filteredRows, page: 1, pageSize: 100, totalCount: filteredRows.length }),
       });
       return;
     }
 
-    const auditId = url.pathname.slice('/api/admin/audit-grid/'.length);
+    const routeSuffix = url.pathname.slice('/api/admin/audit-grid/'.length);
+    if (routeSuffix.endsWith('/sensitive-metadata')) {
+      const auditId = routeSuffix.slice(0, -'/sensitive-metadata'.length);
+      const metadata = options.sensitiveMetadata?.[auditId];
+      await route.fulfill(
+        options.canViewSensitiveMetadata === true && metadata
+          ? {
+              status: 200,
+              contentType: 'application/json; charset=utf-8',
+              body: JSON.stringify({
+                auditId,
+                metadata,
+                redactionApplied: options.redactionApplied === true,
+              }),
+            }
+          : {
+              status: options.canViewSensitiveMetadata === true ? 404 : 403,
+              contentType: 'application/json; charset=utf-8',
+              body: JSON.stringify({ error: { code: 'AuditEventNotFound' } }),
+            },
+      );
+      return;
+    }
+
+    const auditId = routeSuffix;
     const row = rows.find((item) => item.id === auditId);
     await route.fulfill(row
       ? {
@@ -3505,6 +3840,26 @@ async function installAuditGridApi(page: Page, rows: readonly AuditGridFixture[]
           body: JSON.stringify({ error: { code: 'AuditEventNotFound', message: 'The requested audit event is not available.' } }),
         });
   });
+}
+
+function applyAuditFixtureFilters(
+  rows: readonly AuditGridFixture[],
+  params: URLSearchParams,
+): readonly AuditGridFixture[] {
+  const q = params.get('q')?.toLowerCase();
+  const action = params.get('action')?.toLowerCase();
+  const actor = params.get('actor')?.toLowerCase();
+  const entityType = params.get('entityType')?.toLowerCase();
+  const severity = params.get('severity');
+  const result = params.get('result');
+  return rows.filter((row) =>
+    (!q || [row.action, row.targetType, row.workspaceLabel, row.summary]
+      .some((value) => value.toLowerCase().includes(q))) &&
+    (!action || row.action.toLowerCase() === action) &&
+    (!actor || row.actorDisplayName.toLowerCase().includes(actor)) &&
+    (!entityType || row.targetType.toLowerCase() === entityType) &&
+    (!severity || row.severity === severity) &&
+    (!result || row.result === result));
 }
 
 async function installWorkspaceContextApi(

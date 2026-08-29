@@ -87,9 +87,11 @@ public sealed class ConversationMemberConfiguration : IEntityTypeConfiguration<C
         builder.Property(member => member.CanCreateThread).IsRequired().HasDefaultValue(true);
         builder.Property(member => member.IsMuted).IsRequired().HasDefaultValue(false);
         builder.Property(member => member.IsArchived).IsRequired().HasDefaultValue(false);
+        builder.Property(member => member.IsLater).IsRequired().HasDefaultValue(false);
 
         builder.HasIndex(member => new { member.TenantId, member.ConversationId, member.UserId }).IsUnique();
         builder.HasIndex(member => new { member.TenantId, member.UserId });
+        builder.HasIndex(member => new { member.TenantId, member.UserId, member.IsLater });
         builder.HasIndex(member => member.UserId);
         builder.HasIndex(member => member.LastOpenedAt);
         builder.HasIndex(member => member.LastReadMessageId);
@@ -245,5 +247,30 @@ public sealed class ReadStateConfiguration : IEntityTypeConfiguration<ReadState>
             .WithMany()
             .HasForeignKey(readState => readState.LastReadMessageId)
             .OnDelete(DeleteBehavior.SetNull);
+    }
+}
+
+public sealed class MessageFollowUpConfiguration : IEntityTypeConfiguration<MessageFollowUp>
+{
+    public void Configure(EntityTypeBuilder<MessageFollowUp> builder)
+    {
+        builder.ToTable("message_follow_ups");
+        builder.ConfigureAuditableEntity();
+
+        builder.HasIndex(item => new { item.TenantId, item.UserId, item.MessageId }).IsUnique();
+        builder.HasIndex(item => new { item.TenantId, item.UserId, item.CreatedAt, item.Id });
+        builder.HasIndex(item => item.MessageId);
+
+        builder
+            .HasOne(item => item.User)
+            .WithMany()
+            .HasForeignKey(item => item.UserId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder
+            .HasOne(item => item.Message)
+            .WithMany()
+            .HasForeignKey(item => item.MessageId)
+            .OnDelete(DeleteBehavior.Restrict);
     }
 }

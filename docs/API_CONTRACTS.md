@@ -242,6 +242,94 @@ The browser-only unread-badge display setting is not part of this API. It is
 namespaced by Tenant and user in local storage and has no authorization or
 delivery effect.
 
+## Issue #355 Conversation inbox views
+
+`GET /api/conversations` remains paginated and accepts `page`, `pageSize`, and
+one `view` value: `All`, `Unread`, `Mentions`, or `Later`. Its additive response
+keeps `items`, `page`, `pageSize`, and `totalCount`, and adds the selected
+string `view` plus exact Conversation counts:
+
+```json
+{
+  "items": [],
+  "page": 1,
+  "pageSize": 20,
+  "totalCount": 0,
+  "view": "All",
+  "counts": {
+    "all": 0,
+    "unread": 0,
+    "mentions": 0,
+    "later": 0
+  }
+}
+```
+
+Every item and count is evaluated from the current user's authoritative,
+depth-bounded readable-Conversation relation before filtering or paging. A
+nonparticipant contributes no row, title, last Message, count, or state bit.
+The four counts count Conversations, not Messages:
+
+- `Unread` means at least one non-deleted Message from another author is after
+  the current user's server read cursor.
+- `Mentions` means an unread recipient-owned Mention Notification currently
+  resolves to a non-deleted Message in that readable Conversation.
+- `Later` is the current active participant's private `isLater` Boolean.
+- `All` is the complete currently readable Conversation count.
+
+`PATCH /api/conversations/{conversationId}/state` accepts additive nullable
+`isLater`. Only the current active participant's row can be read or changed.
+Changing `isLater` does not change `ReadState`, `lastReadMessageId`, unread
+counts, Mention Notification state, another participant's state, or Message
+delivery. The successful state and list item responses include `isLater`.
+Existing rows default to `false`; no prior read, mute, or archive value is
+reclassified.
+
+This `isLater` value defers an entire Conversation in the inbox. It is not a
+saved-Message or reminder contract: it carries no Message ID, completion state,
+due time, or notification schedule. Issue #368 owns those distinct per-Message
+follow-up semantics and must not infer them from `ConversationMember.IsLater`.
+
+## Issue #368 saved Message follow-ups
+
+The current participant owns these private routes:
+
+- `GET /api/me/message-follow-ups?page=1&pageSize=20`
+- `PUT /api/me/message-follow-ups/{messageId}`
+- `DELETE /api/me/message-follow-ups/{messageId}`
+
+PUT and DELETE are idempotent after the Message is reauthorized through its
+current readable Conversation. PUT returns `isSaved: true` and the saved UTC
+timestamp; DELETE returns `isSaved: false`. A missing, deleted, cross-Tenant,
+nonparticipant, removed, or otherwise unreadable Message is the same generic
+failure and reveals neither whether a private marker exists nor target data.
+
+GET returns a normal paged response. Each row contains the Message and
+Conversation IDs needed for navigation, Workspace ID, Conversation type and
+safe title, optional `threadRootMessageId`, current authorized author display
+name/body, Message creation time, and saved time. Current Conversation
+readability is applied before count, ordering, and paging. Deleted or revoked
+rows contribute neither an item nor `totalCount`.
+
+`GET /api/conversations/{conversationId}/messages` accepts additive
+`anchorMessageId`. After the existing Conversation boundary, the target must
+be a current non-deleted Message in that exact Conversation. The response
+includes the target timeline Message plus recent context even when it is older
+than the default page; for a thread reply the timeline anchor is its root and
+the client opens `GET /api/messages/{rootMessageId}/thread` with
+`anchorReplyMessageId={savedReplyId}`. That optional reply anchor must be a
+current non-deleted reply in the same Conversation whose exact
+`threadRootMessageId` is the route root. A valid anchor is returned with the
+latest 99 other replies, preserving the 100-row bound even when the selected
+reply is older than the ordinary latest window. Deleted, missing,
+cross-Conversation, mismatched-root, and cross-Tenant anchors all return the
+same generic thread-not-found failure without counts or target metadata.
+Anchor loading, save, and complete never update read state.
+
+No reminder field or endpoint exists. Adding a reminder requires a separate
+scheduler, delivery, timezone, retry, and cancellation contract; clients must
+not infer one from `savedAt`.
+
 ## Same-Conversation Message threads
 
 The canonical Message-thread routes are:
@@ -257,13 +345,16 @@ service never guesses a Message anchor for them. Main Conversation Message
 lists return roots only and attach an authorized summary when replies exist.
 
 GET inherits the current Conversation read boundary before projecting any
-body, count, timestamp, or display name. It returns the pinned root, the latest
-at most 100 replies in stable chronological order, the exact durable reply
-count, latest reply timestamp, at most three distinct display names, `hasMore`,
-and `maximumReplies: 100`. There is no older-reply cursor in this version;
-`hasMore: true` explicitly means older replies were not loaded. Deleted roots
-and replies are bodyless/attachment-free tombstones; deleted replies remain in
-the order and count.
+body, count, timestamp, or display name. Without an anchor it returns the
+pinned root and latest at most 100 replies in stable chronological order. With
+an authorized `anchorReplyMessageId`, it returns that exact non-deleted reply
+plus the latest at most 99 other replies, still in stable chronological order.
+Both forms return the exact durable reply count, latest reply timestamp, at
+most three distinct display names, `hasMore`, and `maximumReplies: 100`. There
+is no older-reply cursor in this version; `hasMore: true` means additional
+replies were not loaded. Deleted roots and ordinary projected replies are
+bodyless/attachment-free tombstones; deleted replies remain in the order and
+count but cannot themselves be selected as an anchor.
 
 The main Conversation list retains a deleted main-timeline root only while it
 has at least one durable same-Conversation reply. That root is projected as a

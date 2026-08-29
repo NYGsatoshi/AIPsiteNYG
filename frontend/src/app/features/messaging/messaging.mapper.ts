@@ -116,7 +116,8 @@ export function mapConversationListItem(
     safePreviewLabel: stringValue(conversation.lastMessage?.body) ?? '',
     viewerIsParticipant: true,
     unreadCount: numberValue(conversation.unreadCount),
-    hasMention: booleanValue(conversation.hasMention)
+    hasMention: booleanValue(conversation.hasMention),
+    isLater: booleanValue(conversation.isLater)
   };
 }
 

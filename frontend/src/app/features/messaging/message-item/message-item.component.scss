@@ -19,6 +19,16 @@
   background: var(--aip-color-bg-selected);
 }
 
+.message--focus-target {
+  border-color: var(--aip-color-focus);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--aip-color-focus) 35%, transparent);
+}
+
+.message--focus-target:focus-visible {
+  outline: 3px solid var(--aip-color-focus);
+  outline-offset: 3px;
+}
+
 .message__meta {
   display: flex;
   flex-wrap: wrap;

@@ -92,6 +92,21 @@ public sealed class AuditController(
             cancellationToken);
     }
 
+    [HttpGet("api/admin/audit-grid/{auditId}/sensitive-metadata")]
+    public async Task<IActionResult> AdminAuditSensitiveMetadata(
+        string auditId,
+        CancellationToken cancellationToken)
+    {
+        // Keep malformed, absent, and cross-Tenant identifiers on the same
+        // authorized exact-event path. The service checks audit.view and the
+        // independent sensitive-metadata capability before querying the ID.
+        var parsedAuditId = Guid.TryParse(auditId, out var value) ? value : Guid.Empty;
+        return await ToActionResultAsync(
+            await audit.GetAuditSensitiveMetadataAsync(parsedAuditId, cancellationToken),
+            "AuditSensitiveMetadata",
+            cancellationToken);
+    }
+
     [HttpGet("api/security-events")]
     public async Task<IActionResult> SecurityEvents([FromQuery] SecurityEventQuery query, CancellationToken cancellationToken)
     {
