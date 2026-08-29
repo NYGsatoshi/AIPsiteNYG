@@ -242,6 +242,54 @@ The browser-only unread-badge display setting is not part of this API. It is
 namespaced by Tenant and user in local storage and has no authorization or
 delivery effect.
 
+## Issue #355 Conversation inbox views
+
+`GET /api/conversations` remains paginated and accepts `page`, `pageSize`, and
+one `view` value: `All`, `Unread`, `Mentions`, or `Later`. Its additive response
+keeps `items`, `page`, `pageSize`, and `totalCount`, and adds the selected
+string `view` plus exact Conversation counts:
+
+```json
+{
+  "items": [],
+  "page": 1,
+  "pageSize": 20,
+  "totalCount": 0,
+  "view": "All",
+  "counts": {
+    "all": 0,
+    "unread": 0,
+    "mentions": 0,
+    "later": 0
+  }
+}
+```
+
+Every item and count is evaluated from the current user's authoritative,
+depth-bounded readable-Conversation relation before filtering or paging. A
+nonparticipant contributes no row, title, last Message, count, or state bit.
+The four counts count Conversations, not Messages:
+
+- `Unread` means at least one non-deleted Message from another author is after
+  the current user's server read cursor.
+- `Mentions` means an unread recipient-owned Mention Notification currently
+  resolves to a non-deleted Message in that readable Conversation.
+- `Later` is the current active participant's private `isLater` Boolean.
+- `All` is the complete currently readable Conversation count.
+
+`PATCH /api/conversations/{conversationId}/state` accepts additive nullable
+`isLater`. Only the current active participant's row can be read or changed.
+Changing `isLater` does not change `ReadState`, `lastReadMessageId`, unread
+counts, Mention Notification state, another participant's state, or Message
+delivery. The successful state and list item responses include `isLater`.
+Existing rows default to `false`; no prior read, mute, or archive value is
+reclassified.
+
+This `isLater` value defers an entire Conversation in the inbox. It is not a
+saved-Message or reminder contract: it carries no Message ID, completion state,
+due time, or notification schedule. Issue #368 owns those distinct per-Message
+follow-up semantics and must not infer them from `ConversationMember.IsLater`.
+
 ## Same-Conversation Message threads
 
 The canonical Message-thread routes are:

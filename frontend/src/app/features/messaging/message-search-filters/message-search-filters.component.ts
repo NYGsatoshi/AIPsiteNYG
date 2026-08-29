@@ -1,11 +1,15 @@
-import { Component, ElementRef, Input, OnDestroy, ViewChild, computed, inject, signal } from '@angular/core';
+import { Component, ElementRef, EventEmitter, Input, OnDestroy, Output, ViewChild, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { Subscription } from 'rxjs';
 
 import { AipFilterChipComponent } from '../../../shared/ui/aip-filter-chip/aip-filter-chip.component';
 import { ConversationListComponent } from '../conversation-list/conversation-list.component';
 import { MessageSearchResponseDto, MessagingApi } from '../messaging.api';
-import { MessagingConversationListItem } from '../messaging.types';
+import {
+  MessagingConversationListItem,
+  MessagingInboxView,
+  MessagingInboxViewModel
+} from '../messaging.types';
 
 type MessageSearchStatus = 'idle' | 'invalid' | 'loading' | 'ready' | 'empty' | 'error';
 
@@ -20,6 +24,11 @@ interface MessageSearchResult {
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const CONVERSATION_ROUTE_PATTERN = /^\/conversations\/([0-9a-f-]+)$/i;
+const EMPTY_INBOX: MessagingInboxViewModel = {
+  view: 'All',
+  counts: { all: 0, unread: 0, mentions: 0, later: 0 },
+  status: 'loading'
+};
 
 @Component({
   selector: 'app-message-search-filters',
@@ -103,29 +112,66 @@ const CONVERSATION_ROUTE_PATTERN = /^\/conversations\/([0-9a-f-]+)$/i;
         </form>
 
         <div class="message-discovery__quick-filters" role="group" aria-labelledby="message-quick-filter-label">
-          <span id="message-quick-filter-label">Conversation filters</span>
+          <span id="message-quick-filter-label">Inbox views</span>
           <div class="message-discovery__quick-filter-buttons">
+            <button
+              #allFilter
+              type="button"
+              data-testid="message-filter-all"
+              [class.message-discovery__quick-filter--active]="displayInboxView() === 'All'"
+              [attr.aria-pressed]="displayInboxView() === 'All'"
+              (click)="selectInboxView('All')"
+            >
+              All <span aria-hidden="true">{{ inboxState().counts.all }}</span>
+              <span class="visually-hidden">conversations</span>
+            </button>
             <button
               #unreadFilter
               type="button"
               data-testid="message-filter-unread"
-              [class.message-discovery__quick-filter--active]="unreadOnly()"
-              [attr.aria-pressed]="unreadOnly()"
-              (click)="toggleUnread()"
+              [class.message-discovery__quick-filter--active]="displayInboxView() === 'Unread'"
+              [attr.aria-pressed]="displayInboxView() === 'Unread'"
+              [disabled]="!inboxNavigationAvailable()"
+              (click)="selectInboxView('Unread')"
             >
-              Unread
+              Unread <span aria-hidden="true">{{ inboxState().counts.unread }}</span>
+              <span class="visually-hidden">conversations</span>
             </button>
             <button
               #mentionsFilter
               type="button"
               data-testid="message-filter-mentions"
-              [class.message-discovery__quick-filter--active]="mentionsOnly()"
-              [attr.aria-pressed]="mentionsOnly()"
-              (click)="toggleMentions()"
+              [class.message-discovery__quick-filter--active]="displayInboxView() === 'Mentions'"
+              [attr.aria-pressed]="displayInboxView() === 'Mentions'"
+              [disabled]="!inboxNavigationAvailable()"
+              (click)="selectInboxView('Mentions')"
             >
-              &#64;Me
+              Mentions <span aria-hidden="true">{{ inboxState().counts.mentions }}</span>
+              <span class="visually-hidden">conversations</span>
+            </button>
+            <button
+              #laterFilter
+              type="button"
+              data-testid="message-filter-later"
+              [class.message-discovery__quick-filter--active]="displayInboxView() === 'Later'"
+              [attr.aria-pressed]="displayInboxView() === 'Later'"
+              [disabled]="!inboxNavigationAvailable()"
+              (click)="selectInboxView('Later')"
+            >
+              Later <span aria-hidden="true">{{ inboxState().counts.later }}</span>
+              <span class="visually-hidden">conversations</span>
             </button>
           </div>
+          <p class="message-discovery__scope">Unread is based on your read cursor. Mentions and Later remain separate.</p>
+          <p class="message-discovery__status" data-testid="message-inbox-status" aria-live="polite">
+            @if (inboxState().status === 'loading') {
+              Loading {{ displayInboxView() }} conversations.
+            } @else if (inboxState().status === 'error') {
+              {{ inboxState().error }}
+            } @else if (inboxState().status === 'unavailable') {
+              Conversation categories are unavailable. The authorized All list remains visible.
+            }
+          </p>
         </div>
       </div>
 
@@ -144,20 +190,28 @@ const CONVERSATION_ROUTE_PATTERN = /^\/conversations\/([0-9a-f-]+)$/i;
                 (removed)="clearSearch(true)"
               />
             }
-            @if (unreadOnly()) {
+            @if (inboxState().view === 'Unread') {
               <app-aip-filter-chip
                 data-testid="message-active-unread-chip"
-                label="Conversation"
+                label="Inbox"
                 value="Unread"
-                (removed)="toggleUnread(true)"
+                (removed)="clearInboxView('Unread')"
               />
             }
-            @if (mentionsOnly()) {
+            @if (inboxState().view === 'Mentions') {
               <app-aip-filter-chip
                 data-testid="message-active-mentions-chip"
-                label="Conversation"
-                value="@Me"
-                (removed)="toggleMentions(true)"
+                label="Inbox"
+                value="Mentions"
+                (removed)="clearInboxView('Mentions')"
+              />
+            }
+            @if (inboxState().view === 'Later') {
+              <app-aip-filter-chip
+                data-testid="message-active-later-chip"
+                label="Inbox"
+                value="Later"
+                (removed)="clearInboxView('Later')"
               />
             }
           </div>
@@ -206,22 +260,25 @@ const CONVERSATION_ROUTE_PATTERN = /^\/conversations\/([0-9a-f-]+)$/i;
 
       <section class="message-discovery__conversations" aria-labelledby="message-conversation-results-title">
         <h2 id="message-conversation-results-title">Conversations</h2>
-        @if (filteredConversations().length > 0) {
+        @if (conversationState().length > 0) {
           <app-conversation-list
-            [conversations]="filteredConversations()"
+            [conversations]="conversationState()"
             [selectedConversationId]="selectedConversationId"
             [preserveListScroll]="preserveListScroll"
             [showUnreadBadges]="showUnreadBadges"
+            [showLaterActions]="inboxState().status !== 'unavailable'"
+            [laterPendingConversationId]="inboxState().laterPendingConversationId ?? null"
+            (laterChanged)="requestLaterChange($event)"
           />
-        } @else if (conversationState().length > 0) {
+        } @else if (inboxState().view !== 'All' || inboxState().counts.all > 0) {
           <div class="message-discovery__result-state" data-testid="message-conversation-filter-empty">
-            <p>No conversations match the active quick filters.</p>
+            <p>No conversations are currently in the {{ inboxState().view }} view.</p>
             <button
               type="button"
               data-testid="message-conversation-filters-clear"
-              (click)="clearConversationFilters(true)"
+              (click)="clearInboxView(inboxState().view)"
             >
-              Clear conversation filters
+              Return to All conversations
             </button>
           </div>
         } @else {
@@ -236,39 +293,55 @@ export class MessageSearchFiltersComponent implements OnDestroy {
   private readonly api = inject(MessagingApi);
   private request: Subscription | null = null;
   private requestGeneration = 0;
+  private restoreLaterFilterAfterMutation = false;
 
   @ViewChild('searchInput') private searchInput?: ElementRef<HTMLInputElement>;
   @ViewChild('mobileToggle') private mobileToggle?: ElementRef<HTMLButtonElement>;
+  @ViewChild('allFilter') private allFilter?: ElementRef<HTMLButtonElement>;
   @ViewChild('unreadFilter') private unreadFilter?: ElementRef<HTMLButtonElement>;
   @ViewChild('mentionsFilter') private mentionsFilter?: ElementRef<HTMLButtonElement>;
+  @ViewChild('laterFilter') private laterFilter?: ElementRef<HTMLButtonElement>;
 
   readonly conversationState = signal<readonly MessagingConversationListItem[]>([]);
+  readonly inboxState = signal<MessagingInboxViewModel>(EMPTY_INBOX);
 
   @Input({ required: true })
   set conversations(value: readonly MessagingConversationListItem[]) {
     this.conversationState.set(value ?? []);
   }
 
+  @Input({ required: true })
+  set inbox(value: MessagingInboxViewModel) {
+    const previousPending = this.inboxState().laterPendingConversationId;
+    this.inboxState.set(value ?? EMPTY_INBOX);
+    if (previousPending && !value?.laterPendingConversationId && this.restoreLaterFilterAfterMutation) {
+      this.restoreLaterFilterAfterMutation = false;
+      this.scheduleFocus(this.laterFilter);
+    }
+  }
+
   @Input() selectedConversationId: string | null = null;
   @Input() preserveListScroll = false;
   @Input() showUnreadBadges = true;
+  @Output() readonly inboxViewChanged = new EventEmitter<MessagingInboxView>();
+  @Output() readonly conversationLaterChanged = new EventEmitter<{
+    conversationId: string;
+    isLater: boolean;
+  }>();
 
   readonly query = signal('');
   readonly appliedQuery = signal('');
-  readonly unreadOnly = signal(false);
-  readonly mentionsOnly = signal(false);
   readonly mobilePanelOpen = signal(false);
   readonly searchStatus = signal<MessageSearchStatus>('idle');
   readonly searchResults = signal<readonly MessageSearchResult[]>([]);
   readonly hasActiveConditions = computed(
-    () => Boolean(this.appliedQuery()) || this.unreadOnly() || this.mentionsOnly()
+    () => Boolean(this.appliedQuery()) || this.inboxState().view !== 'All'
   );
-  readonly filteredConversations = computed(() =>
-    this.conversationState().filter(
-      (conversation) =>
-        (!this.unreadOnly() || (conversation.unreadCount ?? 0) > 0) &&
-        (!this.mentionsOnly() || conversation.hasMention === true)
-    )
+  readonly displayInboxView = computed(
+    () => this.inboxState().requestedView ?? this.inboxState().view
+  );
+  readonly inboxNavigationAvailable = computed(
+    () => this.inboxState().status !== 'unavailable'
   );
 
   ngOnDestroy(): void {
@@ -326,18 +399,16 @@ export class MessageSearchFiltersComponent implements OnDestroy {
     }
   }
 
-  toggleUnread(focusToggle = false): void {
-    this.unreadOnly.update((value) => !value);
-    if (focusToggle) {
-      this.scheduleFocus(this.unreadFilter);
+  selectInboxView(view: MessagingInboxView): void {
+    const inbox = this.inboxState();
+    if (
+      inbox.status === 'loading' ||
+      (inbox.status === 'unavailable' && view !== 'All') ||
+      (inbox.status === 'ready' && inbox.view === view)
+    ) {
+      return;
     }
-  }
-
-  toggleMentions(focusToggle = false): void {
-    this.mentionsOnly.update((value) => !value);
-    if (focusToggle) {
-      this.scheduleFocus(this.mentionsFilter);
-    }
+    this.inboxViewChanged.emit(view);
   }
 
   clearSearch(focusInput = false): void {
@@ -358,17 +429,23 @@ export class MessageSearchFiltersComponent implements OnDestroy {
     this.clearSearch(true);
   }
 
-  clearConversationFilters(focusToggle = false): void {
-    this.unreadOnly.set(false);
-    this.mentionsOnly.set(false);
-    if (focusToggle) {
-      this.scheduleFocus(this.unreadFilter);
+  clearInboxView(returnFocusView: MessagingInboxView): void {
+    if (this.inboxState().view !== 'All') {
+      this.inboxViewChanged.emit('All');
     }
+    this.scheduleFocus(this.filterElement(returnFocusView));
+  }
+
+  requestLaterChange(change: { conversationId: string; isLater: boolean }): void {
+    this.restoreLaterFilterAfterMutation = this.inboxState().view === 'Later' && !change.isLater;
+    this.conversationLaterChanged.emit(change);
   }
 
   clearAll(): void {
     this.clearSearch();
-    this.clearConversationFilters();
+    if (this.inboxState().view !== 'All') {
+      this.inboxViewChanged.emit('All');
+    }
     this.scheduleFocus(this.searchInput);
   }
 
@@ -461,6 +538,19 @@ export class MessageSearchFiltersComponent implements OnDestroy {
 
   private isCurrent(generation: number, query: string): boolean {
     return generation === this.requestGeneration && this.appliedQuery() === query;
+  }
+
+  private filterElement(view: MessagingInboxView): ElementRef<HTMLButtonElement> | undefined {
+    switch (view) {
+      case 'Unread':
+        return this.unreadFilter;
+      case 'Mentions':
+        return this.mentionsFilter;
+      case 'Later':
+        return this.laterFilter;
+      default:
+        return this.allFilter;
+    }
   }
 
   private scheduleFocus(target?: ElementRef<HTMLElement>): void {

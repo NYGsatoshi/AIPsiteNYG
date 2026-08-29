@@ -41,7 +41,7 @@ const conversations = [
   }
 ];
 
-test.describe('Issue #359 Message search and quick filters', () => {
+test.describe('Issues #355/#359 Message search and inbox views', () => {
   test.beforeEach(async ({ page }) => {
     await installMessagingDiscoveryApi(page);
   });
@@ -53,9 +53,18 @@ test.describe('Issue #359 Message search and quick filters', () => {
     await page.setViewportSize({ width: 320, height: 800 });
 
     const searchRequests: URL[] = [];
+    const inboxRequests: URL[] = [];
+    const laterMutationBodies: unknown[] = [];
+    const laterMutationCsrfTokens: string[] = [];
     page.on('request', (request) => {
-      if (new URL(request.url()).pathname === '/api/search') {
-        searchRequests.push(new URL(request.url()));
+      const url = new URL(request.url());
+      if (url.pathname === '/api/search') {
+        searchRequests.push(url);
+      } else if (url.pathname === '/api/conversations' && request.method() === 'GET') {
+        inboxRequests.push(url);
+      } else if (url.pathname.endsWith('/state') && request.method() === 'PATCH') {
+        laterMutationBodies.push(request.postDataJSON());
+        laterMutationCsrfTokens.push(request.headers()['x-csrf-token'] ?? '');
       }
     });
 
@@ -80,6 +89,7 @@ test.describe('Issue #359 Message search and quick filters', () => {
     await expect(unreadFilter).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByTestId('message-active-unread-chip')).toBeVisible();
     await expect(page.getByTestId('conversation-list-item')).toHaveCount(2);
+    expect(inboxRequests.at(-1)?.searchParams.get('view')).toBe('Unread');
 
     await searchInput.fill('budget');
     await searchInput.press('Enter');
@@ -98,6 +108,27 @@ test.describe('Issue #359 Message search and quick filters', () => {
     await expect(page.getByTestId('conversation-list-item')).toHaveCount(3);
     await expect(page.getByTestId('message-active-unread-chip')).toHaveCount(0);
     await expect(unreadFilter).toBeFocused();
+
+    const laterFilter = page.getByTestId('message-filter-later');
+    await laterFilter.focus();
+    await laterFilter.press('Enter');
+    await expect(laterFilter).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByTestId('message-active-later-chip')).toBeVisible();
+    await expect(page.getByTestId('conversation-list-item')).toHaveCount(1);
+    expect(inboxRequests.at(-1)?.searchParams.get('view')).toBe('Later');
+
+    const removeLater = page.getByTestId('conversation-later-toggle');
+    await expect(removeLater).toHaveAttribute('aria-pressed', 'true');
+    await removeLater.focus();
+    await removeLater.press('Enter');
+    await expect(page.getByTestId('message-conversation-filter-empty')).toContainText('Later view');
+    await expect(laterFilter).toBeFocused();
+    expect(laterMutationBodies).toEqual([{ isLater: false }]);
+    expect(laterMutationCsrfTokens).toEqual(['csrf-message-later']);
+    await expect(page.getByTestId('message-filter-unread')).toHaveAttribute('aria-pressed', 'false');
+
+    await page.getByTestId('message-filter-all').press('Enter');
+    await expect(page.getByTestId('conversation-list-item')).toHaveCount(3);
 
     await searchInput.focus();
     await searchInput.press('Escape');
@@ -129,6 +160,7 @@ test.describe('Issue #359 Message search and quick filters', () => {
     await expect(page.getByTestId('message-search-input')).toBeVisible();
     await expect(page.getByTestId('message-filter-unread')).toBeVisible();
     await expect(page.getByTestId('message-filter-mentions')).toBeVisible();
+    await expect(page.getByTestId('message-filter-later')).toContainText('1');
     await expect(page.getByTestId('message-filter-drawer-toggle')).toBeHidden();
   });
 });
@@ -136,7 +168,7 @@ test.describe('Issue #359 Message search and quick filters', () => {
 function skipUnlessMobile(testInfo: TestInfo): void {
   test.skip(
     testInfo.project.name !== 'chromium-mobile',
-    'Issue #359 uses the 320px mobile drawer as its representative responsive acceptance flow.'
+    'Issues #355/#359 use the 320px mobile drawer as their representative responsive acceptance flow.'
   );
 }
 
@@ -145,14 +177,59 @@ function skipUnlessDesktop(testInfo: TestInfo): void {
 }
 
 async function installMessagingDiscoveryApi(page: Page): Promise<void> {
+  const laterConversationIds = new Set([mentionOnlyId]);
+  await page.route('**/api/security/csrf-token', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ token: 'csrf-message-later', headerName: 'X-CSRF-Token' })
+    });
+  });
+
   await page.route('**/api/conversations**', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
     if (request.method() === 'GET' && url.pathname === '/api/conversations') {
+      const view = url.searchParams.get('view') ?? 'All';
+      const authorized = conversations.map((conversation) => ({
+        ...conversation,
+        isLater: laterConversationIds.has(conversation.id)
+      }));
+      const items = authorized.filter((conversation) => {
+        if (view === 'Unread') return conversation.unreadCount > 0;
+        if (view === 'Mentions') return conversation.hasMention;
+        if (view === 'Later') return conversation.isLater;
+        return true;
+      });
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ items: conversations })
+        body: JSON.stringify({
+          items,
+          page: 1,
+          pageSize: 20,
+          totalCount: items.length,
+          view,
+          counts: {
+            all: authorized.length,
+            unread: authorized.filter((conversation) => conversation.unreadCount > 0).length,
+            mentions: authorized.filter((conversation) => conversation.hasMention).length,
+            later: authorized.filter((conversation) => conversation.isLater).length
+          }
+        })
+      });
+      return;
+    }
+
+    const stateMatch = url.pathname.match(/^\/api\/conversations\/([^/]+)\/state$/);
+    if (request.method() === 'PATCH' && stateMatch) {
+      const body = request.postDataJSON() as { isLater?: unknown };
+      if (body.isLater === true) laterConversationIds.add(stateMatch[1]);
+      if (body.isLater === false) laterConversationIds.delete(stateMatch[1]);
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ conversationId: stateMatch[1], isLater: body.isLater })
       });
       return;
     }

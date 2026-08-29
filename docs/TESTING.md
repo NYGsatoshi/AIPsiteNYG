@@ -197,13 +197,32 @@ limits.
 
 Focused Angular coverage verifies the exact bounded `type=Message` Search
 request, strict result type/identity/internal-route validation, canonical DM
-route reuse, independent and combined Unread / `@Me` list filters, removable
-condition chips, clear-all behavior, zero-result focus recovery, stale-request
-cancellation, and fixed error redaction. The static Playwright scenario uses a
-320-pixel viewport and exercises the mobile disclosure, keyboard submit/toggle/
-remove/Escape/focus-return flow, no horizontal overflow, and axe. Its APIs are
-mocked; the existing HTTP/PostgreSQL Search tests remain the authorization
-evidence. See `docs/verification/p1-message-search-filters.md`.
+route reuse, removable condition chips, clear-all behavior, zero-result focus
+recovery, stale-request cancellation, and fixed error redaction. Issue #355
+replaces its initial client-only Conversation conditions with the authoritative
+views covered below. The static Playwright scenario uses a 320-pixel viewport
+and exercises the mobile disclosure, keyboard submit/toggle/remove/Escape/
+focus-return flow, no horizontal overflow, and axe. Its APIs are mocked; the
+existing HTTP/PostgreSQL Search tests remain the authorization evidence. See
+`docs/verification/p1-message-search-filters.md`.
+
+### Issue #355 Conversation inbox views
+
+Backend tests tagged `Scope=Issue355` cover All/Unread/Mentions/Later counts
+and filtering, the current recursive Conversation-read boundary, nonparticipant
+and cross-Tenant non-disclosure, private Later mutation, and independence from
+the read cursor. Conditional PostgreSQL cases apply the additive migration over
+the previous schema, verify its column/index and Down/reapply path, and execute
+the composed unread/Mention/Later predicates with an inaccessible Conversation
+present. They require `POSTGRES_TEST_CONNECTION_STRING`; an environment-skipped
+local result is not PostgreSQL evidence.
+
+Focused Angular tests cover authoritative count/view mapping, Later mutation
+and refresh, independent search-result scope, loading/error/filtered-empty
+states, and keyboard operation. The static Playwright flow exercises the
+desktop and forced-320-pixel navigation, direct Conversation return, visible
+focus, horizontal overflow, and axe. Its API is mocked, so the HTTP and
+PostgreSQL tests remain the authorization and persistence evidence.
 
 ### Issue #362 same-Conversation Message threads
 

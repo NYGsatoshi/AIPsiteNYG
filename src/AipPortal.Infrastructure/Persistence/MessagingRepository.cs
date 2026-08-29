@@ -36,6 +36,94 @@ public sealed class MessagingRepository(AppDbContext dbContext) : IMessagingRepo
         return await ListForUserNonPostgreSqlAsync(userId, page, pageSize, candidates, cancellationToken);
     }
 
+    public async Task<ConversationInboxRepositoryResult> ListInboxForUserAsync(
+        Guid userId,
+        ConversationInboxView view,
+        int page,
+        int pageSize,
+        CancellationToken cancellationToken = default)
+    {
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 100);
+        var skip = (int)Math.Min(((long)page - 1L) * pageSize, int.MaxValue);
+        var candidates = ReadableConversationCandidates(userId);
+        IQueryable<Conversation> all;
+
+        if (UsesPostgreSql())
+        {
+            var readableIds = QueryReadableConversationIds(userId)!;
+            all = candidates.Where(conversation => readableIds.Contains(conversation.Id));
+        }
+        else
+        {
+            var readableIds = await ListReadableConversationIdsNonPostgreSqlAsync(
+                userId,
+                candidates,
+                cancellationToken);
+            all = candidates.Where(conversation => readableIds.Contains(conversation.Id));
+        }
+
+        var unread = all.Where(conversation =>
+            dbContext.Messages.Any(message =>
+                message.ConversationId == conversation.Id &&
+                message.AuthorUserId != userId &&
+                message.DeletedAt == null &&
+                !dbContext.ReadStates.Any(readState =>
+                    readState.ConversationId == conversation.Id &&
+                    readState.UserId == userId &&
+                    readState.LastReadAt >= message.CreatedAt)));
+        var mentions = all.Where(conversation =>
+            dbContext.Notifications.Any(notification =>
+                notification.UserId == userId &&
+                !notification.IsRead &&
+                notification.DeletedAt == null &&
+                notification.NotificationType == NotificationType.Mention &&
+                notification.RelatedEntityType == "Message" &&
+                notification.RelatedEntityId.HasValue &&
+                dbContext.Messages.Any(message =>
+                    message.Id == notification.RelatedEntityId.Value &&
+                    message.ConversationId == conversation.Id &&
+                    message.DeletedAt == null)));
+        var later = all.Where(conversation =>
+            dbContext.ConversationMembers.Any(member =>
+                member.ConversationId == conversation.Id &&
+                member.UserId == userId &&
+                member.LeftAt == null &&
+                member.RemovedAt == null &&
+                member.CanRead &&
+                member.IsLater));
+
+        var counts = new ConversationInboxCountsResponse(
+            await all.CountAsync(cancellationToken),
+            await unread.CountAsync(cancellationToken),
+            await mentions.CountAsync(cancellationToken),
+            await later.CountAsync(cancellationToken));
+        var selected = view switch
+        {
+            ConversationInboxView.Unread => unread,
+            ConversationInboxView.Mentions => mentions,
+            ConversationInboxView.Later => later,
+            _ => all
+        };
+        var total = view switch
+        {
+            ConversationInboxView.Unread => counts.Unread,
+            ConversationInboxView.Mentions => counts.Mentions,
+            ConversationInboxView.Later => counts.Later,
+            _ => counts.All
+        };
+        var items = await selected
+            .OrderByDescending(conversation => conversation.UpdatedAt ?? conversation.CreatedAt)
+            .ThenBy(conversation => conversation.Id)
+            .Skip(skip)
+            .Take(pageSize)
+            .ToListAsync(cancellationToken);
+
+        return new ConversationInboxRepositoryResult(
+            new PagedResponse<Conversation>(items, page, pageSize, total),
+            counts);
+    }
+
     public IQueryable<Guid>? QueryReadableConversationIds(Guid userId)
     {
         return UsesPostgreSql()
@@ -285,10 +373,32 @@ public sealed class MessagingRepository(AppDbContext dbContext) : IMessagingRepo
         IQueryable<Conversation> candidates,
         CancellationToken cancellationToken)
     {
-        var skip = ((long)page - 1L) * pageSize;
+        var skip = (int)Math.Min(((long)page - 1L) * pageSize, int.MaxValue);
+        var readableIds = await ListReadableConversationIdsNonPostgreSqlAsync(
+            userId,
+            candidates,
+            cancellationToken);
+        var pageIds = readableIds.Skip(skip).Take(pageSize).ToArray();
+
+        var selected = await dbContext.Conversations
+            .AsNoTracking()
+            .Where(conversation => pageIds.Contains(conversation.Id))
+            .ToDictionaryAsync(conversation => conversation.Id, cancellationToken);
+        var items = pageIds
+            .Where(selected.ContainsKey)
+            .Select(id => selected[id])
+            .ToList();
+
+        return new PagedResponse<Conversation>(items, page, pageSize, readableIds.Count);
+    }
+
+    private async Task<IReadOnlyList<Guid>> ListReadableConversationIdsNonPostgreSqlAsync(
+        Guid userId,
+        IQueryable<Conversation> candidates,
+        CancellationToken cancellationToken)
+    {
         var candidateOffset = 0;
-        var total = 0;
-        var pageIds = new List<Guid>(pageSize);
+        var result = new List<Guid>();
 
         while (true)
         {
@@ -309,32 +419,10 @@ public sealed class MessagingRepository(AppDbContext dbContext) : IMessagingRepo
                 userId,
                 batch,
                 cancellationToken);
-            foreach (var candidateId in batch)
-            {
-                if (!readableIds.Contains(candidateId))
-                {
-                    continue;
-                }
-
-                if ((long)total >= skip && pageIds.Count < pageSize)
-                {
-                    pageIds.Add(candidateId);
-                }
-
-                total++;
-            }
+            result.AddRange(batch.Where(readableIds.Contains));
         }
 
-        var selected = await dbContext.Conversations
-            .AsNoTracking()
-            .Where(conversation => pageIds.Contains(conversation.Id))
-            .ToDictionaryAsync(conversation => conversation.Id, cancellationToken);
-        var items = pageIds
-            .Where(selected.ContainsKey)
-            .Select(id => selected[id])
-            .ToList();
-
-        return new PagedResponse<Conversation>(items, page, pageSize, total);
+        return result;
     }
 
     private bool UsesPostgreSql() =>

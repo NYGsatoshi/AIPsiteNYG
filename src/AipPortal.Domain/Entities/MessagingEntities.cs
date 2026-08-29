@@ -48,6 +48,7 @@ public sealed class ConversationMember : AuditableEntity, ITenantEntity
     public Guid? UnreadCursorMessageId { get; set; }
     public bool IsMuted { get; set; }
     public bool IsArchived { get; set; }
+    public bool IsLater { get; set; }
 
     public Conversation? Conversation { get; set; }
     public User? User { get; set; }

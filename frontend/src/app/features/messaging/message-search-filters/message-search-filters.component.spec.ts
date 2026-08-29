@@ -4,13 +4,18 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 
 import { MessageSearchFiltersComponent } from './message-search-filters.component';
-import { MessagingConversationListItem } from '../messaging.types';
+import { MessagingConversationListItem, MessagingInboxViewModel } from '../messaging.types';
 
 const workspaceId = '11111111-1111-4111-8111-111111111111';
 const unreadMentionId = '22222222-2222-4222-8222-222222222222';
 const unreadOnlyId = '33333333-3333-4333-8333-333333333333';
 const mentionOnlyId = '44444444-4444-4444-8444-444444444444';
 const messageId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const inboxAll: MessagingInboxViewModel = {
+  view: 'All',
+  counts: { all: 3, unread: 2, mentions: 2, later: 0 },
+  status: 'ready'
+};
 
 const conversations: readonly MessagingConversationListItem[] = [
   {
@@ -60,6 +65,7 @@ describe('MessageSearchFiltersComponent', () => {
 
     fixture = TestBed.createComponent(MessageSearchFiltersComponent);
     fixture.componentRef.setInput('conversations', conversations);
+    fixture.componentRef.setInput('inbox', inboxAll);
     fixture.detectChanges();
     httpMock = TestBed.inject(HttpTestingController);
   });
@@ -69,11 +75,23 @@ describe('MessageSearchFiltersComponent', () => {
     TestBed.resetTestingModule();
   });
 
-  it('toggles, combines, removes, and clears authorized conversation quick filters', async () => {
+  it('requests mutually exclusive server views and renders only authoritative rows and counts', async () => {
     const root = fixture.nativeElement as HTMLElement;
+    const requested: string[] = [];
+    fixture.componentInstance.inboxViewChanged.subscribe((view) => requested.push(view));
     expect(conversationRows(root)).toHaveLength(3);
+    expect(testElement(root, 'message-filter-all').textContent).toContain('3');
+    expect(testElement(root, 'message-filter-unread').textContent).toContain('2');
 
     click(root, '[data-testid="message-filter-unread"]');
+    expect(requested).toEqual(['Unread']);
+    expect(conversationRows(root)).toHaveLength(3);
+    fixture.componentRef.setInput('conversations', conversations.slice(0, 2));
+    fixture.componentRef.setInput('inbox', {
+      view: 'Unread',
+      counts: { all: 3, unread: 2, mentions: 2, later: 0 },
+      status: 'ready'
+    } satisfies MessagingInboxViewModel);
     fixture.detectChanges();
     expect(conversationRows(root)).toHaveLength(2);
     expect(testElement(root, 'message-filter-unread').getAttribute('aria-pressed')).toBe('true');
@@ -83,30 +101,51 @@ describe('MessageSearchFiltersComponent', () => {
     ).not.toBeNull();
     expect(
       testElement(root, 'message-active-unread-chip').querySelector('button')?.getAttribute('aria-label')
-    ).toBe('Remove filter Conversation: Unread');
+    ).toBe('Remove filter Inbox: Unread');
 
     click(root, '[data-testid="message-filter-mentions"]');
+    expect(requested).toEqual(['Unread', 'Mentions']);
+    fixture.componentRef.setInput('conversations', [conversations[0], conversations[2]]);
+    fixture.componentRef.setInput('inbox', {
+      view: 'Mentions',
+      counts: { all: 3, unread: 2, mentions: 2, later: 0 },
+      status: 'ready'
+    } satisfies MessagingInboxViewModel);
     fixture.detectChanges();
-    expect(conversationRows(root)).toHaveLength(1);
-    expect(conversationRows(root)[0].textContent).toContain('Unread mention');
-    expect(testElement(root, 'message-active-mentions-chip')).not.toBeNull();
-
-    click(root, '[data-testid="message-active-unread-chip"] button');
-    fixture.detectChanges();
-    await nextTask();
     expect(conversationRows(root)).toHaveLength(2);
-    expect(conversationRows(root).map((row) => row.textContent)).toEqual(
-      expect.arrayContaining([expect.stringContaining('Unread mention'), expect.stringContaining('Mention only')])
-    );
-    expect(document.activeElement).toBe(testElement(root, 'message-filter-unread'));
+    expect(testElement(root, 'message-active-mentions-chip')).not.toBeNull();
+    expect(root.querySelector('[data-testid="message-active-unread-chip"]')).toBeNull();
+
+    click(root, '[data-testid="message-active-mentions-chip"] button');
+    await nextTask();
+    expect(requested).toEqual(['Unread', 'Mentions', 'All']);
+    expect(document.activeElement).toBe(testElement(root, 'message-filter-mentions'));
 
     click(root, '[data-testid="message-filters-clear-all"]');
-    fixture.detectChanges();
     await nextTask();
-    expect(conversationRows(root)).toHaveLength(3);
-    expect(root.querySelector('[data-testid="message-active-filters"]')).toBeNull();
     expect(root.textContent).not.toContain('Has file');
     expect(document.activeElement).toBe(testElement(root, 'message-search-input'));
+  });
+
+  it('emits a private Later change and exposes one pending mutation without changing unread state', () => {
+    const root = fixture.nativeElement as HTMLElement;
+    const changes: Array<{ conversationId: string; isLater: boolean }> = [];
+    fixture.componentInstance.conversationLaterChanged.subscribe((change) => changes.push(change));
+
+    click(root, '[data-testid="conversation-later-toggle"]');
+    expect(changes).toEqual([{ conversationId: unreadMentionId, isLater: true }]);
+
+    fixture.componentRef.setInput('inbox', {
+      ...inboxAll,
+      status: 'loading',
+      requestedView: 'All',
+      laterPendingConversationId: unreadMentionId
+    } satisfies MessagingInboxViewModel);
+    fixture.detectChanges();
+    const toggles = Array.from(root.querySelectorAll<HTMLButtonElement>('[data-testid="conversation-later-toggle"]'));
+    expect(toggles.every((button) => button.disabled)).toBe(true);
+    expect(toggles[0].textContent).toContain('Saving');
+    expect(conversationRows(root)[0].textContent).toContain('Unread');
   });
 
   it('uses only the canonical Message search and renders validated authorized results', () => {
