@@ -15,6 +15,7 @@ describe('files api mapper', () => {
       uploadedByDisplayName: 'Fixture User',
       createdAt: '2026-07-08T00:00:00Z',
       updatedAt: '2026-07-09T12:30:00Z',
+      canDelete: true,
     });
 
     expect(vm.id).toBe('attachment-1');
@@ -23,9 +24,31 @@ describe('files api mapper', () => {
     expect(vm.kind).toBe('pdf');
     expect(vm.downloadPolicy).toBe('available');
     expect(vm.capabilities).toEqual(['download']);
+    expect(vm.canDelete).toBe(true);
     expect(vm.uploadedByDisplay).toBe('Fixture User');
     expect(vm.modifiedAtLabel).toBe(new Date('2026-07-09T12:30:00Z').toLocaleString());
     expect(vm.createdAtLabel).toBe(new Date('2026-07-08T00:00:00Z').toLocaleString());
+  });
+
+  it('maps a missing or malformed delete capability fail-closed', () => {
+    const missing = mapFileListItem({
+      id: 'attachment-missing',
+      fileObjectId: 'file-missing',
+      originalFileName: 'missing.txt',
+      status: 'Active',
+      scanStatus: 'Clean',
+    });
+    const malformed = mapFileListItem({
+      id: 'attachment-malformed',
+      fileObjectId: 'file-malformed',
+      originalFileName: 'malformed.txt',
+      status: 'Active',
+      scanStatus: 'Clean',
+      canDelete: 'true',
+    });
+
+    expect(missing.canDelete).toBe(false);
+    expect(malformed.canDelete).toBe(false);
   });
 
   it('falls back to createdAt when the backend has no updated timestamp', () => {

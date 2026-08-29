@@ -249,6 +249,64 @@ an arbitrary Conversation subset first. Delayed
 `Messaging.ConversationUnreadChanged.v1` delivery parses its Conversation
 identity and rechecks current Conversation/Project authorization.
 
+Issue #346's My Tasks saved filters are browser presentation state, not an
+authorization cache. A strict, versioned local record is keyed by the resolved
+active Tenant, authenticated user, and `my-tasks` screen. An unresolved
+identity reads and writes nothing. The payload contains only approved query
+inputs; it excludes Task rows/counts/titles, Workspace or Project labels,
+permissions, capabilities, and authorization results. Malformed records,
+unknown versions/enums, duplicate identities, and unexpected fields are
+discarded. Storage failure leaves filtering usable and is announced without
+making an unpersisted record appear saved.
+
+Applying a saved opaque Project ID always calls both canonical My Tasks
+endpoints, which recheck current Project/Workspace/Tenant access. A stale,
+revoked, or cross-Tenant ID therefore produces the established denied,
+not-found, or authorized-empty behavior with no row, count, title, or snippet
+leak. The browser does not resolve or show
+a cached Project label or raw saved ID; it presents only a generic active
+Project condition. Authorization invalidation synchronously clears active
+filter execution and protected results while harmless namespaced saved-filter
+descriptors may remain available for a later server-authorized query.
+
+### Continue-working history boundary
+
+Issue #330's Continue-working history is local presentation state, never an
+authorization or synchronization source. Its strict versioned record is
+partitioned by the resolved active Tenant, authenticated user, and exact active
+Workspace. Each item has exactly a `project` or `file` kind, one resource UUID,
+and a local `lastOpenedUtc`; it excludes titles, filenames, statuses, snippets,
+counts, capabilities, permissions, grants, raw tokens, Blob content, and
+authorization results. Malformed, oversized, unknown-version, or unexpected
+records are discarded. At most eight opaque records are stored.
+
+Before rendering, the browser reauthorizes each candidate through its exact
+Project or File detail route with at most three requests in flight and validates
+both returned resource ID and Workspace ID. Only current response labels,
+statuses, and timestamps are rendered. Denied, deleted, or mismatched records
+are hidden and pruned. A transient response retains only its opaque record for a
+manual retry and never renders cached protected metadata. At most six cards are
+shown. A canonically redacted filename remains the generic `File` label.
+
+Authentication, Tenant, user, active-Workspace, and same-session authorization
+invalidation boundaries synchronously clear rendered cards, cancel hydration
+and downloads, and generation-guard late responses. A realtime catch-up can
+only start the same authoritative detail reads again. Project detail touches a
+Project after its authorized response is applied; authorized Task detail may
+touch only its parent Project and never creates a Task card. File history is
+touched only after a short-lived grant and Blob download both succeed. The
+captured Task Workspace and FileObject must still match through grant and Blob
+completion; a late response after a Workspace change produces no download
+state, retry, or history side effect. Grant tokens remain request-local and are
+never written to browser state.
+
+Empty-state actions consume existing server projections: New Research requires
+`canOpenProjectCreate`; Browse Files uses the read-equivalent `canOpenWorkspace`
+projection because Workspace File inventory uses the same current
+`CanViewWorkspace` policy. The separate `canAddFiles` mutation capability does
+not authorize Browse. Server endpoints remain authoritative for every direct
+read or download.
+
 WPC-02A persists `WorkspaceVisible`, `MembersOnly`, and `Restricted` and the
 current Project read boundary enforces those values. Pre-migration `NULL`
 Visibility remains an explicit legacy compatibility state; it is never
@@ -289,6 +347,50 @@ Blocked is independent of Workflow Stage. The API preserves the configured
 Stage display name and serializes the fixed category as one of Backlog, Todo,
 InProgress, Review, Done, or Cancelled. It does not transform a digest-job
 `Failed` state into a Task state.
+
+### Task execution source-scope foundation boundary
+
+Issue #357's Task execution foundation is not an execution or retrieval
+feature. The current Project-read boundary protects scope reads. The current
+Project-management boundary protects Project default changes, Task override
+changes, and immutable run requests; a browser role, Task assignee state, or
+hidden control is never authority. Missing, cross-Tenant, deleted, and denied
+Project/Task identities return the generic not-found result.
+
+Issue #410 reuses that boundary only to create a Task and, when a current
+Project manager chooses it, to persist a complete Task override atomically
+with that Task. It does not widen Issue #357 into execution. The canonical
+create command rechecks the actor's current Task-create authority and all
+mutable Project/Milestone/member selections inside the idempotency-owned
+transaction; create-options data and hidden browser controls are advisory
+only. A Task creator without management authority may create an unassigned
+inheriting Task, but cannot choose an initial primary assignee or source-scope
+override. A same-key replay also rechecks current Task-create authority and
+returns the current authorized resource, rather than disclosing a historical
+Task after the actor has lost access.
+
+Issue #354 adds no API, persistence, capability, or authorization surface.
+Its browser-only pre-create checklist reads only the already-authorized
+Task-create form values: optional Task Brief text and the effective Project
+default or manager-authorized complete Task source policy. It never derives a
+Brief from `Project.Description`, sends a mutation, changes whether Create is
+allowed, enables an otherwise disabled source type, or exposes source
+identifiers, content, providers, or runtime state. A missing-item action only
+focuses the matching existing browser form control.
+
+Only the effective two-boolean policy (`WebEnabled` and
+`ProjectFilesEnabled`), its origin/version, and a safe latest policy snapshot
+are projected. The API, audit metadata, realtime invalidations, and runtime
+handle exclude URLs/hosts, source or file IDs/names/counts, raw source/file
+content, credentials, storage keys, prompts, provider configuration, and
+outputs. Required audit staging is fail-closed, and the database guards copied
+Tenant/Workspace/Project scope plus append-only immutable run snapshots.
+
+The only runtime port is deterministic unavailable/no-I/O. It cannot make an
+outbound request or access file material. Web egress, redirect/IP/SSRF policy,
+content retention, revocation, source capture, provider selection, and output
+authorization remain unapproved future work; the foundation must not be used
+to imply their security controls exist.
 
 ### Immediate Task notification boundary
 

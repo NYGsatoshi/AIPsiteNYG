@@ -75,6 +75,28 @@ export interface MessageDto {
   readonly isDeleted?: unknown;
   readonly clientRequestId?: unknown;
   readonly version?: unknown;
+  readonly threadRootMessageId?: unknown;
+  readonly thread?: MessageThreadSummaryDto | null;
+}
+
+export interface MessageThreadSummaryDto {
+  readonly threadRootMessageId?: unknown;
+  readonly replyCount?: unknown;
+  readonly latestReplyAt?: unknown;
+  readonly participantDisplayNames?: readonly unknown[];
+}
+
+export interface MessageThreadDto {
+  readonly rootMessage?: MessageDto;
+  readonly replies?: readonly MessageDto[];
+  readonly summary?: MessageThreadSummaryDto;
+  readonly hasMore?: unknown;
+  readonly maximumReplies?: unknown;
+}
+
+export interface ThreadMessageCreatedDto {
+  readonly message?: MessageDto;
+  readonly summary?: MessageThreadSummaryDto;
 }
 
 export interface ConversationRecipientDto {
@@ -148,6 +170,47 @@ export class MessagingApi {
     return this.http.post<MessageDto>(
       `/api/conversations/${conversationId}/messages`,
       { body, clientRequestId, mentionedUserIds },
+      { withCredentials: true }
+    );
+  }
+
+  getMessageThread(messageId: string): Observable<MessageThreadDto> {
+    return this.http.get<MessageThreadDto>(`/api/messages/${messageId}/thread`, {
+      withCredentials: true
+    });
+  }
+
+  sendThreadMessage(
+    messageId: string,
+    body: string,
+    clientRequestId?: string,
+    mentionedUserIds: readonly string[] = []
+  ): Observable<ThreadMessageCreatedDto> {
+    return this.http.post<ThreadMessageCreatedDto>(
+      `/api/messages/${messageId}/thread/messages`,
+      { body, clientRequestId, mentionedUserIds },
+      { withCredentials: true }
+    );
+  }
+
+  updateMessage(messageId: string, body: string): Observable<MessageDto> {
+    return this.http.patch<MessageDto>(
+      `/api/messages/${messageId}`,
+      { body },
+      { withCredentials: true }
+    );
+  }
+
+  deleteMessage(messageId: string): Observable<unknown> {
+    return this.http.delete(`/api/messages/${messageId}`, {
+      withCredentials: true
+    });
+  }
+
+  reportMessage(messageId: string, reasonCode: string): Observable<unknown> {
+    return this.http.post(
+      `/api/messages/${messageId}/report`,
+      { reasonCode },
       { withCredentials: true }
     );
   }

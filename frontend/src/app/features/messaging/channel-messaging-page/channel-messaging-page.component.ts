@@ -104,6 +104,12 @@ export class ChannelMessagingPageComponent {
       this.page().status !== 'sessionExpired',
   );
 
+  readonly canCreateThread = computed(() =>
+    this.canPost() && this.page().conversation.capabilities.includes('createThread'),
+  );
+
+  readonly threadOpen = computed(() => this.facade.thread().status !== 'closed');
+
   readonly composerDisabledReason = computed(() => {
     const page = this.page();
     if (page.conversation.viewerWasRemoved) {

@@ -1,5 +1,10 @@
 <section class="recent-files" aria-label="Recent files" data-testid="recent-files-list">
   @for (file of files; track file.id) {
-    <app-file-row [file]="file" (downloadRequested)="downloadRequested.emit($event)" />
+    <app-file-row
+      [file]="file"
+      [selected]="selectedFileIds.has(file.id)"
+      (selectionChanged)="selectionChanged.emit($event)"
+      (downloadRequested)="downloadRequested.emit($event)"
+    />
   }
 </section>

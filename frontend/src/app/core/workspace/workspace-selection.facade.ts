@@ -218,7 +218,8 @@ export class WorkspaceSelectionFacade {
   ): WorkspaceSelectionSnapshot {
     const currentWorkspaceId =
       this.selectedWorkspaceId ?? this.activeWorkspace.activeWorkspace()?.id ?? null;
-    if (currentWorkspaceId !== null && currentWorkspaceId !== workspace.id) {
+    const switchedWorkspace = currentWorkspaceId !== null && currentWorkspaceId !== workspace.id;
+    if (switchedWorkspace) {
       this.realtime.clearForWorkspaceBoundary();
       this.selectionOperationGeneration++;
       this.transitionRevisionState.update((revision) => revision + 1);
@@ -239,6 +240,13 @@ export class WorkspaceSelectionFacade {
       source,
     };
     this.selectionState.set(next);
+    if (switchedWorkspace) {
+      // The replacement scope is now committed. Rehydrate protected feature
+      // projections from their own server-authorized HTTP reads, rather than
+      // retaining the scope that was cleared above. This also covers the
+      // HTTP-only rollout where no SignalR reconnect will run catch-ups.
+      void this.realtime.runAuthoritativeHttpCatchUps();
+    }
     return next;
   }
 

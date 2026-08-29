@@ -22,6 +22,15 @@ export type FileUploadState =
 
 export type FileDownloadState = 'idle' | 'pending' | 'succeeded' | 'failed';
 
+export type FileDeleteState = 'idle' | 'pending' | 'succeeded' | 'partial' | 'failed';
+
+export interface FileDeleteViewModel {
+  readonly state: FileDeleteState;
+  readonly message?: string;
+  readonly succeededCount: number;
+  readonly failedCount: number;
+}
+
 export type FileQuotaState = 'available' | 'exceeded' | 'exceptionRequested' | 'exceptionApproved' | 'exceptionRejected';
 
 export interface FileUploadViewModel {
@@ -59,6 +68,8 @@ export interface FileViewModel {
   readonly kind: FileKind;
   readonly downloadPolicy: FileDownloadPolicy;
   readonly capabilities: readonly FileCapability[];
+  /** Server-projected capability. Missing or malformed values must map to false. */
+  readonly canDelete: boolean;
   readonly downloadState?: FileDownloadState;
   readonly downloadMessage?: string;
   readonly safeStatusLabel?: string;

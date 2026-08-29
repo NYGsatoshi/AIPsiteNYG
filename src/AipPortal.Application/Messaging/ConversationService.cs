@@ -23,9 +23,12 @@ public sealed class ConversationService(
     INotificationService notifications,
     ITransactionalOutbox outbox,
     ICurrentTenant currentTenant,
+    IMessageIdempotencyCommitCoordinator messageIdempotency,
     IUnitOfWork unitOfWork) : IConversationService
 {
     private const long MaxAttachmentBytes = 25 * 1024 * 1024;
+    private const int MaximumThreadReplies = 100;
+    private const int MaximumThreadParticipantNames = 3;
     private static readonly HashSet<string> AllowedExtensions = [".pdf", ".png", ".jpg", ".jpeg", ".gif", ".txt", ".docx", ".xlsx", ".pptx", ".zip"];
 
     public async Task<Result<PagedResponse<ConversationListItemResponse>>> ListAsync(ConversationListQuery query, CancellationToken cancellationToken = default)
@@ -366,10 +369,30 @@ public sealed class ConversationService(
         }
 
         var page = await messaging.ListMessagesAsync(conversationId, query.SafeLimit, query.Before, cancellationToken);
-        return Result<PagedResponse<MessageResponse>>.Success(new PagedResponse<MessageResponse>(page.Items.Select(ToMessage).ToList(), 1, query.SafeLimit, page.TotalCount));
+        var threadSummaries = await messaging.GetThreadSummariesAsync(
+            conversationId,
+            page.Items.Select(message => message.Id).ToArray(),
+            MaximumThreadParticipantNames,
+            cancellationToken);
+        return Result<PagedResponse<MessageResponse>>.Success(new PagedResponse<MessageResponse>(
+            page.Items
+                .Select(message => ToMessage(message, threadSummaries.GetValueOrDefault(message.Id)))
+                .ToList(),
+            1,
+            query.SafeLimit,
+            page.TotalCount));
     }
 
-    public async Task<Result<MessageResponse>> SendMessageAsync(Guid conversationId, SendMessageRequest request, CancellationToken cancellationToken = default)
+    public Task<Result<MessageResponse>> SendMessageAsync(Guid conversationId, SendMessageRequest request, CancellationToken cancellationToken = default)
+    {
+        return SendMessageCoreAsync(conversationId, request, threadRootMessageId: null, cancellationToken);
+    }
+
+    private async Task<Result<MessageResponse>> SendMessageCoreAsync(
+        Guid conversationId,
+        SendMessageRequest request,
+        Guid? threadRootMessageId,
+        CancellationToken cancellationToken)
     {
         if (!TryCurrentUser(out var userId)) return Result<MessageResponse>.Failure("You are not allowed to send messages.");
         if (!await authorization.CanSendMessage(userId, conversationId, cancellationToken))
@@ -386,6 +409,10 @@ public sealed class ConversationService(
             var existing = await messaging.FindMessageByClientRequestIdAsync(conversationId, userId, request.ClientRequestId.Value, cancellationToken);
             if (existing is not null)
             {
+                if (existing.ThreadRootMessageId != threadRootMessageId)
+                {
+                    return Result<MessageResponse>.Failure("Client request identity is already used for another message target.");
+                }
                 return Result<MessageResponse>.Success(ToMessage(existing));
             }
         }
@@ -452,6 +479,7 @@ public sealed class ConversationService(
             AuthorUserId = userId,
             Body = normalizedBody,
             ClientRequestId = request.ClientRequestId,
+            ThreadRootMessageId = threadRootMessageId,
             Version = 1,
             CreatedAt = clock.UtcNow
         };
@@ -484,15 +512,199 @@ public sealed class ConversationService(
                 await notifications.NotifyAsync(member.UserId, "New direct message", "You have a new message.", "Message", message.Id, cancellationToken);
             }
         }
-        await LogCommunicationAuditAsync(userId, "communication.message_posted", "Message", message.Id, conversation, message.Id, conversation.Type == ConversationType.Thread ? conversation.Id : null, "allow", "posted", cancellationToken);
+        await LogCommunicationAuditAsync(
+            userId,
+            threadRootMessageId.HasValue ? "communication.thread_reply_posted" : "communication.message_posted",
+            "Message",
+            message.Id,
+            conversation,
+            message.Id,
+            threadRootMessageId ?? (conversation.Type == ConversationType.Thread ? conversation.Id : null),
+            "allow",
+            threadRootMessageId.HasValue ? "thread_reply_posted" : "posted",
+            cancellationToken);
         message.AuthorUser = await users.GetByIdAsync(userId, cancellationToken);
         var createdEvent = await EnqueueMessageCreatedAsync(conversation, message, userId, cancellationToken);
         if (!createdEvent.IsSuccess)
         {
             return Result<MessageResponse>.Failure(createdEvent.Error!);
         }
-        await unitOfWork.SaveChangesAsync(cancellationToken);
-        return Result<MessageResponse>.Success(ToMessage(message));
+        if (threadRootMessageId.HasValue)
+        {
+            var existingSummary = await messaging.GetThreadSummaryAsync(
+                conversationId,
+                threadRootMessageId.Value,
+                MaximumThreadParticipantNames,
+                cancellationToken: cancellationToken);
+            var threadChanged = await EnqueueThreadChangedAsync(
+                conversation,
+                threadRootMessageId.Value,
+                existingSummary.ReplyCount + 1,
+                message.CreatedAt,
+                "replyCreated",
+                userId,
+                cancellationToken);
+            if (!threadChanged.IsSuccess)
+            {
+                return Result<MessageResponse>.Failure(threadChanged.Error!);
+            }
+        }
+        var committedMessage = message;
+        if (request.ClientRequestId.HasValue)
+        {
+            var commitResult = await messageIdempotency.CommitAsync(message, cancellationToken);
+            committedMessage = commitResult.Message;
+            if (committedMessage.ThreadRootMessageId != threadRootMessageId)
+            {
+                return Result<MessageResponse>.Failure("Client request identity is already used for another message target.");
+            }
+        }
+        else
+        {
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+        return Result<MessageResponse>.Success(ToMessage(committedMessage));
+    }
+
+    public async Task<Result<MessageThreadResponse>> GetMessageThreadAsync(
+        Guid messageId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryCurrentUser(out var userId))
+        {
+            return Result<MessageThreadResponse>.Failure("Message thread not found.");
+        }
+
+        var rootMessage = await messaging.GetMessageAsync(messageId, cancellationToken);
+        if (rootMessage is null || rootMessage.ThreadRootMessageId.HasValue)
+        {
+            return await DenyAsync<MessageThreadResponse>(
+                userId,
+                "MessageThreadAccessDenied",
+                "Message",
+                messageId,
+                "Message thread not found.",
+                cancellationToken,
+                "thread_root_invalid");
+        }
+
+        var conversation = await messaging.GetConversationAsync(rootMessage.ConversationId, cancellationToken);
+        if (conversation is null ||
+            conversation.Type == ConversationType.Thread ||
+            !await authorization.CanViewConversation(userId, rootMessage.ConversationId, cancellationToken))
+        {
+            return await DenyAsync<MessageThreadResponse>(
+                userId,
+                "MessageThreadAccessDenied",
+                "Message",
+                messageId,
+                "Message thread not found.",
+                cancellationToken,
+                "conversation_read_denied");
+        }
+
+        var replyPage = await messaging.ListThreadRepliesAsync(
+            rootMessage.ConversationId,
+            rootMessage.Id,
+            MaximumThreadReplies,
+            before: null,
+            cancellationToken: cancellationToken);
+        var summary = await messaging.GetThreadSummaryAsync(
+            rootMessage.ConversationId,
+            rootMessage.Id,
+            MaximumThreadParticipantNames,
+            cancellationToken: cancellationToken);
+        var replies = replyPage.Items
+            .OrderBy(message => message.CreatedAt)
+            .ThenBy(message => message.Id)
+            .Select(message => ToMessage(message))
+            .ToList();
+        return Result<MessageThreadResponse>.Success(new MessageThreadResponse(
+            ToMessage(rootMessage, summary),
+            replies,
+            summary,
+            replyPage.TotalCount > replies.Count,
+            MaximumThreadReplies));
+    }
+
+    public async Task<Result<ThreadMessageCreatedResponse>> SendThreadMessageAsync(
+        Guid messageId,
+        SendThreadMessageRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryCurrentUser(out var userId))
+        {
+            return Result<ThreadMessageCreatedResponse>.Failure("Message thread not found.");
+        }
+
+        var rootMessage = await messaging.GetMessageAsync(messageId, cancellationToken);
+        if (rootMessage is null || rootMessage.ThreadRootMessageId.HasValue || rootMessage.DeletedAt.HasValue)
+        {
+            return await DenyAsync<ThreadMessageCreatedResponse>(
+                userId,
+                "MessageThreadReplyDenied",
+                "Message",
+                messageId,
+                "Message thread not found.",
+                cancellationToken,
+                rootMessage?.DeletedAt.HasValue == true ? "thread_root_deleted" : "thread_root_invalid");
+        }
+
+        var conversation = await messaging.GetConversationAsync(rootMessage.ConversationId, cancellationToken);
+        if (conversation is null ||
+            conversation.Type == ConversationType.Thread ||
+            !await authorization.CanSendMessage(userId, rootMessage.ConversationId, cancellationToken))
+        {
+            return await DenyAsync<ThreadMessageCreatedResponse>(
+                userId,
+                "MessageThreadReplyDenied",
+                "Message",
+                messageId,
+                "Message thread not found.",
+                cancellationToken,
+                "conversation_post_denied");
+        }
+
+        var existingSummary = await messaging.GetThreadSummaryAsync(
+            rootMessage.ConversationId,
+            rootMessage.Id,
+            MaximumThreadParticipantNames,
+            cancellationToken: cancellationToken);
+        if (existingSummary.ReplyCount == 0 &&
+            !await authorization.CanCreateThread(userId, rootMessage.ConversationId, cancellationToken))
+        {
+            return await DenyAsync<ThreadMessageCreatedResponse>(
+                userId,
+                "MessageThreadReplyDenied",
+                "Message",
+                messageId,
+                "Message thread not found.",
+                cancellationToken,
+                "thread_create_denied");
+        }
+
+        var sendResult = await SendMessageCoreAsync(
+            rootMessage.ConversationId,
+            new SendMessageRequest(
+                request.Body,
+                Attachments: null,
+                ClientRequestId: request.ClientRequestId,
+                MentionedUserIds: request.MentionedUserIds),
+            rootMessage.Id,
+            cancellationToken);
+        if (!sendResult.IsSuccess)
+        {
+            return Result<ThreadMessageCreatedResponse>.Failure(sendResult.Error!);
+        }
+
+        var summary = await messaging.GetThreadSummaryAsync(
+            rootMessage.ConversationId,
+            rootMessage.Id,
+            MaximumThreadParticipantNames,
+            cancellationToken: cancellationToken);
+        return Result<ThreadMessageCreatedResponse>.Success(new ThreadMessageCreatedResponse(
+            sendResult.Value!,
+            summary));
     }
 
     public async Task<Result<MessageResponse>> UpdateMessageAsync(Guid messageId, UpdateMessageRequest request, CancellationToken cancellationToken = default)
@@ -518,6 +730,26 @@ public sealed class ConversationService(
         {
             return Result<MessageResponse>.Failure(updatedEvent.Error!);
         }
+        if (message.ThreadRootMessageId.HasValue)
+        {
+            var summary = await messaging.GetThreadSummaryAsync(
+                message.ConversationId,
+                message.ThreadRootMessageId.Value,
+                MaximumThreadParticipantNames,
+                cancellationToken: cancellationToken);
+            var threadChanged = await EnqueueThreadChangedAsync(
+                conversation,
+                message.ThreadRootMessageId.Value,
+                summary.ReplyCount,
+                summary.LatestReplyAt,
+                "replyUpdated",
+                userId,
+                cancellationToken);
+            if (!threadChanged.IsSuccess)
+            {
+                return Result<MessageResponse>.Failure(threadChanged.Error!);
+            }
+        }
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result<MessageResponse>.Success(ToMessage(message));
     }
@@ -542,6 +774,26 @@ public sealed class ConversationService(
         if (!deletedEvent.IsSuccess)
         {
             return Result.Failure(deletedEvent.Error!);
+        }
+        if (message.ThreadRootMessageId.HasValue)
+        {
+            var summary = await messaging.GetThreadSummaryAsync(
+                message.ConversationId,
+                message.ThreadRootMessageId.Value,
+                MaximumThreadParticipantNames,
+                cancellationToken: cancellationToken);
+            var threadChanged = await EnqueueThreadChangedAsync(
+                conversation,
+                message.ThreadRootMessageId.Value,
+                summary.ReplyCount,
+                summary.LatestReplyAt,
+                "replyDeleted",
+                userId,
+                cancellationToken);
+            if (!threadChanged.IsSuccess)
+            {
+                return Result.Failure(threadChanged.Error!);
+            }
         }
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result.Success();
@@ -1132,7 +1384,30 @@ public sealed class ConversationService(
         member.JoinedAt,
         member.LeftAt,
         member.RemovedAt);
-    private static MessageResponse ToMessage(Message message) => new(message.Id, message.WorkspaceId, message.ConversationId, message.AuthorUserId, message.AuthorUser?.DisplayName ?? string.Empty, message.DeletedAt.HasValue ? string.Empty : message.Body, message.Attachments.Select(a => new AttachmentResponse(a.AttachmentId, a.Attachment?.FileName ?? string.Empty, a.Attachment?.ContentType ?? string.Empty, a.Attachment?.SizeBytes ?? 0)).ToList(), message.CreatedAt, message.UpdatedAt, message.EditedAt, message.DeletedAt.HasValue, message.ClientRequestId, message.Version);
+    private static MessageResponse ToMessage(
+        Message message,
+        MessageThreadSummaryResponse? threadSummary = null) => new(
+        message.Id,
+        message.WorkspaceId,
+        message.ConversationId,
+        message.AuthorUserId,
+        message.AuthorUser?.DisplayName ?? string.Empty,
+        message.DeletedAt.HasValue ? string.Empty : message.Body,
+        message.DeletedAt.HasValue
+            ? []
+            : message.Attachments.Select(link => new AttachmentResponse(
+                link.AttachmentId,
+                link.Attachment?.FileName ?? string.Empty,
+                link.Attachment?.ContentType ?? string.Empty,
+                link.Attachment?.SizeBytes ?? 0)).ToList(),
+        message.CreatedAt,
+        message.UpdatedAt,
+        message.EditedAt,
+        message.DeletedAt.HasValue,
+        message.ClientRequestId,
+        message.Version,
+        message.ThreadRootMessageId,
+        threadSummary);
 
     private Task<Result<Guid>> EnqueueMessageCreatedAsync(Conversation conversation, Message message, Guid actorUserId, CancellationToken cancellationToken)
     {
@@ -1148,6 +1423,7 @@ public sealed class ConversationService(
                 updatedAt = message.UpdatedAt,
                 version = message.Version,
                 clientRequestId = message.ClientRequestId,
+                threadRootMessageId = message.ThreadRootMessageId,
                 attachmentSummaries = Array.Empty<object>()
             }
         });
@@ -1156,14 +1432,47 @@ public sealed class ConversationService(
 
     private Task<Result<Guid>> EnqueueMessageUpdatedAsync(Conversation conversation, Message message, Guid actorUserId, CancellationToken cancellationToken)
     {
-        var payload = JsonSerializer.SerializeToElement(new { conversationId = conversation.Id, messageId = message.Id, messageVersion = message.Version, updatedAt = message.EditedAt, body = message.Body, attachmentSummaries = Array.Empty<object>(), requiresRefetch = false });
+        var payload = JsonSerializer.SerializeToElement(new { conversationId = conversation.Id, messageId = message.Id, messageVersion = message.Version, threadRootMessageId = message.ThreadRootMessageId, updatedAt = message.EditedAt, body = message.Body, attachmentSummaries = Array.Empty<object>(), requiresRefetch = false });
         return EnqueueMessagingEventAsync("Messaging.MessageUpdated.v1", "Message", message.Id, message.Version, actorUserId, null, payload, [new RealtimeRoutingTarget(RealtimeSubscriptionType.Conversation, conversation.Id)], cancellationToken);
     }
 
     private Task<Result<Guid>> EnqueueMessageDeletedAsync(Conversation conversation, Message message, Guid actorUserId, CancellationToken cancellationToken)
     {
-        var payload = JsonSerializer.SerializeToElement(new { conversationId = conversation.Id, messageId = message.Id, messageVersion = message.Version, deletedAt = message.DeletedAt, deletionMode = "tombstone", displayText = (string?)null });
+        var payload = JsonSerializer.SerializeToElement(new { conversationId = conversation.Id, messageId = message.Id, messageVersion = message.Version, threadRootMessageId = message.ThreadRootMessageId, deletedAt = message.DeletedAt, deletionMode = "tombstone", displayText = (string?)null });
         return EnqueueMessagingEventAsync("Messaging.MessageDeleted.v1", "Message", message.Id, message.Version, actorUserId, null, payload, [new RealtimeRoutingTarget(RealtimeSubscriptionType.Conversation, conversation.Id)], cancellationToken);
+    }
+
+    private Task<Result<Guid>> EnqueueThreadChangedAsync(
+        Conversation conversation,
+        Guid threadRootMessageId,
+        int replyCount,
+        DateTimeOffset? latestReplyAt,
+        string change,
+        Guid actorUserId,
+        CancellationToken cancellationToken)
+    {
+        var payload = JsonSerializer.SerializeToElement(new
+        {
+            conversationId = conversation.Id,
+            threadRootMessageId,
+            latestReplyAt,
+            replyCount,
+            change,
+            // Participant display names are deliberately not placed in this
+            // metadata-only event. Consumers must refresh the authorized HTTP
+            // projection so a new participant cannot leave summary names stale.
+            requiresRefetch = true
+        });
+        return EnqueueMessagingEventAsync(
+            "Messaging.ThreadChanged.v1",
+            "MessageThread",
+            threadRootMessageId,
+            aggregateVersion: null,
+            actorUserId,
+            null,
+            payload,
+            [new RealtimeRoutingTarget(RealtimeSubscriptionType.Conversation, conversation.Id)],
+            cancellationToken);
     }
 
     private Task<Result<Guid>> EnqueueUnreadChangedAsync(Guid conversationId, Guid userId, ReadState state, int unreadCount, CancellationToken cancellationToken)
@@ -1172,7 +1481,7 @@ public sealed class ConversationService(
         return EnqueueMessagingEventAsync("Messaging.ConversationUnreadChanged.v1", "ConversationReadState", state.Id, state.StateVersion, userId, null, payload, [new RealtimeRoutingTarget(RealtimeSubscriptionType.User, userId)], cancellationToken);
     }
 
-    private Task<Result<Guid>> EnqueueMessagingEventAsync(string eventType, string aggregateType, Guid aggregateId, long aggregateVersion, Guid actorUserId, string? causationId, JsonElement payload, IReadOnlyCollection<RealtimeRoutingTarget> routingTargets, CancellationToken cancellationToken)
+    private Task<Result<Guid>> EnqueueMessagingEventAsync(string eventType, string aggregateType, Guid aggregateId, long? aggregateVersion, Guid actorUserId, string? causationId, JsonElement payload, IReadOnlyCollection<RealtimeRoutingTarget> routingTargets, CancellationToken cancellationToken)
     {
         var tenantId = conversationTenantId();
         if (tenantId == Guid.Empty)

@@ -127,7 +127,7 @@ h1 {
   }
 }
 
-@media (max-width: 760px) {
+@media (max-width: 860px) {
   .announcements-page__header {
     display: grid;
     align-items: start;
@@ -141,5 +141,17 @@ h1 {
   .announcements-page__content,
   .announcements-page__loading {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .announcements-page--detail-route .announcements-page__search {
+    display: none;
+  }
+
+  .announcements-page__content--detail-route app-announcement-list,
+  .announcements-page__content--list-route.announcements-page__content--has-filter-results:not(
+      .announcements-page__content--editor
+    )
+    .announcements-page__main {
+    display: none;
   }
 }

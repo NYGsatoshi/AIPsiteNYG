@@ -82,6 +82,148 @@ When the variable is absent locally, they are explicitly reported as skipped at 
 when `CI=true` or `GITHUB_ACTIONS=true`, the missing variable is a test failure. This
 prevents an unconfigured PostgreSQL suite from being reported as a pass.
 
+### Issue #357 Task execution source-scope foundation
+
+The focused backend selection is tagged `Scope=Issue357`. It covers the
+Project-default/complete-Task-override inheritance rule, version and
+first-override conflict behavior, same-key replay after later policy edits,
+immutable run-policy snapshots, safe tenant/authorization hiding, required
+audit failure, default and append-only direct-EF guards, controller mapping,
+strict JSON, and CSRF-protected mutation. The focused Angular component tests
+cover the authorized Task panel/editor, safe errors, protected-state clear,
+and HTTP refresh after metadata-only Project/Task invalidations. Static
+Playwright coverage is a frontend behavior check only; its API responses are
+mocked.
+
+The `TaskExecutionScopeFoundation` migration's PostgreSQL backfill, scope
+triggers, and immutable snapshot guards require a configured
+`POSTGRES_TEST_CONNECTION_STRING` or authoritative CI evidence. The real
+Compose browser smoke does not run an execution provider because none exists;
+it cannot prove an outbound-Web or source-material workflow. See
+`docs/verification/p0-task-execution-scope-foundation.md` for the current
+candidate evidence and limitations.
+
+### Issue #330 Workspace Continue working
+
+Focused Angular coverage validates the strict versioned opaque history schema,
+Tenant/user/Workspace partitioning, deduplication and caps, exact Project/File
+reauthorization, three-request hydration concurrency, server-only metadata,
+redaction, status mapping, revoked/mismatched pruning, transient retention with
+no stale rendering, storage failure, realtime authorization clearing, catch-up,
+generation cancellation, and late-response rejection. Integration specs also
+cover Project-detail and parent-Project Task touches plus Files-page and
+Task-attachment download timing.
+
+Download tests prove that neither metadata reads nor grant issuance advance File
+recency; only successful Blob handoff does. Grant FileObject mismatch is
+rejected, raw tokens never enter history or signal state, and grant/Blob success
+or denial after a Workspace switch cannot touch another bucket or invoke an
+obsolete Task-detail retry. The focused built-app Playwright scenario uses
+mocked API responses to check exact Project/File reads, absence of Task reads,
+redacted File presentation, grant-backed download, strict stored fields,
+capability-gated empty actions, axe, and horizontal containment at 320 pixels.
+It proves frontend behavior only, not ASP.NET Core integration.
+
+No schema, migration, API, or provider-backed behavior is introduced. The
+candidate reuses existing Project/File detail and download-grant contracts, so
+conditional PostgreSQL execution and a new real-backend mutation scenario are
+not applicable to the local browser-history behavior. See
+`docs/verification/p0-continue-working.md` for exact candidate results and
+remaining exact-head gates.
+
+### Issue #410 canonical Task create
+
+The focused backend selection covers strict canonical request binding,
+required idempotency, safe tenant/resource hiding, manager-only initial
+assignee and Task-override authority, member/Milestone eligibility, atomic
+audit/invalidation staging, and replay after mutable Task, override,
+Milestone, and assignee changes. The recorded local run passed 9 tests. The
+broader backend suite recorded 951 passed with 242 conditional PostgreSQL
+tests skipped because `POSTGRES_TEST_CONNECTION_STRING` was unavailable.
+
+Focused Angular evidence recorded 6 spec files / 38 tests passing under Node
+24.19.0. The production Angular build passed after compacting the new
+Task-create stylesheet; the Task-create budget warning is gone, while the
+repository's pre-existing bundle and unrelated style-budget warnings remain.
+A focused 320-pixel Chromium static test passed 1/1 against fresh production
+output. It checks keyboard entry, horizontal-overflow absence, strict
+canonical body plus CSRF/idempotency headers, and the absence of Start,
+runtime, raw-provider, and raw-source controls. Static responses are mocked;
+they do not establish browser-to-ASP.NET Core compatibility.
+
+The existing mandatory MVP0 real-backend scenario has source coverage for the
+canonical Project Detail-to-Task-create flow, including the exact POST body,
+CSRF/idempotency headers, HTTP 201, persisted Task/Brief detail, and no
+execution-run request. A local Compose attempt stopped during the Docker
+frontend build because `SYNCFUSION_LICENSE` was not configured; no application
+container or Playwright assertion ran, and scoped cleanup completed. This is
+an environmental startup limitation, not a P0 assertion failure or
+real-backend evidence. See `docs/verification/p0-task-create.md` for scope and
+limits.
+
+### Issue #362 same-Conversation Message threads
+
+Backend tests tagged `Scope=Issue362` cover the exact read/post routes,
+root/reply projection, deterministic 100-reply bound, truthful `hasMore`, main
+timeline exclusion, first-reply `CanCreateThread`, later posting authority,
+read-only access, removed/nonparticipant/admin/cross-Tenant/cross-Workspace/
+Project-scope/revoked-membership denial without body/count/name leakage,
+idempotency target isolation, metadata-only audit and realtime payloads,
+deleted reply/root tombstones, deleted-root list continuity with body and
+attachment redaction, and application rejection of cross-Conversation/
+cross-Tenant links.
+
+Conditional PostgreSQL coverage applies the additive migration over a legacy
+Message, verifies its column/index/check/foreign key and Down/reapply paths,
+and runs the production query against canonical, corrupt cross-scope, and
+deleted rows. The provider query retains a deleted root with a durable
+same-Conversation reply while omitting an ordinary deleted Message. It also
+proves that the provider caps participant rows at three per root and that
+concurrent independent-context same-key commits return one
+Message while rolling back the loser's audit/notification/outbox rows; an
+unrelated database constraint still propagates. It requires
+`POSTGRES_TEST_CONNECTION_STRING`; absence outside CI is an explicit
+environment limitation, not PostgreSQL pass evidence.
+
+Focused Angular coverage validates strict bounded DTO mapping, separate main
+and thread drafts, stable retry identity, reply-event timeline exclusion,
+authoritative participant-summary refetch with out-of-order protection,
+protected-state clearing, channel/DM wiring, durable tombstones, keyboard
+operation, trigger focus return, no focus theft across load completion,
+local/realtime/reload deleted-root continuity, out-of-order delete/summary
+reconciliation, transient revalidation safety, and
+POST-400 draft/retry preservation followed by an authorized GET revalidation.
+A denied revalidation clears the full protected projection. The dedicated
+static Playwright scenario
+uses a 320-pixel viewport and checks the mobile pane, horizontal overflow,
+keyboard post/close, CSRF/body shape, draft isolation, and axe. Its API is
+mocked and therefore does not replace the HTTP or PostgreSQL tests. See
+`docs/verification/p1-message-thread-context.md` for the exact current run
+record and environmental limits.
+
+### Issue #354 advisory Task-create quality checklist
+
+The focused Task-create page component suite covers missing optional Brief
+items, native focus movement to Goal/Deliverable/Constraints, complete trimmed
+Brief values, inherited and manager-selected effective source-policy display,
+and non-blocking create with optional values absent. The recorded focused run
+passed 11 tests under Node 24.19.0; application and spec TypeScript
+compilation also passed.
+
+The production Angular build passed without adding a Task-create component
+style-budget warning. The existing forced-320-pixel Task-create Playwright
+scenario passed in Chromium desktop and mobile. It keyboard-activates a missing
+Goal action, verifies focus, fills the Brief, verifies the compact 4/4 review,
+and retains its no-horizontal-overflow and axe checks. Static responses remain
+mocked and cannot prove server authorization or persistence.
+
+The mandatory real-backend MVP0 scenario is extended in source to inspect the
+server-returned effective policy, exercise the native focus action, verify the
+4/4 advisory state, and then persist the canonical Task/Brief. It remains
+subject to the protected Compose/CI real-backend gate; it must never be treated
+as proof of a Web/provider/runtime workflow. See
+`docs/verification/p0-task-quality-checklist.md` for scope and limitations.
+
 ### TASK-V1-PR07-B immediate notification tests
 
 PR07-B adds focused service/contract tests for the exact recipient matrix,
@@ -330,10 +472,14 @@ Run the frontend/static suite with:
 npm.cmd run test:ui:angular
 ```
 
-`npm test`, `npm run test:ui`, and `npm run test:ui:angular` all run only
-`angular-smoke.spec.ts` and `app.spec.ts` against the static Angular test
-server. Their API responses are mocked. They intentionally do not discover or
-execute `real-backend-smoke.spec.ts`.
+`npm test`, `npm run test:ui`, and `npm run test:ui:angular` run
+`angular-smoke.spec.ts`, `message-mobile-navigation.spec.ts`,
+`message-actions.spec.ts`, `message-thread-context.spec.ts`, and `app.spec.ts`
+against the static Angular test server. The Issue #357 responsive Task
+execution-scope scenario is included in
+`angular-smoke.spec.ts`, so it runs in both desktop and 320-pixel mobile
+projects. Their API responses are mocked. They intentionally do not discover
+or execute `real-backend-smoke.spec.ts`.
 
 ### MVP0 real-backend browser smoke
 

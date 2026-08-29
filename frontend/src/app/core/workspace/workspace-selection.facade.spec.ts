@@ -48,11 +48,17 @@ describe('WorkspaceSelectionFacade', () => {
   let selection: WorkspaceSelectionFacade;
   let activeWorkspace: ActiveWorkspaceFacade;
   let preferences: WorkspacePreferenceService;
-  let realtime: { clearForWorkspaceBoundary: ReturnType<typeof vi.fn> };
+  let realtime: {
+    clearForWorkspaceBoundary: ReturnType<typeof vi.fn>;
+    runAuthoritativeHttpCatchUps: ReturnType<typeof vi.fn>;
+  };
   let router: Router;
 
   beforeEach(() => {
-    realtime = { clearForWorkspaceBoundary: vi.fn() };
+    realtime = {
+      clearForWorkspaceBoundary: vi.fn(),
+      runAuthoritativeHttpCatchUps: vi.fn().mockResolvedValue(undefined),
+    };
     TestBed.configureTestingModule({
       providers: [
         provideRouter([
@@ -206,6 +212,41 @@ describe('WorkspaceSelectionFacade', () => {
 
     expect(clearSpy).not.toHaveBeenCalled();
     expect(setSpy).toHaveBeenCalledWith(workspaceA);
+    expect(realtime.runAuthoritativeHttpCatchUps).not.toHaveBeenCalled();
+  });
+
+  it('rehydrates protected HTTP state only after an actual Workspace switch commits', async () => {
+    selection.reconcileAuthorizedWorkspaces([workspaceA, workspaceB], identity, workspaceA.id);
+    const setSpy = vi.spyOn(activeWorkspace, 'setActiveWorkspace');
+    let selectionAtCatchUp: ReturnType<typeof selection.selection> | null = null;
+    realtime.runAuthoritativeHttpCatchUps.mockImplementation(() => {
+      selectionAtCatchUp = selection.selection();
+      return Promise.resolve();
+    });
+    realtime.clearForWorkspaceBoundary.mockClear();
+    realtime.runAuthoritativeHttpCatchUps.mockClear();
+
+    await expect(selection.selectWorkspace(workspaceB.id)).resolves.toBe(true);
+
+    expect(realtime.clearForWorkspaceBoundary).toHaveBeenCalledOnce();
+    expect(activeWorkspace.activeWorkspace()).toEqual(workspaceB);
+    expect(selection.selection()).toEqual({
+      status: 'selected',
+      workspaceId: workspaceB.id,
+      source: 'explicit',
+    });
+    expect(realtime.runAuthoritativeHttpCatchUps).toHaveBeenCalledOnce();
+    expect(selectionAtCatchUp).toEqual({
+      status: 'selected',
+      workspaceId: workspaceB.id,
+      source: 'explicit',
+    });
+    expect(setSpy.mock.invocationCallOrder.at(-1)).toBeLessThan(
+      realtime.runAuthoritativeHttpCatchUps.mock.invocationCallOrder[0],
+    );
+
+    await expect(selection.selectWorkspace(workspaceB.id)).resolves.toBe(true);
+    expect(realtime.runAuthoritativeHttpCatchUps).toHaveBeenCalledOnce();
   });
 
   it('navigates to the neutral Workspace route before switching off scoped content', async () => {

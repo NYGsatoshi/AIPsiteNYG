@@ -24,7 +24,7 @@ public sealed class CsrfProtectionMiddleware(
         // the canonical typed 401 envelope.  Do not replace that response with
         // a CSRF 403 when no authenticated cookie exists.
         if ((IsPr06CommandPath(context.Request.Path.Value) ||
-             ApiEnvelope.IsWorkspaceCreationPath(context.Request.Path.Value)) &&
+             ApiEnvelope.IsCanonicalCreatePath(context.Request.Path.Value)) &&
             context.User.Identity?.IsAuthenticated != true)
         {
             await next(context);
@@ -40,7 +40,7 @@ public sealed class CsrfProtectionMiddleware(
             logger.LogWarning(ex, "Rejected unsafe request without a valid CSRF token: {Method} {Path}", context.Request.Method, context.Request.Path);
             context.Response.StatusCode = StatusCodes.Status403Forbidden;
             var path = context.Request.Path.Value;
-            if (ApiEnvelope.IsWorkspaceCreationPath(path))
+            if (ApiEnvelope.IsCanonicalCreatePath(path))
             {
                 await context.Response.WriteAsJsonAsync(ApiEnvelope.Error(
                     context,

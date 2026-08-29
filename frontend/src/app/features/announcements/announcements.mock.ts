@@ -16,10 +16,13 @@ export const DEFAULT_ANNOUNCEMENTS: readonly AnnouncementViewModel[] = [
     priority: 'important',
     audienceScope: 'workspace',
     publishedAtLabel: '2026年7月1日 09:00',
+    expiresAt: '2026-07-15T09:00:00Z',
+    expiresAtLabel: '2026年7月15日 09:00',
     publicationState: 'published',
     readState: {
       requiresReadConfirmation: true,
-      isRead: false
+      isRead: false,
+      isMarkingRead: false
     },
     capabilities: ['readAnnouncement', 'editAnnouncement'],
     notificationTarget: 'announcementDetail'
@@ -36,7 +39,7 @@ export const DEFAULT_ANNOUNCEMENTS: readonly AnnouncementViewModel[] = [
     readState: {
       requiresReadConfirmation: false,
       isRead: true,
-      confirmedAtLabel: '確認済み'
+      isMarkingRead: false
     },
     capabilities: ['readAnnouncement'],
     notificationTarget: 'announcementDetail',
@@ -56,7 +59,8 @@ export const DEFAULT_ANNOUNCEMENTS: readonly AnnouncementViewModel[] = [
     publicationState: 'draft',
     readState: {
       requiresReadConfirmation: true,
-      isRead: false
+      isRead: false,
+      isMarkingRead: false
     },
     capabilities: ['readAnnouncement', 'editAnnouncement'],
     notificationTarget: 'announcementDetail'
@@ -74,7 +78,8 @@ export const DEFAULT_ANNOUNCEMENTS: readonly AnnouncementViewModel[] = [
     timeZoneLabel: 'Asia/Tokyo',
     readState: {
       requiresReadConfirmation: false,
-      isRead: false
+      isRead: false,
+      isMarkingRead: false
     },
     capabilities: ['readAnnouncement', 'editAnnouncement'],
     notificationTarget: 'announcementDetail'
@@ -90,7 +95,8 @@ export const DEFAULT_ANNOUNCEMENTS: readonly AnnouncementViewModel[] = [
     publicationState: 'archived',
     readState: {
       requiresReadConfirmation: false,
-      isRead: true
+      isRead: true,
+      isMarkingRead: false
     },
     capabilities: ['readAnnouncement', 'editAnnouncement'],
     notificationTarget: 'announcementDetail'

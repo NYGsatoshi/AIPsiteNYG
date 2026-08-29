@@ -17,7 +17,7 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.10")
+                .HasAnnotation("ProductVersion", "10.0.11")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -2449,6 +2449,9 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("ThreadRootMessageId")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -2476,6 +2479,8 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("TenantId");
 
+                    b.HasIndex("ThreadRootMessageId");
+
                     b.HasIndex("WorkspaceId");
 
                     b.HasIndex("ConversationId", "CreatedAt");
@@ -2488,7 +2493,13 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                         .IsUnique()
                         .HasFilter("\"ClientRequestId\" IS NOT NULL");
 
-                    b.ToTable("messages", (string)null);
+                    b.HasIndex("TenantId", "ConversationId", "ThreadRootMessageId", "CreatedAt", "Id")
+                        .HasDatabaseName("IX_messages_thread_replies");
+
+                    b.ToTable("messages", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_messages_thread_root_not_self", "\"ThreadRootMessageId\" IS NULL OR \"ThreadRootMessageId\" <> \"Id\"");
+                        });
                 });
 
             modelBuilder.Entity("AipPortal.Domain.Entities.MessageAttachment", b =>
@@ -3225,6 +3236,62 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
 
                             t.HasCheckConstraint("CK_projects_visibility", "\"Visibility\" IS NULL OR \"Visibility\" IN ('WorkspaceVisible', 'MembersOnly', 'Restricted')");
                         });
+                });
+
+            modelBuilder.Entity("AipPortal.Domain.Entities.ProjectExecutionScope", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("ProjectFilesEnabled")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UpdatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("VersionNo")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(1L);
+
+                    b.Property<bool>("WebEnabled")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<Guid>("WorkspaceId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("ProjectId")
+                        .IsUnique();
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("UpdatedByUserId");
+
+                    b.HasIndex("TenantId", "WorkspaceId");
+
+                    b.ToTable("project_execution_scopes", (string)null);
                 });
 
             modelBuilder.Entity("AipPortal.Domain.Entities.ProjectMember", b =>
@@ -4202,6 +4269,149 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("task_dependencies", (string)null);
+                });
+
+            modelBuilder.Entity("AipPortal.Domain.Entities.TaskExecutionRun", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("FailureCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTimeOffset?>("FinishedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("RequestedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("RequestedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("SnapshotProjectFilesEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<long>("SnapshotProjectScopeVersion")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("SnapshotSchemaVersion")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("SnapshotScopeOrigin")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<long?>("SnapshotTaskOverrideVersion")
+                        .HasColumnType("bigint");
+
+                    b.Property<bool>("SnapshotWebEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<Guid>("TaskItemId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("VersionNo")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(1L);
+
+                    b.Property<Guid>("WorkspaceId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProjectId");
+
+                    b.HasIndex("RequestedByUserId");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TaskItemId", "ProjectId");
+
+                    b.HasIndex("TenantId", "ProjectId", "RequestedAtUtc");
+
+                    b.HasIndex("TenantId", "TaskItemId", "RequestedAtUtc");
+
+                    b.ToTable("task_execution_runs", (string)null);
+                });
+
+            modelBuilder.Entity("AipPortal.Domain.Entities.TaskExecutionScopeOverride", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("ProjectFilesEnabled")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TaskItemId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UpdatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("VersionNo")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(1L);
+
+                    b.Property<bool>("WebEnabled")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<Guid>("WorkspaceId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("ProjectId");
+
+                    b.HasIndex("TaskItemId")
+                        .IsUnique();
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("UpdatedByUserId");
+
+                    b.HasIndex("TaskItemId", "ProjectId")
+                        .IsUnique();
+
+                    b.HasIndex("TenantId", "WorkspaceId", "ProjectId");
+
+                    b.ToTable("task_execution_scope_overrides", (string)null);
                 });
 
             modelBuilder.Entity("AipPortal.Domain.Entities.TaskItem", b =>
@@ -6064,6 +6274,11 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("AipPortal.Domain.Entities.Message", "ThreadRootMessage")
+                        .WithMany("ThreadReplies")
+                        .HasForeignKey("ThreadRootMessageId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("AipPortal.Domain.Entities.Workspace", "Workspace")
                         .WithMany()
                         .HasForeignKey("WorkspaceId")
@@ -6073,6 +6288,8 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                     b.Navigation("AuthorUser");
 
                     b.Navigation("Conversation");
+
+                    b.Navigation("ThreadRootMessage");
 
                     b.Navigation("Workspace");
                 });
@@ -6217,6 +6434,25 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                     b.Navigation("OwnerUser");
 
                     b.Navigation("Workspace");
+                });
+
+            modelBuilder.Entity("AipPortal.Domain.Entities.ProjectExecutionScope", b =>
+                {
+                    b.HasOne("AipPortal.Domain.Entities.Project", "Project")
+                        .WithOne("ExecutionScope")
+                        .HasForeignKey("AipPortal.Domain.Entities.ProjectExecutionScope", "ProjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("AipPortal.Domain.Entities.User", "UpdatedByUser")
+                        .WithMany()
+                        .HasForeignKey("UpdatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Project");
+
+                    b.Navigation("UpdatedByUser");
                 });
 
             modelBuilder.Entity("AipPortal.Domain.Entities.ProjectMember", b =>
@@ -6517,6 +6753,62 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                     b.Navigation("Project");
 
                     b.Navigation("SuccessorTaskItem");
+                });
+
+            modelBuilder.Entity("AipPortal.Domain.Entities.TaskExecutionRun", b =>
+                {
+                    b.HasOne("AipPortal.Domain.Entities.Project", "Project")
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("AipPortal.Domain.Entities.User", "RequestedByUser")
+                        .WithMany()
+                        .HasForeignKey("RequestedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("AipPortal.Domain.Entities.TaskItem", "TaskItem")
+                        .WithMany("ExecutionRuns")
+                        .HasForeignKey("TaskItemId", "ProjectId")
+                        .HasPrincipalKey("Id", "ProjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Project");
+
+                    b.Navigation("RequestedByUser");
+
+                    b.Navigation("TaskItem");
+                });
+
+            modelBuilder.Entity("AipPortal.Domain.Entities.TaskExecutionScopeOverride", b =>
+                {
+                    b.HasOne("AipPortal.Domain.Entities.Project", "Project")
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("AipPortal.Domain.Entities.User", "UpdatedByUser")
+                        .WithMany()
+                        .HasForeignKey("UpdatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("AipPortal.Domain.Entities.TaskItem", "TaskItem")
+                        .WithOne("ExecutionScopeOverride")
+                        .HasForeignKey("AipPortal.Domain.Entities.TaskExecutionScopeOverride", "TaskItemId", "ProjectId")
+                        .HasPrincipalKey("AipPortal.Domain.Entities.TaskItem", "Id", "ProjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Project");
+
+                    b.Navigation("TaskItem");
+
+                    b.Navigation("UpdatedByUser");
                 });
 
             modelBuilder.Entity("AipPortal.Domain.Entities.TaskItem", b =>
@@ -6853,6 +7145,8 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("AipPortal.Domain.Entities.Message", b =>
                 {
                     b.Navigation("Attachments");
+
+                    b.Navigation("ThreadReplies");
                 });
 
             modelBuilder.Entity("AipPortal.Domain.Entities.Milestone", b =>
@@ -6872,6 +7166,8 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("AipPortal.Domain.Entities.Project", b =>
                 {
+                    b.Navigation("ExecutionScope");
+
                     b.Navigation("Members");
 
                     b.Navigation("Milestones");
@@ -6910,6 +7206,10 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                     b.Navigation("ChildTaskItems");
 
                     b.Navigation("Collaborators");
+
+                    b.Navigation("ExecutionRuns");
+
+                    b.Navigation("ExecutionScopeOverride");
 
                     b.Navigation("Labels");
 

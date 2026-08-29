@@ -64,6 +64,11 @@ public sealed class Message : SoftDeletableEntity, ITenantEntity
     public Guid AuthorUserId { get; set; }
     /// <summary>Client-generated idempotency key, scoped to the sender and conversation.</summary>
     public Guid? ClientRequestId { get; set; }
+    /// <summary>
+    /// Canonical root Message for a thread reply. Null identifies a message in
+    /// the parent Conversation timeline (and a potential thread root).
+    /// </summary>
+    public Guid? ThreadRootMessageId { get; set; }
     /// <summary>Monotonic entity version used to reject stale realtime events.</summary>
     public long Version { get; set; } = 1;
     public string Body { get; set; } = string.Empty;
@@ -72,6 +77,8 @@ public sealed class Message : SoftDeletableEntity, ITenantEntity
     public Workspace? Workspace { get; set; }
     public Conversation? Conversation { get; set; }
     public User? AuthorUser { get; set; }
+    public Message? ThreadRootMessage { get; set; }
+    public ICollection<Message> ThreadReplies { get; } = new List<Message>();
     public ICollection<MessageAttachment> Attachments { get; } = new List<MessageAttachment>();
 }
 

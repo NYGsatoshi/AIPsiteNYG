@@ -1,7 +1,7 @@
 # Database
 
 Last broad implementation audit: 2026-08-02. WPC-02A/B/D schema status
-update: 2026-08-24.
+update: 2026-08-24. Issue #362 Message-thread schema update: 2026-08-28.
 
 ## Technology
 
@@ -26,11 +26,11 @@ Use these in order:
 
 ## Migration history
 
-There are forty-eight timestamped EF migration classes in the current source,
+There are fifty timestamped EF migration classes in the current source,
 from:
 
 - `20260606135558_InitialCreate`
-- through `20260824220000_AddStructuredTaskBrief`
+- through `20260827154230_AddMessageThreadRootContext`
 
 Migration files live in `src/AipPortal.Infrastructure/Persistence/Migrations/`.
 
@@ -101,6 +101,47 @@ updates the membership row's existing `UpdatedAt` audit timestamp. The Down
 path removes only the new column; values written to it are not retained after
 rollback.
 
+### Issue #362 same-Conversation Message threads
+
+Migration `20260827154230_AddMessageThreadRootContext` adds nullable UUID
+`messages.ThreadRootMessageId` as a restricted self-foreign key. Existing
+Message rows remain `NULL`; there is no legacy backfill and no attempt to infer
+an anchor from `ConversationType.Thread` or `ParentConversationId`.
+
+`CK_messages_thread_root_not_self` rejects a Message that points to itself.
+The application and repository additionally require a reply's current Tenant
+and Conversation to match the authorized canonical root because a simple
+self-foreign key cannot express that composite invariant. The deterministic
+reply lookup index is
+`(TenantId, ConversationId, ThreadRootMessageId, CreatedAt, Id)`; EF also adds
+the ordinary single-column foreign-key index.
+
+The main-timeline summary query ranks distinct participant display names with
+PostgreSQL `ROW_NUMBER()` partitioned by root and applies the three-name limit
+inside the provider query. No more than `root count * 3` participant rows are
+materialized. This query still runs only after the Conversation read boundary.
+
+The existing filtered unique index
+`IX_messages_TenantId_ConversationId_AuthorUserId_ClientRequest~` (the exact
+63-byte PostgreSQL name persisted by migration `20260718125541`) is the
+concurrent idempotency boundary for Message writes. The Infrastructure commit
+coordinator reconciles only an Npgsql unique violation naming that exact
+constraint; PostgreSQL rolls back all staged audit, notification, and Outbox
+rows before the losing context is cleared and reloads the committed winner.
+Unrelated database exceptions are propagated. This repair does not rename the
+live index or add a migration.
+
+Deletion is restricted while replies reference a root. Current Message delete
+operations retain rows as tombstones, so deleted replies remain ordered and
+counted while their body and attachments are not projected. The main Message
+query keeps a deleted root only when an explicitly same-Conversation reply
+exists; the global Tenant filter and same-Conversation predicate prevent a
+corrupt cross-scope link from making it visible. It remains a pinned bodyless
+tombstone with its summary and ordering, but cannot receive new replies.
+Ordinary deleted Messages with no replies remain omitted. The additive Down
+path removes only the foreign key, indexes, check, and nullable column;
+rollback discards thread links but does not remove Message rows.
+
 ### Organization and communication
 
 - Workspace, WorkspaceMember
@@ -147,6 +188,33 @@ detail and are not a list filter, join key, ordering key, or current Search
 input. The Down path removes only the three new columns; values written to
 them are not retained after rollback. Existing `Description` data is left
 unchanged in both directions.
+
+### Issue #357 Task execution source-scope foundation
+
+Migration `20260825081645_AddTaskExecutionScopeFoundation` adds three purpose-
+specific tables:
+
+- `project_execution_scopes`: exactly one default two-boolean policy for every
+  Project;
+- `task_execution_scope_overrides`: an optional complete policy replacement for
+  one Task; and
+- `task_execution_runs`: append-only immutable policy snapshots for accepted
+  run requests.
+
+Existing Projects are backfilled with a disabled `WebEnabled` and disabled
+`ProjectFilesEnabled` default at version 1. New Projects receive the same
+default through the normal persistence boundary. The migration uses uniqueness,
+foreign keys, and PostgreSQL guards to require the copied Tenant/Workspace/
+Project scope to match the owning Project/Task. It prevents deletion of a
+Project default and deletion or snapshot-field mutation of a Task execution
+run. Lifecycle result fields remain deliberately mutable for a future approved
+runtime.
+
+These tables preserve policy metadata only: versions, booleans, origin,
+requester, and timestamps. They contain no URLs, hosts, file identifiers or
+names, source bytes, credentials, provider configuration, prompt, or output.
+The migration creates no retrieval queue, worker, provider, or source-content
+store.
 
 ### TASK-V1-PR05 Project Kanban
 

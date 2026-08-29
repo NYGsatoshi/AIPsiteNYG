@@ -1,5 +1,6 @@
 import {
   Component,
+  computed,
   ElementRef,
   EventEmitter,
   Input,
@@ -21,20 +22,28 @@ import {
 } from '@angular/forms';
 import { Subscription } from 'rxjs';
 
+import { AnnouncementLocalPreviewComponent } from '../announcement-local-preview/announcement-local-preview.component';
 import { AnnouncementPublicationStatusComponent } from '../announcement-publication-status/announcement-publication-status.component';
 import {
   ANNOUNCEMENT_PRIORITY_LABELS,
   AnnouncementAudienceOption,
   AnnouncementEditorDraft,
   AnnouncementEditorSubmission,
+  AnnouncementLocalPreview,
   AnnouncementPriority,
   AnnouncementPublicationState,
 } from '../announcements.types';
+import { AipDialogComponent } from '../../../shared/ui/aip-dialog/aip-dialog.component';
 
 @Component({
   selector: 'app-announcement-editor',
   standalone: true,
-  imports: [ReactiveFormsModule, AnnouncementPublicationStatusComponent],
+  imports: [
+    ReactiveFormsModule,
+    AnnouncementPublicationStatusComponent,
+    AnnouncementLocalPreviewComponent,
+    AipDialogComponent,
+  ],
   templateUrl: './announcement-editor.component.html',
   styleUrl: './announcement-editor.component.scss',
 })
@@ -43,15 +52,23 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
   @ViewChild('bodyInput') private bodyInput?: ElementRef<HTMLTextAreaElement>;
   @ViewChild('priorityInput') private priorityInput?: ElementRef<HTMLSelectElement>;
   @ViewChild('audienceInput') private audienceInput?: ElementRef<HTMLSelectElement>;
+  @ViewChild(AnnouncementLocalPreviewComponent)
+  private previewComponent?: AnnouncementLocalPreviewComponent;
 
   @Input({ required: true }) draft!: AnnouncementEditorDraft;
   @Input() submissionError: string | undefined;
+  @Input() publishing = false;
   @Output() readonly draftChanged = new EventEmitter<AnnouncementEditorDraft>();
   @Output() readonly publishRequested = new EventEmitter<AnnouncementEditorSubmission>();
 
   readonly priorityOptions: readonly AnnouncementPriority[] = ['normal', 'important', 'critical'];
   readonly priorityLabels = ANNOUNCEMENT_PRIORITY_LABELS;
   readonly availableAudiences = signal<readonly AnnouncementAudienceOption[]>([]);
+  readonly previewOpen = signal(false);
+  readonly publicationReviewOpen = signal(false);
+  readonly publicationConfirming = signal(false);
+  readonly publicationReview = signal<AnnouncementEditorSubmission | null>(null);
+  private readonly previewRevision = signal(0);
   private submissionAttempted = false;
   private formInitialized = false;
   private formChanges?: Subscription;
@@ -76,6 +93,29 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
     priority: ['normal' as AnnouncementPriority, Validators.required],
     audienceKey: ['', Validators.required],
     requiresReadConfirmation: [false],
+  });
+
+  /**
+   * This is intentionally a local rendering model, not a DTO or an alternate
+   * publication command. The audience is resolved from the current
+   * server-authorized options on every change, so a revoked display name/count
+   * cannot survive an audience refresh.
+   */
+  readonly preview = computed<AnnouncementLocalPreview | null>(() => {
+    this.previewRevision();
+    const audience = this.selectedAudience();
+    if (audience === null) {
+      return null;
+    }
+
+    const value = this.form.getRawValue();
+    return {
+      title: value.title.trim(),
+      body: value.body.trim(),
+      priority: value.priority,
+      audience,
+      requiresReadConfirmation: value.requiresReadConfirmation,
+    };
   });
 
   get publicationState(): AnnouncementPublicationState {
@@ -108,6 +148,19 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
   }
 
   ngOnChanges(changes: SimpleChanges): void {
+    const submissionErrorChange = changes['submissionError'];
+    const publishingChange = changes['publishing'];
+    if (
+      submissionErrorChange?.currentValue ||
+      (publishingChange?.previousValue === true && publishingChange.currentValue === false)
+    ) {
+      // A failed authoritative request leaves the draft editable. Return from the
+      // busy confirmation state before the inline, preserved-draft error renders.
+      this.publicationConfirming.set(false);
+      this.publicationReviewOpen.set(false);
+      this.publicationReview.set(null);
+    }
+
     if (!changes['draft'] || !this.draft) {
       return;
     }
@@ -121,6 +174,13 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
     if (this.formInitialized && this.form.dirty) {
       if (currentAudienceKey !== authorizedAudienceKey) {
         this.form.controls.audienceKey.setValue(authorizedAudienceKey, { emitEvent: false });
+        this.previewRevision.update((revision) => revision + 1);
+        // The editor received a new authoritative audience projection. Do not
+        // keep an already-open view that might have displayed the revoked
+        // audience's name or recipient estimate.
+        if (this.previewOpen()) {
+          this.closePreview();
+        }
       }
       return;
     }
@@ -137,6 +197,11 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
     );
     this.submissionAttempted = false;
     this.formInitialized = true;
+    this.previewRevision.update((revision) => revision + 1);
+
+    if (this.previewOpen() && currentAudienceKey !== authorizedAudienceKey) {
+      this.closePreview();
+    }
   }
 
   selectedAudience(): AnnouncementAudienceOption | null {
@@ -193,6 +258,33 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
     this.focusControl(field);
   }
 
+  openPreview(): void {
+    if (this.preview() === null) {
+      this.focusControl('audienceKey');
+      return;
+    }
+
+    this.previewOpen.set(true);
+    // The preview child is created by this state change. Wait for Angular to
+    // attach that view before asking its heading to receive keyboard focus.
+    setTimeout(() => {
+      if (this.previewOpen()) {
+        this.previewComponent?.focusHeading();
+      }
+    });
+  }
+
+  closePreview(restoreFocus = true): void {
+    this.previewOpen.set(false);
+    if (restoreFocus) {
+      setTimeout(() => {
+        if (!this.previewOpen()) {
+          this.focusControl('title');
+        }
+      });
+    }
+  }
+
   publish(): void {
     this.submissionAttempted = true;
     this.form.markAllAsTouched();
@@ -210,13 +302,45 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
       return;
     }
 
-    this.publishRequested.emit({
+    this.publicationReview.set({
       title,
       body,
       priority: value.priority,
       audience,
       requiresReadConfirmation: value.requiresReadConfirmation,
     });
+    this.publicationReviewOpen.set(true);
+  }
+
+  cancelPublicationReview(): void {
+    if (this.publicationConfirming() || this.publishing) {
+      return;
+    }
+
+    this.publicationReviewOpen.set(false);
+    this.publicationReview.set(null);
+  }
+
+  confirmPublication(): void {
+    const submission = this.publicationReview();
+    if (!submission || this.publicationConfirming() || this.publishing) {
+      return;
+    }
+
+    this.publicationConfirming.set(true);
+    this.publishRequested.emit(submission);
+  }
+
+  publicationTimingLabel(): string {
+    // The create command has no approved scheduled-delivery contract.
+    return 'Publish immediately';
+  }
+
+  confirmationLabel(): string {
+    const recipientCount = this.publicationReview()?.audience.recipientCount;
+    return recipientCount === undefined
+      ? 'Publish now'
+      : `Publish to ${recipientCount.toLocaleString('ja-JP')} recipients now`;
   }
 
   private authorizedAudienceKey(preferredAudienceKey: string): string {
@@ -229,6 +353,7 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
   }
 
   private emitDraftChange(): void {
+    this.previewRevision.update((revision) => revision + 1);
     const value = this.form.getRawValue();
     this.draftChanged.emit({
       id: this.draft.id,

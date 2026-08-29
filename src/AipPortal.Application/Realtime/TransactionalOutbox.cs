@@ -88,7 +88,8 @@ public sealed class TransactionalOutbox(
 
     private static bool IsRoutingAllowed(string eventType, IReadOnlyCollection<RealtimeRoutingTarget> routingTargets)
     {
-        if (eventType.StartsWith("Messaging.Message", StringComparison.Ordinal))
+        if (eventType.StartsWith("Messaging.Message", StringComparison.Ordinal) ||
+            eventType == "Messaging.ThreadChanged.v1")
         {
             return routingTargets.All(target => target.SubscriptionType is RealtimeSubscriptionType.Conversation or RealtimeSubscriptionType.User);
         }

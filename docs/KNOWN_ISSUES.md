@@ -483,6 +483,10 @@ Status after the MVP-A P0 Angular migration: obsolete as active frontend defects
 - SSO/MFA.
 - Realtime messaging/notifications.
 - Background jobs and scheduled reminders.
+- Task automation, outbound Web retrieval, source materialization, and
+  execution-provider contracts. Issue #357 supplies only a policy/snapshot
+  foundation and intentionally does not close this work pending canonical-spec
+  promotion and an approved provider/egress security contract.
 - Full billing/payment integration.
 - Advanced Gantt/resource planning.
 - Full free-form docking/radial UI.

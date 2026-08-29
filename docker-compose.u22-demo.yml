@@ -1,0 +1,15 @@
+# Test-only U-22 demo overlay. Always compose this with
+# docker-compose.real-backend-smoke.yml; it does not define an independent
+# deployment stack. The base file supplies the Test environment, isolated
+# PostgreSQL volume, migrations, hosted Angular build, and explicit synthetic
+# browser-smoke seed.
+#
+# The app is deliberately loopback-only. Do not use this overlay for a shared,
+# deployed, or production environment.
+services:
+  app:
+    ports:
+      - "127.0.0.1:${AIP_U22_DEMO_PORT:-8088}:8080"
+    environment:
+      # A manual demo does not need the browser test's response-gate endpoints.
+      AIP_BROWSER_SMOKE_RESPONSE_GATE_ENABLED: "false"

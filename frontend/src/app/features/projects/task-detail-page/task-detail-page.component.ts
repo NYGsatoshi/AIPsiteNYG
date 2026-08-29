@@ -11,6 +11,7 @@ import { ProjectsFacade } from '../projects.facade';
 import { TASK_LABEL_DESCRIPTION_MAX_LENGTH, TASK_LABEL_NAME_MAX_LENGTH, TaskActivityLogType, TaskDetailSection, TaskDetailSectionState, TaskEditorSaveRequest, TaskStageCategory, TaskStatus } from '../projects.types';
 import { TaskDependenciesReadonlyComponent } from '../task-dependencies-readonly/task-dependencies-readonly.component';
 import { TaskEditorComponent } from '../task-editor/task-editor.component';
+import { TaskExecutionScopeComponent } from '../task-execution-scope/task-execution-scope.component';
 import { TaskStatusBadgeComponent } from '../task-status-badge/task-status-badge.component';
 import { AppMentionInputComponent } from '../../../shared/mention-input/app-mention-input.component';
 import { FilesFacade } from '../../files/files.facade';
@@ -28,6 +29,7 @@ import { AttachmentPickerDialogComponent } from '../../files/attachment-picker-d
     AppPermissionDeniedComponent,
     TaskDependenciesReadonlyComponent,
     TaskEditorComponent,
+    TaskExecutionScopeComponent,
     TaskStatusBadgeComponent,
     AppMentionInputComponent,
     AttachmentPickerDialogComponent
@@ -204,7 +206,7 @@ export class TaskDetailPageComponent implements OnDestroy {
   setSelectedAttachment(id: string | null): void { this.selectedAttachmentId.set(id ?? ''); }
   associateSelectedFile(): void { const vm = this.page(); const attachmentId = this.selectedAttachmentId(); if (vm.task && vm.detail && attachmentId) this.facade.associateFile(vm.task.id, attachmentId, vm.detail.taskVersion, () => this.selectedAttachmentId.set('')); }
   loadPickerFiles(): void { const vm = this.page(); if (vm.detail?.permissions.canAssociateFiles && vm.detail.workspaceId) this.files.loadPickerFilesForWorkspace(vm.detail.workspaceId); }
-  downloadFile(attachmentId: string, fileName: string): void { const taskId = this.taskId(); const projectId = this.projectId(); if (!taskId) return; this.files.downloadAttachment(attachmentId, fileName, { isCurrent: () => this.taskId() === taskId && this.projectId() === projectId, onState: (_, message) => this.fileDownloadMessage.set(message), onPermissionDenied: () => this.facade.retryTaskDetail(taskId) }); }
+  downloadFile(attachmentId: string, fileObjectId: string, fileName: string): void { const taskId = this.taskId(); const projectId = this.projectId(); const workspaceId = this.page().detail?.workspaceId; if (!taskId || !workspaceId) return; this.files.downloadAttachment(attachmentId, fileName, { workspaceId, fileObjectId, isCurrent: () => this.taskId() === taskId && this.projectId() === projectId, onState: (_, message) => this.fileDownloadMessage.set(message), onPermissionDenied: () => this.facade.retryTaskDetail(taskId) }); }
   loadMorePickerFiles(): void { this.files.loadMorePickerFiles(); }
   retryPickerFiles(): void { this.files.retryPickerFiles(); }
 

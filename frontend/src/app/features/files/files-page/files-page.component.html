@@ -32,29 +32,79 @@
             <p>Recent files</p>
             <strong>Choose files with checkboxes. Open a file from its name.</strong>
           </div>
-          <div class="files-page__list-controls" aria-label="File list settings">
-            <div class="files-page__density" role="group" aria-label="Row density">
-              <button type="button" [attr.aria-pressed]="density() === 'comfortable'" (click)="setDensity('comfortable')">Comfortable</button>
-              <button type="button" [attr.aria-pressed]="density() === 'compact'" (click)="setDensity('compact')">Compact</button>
-            </div>
-            <details class="files-page__columns">
-              <summary>Columns</summary>
-              <div class="files-page__columns-menu">
-                @for (option of optionalColumns; track option.id) {
-                  <label>
-                    <input
-                      type="checkbox"
-                      [checked]="isColumnVisible(option.id)"
-                      (change)="toggleColumn(option.id, $any($event.target).checked)"
-                    />
-                    <span>{{ option.label }}</span>
-                  </label>
-                }
+        </div>
+
+        @if (selectedCount() === 0) {
+          <div
+            id="files-normal-toolbar"
+            class="files-page__toolbar files-page__toolbar--normal"
+            role="toolbar"
+            aria-label="File actions"
+            tabindex="-1"
+            data-testid="files-normal-toolbar"
+          >
+            <a class="files-page__toolbar-action files-page__toolbar-action--primary" href="#upload">Upload</a>
+            <details class="files-page__view-settings">
+              <summary>View settings</summary>
+              <div class="files-page__view-settings-menu">
+                <div class="files-page__density" role="group" aria-label="Row density">
+                  <button type="button" [attr.aria-pressed]="density() === 'comfortable'" (click)="setDensity('comfortable')">Comfortable</button>
+                  <button type="button" [attr.aria-pressed]="density() === 'compact'" (click)="setDensity('compact')">Compact</button>
+                </div>
+                <fieldset class="files-page__columns">
+                  <legend>Columns</legend>
+                  @for (option of optionalColumns; track option.id) {
+                    <label>
+                      <input
+                        type="checkbox"
+                        [checked]="isColumnVisible(option.id)"
+                        (change)="toggleColumn(option.id, $any($event.target).checked)"
+                      />
+                      <span>{{ option.label }}</span>
+                    </label>
+                  }
+                </fieldset>
               </div>
             </details>
           </div>
-        </div>
-        <p class="files-page__selection-status" role="status" aria-live="polite">{{ selectedCount() }} selected. Keyboard focus does not change selection.</p>
+        } @else {
+          <div
+            class="files-page__toolbar files-page__toolbar--contextual"
+            role="toolbar"
+            aria-label="Actions for selected files"
+            data-testid="files-contextual-toolbar"
+          >
+            <strong class="files-page__selection-status" role="status" aria-live="polite">
+              {{ selectedCount() }} selected
+            </strong>
+            @if (downloadableSelection()) {
+              <button type="button" (click)="downloadSelectedFile()" data-testid="files-selected-download">Download</button>
+            }
+            @if (canDeleteSelection()) {
+              <button
+                type="button"
+                class="files-page__toolbar-action--danger"
+                [disabled]="deleteBusy()"
+                (click)="openDeleteConfirmation()"
+                data-testid="files-selected-delete"
+              >Delete</button>
+            }
+            @if (!downloadableSelection() && !canDeleteSelection()) {
+              <span class="files-page__no-actions">No available actions for this selection.</span>
+            }
+            <button type="button" [disabled]="deleteBusy()" (click)="clearSelection()" data-testid="files-clear-selection">Clear selection</button>
+          </div>
+        }
+
+        <p class="files-page__selection-help">Keyboard focus does not change selection.</p>
+        @if (deleteState().message) {
+          <p
+            class="files-page__delete-status"
+            [attr.role]="deleteState().state === 'failed' || deleteState().state === 'partial' ? 'alert' : 'status'"
+            aria-live="polite"
+            data-testid="files-delete-status"
+          >{{ deleteState().message }}</p>
+        }
         <div class="files-page__desktop-grid" [class.files-page__desktop-grid--compact]="density() === 'compact'">
           <app-data-grid
             ariaLabel="Files"
@@ -70,7 +120,14 @@
             (selectionChanged)="handleSelectionChanged($event)"
           />
         </div>
-        <div class="files-page__mobile-list"><app-recent-files-list [files]="vm.recentFiles" (downloadRequested)="downloadFile($event)" /></div>
+        <div class="files-page__mobile-list">
+          <app-recent-files-list
+            [files]="vm.recentFiles"
+            [selectedFileIds]="selectedFileIds()"
+            (selectionChanged)="handleMobileSelection($event)"
+            (downloadRequested)="downloadFile($event)"
+          />
+        </div>
         <nav class="files-page__pagination" aria-label="File list pages">
           <button type="button" data-testid="files-page-previous" [disabled]="vm.page <= 1" (click)="goToPreviousPage()">Previous</button>
           <span data-testid="files-page-pagination-status">Page {{ vm.page }} of {{ totalPages() }} · {{ vm.totalCount }} files</span>
@@ -94,3 +151,18 @@
     </aside>
   </div>
 </section>
+
+<app-aip-dialog
+  [open]="deleteDialogOpen()"
+  [title]="deleteDialogTitle()"
+  [description]="deleteDialogDescription()"
+  [confirmLabel]="deleteTargets().length === 1 ? 'Delete file' : 'Delete files'"
+  [busy]="deleteBusy()"
+  [destructive]="true"
+  focusReturnFallbackId="files-normal-toolbar"
+  (confirm)="confirmDelete()"
+  (cancel)="closeDeleteDialog()"
+  (closed)="closeDeleteDialog()"
+>
+  <p>This removes the selection from the active workspace inventory. The server rechecks authorization for every file.</p>
+</app-aip-dialog>

@@ -173,6 +173,24 @@ The canonical Task detail update owns the distinct timestamp-valued
 day-precision planned dates only. PR07-B did not add a digest worker,
 notification-open route, dispatch/routing changes, or frontend behavior.
 
+### Issue #357 Task execution source-scope foundation
+
+Issue #357 adds a purpose-specific Application service/repository/controller
+boundary for a Project default policy, a complete optional Task override, and
+immutable policy-only Task-run records. The Application runtime port accepts
+only an opaque run/tenant/schema handle. Its sole registered implementation
+deterministically reports unavailable and performs no I/O. It receives no
+URL, source/file identifier, byte content, credential, storage key, prompt,
+or provider configuration.
+
+Scope changes and run requests use the existing audited transaction and
+metadata-only Project/Task invalidation pattern. A run is staged before the
+no-I/O port returns; this is safe only because the current port cannot observe
+or dispatch anything. A future provider must be separately designed to use
+durable post-commit dispatch. The transactional Outbox is not used as an
+execution queue, no hosted execution worker is registered, and realtime is
+only an invalidation hint for an HTTP refresh of the Task panel.
+
 ### TASK-V1-PR07-C Workspace deadline digest
 
 PR07-C adds an in-process `BackgroundService`, but it does not turn the
@@ -389,6 +407,9 @@ The following are planned, not architectural components in the current build:
 
 - general-purpose or external job runner beyond the existing in-process
   Outbox and deadline-digest hosted services;
+- outbound Web retrieval, source materialization, or a Task-execution provider
+  contract; the #357 policy/snapshot foundation is intentionally not an
+  executor;
 - email delivery;
 - outbound webhook dispatcher;
 - API token authentication handler;

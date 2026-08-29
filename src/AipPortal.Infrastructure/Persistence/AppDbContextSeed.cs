@@ -12,6 +12,20 @@ public static class AppDbContextSeed
 {
     public static readonly Guid DefaultTenantId = Guid.Parse("11111111-1111-1111-1111-111111111111");
 
+    // These values belong only to the explicitly opted-in Test-environment
+    // browser-smoke fixture. They are deliberately synthetic and are not a
+    // production seed or an execution-history source.
+    private const string U22DemoProjectSlug = "u22-synthetic-demo-project";
+    private const string U22DemoProjectName = "U-22 Synthetic Demo Project";
+    private const string U22DemoTaskTitle = "U-22 Synthetic Demo Task";
+    private const string U22DemoTaskGoal = "Demonstrate a secure, repeatable U-22 Task workflow.";
+    private const string U22DemoTaskDeliverable = "A concise U-22 walkthrough showing the Task Brief, source policy, and current Task state.";
+    private const string U22DemoTaskConstraints = "Synthetic Test fixture only. No outbound Web retrieval, provider, runtime, raw source content, or execution claim.";
+    private const string U22DemoActivityBody = "Synthetic U-22 demo note. This seeded Activity record is presentation data only; it is not execution or phase-transition history.";
+    // Keep this safely in the past throughout the submission window so the
+    // presentation fixture never appears to invent a future Activity event.
+    private static readonly DateTimeOffset U22DemoActivityOccurredAt = new(2026, 8, 20, 9, 0, 0, TimeSpan.Zero);
+
     public static async Task<Tenant> SeedDefaultTenantAsync(
         AppDbContext dbContext,
         TenancyOptions options,
@@ -436,7 +450,7 @@ public static class AppDbContextSeed
                 Body = "Synthetic announcement body for the real-backend browser smoke test.",
                 Priority = AnnouncementPriority.Important,
                 IsPinned = true,
-                RequiresReadConfirmation = false,
+                RequiresReadConfirmation = true,
                 PublishedAt = now.AddMinutes(-5)
             };
             await dbContext.Announcements.AddAsync(announcement, cancellationToken);
@@ -447,7 +461,7 @@ public static class AppDbContextSeed
             announcement.Body = "Synthetic announcement body for the real-backend browser smoke test.";
             announcement.Priority = AnnouncementPriority.Important;
             announcement.IsPinned = true;
-            announcement.RequiresReadConfirmation = false;
+            announcement.RequiresReadConfirmation = true;
             announcement.PublishedAt = now.AddMinutes(-5);
             announcement.ExpiresAt = null;
             if (announcement.IsDeleted)
@@ -455,6 +469,14 @@ public static class AppDbContextSeed
                 announcement.Restore();
             }
         }
+
+        var smokeUserAnnouncementReads = await dbContext.AnnouncementReads
+            .Where(candidate =>
+                candidate.TenantId == tenantId &&
+                candidate.AnnouncementId == announcement.Id &&
+                candidate.UserId == user.Id)
+            .ToListAsync(cancellationToken);
+        dbContext.AnnouncementReads.RemoveRange(smokeUserAnnouncementReads);
 
         var project = await dbContext.Projects.FirstOrDefaultAsync(
             candidate => candidate.TenantId == tenantId && candidate.WorkspaceId == workspace.Id && candidate.Slug == projectSlug,
@@ -767,6 +789,13 @@ public static class AppDbContextSeed
             project,
             task,
             now,
+            cancellationToken);
+
+        await SeedBrowserSmokeU22DemoAsync(
+            dbContext,
+            tenantId,
+            user,
+            workspace,
             cancellationToken);
 
         await SeedBrowserSmokeKanbanPr05Async(
@@ -1243,6 +1272,334 @@ public static class AppDbContextSeed
         secondTask.PrimaryAssigneeUserId = user.Id;
         secondTask.Status = TaskItemStatus.NotStarted;
         secondTask.Priority = TaskPriority.Medium;
+    }
+
+    private static async Task SeedBrowserSmokeU22DemoAsync(
+        AppDbContext dbContext,
+        Guid tenantId,
+        User user,
+        Workspace workspace,
+        CancellationToken cancellationToken)
+    {
+        var project = await dbContext.Projects.FirstOrDefaultAsync(
+            candidate =>
+                candidate.TenantId == tenantId &&
+                candidate.WorkspaceId == workspace.Id &&
+                candidate.Slug == U22DemoProjectSlug,
+            cancellationToken);
+        ProjectExecutionScope? projectScope = null;
+        if (project is null)
+        {
+            project = new Project
+            {
+                TenantId = tenantId,
+                WorkspaceId = workspace.Id,
+                OwnerUserId = user.Id,
+                CreatedByUserId = user.Id,
+                Name = U22DemoProjectName,
+                Slug = U22DemoProjectSlug,
+                Description = "Synthetic Test-only Project for the U-22 demo. It is not production data.",
+                Status = ProjectStatus.Active,
+                Visibility = ProjectVisibility.WorkspaceVisible,
+                ActivationState = ProjectActivationState.Activated,
+                ActivatedAtUtc = U22DemoActivityOccurredAt,
+                ActivationVersion = 1,
+                VersionNo = 1
+            };
+            projectScope = new ProjectExecutionScope
+            {
+                TenantId = tenantId,
+                WorkspaceId = workspace.Id,
+                ProjectId = project.Id,
+                WebEnabled = false,
+                ProjectFilesEnabled = true,
+                VersionNo = 1,
+                UpdatedByUserId = user.Id
+            };
+            project.ExecutionScope = projectScope;
+            await dbContext.Projects.AddAsync(project, cancellationToken);
+        }
+        else
+        {
+            project.OwnerUserId = user.Id;
+            project.CreatedByUserId = user.Id;
+            project.Name = U22DemoProjectName;
+            project.Description = "Synthetic Test-only Project for the U-22 demo. It is not production data.";
+            project.Status = ProjectStatus.Active;
+            project.Visibility = ProjectVisibility.WorkspaceVisible;
+            project.ActivationState = ProjectActivationState.Activated;
+            project.ActivatedAtUtc = U22DemoActivityOccurredAt;
+            project.ActivationVersion = 1;
+            project.SuspendedFromStatus = null;
+            project.ArchivedFromStatus = null;
+            project.VersionNo = 1;
+            if (project.IsDeleted)
+            {
+                project.Restore();
+            }
+        }
+
+        projectScope ??= project.ExecutionScope;
+        projectScope ??= dbContext.ProjectExecutionScopes.Local.FirstOrDefault(
+            candidate => candidate.ProjectId == project.Id);
+        projectScope ??= await dbContext.ProjectExecutionScopes.FirstOrDefaultAsync(
+            candidate => candidate.ProjectId == project.Id,
+            cancellationToken);
+        if (projectScope is null)
+        {
+            projectScope = new ProjectExecutionScope
+            {
+                TenantId = tenantId,
+                WorkspaceId = workspace.Id,
+                ProjectId = project.Id,
+                VersionNo = 1,
+                UpdatedByUserId = user.Id
+            };
+            project.ExecutionScope = projectScope;
+            await dbContext.ProjectExecutionScopes.AddAsync(projectScope, cancellationToken);
+        }
+
+        // The Project default and Task override intentionally differ so a
+        // demo can show that the override replaces, rather than merges with,
+        // the default. These are policy flags only: no source is retrieved.
+        projectScope.TenantId = tenantId;
+        projectScope.WorkspaceId = workspace.Id;
+        projectScope.ProjectId = project.Id;
+        projectScope.WebEnabled = false;
+        projectScope.ProjectFilesEnabled = true;
+        projectScope.VersionNo = 1;
+        projectScope.UpdatedByUserId = user.Id;
+
+        var projectMember = await dbContext.ProjectMembers.FirstOrDefaultAsync(
+            candidate =>
+                candidate.TenantId == tenantId &&
+                candidate.ProjectId == project.Id &&
+                candidate.UserId == user.Id,
+            cancellationToken);
+        if (projectMember is null)
+        {
+            await dbContext.ProjectMembers.AddAsync(new ProjectMember
+            {
+                TenantId = tenantId,
+                ProjectId = project.Id,
+                UserId = user.Id,
+                Role = ProjectRole.Owner,
+                JoinedAt = U22DemoActivityOccurredAt
+            }, cancellationToken);
+        }
+        else
+        {
+            projectMember.Role = ProjectRole.Owner;
+            if (projectMember.JoinedAt == default)
+            {
+                projectMember.JoinedAt = U22DemoActivityOccurredAt;
+            }
+        }
+
+        var workflow = await dbContext.TaskWorkflowDefinitions.FirstOrDefaultAsync(
+            candidate => candidate.TenantId == tenantId && candidate.ProjectId == project.Id,
+            cancellationToken);
+        if (workflow is null)
+        {
+            workflow = new TaskWorkflowDefinition
+            {
+                TenantId = tenantId,
+                WorkspaceId = workspace.Id,
+                ProjectId = project.Id,
+                Name = "U-22 Synthetic Demo Workflow",
+                ReviewEnforcementEnabled = false,
+                KanbanDefaultSwimlane = ProjectKanbanSwimlane.None,
+                VersionNo = 1
+            };
+            await dbContext.TaskWorkflowDefinitions.AddAsync(workflow, cancellationToken);
+        }
+        else
+        {
+            workflow.WorkspaceId = workspace.Id;
+            workflow.Name = "U-22 Synthetic Demo Workflow";
+            workflow.ReviewEnforcementEnabled = false;
+            workflow.KanbanDefaultSwimlane = ProjectKanbanSwimlane.None;
+            workflow.VersionNo = 1;
+        }
+
+        async Task<TaskWorkflowStage> StageAsync(
+            string name,
+            TaskStageCategory category,
+            long sortKey,
+            bool isInitial,
+            bool isTerminal)
+        {
+            var stage = await dbContext.TaskWorkflowStages.FirstOrDefaultAsync(
+                candidate =>
+                    candidate.TenantId == tenantId &&
+                    candidate.ProjectId == project.Id &&
+                    candidate.InternalCategory == category,
+                cancellationToken);
+            if (stage is null)
+            {
+                stage = new TaskWorkflowStage
+                {
+                    TenantId = tenantId,
+                    WorkspaceId = workspace.Id,
+                    ProjectId = project.Id,
+                    DefinitionId = workflow.Id,
+                    Name = name,
+                    InternalCategory = category,
+                    SortKey = sortKey,
+                    IsInitialStage = isInitial,
+                    IsTerminalStage = isTerminal,
+                    VersionNo = 1
+                };
+                await dbContext.TaskWorkflowStages.AddAsync(stage, cancellationToken);
+            }
+            else
+            {
+                stage.WorkspaceId = workspace.Id;
+                stage.DefinitionId = workflow.Id;
+                stage.Name = name;
+                stage.SortKey = sortKey;
+                stage.IsInitialStage = isInitial;
+                stage.IsTerminalStage = isTerminal;
+                stage.VersionNo = 1;
+            }
+
+            return stage;
+        }
+
+        await StageAsync("Todo", TaskStageCategory.Todo, 1024, true, false);
+        var inProgress = await StageAsync("In progress", TaskStageCategory.InProgress, 2048, false, false);
+
+        var task = await dbContext.TaskItems.FirstOrDefaultAsync(
+            candidate =>
+                candidate.TenantId == tenantId &&
+                candidate.ProjectId == project.Id &&
+                candidate.Title == U22DemoTaskTitle,
+            cancellationToken);
+        if (task is null)
+        {
+            task = new TaskItem
+            {
+                TenantId = tenantId,
+                WorkspaceId = workspace.Id,
+                ProjectId = project.Id,
+                Title = U22DemoTaskTitle,
+                CreatedByUserId = user.Id
+            };
+            await dbContext.TaskItems.AddAsync(task, cancellationToken);
+        }
+        else if (task.IsDeleted)
+        {
+            task.Restore();
+        }
+
+        // This is one current workflow state, not a fabricated execution
+        // history. Keep the legacy percentage at zero so the fixture never
+        // implies measured execution progress.
+        task.WorkspaceId = workspace.Id;
+        task.Kind = WorkItemKind.Task;
+        task.Description = "Synthetic Test-only U-22 Task. It demonstrates policy configuration and current state, not runtime execution.";
+        task.BriefGoal = U22DemoTaskGoal;
+        task.BriefDeliverable = U22DemoTaskDeliverable;
+        task.BriefConstraints = U22DemoTaskConstraints;
+        task.WorkflowStageId = inProgress.Id;
+        task.Status = TaskItemStatus.InProgress;
+        task.Priority = TaskPriority.High;
+        task.IsBlocked = false;
+        task.BlockedReason = null;
+        task.PrimaryAssigneeUserId = user.Id;
+        task.ReviewerUserId = null;
+        task.TargetGroupId = null;
+        task.ProgressPercent = 0;
+        task.ActualStartAt = null;
+        task.CompletedAt = null;
+        task.CancelledAt = null;
+        task.CancellationReason = null;
+        task.ReviewStatus = TaskReviewStatus.None;
+        task.ReviewSubmittedAt = null;
+        task.ReviewResolvedAt = null;
+        task.ReviewResolvedByUserId = null;
+        task.SortKey = 1024;
+        task.SortOrder = 1;
+        task.CreatedByUserId = user.Id;
+
+        var assignment = await dbContext.TaskAssignments.FirstOrDefaultAsync(
+            candidate =>
+                candidate.TenantId == tenantId &&
+                candidate.TaskItemId == task.Id &&
+                candidate.UserId == user.Id &&
+                candidate.Role == TaskAssignmentRole.Assignee,
+            cancellationToken);
+        if (assignment is null)
+        {
+            await dbContext.TaskAssignments.AddAsync(new TaskAssignment
+            {
+                TenantId = tenantId,
+                TaskItemId = task.Id,
+                UserId = user.Id,
+                Role = TaskAssignmentRole.Assignee,
+                AssignedByUserId = user.Id,
+                AssignedAt = U22DemoActivityOccurredAt
+            }, cancellationToken);
+        }
+        else
+        {
+            assignment.AssignedByUserId = user.Id;
+            assignment.AssignedAt = U22DemoActivityOccurredAt;
+        }
+
+        var taskOverride = await dbContext.TaskExecutionScopeOverrides.FirstOrDefaultAsync(
+            candidate => candidate.TaskItemId == task.Id,
+            cancellationToken);
+        if (taskOverride is null)
+        {
+            taskOverride = new TaskExecutionScopeOverride
+            {
+                TenantId = tenantId,
+                WorkspaceId = workspace.Id,
+                ProjectId = project.Id,
+                TaskItemId = task.Id,
+                VersionNo = 1,
+                UpdatedByUserId = user.Id
+            };
+            await dbContext.TaskExecutionScopeOverrides.AddAsync(taskOverride, cancellationToken);
+        }
+
+        taskOverride.TenantId = tenantId;
+        taskOverride.WorkspaceId = workspace.Id;
+        taskOverride.ProjectId = project.Id;
+        taskOverride.TaskItemId = task.Id;
+        taskOverride.WebEnabled = true;
+        taskOverride.ProjectFilesEnabled = false;
+        taskOverride.VersionNo = 1;
+        taskOverride.UpdatedByUserId = user.Id;
+
+        var activity = await dbContext.ActivityLogs.FirstOrDefaultAsync(
+            candidate =>
+                candidate.TenantId == tenantId &&
+                candidate.ProjectId == project.Id &&
+                candidate.TaskItemId == task.Id &&
+                candidate.Body == U22DemoActivityBody,
+            cancellationToken);
+        if (activity is null)
+        {
+            activity = new ActivityLog
+            {
+                TenantId = tenantId,
+                ProjectId = project.Id,
+                TaskItemId = task.Id,
+                AuthorUserId = user.Id,
+                ActivityType = ActivityLogType.Note,
+                Body = U22DemoActivityBody,
+                OccurredAt = U22DemoActivityOccurredAt
+            };
+            await dbContext.ActivityLogs.AddAsync(activity, cancellationToken);
+        }
+        else
+        {
+            activity.AuthorUserId = user.Id;
+            activity.ActivityType = ActivityLogType.Note;
+            activity.OccurredAt = U22DemoActivityOccurredAt;
+        }
     }
 
     private static async Task SeedBrowserSmokeKanbanPr05Async(

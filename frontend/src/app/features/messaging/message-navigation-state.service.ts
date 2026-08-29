@@ -7,6 +7,7 @@ const LIST_SCROLL_HOST_KEY = 'aip.messaging.list-scroll-host.v1';
 const LIST_FOCUS_CONVERSATION_KEY = 'aip.messaging.list-focus-conversation.v1';
 const APP_SCROLL_HOST_ID = 'app-shell-main-content';
 const DETAIL_BACK_LINK_ID = 'messages-mobile-back-link';
+const DETAIL_BACK_LINK_FOCUS_ATTEMPTS = 8;
 const MOBILE_HIERARCHY_QUERY = '(max-width: 860px)';
 
 type MessageScrollHostId = 'app' | 'document';
@@ -108,8 +109,7 @@ export class MessageNavigationStateService {
         host.element.scrollTo({ top: 0, left: 0, behavior: 'auto' });
       }
 
-      const backLink = this.document.getElementById(DETAIL_BACK_LINK_ID);
-      backLink?.focus({ preventScroll: true });
+      this.focusDetailBackLink(window);
     });
   }
 
@@ -168,6 +168,24 @@ export class MessageNavigationStateService {
     }
 
     return window.innerWidth <= 860;
+  }
+
+  private focusDetailBackLink(window: Window): void {
+    let attemptsRemaining = DETAIL_BACK_LINK_FOCUS_ATTEMPTS;
+    const focus = () => {
+      const backLink = this.document.getElementById(DETAIL_BACK_LINK_ID);
+      if (backLink instanceof HTMLElement) {
+        backLink.focus({ preventScroll: true });
+        return;
+      }
+
+      attemptsRemaining -= 1;
+      if (attemptsRemaining > 0) {
+        window.requestAnimationFrame(focus);
+      }
+    };
+
+    focus();
   }
 
   private restoreListFocus(conversationId: string | null): void {

@@ -214,6 +214,12 @@ public sealed class AppDbContextSeedTests
 
         var actor = await dbContext.Users.SingleAsync(
             user => user.Email == "browser-smoke@example.test");
+        var recipient = await dbContext.Users.SingleAsync(
+            user => user.Email == "browser-smoke-recipient@example.test");
+        var smokeAnnouncement = await dbContext.Announcements.SingleAsync(
+            announcement =>
+                announcement.TenantId == tenant.Id &&
+                announcement.Title == "Browser smoke announcement");
         var firstGrant = await dbContext.Set<CapabilityGrant>().SingleAsync(
             grant =>
                 grant.TenantId == tenant.Id &&
@@ -228,6 +234,21 @@ public sealed class AppDbContextSeedTests
             task => task.Title == "Browser smoke task");
         seededTask.IsBlocked = true;
         seededTask.BlockedReason = "Stale state from a prior browser run.";
+        dbContext.AnnouncementReads.AddRange(
+            new AnnouncementRead
+            {
+                TenantId = tenant.Id,
+                AnnouncementId = smokeAnnouncement.Id,
+                UserId = actor.Id,
+                ReadAt = DateTimeOffset.UtcNow
+            },
+            new AnnouncementRead
+            {
+                TenantId = tenant.Id,
+                AnnouncementId = smokeAnnouncement.Id,
+                UserId = recipient.Id,
+                ReadAt = DateTimeOffset.UtcNow
+            });
         await dbContext.SaveChangesAsync();
 
         await AppDbContextSeed.SeedBrowserSmokeAsync(
@@ -272,6 +293,17 @@ public sealed class AppDbContextSeedTests
         Assert.False(artifactTask.IsBlocked);
         Assert.Null(artifactTask.BlockedReason);
 
+        var reseededAnnouncement = await dbContext.Announcements.SingleAsync(
+            announcement => announcement.Id == smokeAnnouncement.Id);
+        Assert.True(reseededAnnouncement.RequiresReadConfirmation);
+        var remainingAnnouncementReads = await dbContext.AnnouncementReads
+            .Where(read =>
+                read.TenantId == tenant.Id &&
+                read.AnnouncementId == smokeAnnouncement.Id)
+            .ToListAsync();
+        Assert.DoesNotContain(remainingAnnouncementReads, read => read.UserId == actor.Id);
+        Assert.Contains(remainingAnnouncementReads, read => read.UserId == recipient.Id);
+
         currentTenant.SetTenant(tenant.Id, tenant.Slug);
         var tenants = new TenantRepository(dbContext);
         var workspaces = new WorkspaceRepository(dbContext);
@@ -288,6 +320,91 @@ public sealed class AppDbContextSeedTests
             evaluator);
 
         Assert.True(await authorization.CanCreateWorkspace(actor.Id, tenant.Id));
+    }
+
+    [Fact]
+    public async Task BrowserSmokeSeedProvidesIdempotentU22SyntheticDemoDataWithoutAnExecutionRun()
+    {
+        var currentTenant = new CurrentTenantService();
+        currentTenant.SetPlatformScope();
+        await using var dbContext = CreateDbContext(currentTenant);
+        var tenant = await AppDbContextSeed.SeedDefaultTenantAsync(
+            dbContext,
+            new TenancyOptions { DefaultTenantSlug = "default" });
+        var passwordHasher = new Pbkdf2PasswordHasher();
+        var storage = new MemoryFileStorage();
+
+        await AppDbContextSeed.SeedBrowserSmokeAsync(
+            dbContext,
+            passwordHasher,
+            storage,
+            tenant.Id,
+            "browser-smoke@example.test",
+            "Browser-smoke-password!234");
+        await AppDbContextSeed.SeedBrowserSmokeAsync(
+            dbContext,
+            passwordHasher,
+            storage,
+            tenant.Id,
+            "browser-smoke@example.test",
+            "Browser-smoke-password!234");
+
+        var project = await dbContext.Projects.SingleAsync(candidate =>
+            candidate.TenantId == tenant.Id &&
+            candidate.Slug == "u22-synthetic-demo-project");
+        Assert.Equal("U-22 Synthetic Demo Project", project.Name);
+        Assert.Equal(ProjectStatus.Active, project.Status);
+        Assert.Equal(ProjectVisibility.WorkspaceVisible, project.Visibility);
+        Assert.Equal(ProjectActivationState.Activated, project.ActivationState);
+        Assert.Equal(1, project.ActivationVersion);
+
+        var projectScope = Assert.Single(await dbContext.ProjectExecutionScopes
+            .Where(candidate => candidate.ProjectId == project.Id)
+            .ToListAsync());
+        Assert.False(projectScope.WebEnabled);
+        Assert.True(projectScope.ProjectFilesEnabled);
+        Assert.Equal(1, projectScope.VersionNo);
+
+        var task = await dbContext.TaskItems.SingleAsync(candidate =>
+            candidate.TenantId == tenant.Id &&
+            candidate.ProjectId == project.Id &&
+            candidate.Title == "U-22 Synthetic Demo Task");
+        Assert.Equal("Demonstrate a secure, repeatable U-22 Task workflow.", task.BriefGoal);
+        Assert.Equal(
+            "A concise U-22 walkthrough showing the Task Brief, source policy, and current Task state.",
+            task.BriefDeliverable);
+        Assert.Equal(
+            "Synthetic Test fixture only. No outbound Web retrieval, provider, runtime, raw source content, or execution claim.",
+            task.BriefConstraints);
+        Assert.Equal(TaskItemStatus.InProgress, task.Status);
+        Assert.False(task.IsBlocked);
+        Assert.Equal(0, task.ProgressPercent);
+        Assert.NotNull(task.WorkflowStageId);
+
+        var stage = await dbContext.TaskWorkflowStages.SingleAsync(
+            candidate => candidate.Id == task.WorkflowStageId!.Value);
+        Assert.Equal("In progress", stage.Name);
+        Assert.Equal(TaskStageCategory.InProgress, stage.InternalCategory);
+
+        var taskOverride = Assert.Single(await dbContext.TaskExecutionScopeOverrides
+            .Where(candidate => candidate.TaskItemId == task.Id)
+            .ToListAsync());
+        Assert.True(taskOverride.WebEnabled);
+        Assert.False(taskOverride.ProjectFilesEnabled);
+        Assert.Equal(1, taskOverride.VersionNo);
+
+        var activity = Assert.Single(await dbContext.ActivityLogs
+            .Where(candidate => candidate.TaskItemId == task.Id)
+            .ToListAsync());
+        Assert.Equal(ActivityLogType.Note, activity.ActivityType);
+        Assert.Equal(
+            "Synthetic U-22 demo note. This seeded Activity record is presentation data only; it is not execution or phase-transition history.",
+            activity.Body);
+        Assert.Equal(new DateTimeOffset(2026, 8, 20, 9, 0, 0, TimeSpan.Zero), activity.OccurredAt);
+
+        Assert.Empty(await dbContext.TaskExecutionRuns
+            .Where(candidate => candidate.TaskItemId == task.Id)
+            .ToListAsync());
     }
 
     private static AppDbContext CreateDbContext(CurrentTenantService currentTenant)

@@ -53,6 +53,7 @@ ModuleRegistry.registerModules([AllCommunityModule]);
 export class AppDataGridComponent<TData extends object> implements OnInit, AfterViewInit, OnChanges, OnDestroy {
   private readonly flags = inject(FrontendFeatureFlagsService);
   @ViewChild('syncfusionHost', { read: ViewContainerRef }) private syncfusionHost?: ViewContainerRef;
+  @ViewChild(AgGridAngular) private agGrid?: AgGridAngular<TData>;
 
   @Input() rows: readonly TData[] = [];
   @Input() columns: readonly AppDataGridColumnDef<TData>[] = [];
@@ -211,6 +212,12 @@ export class AppDataGridComponent<TData extends object> implements OnInit, After
       return;
     }
     this.selectionChanged.emit({ rows: event.api.getSelectedRows() });
+  }
+
+  /** Adapter-neutral imperative reset for feature-owned contextual toolbars. */
+  clearSelection(): void {
+    this.agGrid?.api.deselectAll();
+    this.syncfusionComponent?.instance.clearSelection();
   }
 
   private renderActions(column: AppDataGridColumnDef<TData>, row: TData | undefined): HTMLElement | string {
