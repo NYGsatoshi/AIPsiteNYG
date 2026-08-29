@@ -26,19 +26,28 @@ public sealed class TaskPhaseActivitySaveChangesInterceptorTests
         await context.SaveChangesAsync();
         context.ChangeTracker.Clear();
 
-        var tracked = await context.TaskItems.SingleAsync(item => item.Id == task.Id);
+        // Persist the target Workflow Stage first. Assigning a brand-new navigation
+        // directly to an already-persisted Task makes the InMemory provider treat
+        // that Stage as an existing row to update, which is a fixture artifact and
+        // not representative of the production transition path.
         var review = new TaskWorkflowStage
         {
-            TenantId = tracked.TenantId,
-            WorkspaceId = tracked.WorkspaceId,
-            ProjectId = tracked.ProjectId,
+            TenantId = task.TenantId,
+            WorkspaceId = task.WorkspaceId,
+            ProjectId = task.ProjectId,
             DefinitionId = Guid.NewGuid(),
             Name = "Review",
             InternalCategory = TaskStageCategory.Review,
             SortKey = 4000
         };
-        tracked.WorkflowStage = review;
-        tracked.WorkflowStageId = review.Id;
+        context.TaskWorkflowStages.Add(review);
+        await context.SaveChangesAsync();
+        context.ChangeTracker.Clear();
+
+        var tracked = await context.TaskItems.SingleAsync(item => item.Id == task.Id);
+        var trackedReview = await context.TaskWorkflowStages.SingleAsync(stage => stage.Id == review.Id);
+        tracked.WorkflowStage = trackedReview;
+        tracked.WorkflowStageId = trackedReview.Id;
 
         await context.SaveChangesAsync();
 
