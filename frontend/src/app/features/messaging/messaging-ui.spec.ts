@@ -44,7 +44,8 @@ async function configureHttpTest(
       {
         provide: ActivatedRoute,
         useValue: {
-          paramMap: of(convertToParamMap(routeParams))
+          paramMap: of(convertToParamMap(routeParams)),
+          queryParamMap: of(convertToParamMap({}))
         }
       }
     ]

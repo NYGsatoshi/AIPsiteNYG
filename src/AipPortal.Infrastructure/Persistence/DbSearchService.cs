@@ -20,9 +20,24 @@ public sealed class DbSearchService(
             return Result<SearchResponse>.Failure("Authentication is required.");
         }
 
+        if (!Enum.IsDefined(request.Type))
+        {
+            return Result<SearchResponse>.Failure("Search type is invalid.");
+        }
+
         if (!Enum.IsDefined(request.FileKind))
         {
             return Result<SearchResponse>.Failure("File kind is invalid.");
+        }
+
+        if (!Enum.IsDefined(request.MessageRead))
+        {
+            return Result<SearchResponse>.Failure("Message read filter is invalid.");
+        }
+
+        if (!Enum.IsDefined(request.MessageAttachment))
+        {
+            return Result<SearchResponse>.Failure("Message attachment filter is invalid.");
         }
 
         if (request.FileKind != FileSearchKind.All && request.Type != SearchResultType.File)
@@ -30,12 +45,45 @@ public sealed class DbSearchService(
             return Result<SearchResponse>.Failure("File kind is only valid for File search.");
         }
 
+        if ((request.MessageRead != MessageReadFilter.All ||
+             request.MessageAttachment != MessageAttachmentFilter.All ||
+             request.ToDateExclusive.HasValue) &&
+            request.Type != SearchResultType.Message)
+        {
+            return Result<SearchResponse>.Failure("Message filters are only valid for Message search.");
+        }
+
+        if (request.AuthorUserId == Guid.Empty)
+        {
+            return Result<SearchResponse>.Failure("Author is invalid.");
+        }
+
+        if (request.FromDate.HasValue && request.ToDate.HasValue && request.FromDate > request.ToDate)
+        {
+            return Result<SearchResponse>.Failure("Date range is invalid.");
+        }
+
+        if (request.ToDate.HasValue && request.ToDateExclusive.HasValue)
+        {
+            return Result<SearchResponse>.Failure("Date range is invalid.");
+        }
+
+        if (request.FromDate.HasValue &&
+            request.ToDateExclusive.HasValue &&
+            request.FromDate >= request.ToDateExclusive)
+        {
+            return Result<SearchResponse>.Failure("Date range is invalid.");
+        }
+
         var hasFilters = request.WorkspaceId.HasValue ||
             request.GroupId.HasValue ||
             request.ProjectId.HasValue ||
             request.AuthorUserId.HasValue ||
             request.FromDate.HasValue ||
-            request.ToDate.HasValue;
+            request.ToDate.HasValue ||
+            request.ToDateExclusive.HasValue ||
+            request.MessageRead != MessageReadFilter.All ||
+            request.MessageAttachment != MessageAttachmentFilter.All;
         if (string.IsNullOrWhiteSpace(request.Q) && !hasFilters)
         {
             return Result<SearchResponse>.Failure("Search query or filters are required.");
@@ -124,6 +172,144 @@ public sealed class DbSearchService(
             .ToList();
 
         return Result<SearchResponse>.Success(new SearchResponse(q, page, pageSize, ordered.Count, pageItems));
+    }
+
+    public async Task<Result<MessageAuthorOptionsResponse>> SearchMessageAuthorsAsync(
+        MessageAuthorOptionsRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!currentUser.IsAuthenticated || !currentUser.UserId.HasValue)
+        {
+            return Result<MessageAuthorOptionsResponse>.Failure("Authentication is required.");
+        }
+
+        if (request.SelectedUserId == Guid.Empty)
+        {
+            return Result<MessageAuthorOptionsResponse>.Failure("Selected author is invalid.");
+        }
+
+        var q = request.Q?.Trim();
+        if (!request.SelectedUserId.HasValue &&
+            (string.IsNullOrWhiteSpace(q) || q.Length is < 2 or > 120))
+        {
+            return Result<MessageAuthorOptionsResponse>.Failure("Author query must contain between 2 and 120 characters.");
+        }
+
+        var userId = currentUser.UserId.Value;
+        var limit = Math.Clamp(request.Limit, 1, 20);
+        var messages = dbContext.Messages
+            .AsNoTracking()
+            .Where(message =>
+                message.DeletedAt == null &&
+                dbContext.Conversations.Any(conversation =>
+                    conversation.Id == message.ConversationId &&
+                    conversation.TenantId == message.TenantId &&
+                    conversation.WorkspaceId == message.WorkspaceId));
+
+        var readableConversationIds = messaging.QueryReadableConversationIds(userId);
+        if (readableConversationIds is not null)
+        {
+            var authorizedConversationIds = await readableConversationIds
+                .ToArrayAsync(cancellationToken);
+            if (authorizedConversationIds.Length == 0)
+            {
+                return Result<MessageAuthorOptionsResponse>.Success(new MessageAuthorOptionsResponse([]));
+            }
+
+            messages = messages.Where(message => authorizedConversationIds.Contains(message.ConversationId));
+        }
+        else
+        {
+            var candidateConversationIds = await messages
+                .GroupBy(message => message.ConversationId)
+                .Select(group => new
+                {
+                    ConversationId = group.Key,
+                    LatestMessageAt = group.Max(message => message.CreatedAt)
+                })
+                .OrderByDescending(item => item.LatestMessageAt)
+                .ThenBy(item => item.ConversationId)
+                .Take(100)
+                .Select(item => item.ConversationId)
+                .ToListAsync(cancellationToken);
+            var authorizedConversationIds = await messaging.FilterReadableConversationIdsAsync(
+                userId,
+                candidateConversationIds,
+                cancellationToken);
+
+            if (authorizedConversationIds.Count == 0)
+            {
+                return Result<MessageAuthorOptionsResponse>.Success(new MessageAuthorOptionsResponse([]));
+            }
+
+            messages = messages.Where(message => authorizedConversationIds.Contains(message.ConversationId));
+        }
+
+        var tenantAuthors = dbContext.TenantUsers
+            .AsNoTracking()
+            .Join(
+                dbContext.Users.AsNoTracking(),
+                tenantUser => tenantUser.UserId,
+                author => author.Id,
+                (tenantUser, author) => new
+                {
+                    tenantUser.TenantId,
+                    UserId = author.Id,
+                    author.DisplayName
+                });
+        var conversationAuthors = dbContext.ConversationMembers
+            .AsNoTracking()
+            .Join(
+                tenantAuthors,
+                member => new { member.TenantId, member.UserId },
+                author => new { author.TenantId, author.UserId },
+                (member, author) => new
+                {
+                    member.TenantId,
+                    member.ConversationId,
+                    author.UserId,
+                    author.DisplayName
+                });
+        var candidates = messages.Join(
+            conversationAuthors,
+            message => new
+            {
+                message.TenantId,
+                message.ConversationId,
+                UserId = message.AuthorUserId
+            },
+            author => new
+            {
+                author.TenantId,
+                author.ConversationId,
+                author.UserId
+            },
+            (message, author) => new { message, author });
+
+        if (request.SelectedUserId.HasValue)
+        {
+            candidates = candidates.Where(item => item.author.UserId == request.SelectedUserId.Value);
+        }
+        else
+        {
+            var normalizedQuery = q!.ToLower();
+            candidates = candidates.Where(item => item.author.DisplayName.ToLower().Contains(normalizedQuery));
+        }
+
+        var items = await candidates
+            .Select(item => new
+            {
+                item.author.UserId,
+                item.author.DisplayName
+            })
+            .Distinct()
+            .OrderBy(author => author.DisplayName)
+            .ThenBy(author => author.UserId)
+            .Take(limit)
+            .Select(author => new MessageAuthorOptionResponse(author.UserId, author.DisplayName))
+            .ToListAsync(cancellationToken);
+
+        return Result<MessageAuthorOptionsResponse>.Success(new MessageAuthorOptionsResponse(items));
     }
 
     private async Task<IReadOnlyList<SearchResultItemResponse>> SearchUsersAsync(Guid userId, bool isSystemAdmin, string? q, SearchRequest request, CancellationToken cancellationToken)
@@ -257,7 +443,10 @@ public sealed class DbSearchService(
     {
         var query = dbContext.Messages.AsNoTracking()
             .Where(message => message.DeletedAt == null)
-            .Join(dbContext.Conversations, message => message.ConversationId, conversation => conversation.Id, (message, conversation) => new { message, conversation });
+            .Join(dbContext.Conversations, message => message.ConversationId, conversation => conversation.Id, (message, conversation) => new { message, conversation })
+            .Where(item =>
+                item.message.TenantId == item.conversation.TenantId &&
+                item.message.WorkspaceId == item.conversation.WorkspaceId);
 
         if (request.WorkspaceId.HasValue)
         {
@@ -266,7 +455,26 @@ public sealed class DbSearchService(
 
         if (request.AuthorUserId.HasValue)
         {
-            query = query.Where(item => item.message.AuthorUserId == request.AuthorUserId);
+            // Validate the opaque author identity once against the current
+            // Tenant. Per-row author attribution is intentionally deferred
+            // until after the readable Message result is bounded.
+            var isTenantAuthor = await dbContext.TenantUsers
+                .AsNoTracking()
+                .AnyAsync(
+                    tenantUser => tenantUser.UserId == request.AuthorUserId.Value,
+                    cancellationToken);
+            if (!isTenantAuthor)
+            {
+                return [];
+            }
+
+            var historicalAuthorConversationIds = dbContext.ConversationMembers
+                .AsNoTracking()
+                .Where(member => member.UserId == request.AuthorUserId.Value)
+                .Select(member => member.ConversationId);
+            query = query.Where(item =>
+                item.message.AuthorUserId == request.AuthorUserId &&
+                historicalAuthorConversationIds.Contains(item.conversation.Id));
         }
 
         if (!string.IsNullOrWhiteSpace(q))
@@ -278,14 +486,122 @@ public sealed class DbSearchService(
 
         query = query.Where(item =>
             (!request.FromDate.HasValue || item.message.CreatedAt >= request.FromDate.Value) &&
-            (!request.ToDate.HasValue || item.message.CreatedAt <= request.ToDate.Value));
+            (!request.ToDate.HasValue || item.message.CreatedAt <= request.ToDate.Value) &&
+            (!request.ToDateExclusive.HasValue || item.message.CreatedAt < request.ToDateExclusive.Value));
+
+        // Prefer the persisted cursor Message over LastReadAt, which is the
+        // action time and can be later than Messages the actor has not read.
+        // Legacy states without a cursor retain the established timestamp
+        // fallback. A non-null but invalid/mismatched cursor fails closed.
+        if (request.MessageRead == MessageReadFilter.Unread)
+        {
+            query = query.Where(item =>
+                item.message.AuthorUserId != userId &&
+                !dbContext.ReadStates.Any(readState =>
+                    readState.TenantId == item.message.TenantId &&
+                    readState.ConversationId == item.message.ConversationId &&
+                    readState.ScopeType == ReadScopeType.Conversation &&
+                    readState.ScopeId == item.message.ConversationId &&
+                    readState.UserId == userId &&
+                    ((readState.LastReadMessageId.HasValue &&
+                      dbContext.Messages.Any(cursor =>
+                          cursor.Id == readState.LastReadMessageId.Value &&
+                          cursor.TenantId == item.message.TenantId &&
+                          cursor.WorkspaceId == item.message.WorkspaceId &&
+                          cursor.ConversationId == item.message.ConversationId &&
+                          (cursor.CreatedAt > item.message.CreatedAt ||
+                           (cursor.CreatedAt == item.message.CreatedAt && cursor.Id.CompareTo(item.message.Id) >= 0)))) ||
+                     (!readState.LastReadMessageId.HasValue && readState.LastReadAt >= item.message.CreatedAt))));
+        }
+        else if (request.MessageRead == MessageReadFilter.Read)
+        {
+            query = query.Where(item =>
+                item.message.AuthorUserId == userId ||
+                dbContext.ReadStates.Any(readState =>
+                    readState.TenantId == item.message.TenantId &&
+                    readState.ConversationId == item.message.ConversationId &&
+                    readState.ScopeType == ReadScopeType.Conversation &&
+                    readState.ScopeId == item.message.ConversationId &&
+                    readState.UserId == userId &&
+                    ((readState.LastReadMessageId.HasValue &&
+                      dbContext.Messages.Any(cursor =>
+                          cursor.Id == readState.LastReadMessageId.Value &&
+                          cursor.TenantId == item.message.TenantId &&
+                          cursor.WorkspaceId == item.message.WorkspaceId &&
+                          cursor.ConversationId == item.message.ConversationId &&
+                          (cursor.CreatedAt > item.message.CreatedAt ||
+                           (cursor.CreatedAt == item.message.CreatedAt && cursor.Id.CompareTo(item.message.Id) >= 0)))) ||
+                     (!readState.LastReadMessageId.HasValue && readState.LastReadAt >= item.message.CreatedAt))));
+        }
+
+        if (request.MessageAttachment != MessageAttachmentFilter.All)
+        {
+            var withCanonicalAttachment = query.Where(item =>
+                dbContext.MessageAttachments.Any(link =>
+                    link.TenantId == item.message.TenantId &&
+                    link.MessageId == item.message.Id &&
+                    dbContext.Attachments.Any(attachment =>
+                        attachment.Id == link.AttachmentId &&
+                        attachment.TenantId == item.message.TenantId &&
+                        attachment.DeletedAt == null &&
+                        attachment.OwnerType == AttachmentOwnerType.Message &&
+                        attachment.OwnerId == item.message.Id &&
+                        attachment.WorkspaceId == item.conversation.WorkspaceId &&
+                        attachment.ScanStatus == FileScanStatus.Clean &&
+                        attachment.FileObjectId != Guid.Empty &&
+                        dbContext.FileObjects.Any(file =>
+                            file.Id == attachment.FileObjectId &&
+                            file.TenantId == item.message.TenantId &&
+                            file.WorkspaceId == item.conversation.WorkspaceId &&
+                            file.ProjectId == null &&
+                            file.Classification.HasValue &&
+                            file.Classification != DataClassification.UnknownSensitive &&
+                            file.Status == FileObjectStatus.Active &&
+                            file.DeletedAt == null))));
+
+            query = request.MessageAttachment == MessageAttachmentFilter.With
+                ? withCanonicalAttachment
+                : query.Where(item =>
+                    !dbContext.MessageAttachments.Any(link =>
+                        link.TenantId == item.message.TenantId &&
+                        link.MessageId == item.message.Id &&
+                        dbContext.Attachments.Any(attachment =>
+                            attachment.Id == link.AttachmentId &&
+                            attachment.TenantId == item.message.TenantId &&
+                            attachment.DeletedAt == null &&
+                            attachment.OwnerType == AttachmentOwnerType.Message &&
+                            attachment.OwnerId == item.message.Id &&
+                            attachment.WorkspaceId == item.conversation.WorkspaceId &&
+                            attachment.ScanStatus == FileScanStatus.Clean &&
+                            attachment.FileObjectId != Guid.Empty &&
+                            dbContext.FileObjects.Any(file =>
+                                file.Id == attachment.FileObjectId &&
+                                file.TenantId == item.message.TenantId &&
+                                file.WorkspaceId == item.conversation.WorkspaceId &&
+                                file.ProjectId == null &&
+                                file.Classification.HasValue &&
+                                file.Classification != DataClassification.UnknownSensitive &&
+                                file.Status == FileObjectStatus.Active &&
+                                file.DeletedAt == null))));
+        }
 
         var readableConversationIds = messaging.QueryReadableConversationIds(userId);
         if (readableConversationIds is not null)
         {
-            // PostgreSQL composes the authoritative recursive Conversation
-            // relation into the Message query before result ordering/limiting.
-            query = query.Where(item => readableConversationIds.Contains(item.conversation.Id));
+            // Resolve the authoritative recursive relation as its own set.
+            // Composing its full Project/Workspace authorization graph into
+            // every optional Message predicate produces a pathological
+            // PostgreSQL plan once From is present. Materializing only the
+            // authorized IDs keeps authorization before ordering/limiting and
+            // lets the bounded Message query use an indexed ANY predicate.
+            var authorizedConversationIds = await readableConversationIds
+                .ToArrayAsync(cancellationToken);
+            if (authorizedConversationIds.Length == 0)
+            {
+                return [];
+            }
+
+            query = query.Where(item => authorizedConversationIds.Contains(item.conversation.Id));
         }
         else
         {
@@ -317,12 +633,77 @@ public sealed class DbSearchService(
             query = query.Where(item => authorizedConversationIds.Contains(item.conversation.Id));
         }
 
-        return await query
+        var rows = await query
             .OrderByDescending(item => item.message.CreatedAt)
             .ThenBy(item => item.message.Id)
-            .Select(item => new SearchResultItemResponse(SearchResultType.Message, item.message.Id, item.conversation.Title ?? "Conversation", Snippet(item.message.Body), $"/conversations/{item.conversation.Id}", item.conversation.WorkspaceId, null, null, item.message.CreatedAt, item.message.AuthorUser!.DisplayName))
+            .Select(item => new
+            {
+                MessageId = item.message.Id,
+                item.message.Body,
+                ConversationId = item.conversation.Id,
+                ConversationTitle = item.conversation.Title,
+                item.conversation.WorkspaceId,
+                item.message.CreatedAt
+            })
             .Take(100)
             .ToListAsync(cancellationToken);
+
+        if (rows.Count == 0)
+        {
+            return [];
+        }
+
+        // Names are a separate, bounded attribution projection. A readable
+        // historical Message remains a result even when attribution proof is
+        // absent, but no cross-Tenant or structurally unrelated User name can
+        // be disclosed through that row.
+        var rowIds = rows.Select(row => row.MessageId).ToArray();
+        var attributedAuthors = await (
+                from message in dbContext.Messages.AsNoTracking()
+                where rowIds.Contains(message.Id)
+                join tenantUser in dbContext.TenantUsers.AsNoTracking()
+                    on new { message.TenantId, UserId = message.AuthorUserId }
+                    equals new { tenantUser.TenantId, tenantUser.UserId }
+                join member in dbContext.ConversationMembers.AsNoTracking()
+                    on new
+                    {
+                        message.TenantId,
+                        message.ConversationId,
+                        UserId = message.AuthorUserId
+                    }
+                    equals new
+                    {
+                        member.TenantId,
+                        member.ConversationId,
+                        member.UserId
+                    }
+                join author in dbContext.Users.AsNoTracking()
+                    on message.AuthorUserId equals author.Id
+                select new
+                {
+                    MessageId = message.Id,
+                    author.DisplayName
+                })
+            .ToListAsync(cancellationToken);
+        var authorNames = attributedAuthors
+            .GroupBy(attribution => attribution.MessageId)
+            .ToDictionary(
+                group => group.Key,
+                group => group.Select(attribution => attribution.DisplayName).First());
+
+        return rows
+            .Select(row => new SearchResultItemResponse(
+                SearchResultType.Message,
+                row.MessageId,
+                row.ConversationTitle ?? "Conversation",
+                Snippet(row.Body),
+                $"/conversations/{row.ConversationId}",
+                row.WorkspaceId,
+                null,
+                null,
+                row.CreatedAt,
+                authorNames.TryGetValue(row.MessageId, out var displayName) ? displayName : null))
+            .ToList();
     }
 
     private async Task<IReadOnlyList<SearchResultItemResponse>> SearchAnnouncementsAsync(Guid userId, bool isSystemAdmin, string? q, SearchRequest request, CancellationToken cancellationToken)

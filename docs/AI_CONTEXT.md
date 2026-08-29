@@ -104,7 +104,7 @@ Project references enforce a conventional dependency direction. See `docs/ARCHIT
 | SignalR and transactional Outbox | Messaging, Project Kanban, and PR06 Schedule integration implemented; exact final-HEAD PR06 real-transport Gate pending | Authenticated `/hubs/app`, server-authorized subscriptions, durable Outbox persistence, dispatcher retry/dead-letter/retention, diagnostics, and Angular reconnect/catch-up exist. PR05 uses committed Task/Project invalidations for Kanban. PR06 transactionally queues Task/Project schedule invalidations and treats them as version hints for authoritative Gantt HTTP refetch, including active-edit queuing, reconnect, degraded HTTP behavior, and synchronous protected Kanban/Gantt clear plus generation invalidation when Project subscription reauthorization is denied. Historical exact `2fc5910` licensed smoke run `30639800642` passed all six scenarios with 0 failed/skipped; it is not final evidence after latest-main integration and scope cleanup. |
 | Billing/payments, SSO/MFA, general-purpose/external job orchestration | Planned | In-process Outbox and PR07-C digest hosted workers exist; no general-purpose external job runner was found |
 
-### Current P1 Message discovery candidate
+### Current Message discovery candidates
 
 - Issue #359 adds an expanded desktop Messages search and a one-action mobile
   search/filter disclosure. Text matches come only from the existing bounded,
@@ -113,11 +113,20 @@ Project references enforce a conventional dependency direction. See `docs/ARCHIT
   upgrades those conditions to the authoritative All/Unread/Mentions/Later
   projection described below. Every condition is explicit and removable, and
   zero results provide Change search and Clear all recovery.
-- No attachment filter exists: BE-004 still leaves canonical Message
-  attachment ownership/persistence unresolved. Advanced compound Message
-  result filters remain Issue #367. See
-  `docs/contracts/message-search-filters-v1.md` and
-  `docs/verification/p1-message-search-filters.md`.
+- Issue #367 adds explicit server-evaluated From, local-calendar date range,
+  Message Read/Unread, and safe-attachment facets to the existing bounded
+  Message Search projection. The sender option endpoint returns only display
+  names already present in currently readable Conversations. Applied
+  non-sensitive conditions may replay through the URL, while free-text and
+  snippets remain memory-only and recognized private query keys are scrubbed.
+  The attachment facet recognizes only clean, classified, scope-consistent,
+  pre-existing Message-owned file links; malformed, quarantined, or legacy
+  metadata-only rows count as `Without`. It does not enable attachment upload
+  or resolve BE-004, which remains critical and open. See
+  `docs/contracts/message-search-filters-v1.md`,
+  `docs/contracts/message-advanced-filters-v1.md`,
+  `docs/verification/p1-message-search-filters.md`, and
+  `docs/verification/p2-message-advanced-filters.md`.
 
 ### Issue #355 Conversation inbox candidate
 

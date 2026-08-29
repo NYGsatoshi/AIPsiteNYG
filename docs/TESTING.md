@@ -222,6 +222,27 @@ focus-return flow, no horizontal overflow, and axe. Its APIs are mocked; the
 existing HTTP/PostgreSQL Search tests remain the authorization evidence. See
 `docs/verification/p1-message-search-filters.md`.
 
+### Issue #367 advanced Message filters
+
+Tests tagged `Scope=Issue367` cover validation, fixed non-reflective HTTP model
+binding failures, current readable-Conversation authorization, cross-Tenant
+and cross-Workspace non-disclosure, author-option projection, half-open date
+boundaries, exact `(CreatedAt, Id)` read-cursor ties, legacy zero-sequence and
+null-ID compatibility, corrupt cursor fail-closed behavior, and canonical safe
+attachment `With`/`Without` complements. The PostgreSQL test must run with a
+real `POSTGRES_TEST_CONNECTION_STRING`; an environment skip is not provider
+evidence.
+
+Focused Angular tests cover compound request mapping, removable chips,
+authorized sender resolution, malformed/deferred URL state, private free-text
+scrubbing across history, request cancellation/generation guards, same-filter
+held-author races, dialog focus containment, and keyboard sender selection.
+The static Playwright scenario forces 320 CSS pixels and covers the canonical
+query parameters, local-calendar date conversion, chips, Back/Forward privacy,
+focus return, no horizontal overflow, and axe. Its APIs are mocked and do not
+replace the HTTP/PostgreSQL authorization proof. See
+`docs/verification/p2-message-advanced-filters.md`.
+
 ### Issue #355 Conversation inbox views
 
 Backend tests tagged `Scope=Issue355` cover All/Unread/Mentions/Later counts

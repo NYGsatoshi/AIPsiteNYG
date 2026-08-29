@@ -7,6 +7,7 @@ const unreadMentionId = '22222222-2222-4222-8222-222222222222';
 const unreadOnlyId = '33333333-3333-4333-8333-333333333333';
 const mentionOnlyId = '44444444-4444-4444-8444-444444444444';
 const messageId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const authorId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 
 const conversations = [
   {
@@ -41,7 +42,7 @@ const conversations = [
   }
 ];
 
-test.describe('Issues #355/#359 Message search and inbox views', () => {
+test.describe('Issues #355/#359/#367 Message search and inbox views', () => {
   test.beforeEach(async ({ page }) => {
     await installMessagingDiscoveryApi(page);
   });
@@ -163,12 +164,144 @@ test.describe('Issues #355/#359 Message search and inbox views', () => {
     await expect(page.getByTestId('message-filter-later')).toContainText('1');
     await expect(page.getByTestId('message-filter-drawer-toggle')).toBeHidden();
   });
+
+  test('keeps advanced filters private, keyboard-contained, and canonical at 320px', async ({
+    page
+  }, testInfo) => {
+    skipUnlessMobile(testInfo);
+    await page.setViewportSize({ width: 320, height: 800 });
+
+    const searchRequests: URL[] = [];
+    page.on('request', (request) => {
+      const url = new URL(request.url());
+      if (url.pathname === '/api/search') {
+        searchRequests.push(url);
+      }
+    });
+
+    const privateMarker = 'private-message-marker-367';
+    await page.goto(`/app/messages?q=${privateMarker}`);
+    await expect.poll(() => new URL(page.url()).searchParams.has('q')).toBe(false);
+
+    const surface = page.getByTestId('message-search-filters');
+    await expect(surface).not.toContainText(privateMarker);
+    await page.getByTestId('message-filter-drawer-toggle').press('Enter');
+    await expect(page.getByTestId('message-search-input')).toHaveValue('');
+
+    const advancedTrigger = page.getByTestId('message-advanced-filters-open');
+    await advancedTrigger.focus();
+    await advancedTrigger.press('Enter');
+    const drawer = page.getByTestId('message-advanced-filters-drawer');
+    const authorInput = page.getByTestId('message-advanced-author');
+    await expect(drawer).toBeVisible();
+    await expect(authorInput).toBeFocused();
+
+    await authorInput.fill('Authorized');
+    const authorOption = page.getByTestId('message-author-option');
+    await expect(authorOption).toContainText('Authorized Sender');
+    await authorInput.press('Tab');
+    await expect(authorOption).toBeFocused();
+    await authorOption.press('Enter');
+    await expect(authorInput).toBeFocused();
+
+    await page.getByTestId('message-advanced-from-date').fill('2026-08-20');
+    await page.getByTestId('message-advanced-to-date').fill('2026-08-30');
+    await page.getByTestId('message-advanced-read').selectOption('Unread');
+    await page.getByTestId('message-advanced-attachment').selectOption('With');
+
+    const closeDrawer = page.getByRole('button', { name: 'Close advanced filters' });
+    const apply = page.getByTestId('message-advanced-apply');
+    await apply.focus();
+    await apply.press('Tab');
+    await expect(closeDrawer).toBeFocused();
+    await closeDrawer.press('Shift+Tab');
+    await expect(apply).toBeFocused();
+    await expectNoHorizontalOverflow(page);
+    await expectNoAccessibilityViolations(page, '[data-testid="message-advanced-filters-drawer"]');
+
+    await apply.press('Enter');
+    await expect(drawer).toHaveCount(0);
+    await expect(page.getByTestId('message-active-author-chip')).toContainText('Authorized Sender');
+    await expect(page.getByTestId('message-active-from-date-chip')).toContainText('2026-08-20');
+    await expect(page.getByTestId('message-active-to-date-chip')).toContainText('2026-08-30');
+    await expect(page.getByTestId('message-active-read-chip')).toContainText('Unread');
+    await expect(page.getByTestId('message-active-attachment-chip')).toContainText('With safe attachment');
+
+    await expect.poll(() => searchRequests.length).toBe(1);
+    const advancedRequest = searchRequests[0];
+    const expectedDates = await page.evaluate(() => ({
+      from: new Date(2026, 7, 20, 0, 0, 0, 0).toISOString(),
+      toExclusive: new Date(2026, 7, 31, 0, 0, 0, 0).toISOString()
+    }));
+    expect(advancedRequest.searchParams.has('q')).toBe(false);
+    expect(advancedRequest.searchParams.get('type')).toBe('Message');
+    expect(advancedRequest.searchParams.get('authorUserId')).toBe(authorId);
+    expect(advancedRequest.searchParams.get('fromDate')).toBe(expectedDates.from);
+    expect(advancedRequest.searchParams.get('toDateExclusive')).toBe(expectedDates.toExclusive);
+    expect(advancedRequest.searchParams.get('messageRead')).toBe('Unread');
+    expect(advancedRequest.searchParams.get('messageAttachment')).toBe('With');
+    expect(new URL(page.url()).searchParams.has('q')).toBe(false);
+    expect(page.url()).not.toContain(privateMarker);
+
+    await page.goBack();
+    await expect.poll(() => new URL(page.url()).searchParams.has('messageRead')).toBe(false);
+    expect(new URL(page.url()).searchParams.has('q')).toBe(false);
+    await expect(surface).not.toContainText(privateMarker);
+    await page.goForward();
+    await expect.poll(() => new URL(page.url()).searchParams.get('messageRead')).toBe('Unread');
+    await expect(page.getByTestId('message-active-author-chip')).toContainText('Authorized Sender');
+    expect(new URL(page.url()).searchParams.has('q')).toBe(false);
+    await expect(surface).not.toContainText(privateMarker);
+
+    await advancedTrigger.press('Enter');
+    await expect(authorInput).toBeFocused();
+    await authorInput.press('Escape');
+    await expect(drawer).toHaveCount(0);
+    await expect(advancedTrigger).toBeFocused();
+
+    await page.getByTestId('message-active-author-chip').getByRole('button').press('Enter');
+    await expect(page.getByTestId('message-active-author-chip')).toHaveCount(0);
+    await expect(page.getByTestId('message-active-read-chip')).toBeVisible();
+    await expect.poll(() => new URL(page.url()).searchParams.has('messageFrom')).toBe(false);
+
+    await page.getByTestId('message-filters-clear-all').press('Enter');
+    await expect(page.getByTestId('message-active-filters')).toHaveCount(0);
+    await expect.poll(() => new URL(page.url()).searchParams.has('messageRead')).toBe(false);
+    await expectNoHorizontalOverflow(page);
+    await expectNoAccessibilityViolations(page, '[data-testid="message-search-filters"]');
+  });
+
+  test.describe('advanced local-calendar conversion', () => {
+    test.use({ timezoneId: 'America/New_York' });
+
+    test('uses the next local midnight across a daylight-saving transition', async ({ page }, testInfo) => {
+      skipUnlessDesktop(testInfo);
+      await page.goto('/app/messages');
+      await page.getByTestId('message-advanced-filters-open').press('Enter');
+      await page.getByTestId('message-advanced-from-date').fill('2026-03-08');
+      await page.getByTestId('message-advanced-to-date').fill('2026-03-08');
+
+      const requestPromise = page.waitForRequest((request) => {
+        const url = new URL(request.url());
+        return url.pathname === '/api/search' && url.searchParams.has('fromDate');
+      });
+      await page.getByTestId('message-advanced-apply').press('Enter');
+      const requestUrl = new URL((await requestPromise).url());
+
+      expect(requestUrl.searchParams.get('fromDate')).toBe('2026-03-08T05:00:00.000Z');
+      expect(requestUrl.searchParams.get('toDateExclusive')).toBe('2026-03-09T04:00:00.000Z');
+      expect(
+        Date.parse(requestUrl.searchParams.get('toDateExclusive')!) -
+        Date.parse(requestUrl.searchParams.get('fromDate')!)
+      ).toBe(23 * 60 * 60 * 1000);
+    });
+  });
 });
 
 function skipUnlessMobile(testInfo: TestInfo): void {
   test.skip(
     testInfo.project.name !== 'chromium-mobile',
-    'Issues #355/#359 use the 320px mobile drawer as their representative responsive acceptance flow.'
+    'Issues #355/#359/#367 use the 320px mobile drawer as their representative responsive acceptance flow.'
   );
 }
 
@@ -239,6 +372,20 @@ async function installMessagingDiscoveryApi(page: Page): Promise<void> {
 
   await page.route('**/api/search**', async (route) => {
     const url = new URL(route.request().url());
+    if (url.pathname === '/api/search/message-authors') {
+      const query = url.searchParams.get('q');
+      const selectedUserId = url.searchParams.get('selectedUserId');
+      const items = query?.toLowerCase().includes('authorized') || selectedUserId === authorId
+        ? [{ userId: authorId, displayName: 'Authorized Sender' }]
+        : [];
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ items })
+      });
+      return;
+    }
+
     const query = url.searchParams.get('q');
     const items =
       query === 'budget'

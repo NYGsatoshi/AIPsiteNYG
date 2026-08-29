@@ -1,4 +1,4 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 
@@ -171,6 +171,27 @@ export interface MessageFollowUpStateDto {
   readonly savedAt?: unknown;
 }
 
+export type MessageReadFilterDto = 'All' | 'Read' | 'Unread';
+export type MessageAttachmentFilterDto = 'All' | 'With' | 'Without';
+
+export interface MessageSearchRequestDto {
+  readonly query?: string;
+  readonly authorUserId?: string;
+  readonly fromDate?: string;
+  readonly toDateExclusive?: string;
+  readonly messageRead?: MessageReadFilterDto;
+  readonly messageAttachment?: MessageAttachmentFilterDto;
+}
+
+export interface MessageAuthorOptionDto {
+  readonly userId?: unknown;
+  readonly displayName?: unknown;
+}
+
+export interface MessageAuthorOptionsResponseDto {
+  readonly items?: unknown;
+}
+
 @Injectable({ providedIn: 'root' })
 export class MessagingApi {
   private readonly http = inject(HttpClient);
@@ -189,14 +210,47 @@ export class MessagingApi {
     });
   }
 
-  searchMessages(query: string): Observable<MessageSearchResponseDto> {
+  searchMessages(request: string | MessageSearchRequestDto): Observable<MessageSearchResponseDto> {
+    const filters: MessageSearchRequestDto = typeof request === 'string' ? { query: request } : request;
+    let params = new HttpParams()
+      .set('type', 'Message')
+      .set('page', '1')
+      .set('pageSize', '50');
+    if (filters.query) {
+      params = params.set('q', filters.query);
+    }
+    if (filters.authorUserId) {
+      params = params.set('authorUserId', filters.authorUserId);
+    }
+    if (filters.fromDate) {
+      params = params.set('fromDate', filters.fromDate);
+    }
+    if (filters.toDateExclusive) {
+      params = params.set('toDateExclusive', filters.toDateExclusive);
+    }
+    if (filters.messageRead && filters.messageRead !== 'All') {
+      params = params.set('messageRead', filters.messageRead);
+    }
+    if (filters.messageAttachment && filters.messageAttachment !== 'All') {
+      params = params.set('messageAttachment', filters.messageAttachment);
+    }
+
     return this.http.get<MessageSearchResponseDto>('/api/search', {
-      params: {
-        q: query,
-        type: 'Message',
-        page: '1',
-        pageSize: '50'
-      },
+      params,
+      withCredentials: true
+    });
+  }
+
+  searchMessageAuthors(query: string): Observable<MessageAuthorOptionsResponseDto> {
+    return this.http.get<MessageAuthorOptionsResponseDto>('/api/search/message-authors', {
+      params: { q: query, limit: '20' },
+      withCredentials: true
+    });
+  }
+
+  resolveMessageAuthor(userId: string): Observable<MessageAuthorOptionsResponseDto> {
+    return this.http.get<MessageAuthorOptionsResponseDto>('/api/search/message-authors', {
+      params: { selectedUserId: userId, limit: '1' },
       withCredentials: true
     });
   }

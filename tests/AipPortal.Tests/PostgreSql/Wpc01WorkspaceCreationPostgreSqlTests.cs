@@ -810,6 +810,10 @@ public sealed class Wpc01WorkspaceCreationPostgreSqlTests
                     graph,
                     conversation.Id,
                     graph.ExplicitProjectMemberUserId));
+                members.Add(NewReadableConversationMember(
+                    graph,
+                    conversation.Id,
+                    graph.GroupMemberUserId));
                 messages.Add(message);
             }
 
@@ -868,7 +872,10 @@ public sealed class Wpc01WorkspaceCreationPostgreSqlTests
             db.ConversationMembers.AddRange(
                 revokedMember,
                 NewReadableConversationMember(graph, readableParent.Id, graph.ExplicitProjectMemberUserId),
-                NewReadableConversationMember(graph, unauthorizedNestedThread.Id, graph.ExplicitProjectMemberUserId));
+                NewReadableConversationMember(graph, unauthorizedNestedThread.Id, graph.ExplicitProjectMemberUserId),
+                // Keep author attribution structurally valid so this row is
+                // excluded specifically by the reader's revoked ancestry.
+                NewReadableConversationMember(graph, unauthorizedNestedThread.Id, graph.GroupMemberUserId));
             db.Messages.AddRange(messages);
             db.Messages.Add(unauthorizedMessage);
             await db.SaveChangesAsync();

@@ -494,6 +494,36 @@ public sealed class HttpTenantIsolationTests
     }
 
     [Fact]
+    [Trait("Scope", "Issue367")]
+    public async Task SearchModelBindingFailuresUseFixedNonReflectiveEnvelope()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+        var invalidRequests = new[]
+        {
+            ("/api/search?type=Message&authorUserId=invalid-author-secret-marker", "invalid-author-secret-marker"),
+            ("/api/search?type=Message&messageRead=invalid-read-secret-marker", "invalid-read-secret-marker"),
+            ("/api/search?type=Message&toDateExclusive=invalid-date-secret-marker", "invalid-date-secret-marker"),
+            ("/api/search/message-authors?selectedUserId=invalid-selected-secret-marker", "invalid-selected-secret-marker")
+        };
+
+        foreach (var (path, marker) in invalidRequests)
+        {
+            using var response = await app.SendAsync(data.TenantAOwner, data.TenantA.Slug, path);
+            var body = await response.Content.ReadAsStringAsync();
+            using var document = JsonDocument.Parse(body);
+
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            Assert.DoesNotContain(marker, body, StringComparison.Ordinal);
+            AssertCompleteErrorEnvelope(
+                document.RootElement,
+                StatusCodes.Status400BadRequest,
+                "SearchRequestInvalid",
+                "query");
+        }
+    }
+
+    [Fact]
     [Trait("Scope", "WPC01")]
     public async Task PlanningProjectAndSubresourcesAreNotDisclosedBeyondProjectMembership()
     {
