@@ -1,105 +1,65 @@
-# Issue #357 Task execution-scope promotion decision
+# Issue #357 Task execution source-scope decision
 
-Status: Approved foundation scope; not a canonical-spec completion
+Status: Canonical current-release contract complete
 
-Approved: 2026-08-25
+Approved foundation: 2026-08-25
+
+Canonical completion: 2026-08-29
 
 Applies to: [Issue #357](https://github.com/NYGsatoshi/AIPsiteNYG/issues/357)
 
-Implementation baseline: `7b524ddbf1cd62db96b96744a0afd40ffee31501`
-
 Canonical specification baseline:
-`AIPsiteNYGspec@38339ba2964587f225c4c4151f643abb5523e862`
+`AIPsiteNYGspec@9b35b3f4a34d80097f6b266a0c970c5e61982e80`
 
-The canonical Task contract currently retains Task automation/bots as Deferred.
-This owner-approved repository decision authorizes a narrow, fail-closed
-foundation only. It does not amend the external canonical specification, and
-an implementation PR for this decision MUST say `Addresses #357` rather than
-close it until the corresponding canonical-spec promotion and a Web execution
-provider contract are approved.
+Canonical source:
+`docs/specs/aip-core-v4/01-core/24-task-execution-source-scope-owner-decision-resolution.md`
 
-## Approved first-release boundary
+## Current-release contract
 
-1. Source kinds are Web scope and authorized Project files only. App/provider
-   integrations remain out of scope.
-2. A Project owns one default execution scope. A Task either inherits that
-   default or owns one complete explicit override; there is no partial merge of
-   Project and Task values.
-3. Each accepted execution-run request captures an immutable, server-built
-   scope snapshot in the same transaction as the run record. Later scope edits
-   apply only to future runs.
-4. The first release exposes no outbound Web retrieval, crawling, search,
-   provider credentials, raw source-content persistence, or provider-specific
-   behavior. The built-in runtime port fails closed as unavailable.
+Issue #357 owns the visible and server-authoritative Active Source Scope boundary. The first release has exactly two configurable source kinds:
 
-## Scope semantics
+- Web;
+- currently authorized, clean Project files.
 
-The effective scope projection contains only the following source policy:
+A Project owns one default policy. A Task either inherits that policy or owns one complete override. The effective policy contains `webEnabled` and `projectFilesEnabled`; a missing Project policy fails closed as `false` / `false`.
 
-| Source | State | Meaning |
-| --- | --- | --- |
-| Web | Disabled | No Web source is eligible. |
-| Web | Enabled | A future, separately approved runtime may consider Web sources only after its egress and provider contract is approved. |
-| Project files | Disabled | Project files are not a source. |
-| Project files | Enabled | A future runtime may resolve currently authorized, clean Project files server-side at execution time. |
+The UI presents enabled as **Allow** and disabled as **Exclude**. It also explains the distinct mental models for **Restrict** and **Prioritize** but does not invent either rule from the two booleans. Specific Sites and Connected Apps are explicitly shown as unavailable under the current contract. Issue #361 remains the separate P1 contract for richer per-source Allow/Prioritize/Exclude authoring and enforcement.
 
-The foundation stores only these two booleans. It does not store URLs, site
-hosts, provider configuration, file names/IDs/counts, page bodies, or file
-bytes. Project-file eligibility is re-evaluated by a future runtime under
-current authorization and file-state rules; the immutable snapshot freezes the
-scope policy, not a stale file list. New and migrated Project defaults are
-fail-closed with both source kinds disabled.
+## Provider and execution boundary
 
-## Authorization, redaction, and change rules
+The current provider selection is canonically **None**.
 
-- Every Project default and effective Task scope read requires current Task or
-  Project read authorization. Missing, cross-Tenant, cross-Workspace, or
-  unauthorized resources have the repository's indistinguishable safe result.
-- Project default mutation, Task override mutation, and run requests require
-  current Project-management authority; neither client visibility nor an
-  inherited default grants authority.
-- The server computes effective inheritance and permissions. The browser never
-  derives a scope from Project metadata or file lists.
-- The UI may display only the authorized enabled/disabled policy. It describes
-  Project files generically and does not expose names, counts, URLs, or other
-  source descriptors.
-- Scope changes, Task override changes, run requests, and unavailable-runtime
-  results are audited. Existing generic Project/Task invalidation hints may be
-  used; no raw scope, source, file, or execution payload is sent through
-  realtime.
+This means the current runtime performs no Web search, crawl, fetch, DNS, redirect handling, socket/network egress, Project-file materialization, provider credential use, prompt delivery, output production, or raw source/content persistence. A run request may record its immutable policy snapshot and then terminates as `RuntimeUnavailable` with `TASK_EXECUTION_RUNTIME_UNAVAILABLE`.
 
-## Run snapshot and runtime boundary
+Because the provider is None, SSRF/redirect behavior, file consumption, credential isolation, source/raw-content retention, output, cancellation, and retry semantics are not merely unspecified: they are unreachable in the current release. Any future network-capable provider requires a separate canonical promotion that defines those controls before registration.
 
-A run snapshot contains only:
+## Scope-change timing
 
-- Tenant, Workspace, Project, Task, requester, and creation identity;
-- whether the source was inherited or a Task override;
-- the Web-enabled policy; and
-- the Project-files enabled flag.
+Each accepted run request atomically captures the current server-built policy snapshot: origin, Project policy version, Task override version when applicable, and the two source flags. Later edits never rewrite the snapshot.
 
-The application reads and copies the policy snapshot inside idempotent request
-staging, before asking the foundation `ITaskExecutionRuntime` port for its
-deterministic unavailable outcome. That call occurs during request staging,
-not as a committed job dispatch, so the only registered port does no external
-I/O. A future provider must not be registered on this path: it needs a
-separately approved, post-commit durable dispatch design and may receive only
-a server-built, authorization-scoped snapshot handle. That later design must
-define egress, URL and redirect/SSRF, query/input, result retention,
-source-content, credential, audit, and cancellation policies before being
-enabled.
+`changesApplyTo` is `nextRun`. Task detail therefore shows the current effective next-run policy separately from the most recent immutable run snapshot. Realtime remains an invalidation hint only; the browser refetches the authoritative HTTP projection after matching Project/Task changes.
 
-## Acceptance consequences
+## Authorization and redaction
 
-The first release must prove:
+- Reads require current Project/Task visibility.
+- Project default changes, Task override changes, clearing an override, and run requests require current Project-management authority.
+- Missing, deleted, cross-Tenant, cross-Workspace, and unauthorized resources use the safe indistinguishable not-found boundary.
+- Source-scope API, UI, audit, and realtime never disclose unauthorized source/file/site/App names, IDs, counts, integration existence, raw content, credentials, storage paths, provider configuration, prompts, or output.
+- Generic capability labels such as Web, Project files, Specific sites, and Connected apps are not inventory disclosures.
+- Authorization invalidation clears protected UI state; ordinary Project/Task invalidation triggers an authoritative refetch.
 
-1. Project default versus Task override effective projections and the two
-   enabled/disabled source flags;
-2. authorization and cross-scope redaction on reads, edits, and run requests;
-3. immutable historical snapshots after a later Project or Task scope edit;
-4. no source content, file metadata, or credentials in run persistence,
-   audit, or realtime payloads;
-5. the fail-closed unavailable runtime produces no outbound request; and
-6. Task UI summary/editor accessibility and responsive behavior.
+## Completion rule
 
-It must not claim an executable Web research flow or canonical completion of
-Issue #357.
+Issue #357 may close when the maintained Task UI and verification prove:
+
+1. Active effective scope is immediately visible.
+2. Project default versus Task override is explicit.
+3. Allow/Exclude state and Restrict/Prioritize meanings are visibly distinguished.
+4. Specific Sites and Connected Apps truthfully show current-contract unavailability.
+5. The summary links to the authorized editor.
+6. Next-run policy and immutable run snapshot timing stay distinct after edits.
+7. Provider None is stated without claiming Web or file retrieval.
+8. Unauthorized source inventory cannot leak.
+9. Keyboard and 320px-responsive behavior remain covered.
+
+This completion does not close Issue #361 and does not promote general Task automation/bots or a network-capable research worker.
