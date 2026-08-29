@@ -87,6 +87,7 @@ export class FilesPageComponent {
   readonly previewResourceUrl = signal<SafeResourceUrl | null>(null);
   readonly previewText = signal('');
   readonly previewMessage = signal('');
+  readonly previewActionStatus = signal('');
   readonly previewOverlay = signal(this.isCompactViewport());
   readonly previewOpen = computed(() => this.previewFile() !== null);
   readonly previewCanDownload = computed(() => {
@@ -95,6 +96,21 @@ export class FilesPageComponent {
       file.scanStatus === 'allowed' && file.capabilities.includes('download') &&
       file.downloadState !== 'pending';
   });
+  readonly previewCanOpen = computed(() => this.previewState() === 'ready' && !!this.previewUrl());
+  readonly researchHandoffHref = computed(() => {
+    const file = this.previewFile();
+    const workspaceId = this.activeWorkspace.activeWorkspace()?.id;
+    if (!workspaceId || !file?.canonicalFileId) {
+      return null;
+    }
+    const params = new URLSearchParams({
+      sourceFileObjectId: file.canonicalFileId,
+      sourceFileName: file.originalFileName,
+    });
+    return `/workspaces/${encodeURIComponent(workspaceId)}/research/new?${params.toString()}`;
+  });
+  readonly previewCanShare = computed(() =>
+    this.previewFile() !== null && typeof navigator !== 'undefined' && typeof navigator.share === 'function');
 
   readonly deleteDialogOpen = signal(false);
   readonly deleteTargets = signal<readonly FileViewModel[]>([]);
@@ -266,6 +282,7 @@ export class FilesPageComponent {
     this.previewRenderer.set(this.previewRendererFor(file));
     this.previewText.set('');
     this.previewMessage.set('');
+    this.previewActionStatus.set('');
 
     const accessMessage = this.previewAccessMessage(file);
     if (accessMessage) {
@@ -294,9 +311,9 @@ export class FilesPageComponent {
         return;
       }
       this.previewRequest = null;
-      if (!result.ok) {
+      if (!result.ok || !result.blob) {
         this.previewState.set('failed');
-        this.previewMessage.set(result.message);
+        this.previewMessage.set(result.message || 'Preview content was unavailable.');
         return;
       }
       this.applyPreviewBlob(file, result.blob, generation);
@@ -314,6 +331,7 @@ export class FilesPageComponent {
     this.previewRenderer.set('unsupported');
     this.previewText.set('');
     this.previewMessage.set('');
+    this.previewActionStatus.set('');
 
     if (target) {
       queueMicrotask(() => {
@@ -334,6 +352,39 @@ export class FilesPageComponent {
     if (this.previewCanDownload() && file?.canonicalFileId) {
       this.downloadFile(file.canonicalFileId);
     }
+  }
+
+  copyPreviewCitation(): void {
+    const file = this.previewFile();
+    if (!file?.canonicalFileId) {
+      this.previewActionStatus.set('Citation is not available for this file.');
+      return;
+    }
+    const citation = this.previewCitationText(file);
+    const clipboard = typeof navigator !== 'undefined' ? navigator.clipboard : undefined;
+    if (clipboard && typeof clipboard.writeText === 'function') {
+      void clipboard.writeText(citation).then(
+        () => this.previewActionStatus.set('Citation copied.'),
+        () => this.previewActionStatus.set(this.fallbackCopyText(citation) ? 'Citation copied.' : 'Citation copy is not available in this browser.'),
+      );
+      return;
+    }
+    this.previewActionStatus.set(this.fallbackCopyText(citation) ? 'Citation copied.' : 'Citation copy is not available in this browser.');
+  }
+
+  sharePreview(): void {
+    const file = this.previewFile();
+    if (!file || typeof navigator === 'undefined' || typeof navigator.share !== 'function') {
+      this.previewActionStatus.set('Sharing is not available in this browser.');
+      return;
+    }
+    void navigator.share({
+      title: file.originalFileName,
+      text: this.previewCitationText(file),
+    }).then(
+      () => this.previewActionStatus.set('Share sheet opened.'),
+      () => this.previewActionStatus.set('Sharing was cancelled or unavailable.'),
+    );
   }
 
   downloadSelectedFile(): void {
@@ -481,6 +532,31 @@ export class FilesPageComponent {
     const renderer = this.previewRenderer();
     const actualContentType = blob.type.toLowerCase();
 
+    if (renderer === 'image' && !actualContentType.startsWith('image/')) {
+      this.failPreviewForContentType();
+      return;
+    }
+    if (renderer === 'pdf' && actualContentType !== 'application/pdf') {
+      this.failPreviewForContentType();
+      return;
+    }
+    if (renderer === 'video' && !actualContentType.startsWith('video/')) {
+      this.failPreviewForContentType();
+      return;
+    }
+
+    const objectUrlAvailable = typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function';
+    if (objectUrlAvailable) {
+      const objectUrl = URL.createObjectURL(blob);
+      this.previewObjectUrl = objectUrl;
+      this.previewUrl.set(objectUrl);
+      this.previewResourceUrl.set(renderer === 'pdf' ? this.sanitizer.bypassSecurityTrustResourceUrl(objectUrl) : null);
+    } else if (renderer !== 'text') {
+      this.previewState.set('failed');
+      this.previewMessage.set('This browser cannot create a local preview URL.');
+      return;
+    }
+
     if (renderer === 'text') {
       const truncated = blob.size > TEXT_PREVIEW_MAX_BYTES;
       void blob.slice(0, TEXT_PREVIEW_MAX_BYTES).text().then((text) => {
@@ -499,29 +575,34 @@ export class FilesPageComponent {
       return;
     }
 
-    if (renderer === 'image' && !actualContentType.startsWith('image/')) {
-      this.failPreviewForContentType();
-      return;
-    }
-    if (renderer === 'pdf' && actualContentType !== 'application/pdf') {
-      this.failPreviewForContentType();
-      return;
-    }
-    if (renderer === 'video' && !actualContentType.startsWith('video/')) {
-      this.failPreviewForContentType();
-      return;
-    }
-    if (typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function') {
-      this.previewState.set('failed');
-      this.previewMessage.set('This browser cannot create a local preview URL.');
-      return;
-    }
-
-    const objectUrl = URL.createObjectURL(blob);
-    this.previewObjectUrl = objectUrl;
-    this.previewUrl.set(objectUrl);
-    this.previewResourceUrl.set(renderer === 'pdf' ? this.sanitizer.bypassSecurityTrustResourceUrl(objectUrl) : null);
     this.previewState.set('ready');
+  }
+
+  private previewCitationText(file: FileViewModel): string {
+    const modified = file.modifiedAtLabel ? `; modified ${file.modifiedAtLabel}` : '';
+    return `“${file.originalFileName}” — ${file.uploadedByDisplay}${modified}; AIPsite file ${file.canonicalFileId ?? file.id}`;
+  }
+
+  private fallbackCopyText(text: string): boolean {
+    if (typeof document === 'undefined' || typeof document.execCommand !== 'function') {
+      return false;
+    }
+    const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.append(textarea);
+    textarea.select();
+    let copied = false;
+    try {
+      copied = document.execCommand('copy');
+    } finally {
+      textarea.remove();
+      active?.focus({ preventScroll: true });
+    }
+    return copied;
   }
 
   private failPreviewForContentType(): void {
