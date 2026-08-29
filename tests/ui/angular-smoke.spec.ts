@@ -1690,8 +1690,10 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     const scope = page.getByTestId('task-execution-scope');
     await expect(scope).toBeVisible();
     await expect(scope.getByTestId('task-execution-scope-origin')).toHaveText('Task override');
-    await expect(scope.getByTestId('task-execution-scope-web')).toHaveText('Enabled for a future approved runtime');
+    await expect(scope.getByTestId('task-execution-scope-web')).toHaveText('Enabled');
+    await expect(scope.getByTestId('task-execution-scope-web-policy')).toHaveText('Allow — eligible under this Task scope');
     await expect(scope.getByTestId('task-execution-scope-files')).toHaveText('Disabled');
+    await expect(scope.getByTestId('task-execution-scope-files-policy')).toHaveText('Exclude — not eligible under this Task scope');
     await expect(scope.getByTestId('task-execution-scope-future-only')).toContainText('future run requests only');
     await expect(scope.getByTestId('task-execution-runtime-unavailable')).toContainText('No Web request can be sent from this screen.');
     await expect(scope.getByTestId('task-execution-snapshot')).toContainText('Project default');
@@ -1714,8 +1716,10 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     ]);
     expect(executionScopeApi.runtimeRequests()).toEqual([]);
     await expect(scope.getByTestId('task-execution-scope-origin')).toHaveText('Task override');
-    await expect(scope.getByTestId('task-execution-scope-web')).toHaveText('Enabled for a future approved runtime');
+    await expect(scope.getByTestId('task-execution-scope-web')).toHaveText('Enabled');
+    await expect(scope.getByTestId('task-execution-scope-web-policy')).toHaveText('Allow — eligible under this Task scope');
     await expect(scope.getByTestId('task-execution-scope-files')).toHaveText('Disabled');
+    await expect(scope.getByTestId('task-execution-scope-files-policy')).toHaveText('Exclude — not eligible under this Task scope');
 
     await expectNoDocumentHorizontalOverflow(page);
     await expectNoAccessibilityViolations(page, '[data-testid="task-execution-scope"]');
