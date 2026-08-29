@@ -63,6 +63,15 @@ describe('AuditClaimsEvidenceFacade', () => {
           reviewStatus: 'Unreviewed',
           evidence: [],
         },
+        {
+          claimId: 'claim-3',
+          ordinal: 3,
+          text: 'A claim whose evidence does not support it.',
+          citationPresent: false,
+          supportStatus: 'Unsupported',
+          reviewStatus: 'Reviewed',
+          evidence: [],
+        },
       ],
     });
 
@@ -80,6 +89,11 @@ describe('AuditClaimsEvidenceFacade', () => {
       sourceEventAuditId: '22222222-2222-4222-8222-222222222222',
     }));
     expect(view.claims[1].supportLabel).toBe('Insufficient evidence');
+    expect(view.claims[2]).toEqual(expect.objectContaining({
+      citationPresent: false,
+      supportStatus: 'Unsupported',
+      supportLabel: 'Unsupported',
+    }));
   });
 
   it('fails closed for unknown wire classifications instead of rendering server text', () => {
