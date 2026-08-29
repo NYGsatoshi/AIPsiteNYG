@@ -82,6 +82,7 @@ describe('TaskExecutionScopeComponent canonical source-scope presentation', () =
     expect(native.querySelector('.task-execution-scope__editor-link')?.getAttribute('href')).toBe('#task-execution-scope-editor');
 
     const snapshot = native.querySelector('[data-testid="task-execution-snapshot"]')?.textContent ?? '';
+    expect(native.querySelector('[data-testid="task-execution-major-state"]')?.textContent).toContain('Failed');
     expect(snapshot).toContain('Project default');
     expect(snapshot).toContain('Web at request');
     expect(snapshot).toContain('Exclude');
