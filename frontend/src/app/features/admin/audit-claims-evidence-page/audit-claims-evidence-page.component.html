@@ -73,7 +73,7 @@
       <p class="claims-page__version-id">Version ID: <code>{{ page.artifactVersionId }}</code></p>
     </section>
 
-    <div class="claims-page__matrix" aria-label="Claim verification matrix" data-testid="audit-claim-matrix">
+    <div class="claims-page__matrix" role="region" aria-label="Claim verification matrix" data-testid="audit-claim-matrix">
       <div class="claim-row claim-row--header" aria-hidden="true">
         <span>Claim</span>
         <span>Citation</span>
@@ -121,7 +121,7 @@
             <p class="claims-page__eyebrow">Selected claim #{{ claim.ordinal }}</p>
             <h2 id="claim-comparison-title">Claim ↔ Evidence comparison</h2>
           </div>
-          <div class="comparison__states" aria-label="Verification states">
+          <div class="comparison__states" role="group" aria-label="Verification states">
             <span><strong>Citation:</strong> {{ claim.citationPresent ? 'Present' : 'Missing' }}</span>
             <span><strong>Support:</strong> {{ claim.supportLabel }}</span>
           </div>
