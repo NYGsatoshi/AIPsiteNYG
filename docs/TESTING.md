@@ -240,6 +240,30 @@ desktop and forced-320-pixel navigation, direct Conversation return, visible
 focus, horizontal overflow, and axe. Its API is mocked, so the HTTP and
 PostgreSQL tests remain the authorization and persistence evidence.
 
+### Issue #368 saved Message follow-up
+
+Backend tests tagged `Scope=Issue368` cover current-user privacy, sequential
+idempotent save/complete, exact timeline and older-reply anchor loading,
+deleted/mismatched/cross-Tenant reply-anchor non-disclosure, cross-Tenant and
+nonparticipant non-disclosure, revocation after save, list/count
+reauthorization, and unchanged read cursors. Conditional PostgreSQL tests
+verify the additive table, unique and paging indexes, Down/reapply chain,
+production composed readability query, bounded exact-reply projection,
+durable-but-hidden revoked rows, and concurrent save/complete reconciliation.
+They require
+`POSTGRES_TEST_CONNECTION_STRING`; a local skip is not PostgreSQL evidence.
+
+Focused Angular tests cover strict fail-closed DTO mapping, private paging and
+completion, the distinct Saved messages surface, exact Message/thread route
+parameters, anchored thread request/refresh behavior, truthful bounded-state
+copy, and the shared Message More action. The static Playwright case runs at
+320 pixels and verifies keyboard operation, 44-pixel controls, exact focus on
+an older reply included outside the ordinary latest window, zero read-state
+calls, CSRF-protected completion, no horizontal overflow, and axe. Its API is
+mocked, so HTTP/PostgreSQL tests remain
+the backend compatibility and authorization evidence. See
+`docs/verification/p2-message-follow-ups.md`.
+
 ### Issue #362 same-Conversation Message threads
 
 Backend tests tagged `Scope=Issue362` cover the exact read/post routes,

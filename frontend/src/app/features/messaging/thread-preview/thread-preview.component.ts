@@ -84,8 +84,13 @@ import {
           }
           @if (thread.hasMore) {
             <p data-testid="thread-bounded-notice">
-              Showing the latest {{ thread.maximumReplies }} of {{ thread.summary.replyCount }} replies.
-              Older replies are not loaded.
+              @if (thread.anchorReplyMessageId) {
+                Showing {{ thread.replies.length }} of {{ thread.summary.replyCount }} replies, including the selected reply.
+                Other older replies are not loaded.
+              } @else {
+                Showing the latest {{ thread.maximumReplies }} of {{ thread.summary.replyCount }} replies.
+                Older replies are not loaded.
+              }
             </p>
           }
         </section>
@@ -95,7 +100,13 @@ import {
             <p class="thread__empty">No replies yet.</p>
           }
           @for (reply of thread.replies; track reply.id) {
-            <article class="thread__reply" [attr.data-message-id]="reply.id">
+            <article
+              class="thread__reply"
+              [class.thread__reply--focus-target]="focusMessageId === reply.id"
+              [attr.id]="'thread-message-' + safeId(reply.id)"
+              [attr.tabindex]="focusMessageId === reply.id ? -1 : null"
+              [attr.data-message-id]="reply.id"
+            >
               <div class="thread__message-meta">
                 <strong>{{ reply.authorLabel }}</strong>
                 <span>{{ reply.sentAtLabel }}</span>
@@ -155,6 +166,7 @@ export class ThreadPreviewComponent implements AfterViewChecked, OnChanges {
   @Input() canPost = false;
   @Input() canCreateThread = false;
   @Input() mentionCandidates: readonly MessagingMentionCandidate[] = [];
+  @Input() focusMessageId: string | null = null;
   @Output() readonly close = new EventEmitter<void>();
   @Output() readonly draftChange = new EventEmitter<string>();
   @Output() readonly send = new EventEmitter<readonly string[]>();
@@ -162,6 +174,7 @@ export class ThreadPreviewComponent implements AfterViewChecked, OnChanges {
   composing = false;
   private focusedKey: string | null = null;
   private focusBackAfterRootDeletion = false;
+  private focusedMessageId: string | null = null;
 
   get canReply(): boolean {
     return this.thread.status === 'ready' &&
@@ -243,13 +256,27 @@ export class ThreadPreviewComponent implements AfterViewChecked, OnChanges {
     const key = this.thread.status === 'closed'
       ? null
       : this.thread.rootMessageId ?? 'unknown';
-    if (!key || key === this.focusedKey) {
-      if (!key) {
-        this.focusedKey = null;
-      }
-      return;
+    const shouldFocusPanel = !!key && key !== this.focusedKey;
+    if (!key) {
+      this.focusedKey = null;
+    } else if (shouldFocusPanel) {
+      this.focusedKey = key;
     }
-    this.focusedKey = key;
-    queueMicrotask(() => this.panel?.nativeElement.focus());
+    const shouldFocusMessage = !!this.focusMessageId &&
+      this.focusMessageId !== this.focusedMessageId &&
+      this.thread.status === 'ready';
+    if (shouldFocusMessage) {
+      this.focusedMessageId = this.focusMessageId;
+      queueMicrotask(() => document.getElementById(`thread-message-${this.safeId(this.focusMessageId!)}`)?.focus());
+    } else if (shouldFocusPanel) {
+      queueMicrotask(() => this.panel?.nativeElement.focus());
+    }
+    if (!this.focusMessageId) {
+      this.focusedMessageId = null;
+    }
+  }
+
+  safeId(value: string): string {
+    return value.replace(/[^a-zA-Z0-9_-]/g, '-');
   }
 }

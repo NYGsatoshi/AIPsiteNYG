@@ -116,6 +116,23 @@ existing recursive readable-Conversation relation, then apply unread,
 recipient-owned Mention, or Later predicates. The Down path drops only this
 index and column.
 
+### Issue #368 participant-private saved Message state
+
+Migration `20260829173340_AddMessageFollowUps` creates
+`message_follow_ups`. Each row has the normal audited identity plus
+`TenantId`, `UserId`, and `MessageId`; the unique index
+`(TenantId, UserId, MessageId)` is the durable idempotency boundary. The paging
+index `(TenantId, UserId, CreatedAt, Id)` supports newest-saved ordering. User
+and Message foreign keys use restricted deletion.
+
+Row presence is the complete saved/active state. Completing a follow-up hard
+deletes only that private marker and never changes `ReadState`,
+`ConversationMember.LastRead*`, unread/Mention state, or conversation-level
+`IsLater`. Access revocation does not delete the marker; every list read joins
+it back through the current readable-Conversation relation, so inaccessible
+rows are absent from both results and totals. No reminder timestamp or delivery
+state is stored. The Down path drops only `message_follow_ups`.
+
 ### Issue #362 same-Conversation Message threads
 
 Migration `20260827154230_AddMessageThreadRootContext` adds nullable UUID
@@ -163,7 +180,7 @@ rollback discards thread links but does not remove Message rows.
 - Group, GroupMember
 - Channel, ChannelMember
 - Post, PostThread
-- Conversation, ConversationMember, Message, MessageAttachment, ReadState
+- Conversation, ConversationMember, Message, MessageAttachment, MessageFollowUp, ReadState
 - Announcement, AnnouncementRead, Notification
 - TaskDeadlineDigestJob, TaskDeadlineDigestAttempt
 

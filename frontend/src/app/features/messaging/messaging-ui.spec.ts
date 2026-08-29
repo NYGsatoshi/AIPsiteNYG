@@ -467,6 +467,33 @@ describe('Messaging MVP0 backend wiring', () => {
     expect(root.querySelector('[data-testid="message-action-status"]')?.textContent).toContain('Message deleted.');
   });
 
+  it('saves a visible message for follow-up through the shared More action without changing read state', async () => {
+    const httpMock = await configureHttpTest([ChannelMessagingPageComponent]);
+    const fixture = TestBed.createComponent(ChannelMessagingPageComponent);
+    flushConversationOpen(httpMock);
+    fixture.detectChanges();
+
+    const root = fixture.nativeElement as HTMLElement;
+    root.querySelector<HTMLButtonElement>('[data-testid="message-more-actions-message-a"]')!.click();
+    fixture.detectChanges();
+    root.querySelector<HTMLButtonElement>('[data-testid="save-message-for-later-message-a"]')!.click();
+
+    const saveRequest = httpMock.expectOne('/api/me/message-follow-ups/message-a');
+    expect(saveRequest.request.method).toBe('PUT');
+    expect(saveRequest.request.withCredentials).toBe(true);
+    expect(saveRequest.request.body).toEqual({});
+    saveRequest.flush({
+      messageId: 'message-a',
+      isSaved: true,
+      savedAt: '2026-08-29T11:00:00Z'
+    });
+    fixture.detectChanges();
+
+    expect(root.querySelector('[data-testid="message-action-status"]')?.textContent)
+      .toContain('Message saved for later.');
+    httpMock.expectNone('/api/conversations/conversation-a/read');
+  });
+
   it('does not replace an active edit with an action from another message', async () => {
     const httpMock = await configureHttpTest([ChannelMessagingPageComponent]);
     TestBed.createComponent(ChannelMessagingPageComponent);

@@ -1,4 +1,4 @@
-import { Component, computed, inject } from '@angular/core';
+import { Component, computed, effect, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 
@@ -29,11 +29,34 @@ export class DmPageComponent {
   private readonly route = inject(ActivatedRoute);
   private readonly navigationState = inject(MessageNavigationStateService);
   readonly page = this.facade.page;
+  readonly focusMessageId = signal<string | null>(null);
+  readonly threadRootMessageId = signal<string | null>(null);
+  private openedFollowUpThreadKey: string | null = null;
 
   constructor() {
     this.route.paramMap.pipe(takeUntilDestroyed()).subscribe((paramMap) => {
       this.navigationState.resetDetailScroll();
-      this.facade.loadConversation(paramMap.get('conversationId'), 'dm');
+      const focusMessageId = this.route.snapshot?.queryParamMap.get('focusMessageId') ?? null;
+      this.focusMessageId.set(focusMessageId);
+      this.threadRootMessageId.set(this.route.snapshot?.queryParamMap.get('threadRootMessageId') ?? null);
+      this.openedFollowUpThreadKey = null;
+      this.facade.loadConversation(paramMap.get('conversationId'), 'dm', null, focusMessageId);
+    });
+
+    effect(() => {
+      const focusMessageId = this.focusMessageId();
+      const threadRootMessageId = this.threadRootMessageId();
+      const page = this.page();
+      const key = focusMessageId && threadRootMessageId ? `${focusMessageId}:${threadRootMessageId}` : null;
+      if (!key || key === this.openedFollowUpThreadKey || !page.messages.some((message) => message.id === threadRootMessageId)) {
+        return;
+      }
+      this.openedFollowUpThreadKey = key;
+      this.facade.openThread(
+        threadRootMessageId!,
+        `message-${safeElementId(threadRootMessageId!)}`,
+        focusMessageId!
+      );
     });
   }
 
@@ -67,4 +90,8 @@ export class DmPageComponent {
     }
     return page.conversation.composerDisabledReason ?? '';
   });
+}
+
+function safeElementId(value: string): string {
+  return value.replace(/[^a-zA-Z0-9_-]/g, '-');
 }

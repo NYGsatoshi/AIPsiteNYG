@@ -21,7 +21,7 @@ export type MessageDeliveryState = 'confirmed' | 'sending' | 'failed';
 
 export type MessagingMessageActionMode = 'idle' | 'editing' | 'confirmDelete' | 'confirmReport';
 
-export type MessagingMessageActionPending = 'edit' | 'delete' | 'report';
+export type MessagingMessageActionPending = 'edit' | 'delete' | 'report' | 'saveForLater';
 
 export interface MessagingMessageActionFeedback {
   readonly id: number;
@@ -150,6 +150,7 @@ export interface MessagingThreadViewModel {
   readonly summary?: MessagingThreadSummaryViewModel;
   readonly hasMore: boolean;
   readonly maximumReplies: number;
+  readonly anchorReplyMessageId?: string;
   readonly draft: string;
   readonly sending: boolean;
   readonly pendingClientRequestId?: string;

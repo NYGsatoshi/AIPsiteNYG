@@ -382,7 +382,38 @@ public sealed class ConversationService(
             return await DenyAsync<PagedResponse<MessageResponse>>(userId, "ConversationAccessDenied", "Conversation", conversationId, "Conversation not found.", cancellationToken);
         }
 
-        var page = await messaging.ListMessagesAsync(conversationId, query.SafeLimit, query.Before, cancellationToken);
+        PagedResponse<Message> page;
+        if (query.AnchorMessageId.HasValue)
+        {
+            var focusMessage = await messaging.GetMessageAsync(query.AnchorMessageId.Value, cancellationToken);
+            if (focusMessage is null ||
+                focusMessage.DeletedAt.HasValue ||
+                focusMessage.ConversationId != conversationId)
+            {
+                return await DenyAsync<PagedResponse<MessageResponse>>(
+                    userId,
+                    "ConversationAccessDenied",
+                    "Message",
+                    query.AnchorMessageId.Value,
+                    "Message not found.",
+                    cancellationToken,
+                    "anchor_message_denied");
+            }
+
+            // Replies are rendered inside their root's thread panel. Anchor
+            // the Conversation timeline on that root while preserving the
+            // exact reply identity in the route so the client can open/focus it.
+            var timelineAnchorId = focusMessage.ThreadRootMessageId ?? focusMessage.Id;
+            page = await messaging.ListMessageContextAsync(
+                conversationId,
+                timelineAnchorId,
+                query.SafeLimit,
+                cancellationToken);
+        }
+        else
+        {
+            page = await messaging.ListMessagesAsync(conversationId, query.SafeLimit, query.Before, cancellationToken);
+        }
         var threadSummaries = await messaging.GetThreadSummariesAsync(
             conversationId,
             page.Items.Select(message => message.Id).ToArray(),
@@ -582,6 +613,7 @@ public sealed class ConversationService(
 
     public async Task<Result<MessageThreadResponse>> GetMessageThreadAsync(
         Guid messageId,
+        Guid? anchorReplyMessageId = null,
         CancellationToken cancellationToken = default)
     {
         if (!TryCurrentUser(out var userId))
@@ -617,12 +649,52 @@ public sealed class ConversationService(
                 "conversation_read_denied");
         }
 
-        var replyPage = await messaging.ListThreadRepliesAsync(
-            rootMessage.ConversationId,
-            rootMessage.Id,
-            MaximumThreadReplies,
-            before: null,
-            cancellationToken: cancellationToken);
+        if (anchorReplyMessageId.HasValue)
+        {
+            var anchorReply = await messaging.GetMessageAsync(anchorReplyMessageId.Value, cancellationToken);
+            if (anchorReply is null ||
+                anchorReply.DeletedAt.HasValue ||
+                anchorReply.ConversationId != rootMessage.ConversationId ||
+                anchorReply.ThreadRootMessageId != rootMessage.Id)
+            {
+                return await DenyAsync<MessageThreadResponse>(
+                    userId,
+                    "MessageThreadAccessDenied",
+                    "Message",
+                    messageId,
+                    "Message thread not found.",
+                    cancellationToken,
+                    "thread_reply_anchor_invalid");
+            }
+        }
+
+        var replyPage = anchorReplyMessageId.HasValue
+            ? await messaging.ListThreadReplyContextAsync(
+                rootMessage.ConversationId,
+                rootMessage.Id,
+                anchorReplyMessageId.Value,
+                MaximumThreadReplies,
+                cancellationToken)
+            : await messaging.ListThreadRepliesAsync(
+                rootMessage.ConversationId,
+                rootMessage.Id,
+                MaximumThreadReplies,
+                before: null,
+                cancellationToken: cancellationToken);
+        if (anchorReplyMessageId.HasValue &&
+            !replyPage.Items.Any(message =>
+                message.Id == anchorReplyMessageId.Value &&
+                !message.DeletedAt.HasValue))
+        {
+            return await DenyAsync<MessageThreadResponse>(
+                userId,
+                "MessageThreadAccessDenied",
+                "Message",
+                messageId,
+                "Message thread not found.",
+                cancellationToken,
+                "thread_reply_anchor_invalid");
+        }
         var summary = await messaging.GetThreadSummaryAsync(
             rootMessage.ConversationId,
             rootMessage.Id,

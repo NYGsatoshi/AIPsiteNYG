@@ -56,6 +56,7 @@
           [hasNewMessagesWhileReading]="vm.hasNewMessagesWhileReading"
           [inlineError]="vm.inlineError ?? ''"
           [messageAction]="facade.messageAction()"
+          [focusMessageId]="focusMessageId()"
           (retry)="facade.retryMessage($event)"
           (loadOlder)="facade.loadOlder()"
           (loadNewer)="facade.loadNewer()"
@@ -67,6 +68,7 @@
           (requestDelete)="facade.requestMessageDelete($event)"
           (confirmDelete)="facade.confirmMessageDelete($event)"
           (requestReport)="facade.requestMessageReport($event)"
+          (saveForLaterRequested)="facade.saveMessageForLater($event)"
           (confirmReport)="facade.confirmMessageReport($event.messageId, $event.reasonCode)"
           (openThread)="facade.openThread($event.messageId, $event.triggerElementId)"
         />
@@ -92,6 +94,7 @@
           [canPost]="canPost()"
           [canCreateThread]="canCreateThread()"
           [mentionCandidates]="vm.conversation.mentionCandidates ?? []"
+          [focusMessageId]="focusMessageId()"
           (close)="facade.closeThread()"
           (draftChange)="facade.setThreadDraft($event)"
           (send)="facade.sendThreadDraft($event)"

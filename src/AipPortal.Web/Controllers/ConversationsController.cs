@@ -57,7 +57,7 @@ public sealed class ConversationsController(IConversationService conversations) 
     public async Task<IActionResult> Send(Guid conversationId, SendMessageRequest request, CancellationToken cancellationToken) => ToActionResult(await conversations.SendMessageAsync(conversationId, request, cancellationToken));
 
     [HttpGet("api/messages/{messageId:guid}/thread")]
-    public async Task<IActionResult> GetMessageThread(Guid messageId, CancellationToken cancellationToken) => ToActionResult(await conversations.GetMessageThreadAsync(messageId, cancellationToken));
+    public async Task<IActionResult> GetMessageThread(Guid messageId, [FromQuery] Guid? anchorReplyMessageId, CancellationToken cancellationToken) => ToActionResult(await conversations.GetMessageThreadAsync(messageId, anchorReplyMessageId, cancellationToken));
 
     [HttpPost("api/messages/{messageId:guid}/thread/messages")]
     public async Task<IActionResult> SendThreadMessage(Guid messageId, SendThreadMessageRequest request, CancellationToken cancellationToken) => ToActionResult(await conversations.SendThreadMessageAsync(messageId, request, cancellationToken));

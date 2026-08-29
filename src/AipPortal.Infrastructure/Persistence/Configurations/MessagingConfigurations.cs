@@ -249,3 +249,28 @@ public sealed class ReadStateConfiguration : IEntityTypeConfiguration<ReadState>
             .OnDelete(DeleteBehavior.SetNull);
     }
 }
+
+public sealed class MessageFollowUpConfiguration : IEntityTypeConfiguration<MessageFollowUp>
+{
+    public void Configure(EntityTypeBuilder<MessageFollowUp> builder)
+    {
+        builder.ToTable("message_follow_ups");
+        builder.ConfigureAuditableEntity();
+
+        builder.HasIndex(item => new { item.TenantId, item.UserId, item.MessageId }).IsUnique();
+        builder.HasIndex(item => new { item.TenantId, item.UserId, item.CreatedAt, item.Id });
+        builder.HasIndex(item => item.MessageId);
+
+        builder
+            .HasOne(item => item.User)
+            .WithMany()
+            .HasForeignKey(item => item.UserId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder
+            .HasOne(item => item.Message)
+            .WithMany()
+            .HasForeignKey(item => item.MessageId)
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+}
