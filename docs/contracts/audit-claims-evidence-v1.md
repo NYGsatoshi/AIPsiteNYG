@@ -30,7 +30,7 @@ Required fields:
 - `ReviewStatus`
 - `CreatedAt`
 
-`SupportStatus` is one of `Unverified`, `Supported`, `Contradicted`, `Insufficient`.
+`SupportStatus` is one of `Unverified`, `Supported`, `Unsupported`, `Contradicted`, `Insufficient`.
 
 `ReviewStatus` is one of `Unreviewed`, `Reviewed`.
 
@@ -95,7 +95,7 @@ The endpoint does not expose source counts before authorization, raw audit metad
 
 `/app/admin/audit` contains a dedicated `Claims & Evidence` view alongside the event log.
 
-The view is claim-first. Citation presence and support verification are separate visible states. Selecting a claim renders the Claim and its authorized Source passage side by side on desktop and stacked on narrow screens. Unsupported states use explicit text labels rather than color only.
+The view is claim-first. Citation presence and support verification are separate visible states. Selecting a claim renders the Claim and its authorized Source passage side by side on desktop and stacked on narrow screens. `Unsupported`, `Contradicted`, and `Insufficient` are explicit text states rather than color-only conditions.
 
 Trace links may navigate to an authorized related Audit event via the existing `event` query parameter. If no authorized event is projected, no placeholder or disabled link reveals its existence.
 
