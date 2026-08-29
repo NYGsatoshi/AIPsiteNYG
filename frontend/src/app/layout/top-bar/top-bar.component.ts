@@ -58,11 +58,15 @@ import { WorkspaceSearchComponent } from '../workspace-search/workspace-search.c
         </strong>
       </section>
 
-      <app-workspace-search
-        class="top-bar__search"
-        [workspaceId]="workspace?.id ?? null"
-        [workspaceLabel]="workspace?.label ?? ''"
-      />
+      @defer (on immediate) {
+        <app-workspace-search
+          class="top-bar__search"
+          [workspaceId]="workspace?.id ?? null"
+          [workspaceLabel]="workspace?.label ?? ''"
+        />
+      } @placeholder {
+        <span class="top-bar__search" aria-hidden="true"></span>
+      }
 
       <div class="top-bar__actions">
         @if (sessionStatus === 'expired') {
