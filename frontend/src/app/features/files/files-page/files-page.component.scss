@@ -212,7 +212,8 @@
 .files-page__toolbar button:focus-visible,
 .files-page__toolbar-action:focus-visible,
 .files-page__view-settings summary:focus-visible,
-.files-page__preview button:focus-visible {
+.files-page__preview button:focus-visible,
+.files-page__preview-action:focus-visible {
   outline: 3px solid var(--aip-color-focus, #2f6feb);
   outline-offset: 2px;
 }
@@ -287,18 +288,9 @@
   min-width: 0;
 }
 
-.files-page__preview-header > div {
-  min-width: 0;
-}
-
 .files-page__preview p,
 .files-page__preview h2 {
   margin: 0;
-}
-
-.files-page__preview-header p {
-  font-size: 0.78rem;
-  font-weight: 900;
 }
 
 .files-page__preview-header h2 {
@@ -308,7 +300,8 @@
   overflow-wrap: anywhere;
 }
 
-.files-page__preview button {
+.files-page__preview button,
+.files-page__preview-action {
   min-height: 38px;
   border: 1px solid var(--aip-color-border-default);
   border-radius: 7px;
@@ -316,16 +309,12 @@
   background: var(--aip-color-bg-surface-subtle);
   color: var(--aip-color-text-primary);
   font: inherit;
+  text-decoration: none;
   cursor: pointer;
 }
 
-.files-page__preview-actions button {
-  border-color: var(--aip-color-action-primary);
-  background: var(--aip-color-action-primary);
-  color: var(--aip-color-text-inverse);
-}
-
-.files-page__preview button:disabled {
+.files-page__preview button:disabled,
+.files-page__preview-action[aria-disabled='true'] {
   color: var(--aip-color-text-muted);
   cursor: not-allowed;
 }
@@ -333,7 +322,6 @@
 .files-page__preview-body {
   display: grid;
   gap: 8px;
-  min-width: 0;
 }
 
 .files-page__preview-media {
@@ -364,16 +352,8 @@
 
 .files-page__preview-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
-}
-
-.files-page__preview-empty {
-  display: grid;
-  gap: 6px;
-}
-
-.files-page__preview-empty strong {
-  color: var(--aip-color-text-primary);
 }
 
 .files-page__preview-backdrop {
