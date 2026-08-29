@@ -48,10 +48,10 @@
             [allowFiltering]="column.filter === true || column.filter === 'text'"
             [clipMode]="column.wrapText ? 'EllipsisWithTooltip' : 'Clip'"
           >
-            <ng-template #template let-row>
+            <ng-template #template let-data>
               @if (hasActions(column)) {
                 <div class="aip-syncfusion-grid__actions">
-                  @for (action of column.actions?.(row) ?? []; track action.id) {
+                  @for (action of column.actions?.(data) ?? []; track action.id) {
                     <button
                       type="button"
                       class="aip-syncfusion-grid__action"
@@ -60,13 +60,15 @@
                       [attr.aria-label]="action.label"
                       [attr.title]="action.disabledReason ?? null"
                       [attr.data-grid-action]="action.id"
-                      [attr.data-grid-row-id]="getRowIdValue(row)"
-                      (click)="invokeAction(action.id, row, $event)"
+                      [attr.data-grid-row-id]="getRowIdValue(data)"
+                      (click)="invokeAction(action.id, data, $event)"
+                      (keydown.enter)="handleActionKeydown(action.id, data, $event)"
+                      (keydown.space)="handleActionKeydown(action.id, data, $event)"
                     >{{ action.label }}</button>
                   }
                 </div>
               } @else {
-                <span [class]="getCellClass(column)">{{ displayValue(column, row) }}</span>
+                <span [class]="getCellClass(column)">{{ displayValue(column, data) }}</span>
               }
             </ng-template>
           </e-column>

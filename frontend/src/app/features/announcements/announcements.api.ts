@@ -21,6 +21,7 @@ export interface AnnouncementListItemDto {
   readonly isRead?: unknown;
   readonly requiresReadConfirmation?: unknown;
   readonly publishedAt?: unknown;
+  readonly expiresAt?: unknown;
 }
 
 export interface AnnouncementDetailDto extends AnnouncementListItemDto {
@@ -121,14 +122,40 @@ export function markAnnouncementDetailUnavailable(
 
 export function markAnnouncementReadConfirmed(
   announcement: AnnouncementViewModel,
-  confirmedAtLabel: string,
 ): AnnouncementViewModel {
   return {
     ...announcement,
     readState: {
       ...announcement.readState,
       isRead: true,
-      confirmedAtLabel,
+      isMarkingRead: false,
+      markReadError: undefined,
+    },
+  };
+}
+
+export function markAnnouncementReadPending(
+  announcement: AnnouncementViewModel,
+): AnnouncementViewModel {
+  return {
+    ...announcement,
+    readState: {
+      ...announcement.readState,
+      isMarkingRead: true,
+      markReadError: undefined,
+    },
+  };
+}
+
+export function markAnnouncementReadFailed(
+  announcement: AnnouncementViewModel,
+): AnnouncementViewModel {
+  return {
+    ...announcement,
+    readState: {
+      ...announcement.readState,
+      isMarkingRead: false,
+      markReadError: 'Could not mark this announcement as read. Try again.',
     },
   };
 }
@@ -139,6 +166,7 @@ function toAnnouncement(
 ): AnnouncementViewModel {
   const id = stringValue(dto.id) ?? '';
   const isRead = dto.isRead === true;
+  const expiresAt = stringValue(dto.expiresAt);
 
   return {
     id,
@@ -149,10 +177,13 @@ function toAnnouncement(
     priority: announcementPriority(dto.priority),
     audienceScope: announcementAudienceScope(dto),
     publishedAtLabel: formatDate(dto.publishedAt),
+    expiresAt,
+    expiresAtLabel: expiresAt ? formatDate(expiresAt) : undefined,
     publicationState: 'published',
     readState: {
       requiresReadConfirmation: dto.requiresReadConfirmation === true,
       isRead,
+      isMarkingRead: false,
     },
     capabilities: ['readAnnouncement'],
     notificationTarget: 'announcementDetail',

@@ -1,6 +1,6 @@
 import { Component, Input } from '@angular/core';
 
-import { AuditResult } from '../admin.types';
+import { AuditResultDisplay } from '../admin.types';
 
 @Component({
   selector: 'app-audit-result-badge',
@@ -37,10 +37,15 @@ import { AuditResult } from '../admin.types';
         background: #fef2f2;
         color: #b91c1c;
       }
+
+      .admin-badge--unclassified {
+        background: #f8fafc;
+        color: #334155;
+      }
     `
   ]
 })
 export class AuditResultBadgeComponent {
-  @Input({ required: true }) result: AuditResult = 'success';
+  @Input({ required: true }) result: AuditResultDisplay = 'success';
   @Input({ required: true }) label = 'Success';
 }

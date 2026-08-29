@@ -51,7 +51,8 @@ public sealed record FileListItemResponse(
     string? UploadedByDisplayName,
     DateTimeOffset CreatedAt,
     DateTimeOffset? UpdatedAt,
-    DateTimeOffset? DeletedAt);
+    DateTimeOffset? DeletedAt,
+    bool CanDelete);
 
 public sealed record FileObjectResponse(
     Guid Id,

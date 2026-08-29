@@ -131,6 +131,12 @@ export class ProjectDetailPageComponent implements OnDestroy {
   }
 
   ngOnDestroy(): void { this.facade.release(); }
+  openCreateTask(): void {
+    const project = this.page().project;
+    if (project?.isOperational === true && project.canCreateTask === true) {
+      void this.router.navigate(['/projects', project.id, 'tasks', 'new']);
+    }
+  }
   openTask(row: TaskGridRow): void { void this.router.navigate(['/projects', row.projectId, 'tasks', row.id]); }
   openKanbanItem(item: object, projectId: string): void {
     const card = item as ProjectKanbanCard;

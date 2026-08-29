@@ -378,10 +378,44 @@ public sealed class CommunicationPollingServiceTests
         public Task<PagedResponse<Message>> ListMessagesAsync(Guid conversationId, int limit, DateTimeOffset? before, CancellationToken cancellationToken = default)
         {
             var query = Messages
-                .Where(message => message.ConversationId == conversationId && message.DeletedAt == null && (!before.HasValue || message.CreatedAt < before.Value))
+                .Where(message => message.ConversationId == conversationId && message.ThreadRootMessageId == null && message.DeletedAt == null && (!before.HasValue || message.CreatedAt < before.Value))
                 .OrderByDescending(message => message.CreatedAt)
                 .ToList();
             return Task.FromResult(new PagedResponse<Message>(query.Take(limit).ToList(), 1, limit, query.Count));
+        }
+
+        public Task<PagedResponse<Message>> ListThreadRepliesAsync(Guid conversationId, Guid threadRootMessageId, int limit, DateTimeOffset? before, CancellationToken cancellationToken = default)
+        {
+            var query = Messages
+                .Where(message => message.ConversationId == conversationId && message.ThreadRootMessageId == threadRootMessageId && (!before.HasValue || message.CreatedAt < before.Value))
+                .OrderByDescending(message => message.CreatedAt)
+                .ToList();
+            return Task.FromResult(new PagedResponse<Message>(query.Take(limit).ToList(), 1, limit, query.Count));
+        }
+
+        public Task<IReadOnlyDictionary<Guid, MessageThreadSummaryResponse>> GetThreadSummariesAsync(Guid conversationId, IReadOnlyCollection<Guid> threadRootMessageIds, int participantLimit, CancellationToken cancellationToken = default)
+        {
+            var result = threadRootMessageIds.ToDictionary(
+                rootId => rootId,
+                rootId => BuildThreadSummary(conversationId, rootId, participantLimit));
+            return Task.FromResult<IReadOnlyDictionary<Guid, MessageThreadSummaryResponse>>(result);
+        }
+
+        public Task<MessageThreadSummaryResponse> GetThreadSummaryAsync(Guid conversationId, Guid threadRootMessageId, int participantLimit, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(BuildThreadSummary(conversationId, threadRootMessageId, participantLimit));
+        }
+
+        private MessageThreadSummaryResponse BuildThreadSummary(Guid conversationId, Guid threadRootMessageId, int participantLimit)
+        {
+            var replies = Messages.Where(message =>
+                message.ConversationId == conversationId &&
+                message.ThreadRootMessageId == threadRootMessageId).ToList();
+            return new MessageThreadSummaryResponse(
+                threadRootMessageId,
+                replies.Count,
+                replies.OrderByDescending(message => message.CreatedAt).Select(message => (DateTimeOffset?)message.CreatedAt).FirstOrDefault(),
+                []);
         }
 
         public Task<int> CountUnreadMessagesAsync(Guid conversationId, Guid userId, DateTimeOffset? lastReadAt, CancellationToken cancellationToken = default)

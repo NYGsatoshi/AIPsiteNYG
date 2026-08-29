@@ -53,6 +53,18 @@ export interface AnnouncementEditorSubmission {
   readonly requiresReadConfirmation: boolean;
 }
 
+/**
+ * Current-tab presentation only. It is not persisted, routed, or sent as an
+ * Announcement API command.
+ */
+export interface AnnouncementLocalPreview {
+  readonly title: string;
+  readonly body: string;
+  readonly priority: AnnouncementPriority;
+  readonly audience: AnnouncementAudienceOption;
+  readonly requiresReadConfirmation: boolean;
+}
+
 export type AnnouncementCapability = 'readAnnouncement' | 'createAnnouncement' | 'editAnnouncement';
 
 export type AnnouncementPageStatus = 'ready' | 'loading' | 'empty' | 'error' | 'permissionDenied' | 'recordAccessDenied';
@@ -72,7 +84,10 @@ export type AnnouncementDetailState = 'notLoaded' | 'loading' | 'loaded' | 'unav
 export interface AnnouncementReadStateViewModel {
   readonly requiresReadConfirmation: boolean;
   readonly isRead: boolean;
-  readonly confirmedAtLabel?: string;
+  /** The command is in flight; the persisted state remains unchanged until the server confirms it. */
+  readonly isMarkingRead: boolean;
+  /** A generic, local retry message. API error details are never rendered here. */
+  readonly markReadError?: string;
 }
 
 export interface AnnouncementAttachmentViewModel {
@@ -89,6 +104,10 @@ export interface AnnouncementViewModel {
   readonly priority: AnnouncementPriority;
   readonly audienceScope: AnnouncementAudienceScope;
   readonly publishedAtLabel: string;
+  /** Raw server value retained for semantic time rendering when an expiry is present. */
+  readonly expiresAt?: string;
+  /** Human-readable expiry, not an action deadline. */
+  readonly expiresAtLabel?: string;
   readonly publicationState: AnnouncementPublicationState;
   readonly scheduledAtLabel?: string;
   readonly timeZoneLabel?: string;
@@ -121,4 +140,6 @@ export interface AnnouncementsPageViewModel {
   /** A mutation failure shown inside the still-editable create form. */
   readonly editorError?: string;
   readonly editorDraft?: AnnouncementEditorDraft;
+  /** Local command state only; it never represents a persisted publication status. */
+  readonly isPublishing?: boolean;
 }

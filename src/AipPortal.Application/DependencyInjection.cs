@@ -66,6 +66,7 @@ public static class DependencyInjection
         services.AddScoped<IGroupAuthorizationService, GroupAuthorizationService>();
         services.AddScoped<IChannelAuthorizationService, ChannelAuthorizationService>();
         services.AddScoped<IConversationAuthorizationService, ConversationAuthorizationService>();
+        services.AddScoped<IMessageIdempotencyCommitCoordinator, UnitOfWorkMessageIdempotencyCommitCoordinator>();
         services.AddScoped<ProjectAuthorizationService>();
         services.AddScoped<IProjectAuthorizationService>(provider => provider.GetRequiredService<ProjectAuthorizationService>());
         services.AddScoped<ITaskAuthorizationService>(provider => provider.GetRequiredService<ProjectAuthorizationService>());
@@ -100,6 +101,7 @@ public static class DependencyInjection
         services.AddScoped<IIntegrationService>(provider => provider.GetRequiredService<IntegrationService>());
         services.AddScoped<IApiTokenValidator>(provider => provider.GetRequiredService<IntegrationService>());
         services.AddScoped<ICanonicalProjectCreateService, CanonicalProjectCreateService>();
+        services.AddScoped<ICanonicalTaskCreateService, CanonicalTaskCreateService>();
         services.AddScoped<IProjectGeneralActivationProvisioner, ProjectGeneralActivationProvisioner>();
         services.AddScoped<IProjectGeneralMembershipSynchronizer, ProjectGeneralMembershipSynchronizer>();
         services.AddScoped<IProjectMembershipService, ProjectMembershipService>();
@@ -117,6 +119,8 @@ public static class DependencyInjection
             ?? throw new InvalidOperationException("IUnitOfWork must implement ITaskCommandUnitOfWork for Task commands."));
         services.AddScoped<ITaskCommandService, TaskCommandService>();
         services.AddScoped<ITaskSubresourceService, TaskSubresourceService>();
+        services.AddScoped<ITaskExecutionScopeService, TaskExecutionScopeService>();
+        services.AddScoped<ITaskExecutionRuntime, UnavailableTaskExecutionRuntime>();
         services.AddScoped<ITaskWorkspaceTimeZoneResolver, TaskWorkspaceTimeZoneResolver>();
         services.AddScoped<IEventService, EventService>();
         services.AddScoped<IFormService, FormService>();

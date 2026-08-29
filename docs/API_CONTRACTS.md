@@ -242,6 +242,73 @@ The browser-only unread-badge display setting is not part of this API. It is
 namespaced by Tenant and user in local storage and has no authorization or
 delivery effect.
 
+## Same-Conversation Message threads
+
+The canonical Message-thread routes are:
+
+- `GET /api/messages/{messageId}/thread`
+- `POST /api/messages/{messageId}/thread/messages`
+
+`messageId` is the canonical root Message, not a legacy Thread Conversation.
+The root must have no `threadRootMessageId`, and every reply stores that root ID
+while remaining in the root's Conversation. `ConversationType.Thread` and
+`ParentConversationId` remain supported by their existing APIs only; the
+service never guesses a Message anchor for them. Main Conversation Message
+lists return roots only and attach an authorized summary when replies exist.
+
+GET inherits the current Conversation read boundary before projecting any
+body, count, timestamp, or display name. It returns the pinned root, the latest
+at most 100 replies in stable chronological order, the exact durable reply
+count, latest reply timestamp, at most three distinct display names, `hasMore`,
+and `maximumReplies: 100`. There is no older-reply cursor in this version;
+`hasMore: true` explicitly means older replies were not loaded. Deleted roots
+and replies are bodyless/attachment-free tombstones; deleted replies remain in
+the order and count.
+
+The main Conversation list retains a deleted main-timeline root only while it
+has at least one durable same-Conversation reply. That root is projected as a
+bodyless, attachment-free tombstone with its authorized summary, keeps its
+timeline ordering, and can reopen the exact thread GET; its reply composer is
+disabled. Deleted replies continue to count, so deleting every visible reply
+does not remove the anchor. An ordinary deleted Message with no durable replies
+remains omitted. This is the narrow thread-continuity rule; general zero-reply
+main-timeline tombstone presentation remains outside Issue #362.
+
+POST accepts only:
+
+```json
+{
+  "body": "Reply text",
+  "clientRequestId": "00000000-0000-4000-8000-000000000001",
+  "mentionedUserIds": []
+}
+```
+
+Unknown properties are rejected. Current posting authority is always
+required, and the first durable reply additionally requires the member's
+current `CanCreateThread`; later replies do not. A deleted root cannot receive
+a reply. Idempotent replay is scoped to the same current Conversation, author,
+and root target: a `clientRequestId` previously used for a main-timeline
+Message or another root is rejected rather than retargeted. The PostgreSQL
+client-request unique constraint is also the concurrent commit boundary. If
+two independent contexts race with the same key, one transaction commits and
+the exact losing constraint violation reloads that Message after clearing its
+rolled-back audit/notification/outbox work. Other database errors are not
+reconciled. The caller then rechecks the committed root target before returning
+it.
+
+Successful creation emits the ordinary `Messaging.MessageCreated.v1` with
+`threadRootMessageId` so consumers keep it out of the main timeline, plus a
+metadata-only `Messaging.ThreadChanged.v1`. The latter contains the root ID,
+count/latest metadata, change kind, and `requiresRefetch: true`; it contains no
+Message body or participant names. Clients must invalidate/refetch the
+authorized projection so participant summaries cannot become stale or leak.
+Its `aggregateVersion` is null because reply count is not a durable monotonic
+thread version (updates, deletes, and concurrent creates can share a count).
+The realtime stale guard therefore delivers every ThreadChanged refetch hint.
+Thread reply audit metadata records identifiers and decisions only, never the
+reply body.
+
 ## TASK-V1-PR07-A task notification preferences
 
 The following private, current-user routes are implemented by PR07-A. They do
@@ -367,9 +434,120 @@ Brief value.
 An oversized field returns HTTP 400 `TASK_BRIEF_FIELD_TOO_LONG` with the
 specific `goal`, `deliverable`, or `constraints` target. Audit and realtime
 metadata contain field names/version hints only, never Brief values. The
-reusable Angular fields are integrated into existing Task detail/edit, but a
-full Task-create/start UI is not present in this issue and remains owned by
-Issue #410.
+reusable Angular fields are integrated into existing Task detail/edit and the
+Issue #410 canonical Task-create candidate. The create boundary records a Task
+and never starts a runtime.
+
+## Issue #410 canonical Task create
+
+The legacy compatibility command remains unchanged:
+
+- `POST /api/projects/{projectId}/tasks`
+
+The Project-aware browser create flow instead uses these canonical,
+side-by-side routes:
+
+- `GET /api/projects/{projectId}/tasks/create-options`
+- `POST /api/projects/{projectId}/tasks/create`
+
+Both routes use the canonical `{ requestId, data, warnings }` envelope and
+the ordinary authenticated Project-read / Task-create boundaries. The GET
+response is an authorized, advisory projection; it returns the Project and Workspace IDs and
+title, `canCreateTask`, `canManageProject`, current non-deleted Milestone
+options, manager-visible eligible-assignee options, and the Project source
+scope:
+
+```json
+{
+  "projectId": "<project id>",
+  "workspaceId": "<workspace id>",
+  "projectTitle": "Launch",
+  "canCreateTask": true,
+  "canManageProject": true,
+  "milestones": [{ "id": "<milestone id>", "title": "MVP" }],
+  "assignees": [{ "userId": "<user id>", "displayName": "Example User" }],
+  "projectScope": {
+    "policy": { "webEnabled": false, "projectFilesEnabled": false },
+    "version": 0,
+    "canSetTaskOverride": true
+  }
+}
+```
+
+When no Project policy row exists, the scope projection is the fail-closed
+`false`/`false` default with version `0`; it is not a stored Task override or
+source inventory. Assignee choices are omitted for a non-manager. The GET
+response never grants authority to POST.
+
+The POST requires a printable ASCII `Idempotency-Key` header of 8 through 128
+characters, CSRF protection under cookie authentication, and a strict JSON
+body. `title` and string `sourceScopeMode` (`Inherit` or `TaskOverride`) are
+required. The optional Task data are `description`, numeric `priority`,
+`milestoneId`, `startDate`, `dueDate`, `goal`, `deliverable`, `constraints`,
+and `primaryAssigneeUserId`.
+
+```json
+{
+  "title": "Prepare launch review",
+  "description": "Optional free-form notes.",
+  "priority": 1,
+  "milestoneId": null,
+  "startDate": "2026-08-25",
+  "dueDate": "2026-08-29",
+  "goal": "Reach an approval decision.",
+  "deliverable": "A review-ready release package.",
+  "constraints": null,
+  "primaryAssigneeUserId": null,
+  "sourceScopeMode": "Inherit",
+  "taskOverridePolicy": null
+}
+```
+
+Unknown members are rejected. `taskOverridePolicy` is forbidden for `Inherit`
+and required for `TaskOverride`; when present it is the complete two-boolean
+object `{ "webEnabled": false, "projectFilesEnabled": false }`. The request
+contains neither server-owned scope/version identifiers nor a run, source,
+provider, or URL field.
+
+The server rechecks the current Project, Task-create capability, selected
+Milestone, and selected member at the transaction's creation boundary. A
+current Task creator may create an unassigned inheriting Task. Only a current
+Project manager may select an initial primary assignee or a Task override. A
+missing, cross-Tenant, deleted, unreadable, or wrong-Project resource uses the
+same safe not-found behavior rather than revealing its existence.
+
+The idempotency-owned transaction stages the Task and initial workflow
+placement, automatic watches, optional complete Task override, required audit
+entries, durable invalidations, and any initial-assignment notification. A
+successful create returns HTTP 201 with `data.taskId`, Project/Workspace and
+selection IDs, title, priority, status, workflow stage ID, version,
+`sourceScopeMode`, and the optional complete override policy. It does not
+create a `TaskExecutionRun`, capture a run snapshot, or invoke a runtime.
+
+The same key and normalized request recheck current Task-create authority and
+return the current authoritative persisted Task response. A later mutable Task
+or override change therefore need not match the original request fields. A
+different normalized request under the same key returns the safe HTTP 409
+idempotency conflict. All other canonical validation, authorization, and
+availability failures use the standard safe envelope.
+
+## Issue #354 advisory pre-create quality checklist
+
+Issue #354 adds no request or response contract. The maintained Task-create
+browser form locally reviews the optional trimmed `goal`, `deliverable`, and
+`constraints` values already bound to the canonical create command, plus the
+effective authorized source policy already returned by create-options or
+selected as a manager-authorized complete Task override.
+
+The checklist is advisory only: an empty optional Brief field remains valid,
+and selecting its missing-item action only moves focus to the matching existing
+form control. It does not change the strict POST body, `Idempotency-Key`, CSRF,
+server validation, or whether the actor can create a Task. A fail-closed
+effective policy with both `webEnabled` and `projectFilesEnabled` set to false
+is an explicit covered policy, not an absent source-scope value. The checklist
+does not infer a Brief default from `Project.Description` and adds no runtime,
+provider, Web, source-content, or source-inventory contract.
+
 ## Task progress and Activity detail
 
 The canonical Task detail response continues to carry the current configured
@@ -432,6 +610,45 @@ and clears protected Task state; the Activity route's safe 404 clears it
 immediately. Historical Workflow Stage transitions are not available in the
 current ActivityLog contract and are not synthesized from current state or
 generic Activity rows.
+
+## Issue #357 Task execution source-scope foundation
+
+The foundation is a server-authorized policy and immutable next-run snapshot
+boundary. It exposes no source inventory or execution capability:
+
+- `GET /api/projects/{projectId}/execution-scope`
+- `PUT /api/projects/{projectId}/execution-scope`
+- `GET /api/tasks/{taskItemId}/execution-scope`
+- `PUT /api/tasks/{taskItemId}/execution-scope-override`
+- `DELETE /api/tasks/{taskItemId}/execution-scope-override`
+- `POST /api/tasks/{taskItemId}/execution-runs`
+
+Current Project readers may use the GET routes; missing, cross-Tenant, deleted,
+and unauthorized resources use the same generic 404 contract. Only the
+server's current Project-management authority may change the Project default,
+set/clear a complete Task override, or request a run. The write request bodies
+reject unknown JSON members and require a non-negative `expectedVersion`:
+
+```json
+{ "webEnabled": false, "projectFilesEnabled": false, "expectedVersion": 1 }
+```
+
+Clearing an override sends `{ "expectedVersion": 1 }`; `0` is the creation or
+already-inherit token when no Task override exists. A run request sends an
+empty `{}` body and a required `Idempotency-Key`; the key represents the same
+Task request even if a later policy edit changes the current effective policy.
+The accepted row retains its original immutable policy snapshot. A successful
+foundation POST returns 201 only to mean that the policy record was stored; its
+current status is `RuntimeUnavailable`, not execution success.
+
+Responses expose only effective/origin/version booleans, a safe latest-run
+policy snapshot, and `changesApplyTo: "nextRun"`. They never expose a URL,
+host, source/file identifier or name, count, raw content, credential, provider
+configuration, prompt, or output. Version/idempotency conflicts use safe 409
+responses; application-level unavailable persistence/replay states use 503.
+The browser sends CSRF protection for unsafe cookie-authenticated methods.
+There is no outbound-Web, source-materialization, provider, worker, or runtime
+configuration contract in this issue.
 
 ## TASK-V1-PR07-B hard deadline mutation
 

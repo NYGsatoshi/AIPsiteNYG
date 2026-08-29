@@ -59,8 +59,11 @@ public sealed class AppDbContext(
     public DbSet<FormAnswer> FormAnswers => Set<FormAnswer>();
     public DbSet<Project> Projects => Set<Project>();
     public DbSet<ProjectMember> ProjectMembers => Set<ProjectMember>();
+    public DbSet<ProjectExecutionScope> ProjectExecutionScopes => Set<ProjectExecutionScope>();
     public DbSet<Milestone> Milestones => Set<Milestone>();
     public DbSet<TaskItem> TaskItems => Set<TaskItem>();
+    public DbSet<TaskExecutionScopeOverride> TaskExecutionScopeOverrides => Set<TaskExecutionScopeOverride>();
+    public DbSet<TaskExecutionRun> TaskExecutionRuns => Set<TaskExecutionRun>();
     public DbSet<TaskWorkflowDefinition> TaskWorkflowDefinitions => Set<TaskWorkflowDefinition>();
     public DbSet<TaskWorkflowStage> TaskWorkflowStages => Set<TaskWorkflowStage>();
     public DbSet<WorkItemCollaborator> WorkItemCollaborators => Set<WorkItemCollaborator>();
@@ -99,6 +102,7 @@ public sealed class AppDbContext(
         bool acceptAllChangesOnSuccess,
         CancellationToken cancellationToken = default)
     {
+        EnsureProjectExecutionScopeDefaults();
         StampAuditableEntities();
         var hasNormalTenantWrite = ApplyTenantRules();
         EnsureLegacyUnclassifiedOperationalTaskWorkflowCompatibility();
@@ -132,6 +136,7 @@ public sealed class AppDbContext(
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
+        EnsureProjectExecutionScopeDefaults();
         StampAuditableEntities();
         var hasNormalTenantWrite = ApplyTenantRules();
         EnsureLegacyUnclassifiedOperationalTaskWorkflowCompatibility();
@@ -373,6 +378,109 @@ public sealed class AppDbContext(
             if (entry.State == EntityState.Modified)
             {
                 entry.Entity.UpdatedAt = now;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Every persisted Project owns an explicit, fail-closed execution-source
+    /// policy. This lives at the DbContext boundary so canonical creates,
+    /// seeds, and any narrow direct persistence path cannot accidentally leave
+    /// a Project without its default scope row. Application commands remain
+    /// responsible for authorization before they alter that policy.
+    /// </summary>
+    private void EnsureProjectExecutionScopeDefaults()
+    {
+        if (ChangeTracker.Entries<ProjectExecutionScope>()
+            .Any(entry => entry.State == EntityState.Deleted))
+        {
+            throw new InvalidOperationException(
+                "Project execution scopes are persistent defaults and cannot be deleted.");
+        }
+
+        if (ChangeTracker.Entries<TaskExecutionRun>()
+            .Any(entry => entry.State == EntityState.Deleted))
+        {
+            throw new InvalidOperationException(
+                "Task execution runs are append-only foundation records and cannot be deleted.");
+        }
+
+        var trackedScopes = ChangeTracker.Entries<ProjectExecutionScope>()
+            .Where(entry => entry.State is not EntityState.Detached and not EntityState.Deleted)
+            .Select(entry => entry.Entity)
+            .Where(scope => scope.ProjectId != Guid.Empty)
+            .ToDictionary(scope => scope.ProjectId);
+
+        foreach (var projectEntry in ChangeTracker.Entries<Project>()
+                     .Where(entry => entry.State == EntityState.Added)
+                     .ToArray())
+        {
+            var project = projectEntry.Entity;
+            if (project.Id == Guid.Empty)
+            {
+                throw new InvalidOperationException("New Projects require an identifier before execution policy initialization.");
+            }
+
+            var scope = project.ExecutionScope;
+            if (scope is null && trackedScopes.TryGetValue(project.Id, out var trackedScope))
+            {
+                scope = trackedScope;
+                project.ExecutionScope = scope;
+            }
+
+            if (scope is null)
+            {
+                var actor = project.CreatedByUserId != Guid.Empty
+                    ? project.CreatedByUserId
+                    : project.OwnerUserId;
+                if (actor == Guid.Empty)
+                {
+                    throw new InvalidOperationException(
+                        "New Projects require a creator or owner before execution policy initialization.");
+                }
+
+                scope = new ProjectExecutionScope
+                {
+                    TenantId = project.TenantId,
+                    WorkspaceId = project.WorkspaceId,
+                    ProjectId = project.Id,
+                    WebEnabled = false,
+                    ProjectFilesEnabled = false,
+                    VersionNo = 1,
+                    UpdatedByUserId = actor,
+                    Project = project
+                };
+                project.ExecutionScope = scope;
+                ProjectExecutionScopes.Add(scope);
+                trackedScopes.Add(project.Id, scope);
+                continue;
+            }
+
+            if (scope.ProjectId == Guid.Empty)
+            {
+                scope.ProjectId = project.Id;
+            }
+
+            if (scope.ProjectId != project.Id ||
+                (scope.TenantId != Guid.Empty && scope.TenantId != project.TenantId) ||
+                (scope.WorkspaceId != Guid.Empty && scope.WorkspaceId != project.WorkspaceId))
+            {
+                throw new InvalidOperationException("Project execution scope must match its Project tenant, Workspace, and identifier.");
+            }
+
+            scope.TenantId = project.TenantId;
+            scope.WorkspaceId = project.WorkspaceId;
+            if (scope.UpdatedByUserId == Guid.Empty)
+            {
+                scope.UpdatedByUserId = project.CreatedByUserId != Guid.Empty
+                    ? project.CreatedByUserId
+                    : project.OwnerUserId;
+            }
+
+            if (scope.UpdatedByUserId == Guid.Empty)
+            {
+                throw new InvalidOperationException(
+                    "Project execution scopes require a creator or owner as their updater.");
             }
         }
     }

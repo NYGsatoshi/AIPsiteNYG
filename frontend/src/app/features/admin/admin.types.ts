@@ -4,9 +4,22 @@ export const ADMIN_DEFAULT_PAGE_SIZE = 50;
 export const ADMIN_MAXIMUM_PAGE_SIZE = 100;
 
 export type AdminPageStatus = 'ready' | 'loading' | 'empty' | 'error' | 'permissionDenied';
+/**
+ * Kept local to the read-only Audit list. It distinguishes first render from
+ * a guarded, manual retry without inventing paging, filtering, or stale-data
+ * semantics that the current endpoint does not expose.
+ */
+export type AuditLogLoadPhase = 'idle' | 'initial' | 'retry';
 export type AuditDetailStatus = 'idle' | 'loading' | 'ready' | 'notFound' | 'permissionDenied' | 'error';
 export type AuditSeverity = 'info' | 'warning' | 'critical';
 export type AuditResult = 'success' | 'denied' | 'failed';
+/**
+ * The API contract currently classifies these values as `AuditSeverity` and
+ * `AuditResult`. Keep an explicit, neutral display state for an unexpected
+ * wire value so the audit UI never renders a blank or color-only status.
+ */
+export type AuditSeverityDisplay = AuditSeverity | 'unclassified';
+export type AuditResultDisplay = AuditResult | 'unclassified';
 export type ExportJobStatus = 'pending' | 'running' | 'succeeded' | 'failed';
 export type ExportJobResult = 'notReady' | 'available' | 'failed' | 'suppressed';
 
@@ -40,8 +53,8 @@ export interface AuditMockRecord {
   readonly actorDisplay: string;
   readonly targetType: string;
   readonly workspace: string;
-  readonly severity: AuditSeverity;
-  readonly result: AuditResult;
+  readonly severity: AuditSeverityDisplay;
+  readonly result: AuditResultDisplay;
   readonly summary: string;
   readonly requestId: string;
   readonly redactedDetails: readonly RedactedDetailLine[];
@@ -55,9 +68,9 @@ export interface AuditGridRow {
   readonly actorDisplay: string;
   readonly targetType: string;
   readonly workspace: string;
-  readonly severity: AuditSeverity;
+  readonly severity: AuditSeverityDisplay;
   readonly severityLabel: string;
-  readonly result: AuditResult;
+  readonly result: AuditResultDisplay;
   readonly resultLabel: string;
   readonly summary: string;
   readonly requestId: string;
@@ -66,6 +79,8 @@ export interface AuditGridRow {
 
 export interface AuditLogViewModel {
   readonly status: AdminPageStatus;
+  readonly loadPhase: AuditLogLoadPhase;
+  readonly canRetry: boolean;
   readonly title: string;
   readonly subtitle: string;
   readonly rows: readonly AuditGridRow[];
@@ -89,6 +104,8 @@ export interface AuditDetailViewModel {
 
 export interface AuditLogScenario {
   readonly status: AdminPageStatus;
+  readonly loadPhase?: AuditLogLoadPhase;
+  readonly canRetry?: boolean;
   readonly title: string;
   readonly subtitle: string;
   readonly auditRecords: readonly AuditMockRecord[];

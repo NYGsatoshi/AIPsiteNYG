@@ -10,62 +10,71 @@ import { TASK_BRIEF_FIELD_MAX_LENGTH } from '../projects.types';
   template: `
     <fieldset class="task-brief" data-testid="task-brief-fields">
       <legend>Task brief</legend>
-      <p class="task-brief__intro" id="task-brief-help">
+      <p class="task-brief__intro" [id]="helpId">
         Optional, Task-specific guidance. Authorized Project context is shown separately and is not copied into these fields.
       </p>
 
       <div class="task-brief__fields">
-        <label>
+        <label [attr.for]="fieldId('goal')">
           <span class="task-brief__label">Goal <small>(optional)</small></span>
           <span class="task-brief__source" data-testid="task-brief-goal-source">{{ sourceLabel(goalControl) }}</span>
           <textarea
+            [id]="fieldId('goal')"
             [formControl]="goalControl"
             rows="3"
             [maxLength]="maxLength"
             [readonly]="readonly"
-            [attr.aria-invalid]="isInvalid(goalControl) ? 'true' : null"
-            aria-describedby="task-brief-help task-brief-goal-limit task-brief-goal-error"
+            [attr.aria-invalid]="isInvalid(goalControl, goalErrors) ? 'true' : null"
+            [attr.aria-describedby]="describedBy(goalControl, goalErrors, 'Goal', 'goal')"
             data-testid="task-brief-goal-input"
           ></textarea>
-          <small id="task-brief-goal-limit">What should be true when this Task is complete. Up to {{ maxLength }} characters.</small>
-          @if (goalControl.hasError('maxlength') && goalControl.touched) {
-            <strong id="task-brief-goal-error" class="task-brief__error" role="alert">Goal must be {{ maxLength }} characters or fewer.</strong>
+          <small [id]="limitId('goal')">What should be true when this Task is complete. Up to {{ maxLength }} characters.</small>
+          @if (errorMessages(goalControl, goalErrors, 'Goal').length > 0) {
+            <strong [id]="errorId('goal')" class="task-brief__error" role="alert">
+              @for (message of errorMessages(goalControl, goalErrors, 'Goal'); track message) { {{ message }} }
+            </strong>
           }
         </label>
 
-        <label>
+        <label [attr.for]="fieldId('deliverable')">
           <span class="task-brief__label">Deliverable <small>(optional)</small></span>
           <span class="task-brief__source" data-testid="task-brief-deliverable-source">{{ sourceLabel(deliverableControl) }}</span>
           <textarea
+            [id]="fieldId('deliverable')"
             [formControl]="deliverableControl"
             rows="3"
             [maxLength]="maxLength"
             [readonly]="readonly"
-            [attr.aria-invalid]="isInvalid(deliverableControl) ? 'true' : null"
-            aria-describedby="task-brief-help task-brief-deliverable-limit task-brief-deliverable-error"
+            [attr.aria-invalid]="isInvalid(deliverableControl, deliverableErrors) ? 'true' : null"
+            [attr.aria-describedby]="describedBy(deliverableControl, deliverableErrors, 'Deliverable', 'deliverable')"
             data-testid="task-brief-deliverable-input"
           ></textarea>
-          <small id="task-brief-deliverable-limit">The concrete output to hand off or publish. Up to {{ maxLength }} characters.</small>
-          @if (deliverableControl.hasError('maxlength') && deliverableControl.touched) {
-            <strong id="task-brief-deliverable-error" class="task-brief__error" role="alert">Deliverable must be {{ maxLength }} characters or fewer.</strong>
+          <small [id]="limitId('deliverable')">The concrete output to hand off or publish. Up to {{ maxLength }} characters.</small>
+          @if (errorMessages(deliverableControl, deliverableErrors, 'Deliverable').length > 0) {
+            <strong [id]="errorId('deliverable')" class="task-brief__error" role="alert">
+              @for (message of errorMessages(deliverableControl, deliverableErrors, 'Deliverable'); track message) { {{ message }} }
+            </strong>
           }
         </label>
 
-        <label>
+        <label [attr.for]="fieldId('constraints')">
           <span class="task-brief__label">Constraints <small>(optional)</small></span>
           <span class="task-brief__source" data-testid="task-brief-constraints-source">{{ sourceLabel(constraintsControl) }}</span>
           <textarea
+            [id]="fieldId('constraints')"
             [formControl]="constraintsControl"
             rows="3"
             [maxLength]="maxLength"
             [readonly]="readonly"
-            [attr.aria-invalid]="isInvalid(constraintsControl) ? 'true' : null"
-            aria-describedby="task-brief-help task-brief-constraints-limit task-brief-constraints-error"
+            [attr.aria-invalid]="isInvalid(constraintsControl, constraintsErrors) ? 'true' : null"
+            [attr.aria-describedby]="describedBy(constraintsControl, constraintsErrors, 'Constraints', 'constraints')"
             data-testid="task-brief-constraints-input"
           ></textarea>
-          <small id="task-brief-constraints-limit">Boundaries, requirements, or conditions to preserve. Up to {{ maxLength }} characters.</small>
-          @if (constraintsControl.hasError('maxlength') && constraintsControl.touched) {
-            <strong id="task-brief-constraints-error" class="task-brief__error" role="alert">Constraints must be {{ maxLength }} characters or fewer.</strong>
+          <small [id]="limitId('constraints')">Boundaries, requirements, or conditions to preserve. Up to {{ maxLength }} characters.</small>
+          @if (errorMessages(constraintsControl, constraintsErrors, 'Constraints').length > 0) {
+            <strong [id]="errorId('constraints')" class="task-brief__error" role="alert">
+              @for (message of errorMessages(constraintsControl, constraintsErrors, 'Constraints'); track message) { {{ message }} }
+            </strong>
           }
         </label>
       </div>
@@ -108,6 +117,11 @@ export class TaskBriefFieldsComponent {
   @Input({ required: true }) deliverableControl!: FormControl<string>;
   @Input({ required: true }) constraintsControl!: FormControl<string>;
   @Input() readonly = false;
+  /** Allows each consuming form to keep labels and error targets unique. */
+  @Input() inputIdPrefix = 'task-brief';
+  @Input() goalErrors: readonly string[] = [];
+  @Input() deliverableErrors: readonly string[] = [];
+  @Input() constraintsErrors: readonly string[] = [];
 
   readonly maxLength = TASK_BRIEF_FIELD_MAX_LENGTH;
 
@@ -119,7 +133,48 @@ export class TaskBriefFieldsComponent {
     return control.value.trim() || 'Not set';
   }
 
-  isInvalid(control: FormControl<string>): boolean {
-    return control.touched && control.hasError('maxlength');
+  get helpId(): string { return `${this.inputIdPrefix}-help`; }
+
+  fieldId(field: 'goal' | 'deliverable' | 'constraints'): string {
+    return `${this.inputIdPrefix}-${field}`;
+  }
+
+  limitId(field: 'goal' | 'deliverable' | 'constraints'): string {
+    return `${this.inputIdPrefix}-${field}-limit`;
+  }
+
+  errorId(field: 'goal' | 'deliverable' | 'constraints'): string {
+    return `${this.inputIdPrefix}-${field}-error`;
+  }
+
+  describedBy(
+    control: FormControl<string>,
+    externalErrors: readonly string[],
+    label: string,
+    field: 'goal' | 'deliverable' | 'constraints',
+  ): string {
+    const base = `${this.helpId} ${this.limitId(field)}`;
+    return this.errorMessages(control, externalErrors, label).length > 0
+      ? `${base} ${this.errorId(field)}`
+      : base;
+  }
+
+  errorMessages(
+    control: FormControl<string>,
+    externalErrors: readonly string[],
+    label: string,
+  ): readonly string[] {
+    const messages = [...externalErrors];
+    if (control.touched && control.hasError('maxlength')) {
+      const local = `${label} must be ${this.maxLength} characters or fewer.`;
+      if (!messages.includes(local)) {
+        messages.push(local);
+      }
+    }
+    return messages;
+  }
+
+  isInvalid(control: FormControl<string>, externalErrors: readonly string[]): boolean {
+    return externalErrors.length > 0 || (control.touched && control.hasError('maxlength'));
   }
 }

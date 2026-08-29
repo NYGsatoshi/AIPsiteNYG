@@ -1,6 +1,6 @@
 import { Component, Input } from '@angular/core';
 
-import { AuditSeverity } from '../admin.types';
+import { AuditSeverityDisplay } from '../admin.types';
 
 @Component({
   selector: 'app-audit-severity-badge',
@@ -37,10 +37,15 @@ import { AuditSeverity } from '../admin.types';
         background: #fef2f2;
         color: #b91c1c;
       }
+
+      .admin-badge--unclassified {
+        background: #f8fafc;
+        color: #334155;
+      }
     `
   ]
 })
 export class AuditSeverityBadgeComponent {
-  @Input({ required: true }) severity: AuditSeverity = 'info';
+  @Input({ required: true }) severity: AuditSeverityDisplay = 'info';
   @Input({ required: true }) label = 'Info';
 }

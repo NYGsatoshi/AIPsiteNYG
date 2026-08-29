@@ -118,6 +118,17 @@ describe('AipDialogComponent', () => {
     fixture.destroy();
   });
 
+  it('does not restore focus when it first receives a closed binding', async () => {
+    const fixture = await createFixture();
+    const trigger = fixture.nativeElement.querySelector('[data-testid="dialog-trigger"]') as HTMLButtonElement;
+
+    trigger.focus();
+    await Promise.resolve();
+
+    expect(document.activeElement).toBe(trigger);
+    fixture.destroy();
+  });
+
   it('returns focus to a stable fallback when the invoking control was removed', async () => {
     const fixture = await createFixture();
     await openDialog(fixture);

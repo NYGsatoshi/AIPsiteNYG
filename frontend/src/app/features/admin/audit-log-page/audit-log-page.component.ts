@@ -11,7 +11,7 @@ import {
 } from '../../../shared/grid/app-data-grid/app-data-grid.types';
 import { AppDataGridComponent } from '../../../shared/grid/app-data-grid/app-data-grid.component';
 import { AppEmptyStateComponent } from '../../../shared/empty-state/app-empty-state/app-empty-state.component';
-import { AppInlineLoadingComponent } from '../../../shared/loading/app-inline-loading/app-inline-loading.component';
+import { AppSkeletonComponent } from '../../../shared/loading/app-skeleton/app-skeleton.component';
 import { AppPermissionDeniedComponent } from '../../../shared/permission/app-permission-denied/app-permission-denied.component';
 import { AdminFacade } from '../admin.facade';
 import { AuditDetailDrawerComponent } from '../audit-detail-drawer/audit-detail-drawer.component';
@@ -38,7 +38,7 @@ interface DrawerReturnContext {
   imports: [
     AppDataGridComponent,
     AppEmptyStateComponent,
-    AppInlineLoadingComponent,
+    AppSkeletonComponent,
     AppPermissionDeniedComponent,
     AuditDetailDrawerComponent
   ],
@@ -62,6 +62,7 @@ export class AuditLogPageComponent {
     : signal<string | null>(null);
   private routeSelectionInitialized = false;
   private readonly selectedAuditId = signal<string | null>(null);
+  private retryFocusRestorePending = false;
   private readonly visibleOptionalColumns = signal<ReadonlySet<AuditGridOptionalColumn>>(new Set());
   // This is retained across a Back -> Forward round trip for the same event.
   // That lets an explicit Close after Forward return to the original row while
@@ -77,11 +78,38 @@ export class AuditLogPageComponent {
   readonly auditDetail = computed(() => this.facade.getAuditDetail());
   readonly selectedAudit = computed(() => this.auditDetail().row);
   readonly drawerOpen = computed(() => this.selectedAuditId() !== null);
+  readonly accessibilityStatus = computed(() =>
+    this.describeAuditStatus(this.vm(), this.density(), this.visibleOptionalColumns()),
+  );
 
   constructor() {
     effect(() => {
       const eventId = this.routeEventId();
       untracked(() => this.syncSelectionFromRoute(eventId));
+    });
+
+    effect(() => {
+      const page = this.vm();
+      if (!this.retryFocusRestorePending || page.loadPhase === 'retry') {
+        return;
+      }
+
+      this.retryFocusRestorePending = false;
+      afterNextRender(
+        {
+          write: () => {
+            queueMicrotask(() => {
+              const retry = this.document.querySelector<HTMLElement>('[data-testid="audit-log-retry"]');
+              if (retry === this.document.activeElement) {
+                return;
+              }
+
+              this.focusPageTitle();
+            });
+          },
+        },
+        { injector: this.injector },
+      );
     });
   }
 
@@ -100,7 +128,17 @@ export class AuditLogPageComponent {
   }
 
   retry(): void {
+    const page = this.vm();
+    if (!page.canRetry || page.loadPhase === 'retry') {
+      return;
+    }
+
+    this.retryFocusRestorePending = this.document.activeElement
+      === this.document.querySelector<HTMLElement>('[data-testid="audit-log-retry"]');
     this.facade.reloadAuditLog();
+    if (this.vm().loadPhase !== 'retry') {
+      this.retryFocusRestorePending = false;
+    }
   }
 
   closeDrawer(): void {
@@ -143,13 +181,13 @@ export class AuditLogPageComponent {
   private get columns(): readonly AppDataGridColumnDef<AuditGridRow>[] {
     const visible = this.visibleOptionalColumns();
     const columns: AppDataGridColumnDef<AuditGridRow>[] = [
-    { field: 'createdAt', headerName: 'createdAt', minWidth: 150, flex: 0.8, sortable: true },
-    { field: 'action', headerName: 'action', minWidth: 190, flex: 1.1, sortable: true, wrapText: true, autoHeight: true },
-    { field: 'actorDisplay', headerName: 'actorDisplay', minWidth: 160, flex: 0.9, sortable: true },
-    { field: 'targetType', headerName: 'targetType', minWidth: 140, flex: 0.8, sortable: true },
+    { field: 'createdAt', headerName: 'Created', minWidth: 150, flex: 0.8, sortable: true },
+    { field: 'action', headerName: 'Action', minWidth: 190, flex: 1.1, sortable: true, wrapText: true, autoHeight: true },
+    { field: 'actorDisplay', headerName: 'Actor', minWidth: 160, flex: 0.9, sortable: true },
+    { field: 'targetType', headerName: 'Target', minWidth: 140, flex: 0.8, sortable: true },
     {
       field: 'severity',
-      headerName: 'severity',
+      headerName: 'Severity',
       minWidth: 120,
       flex: 0.7,
       sortable: true,
@@ -158,7 +196,7 @@ export class AuditLogPageComponent {
     },
     {
       field: 'result',
-      headerName: 'result',
+      headerName: 'Result',
       minWidth: 120,
       flex: 0.7,
       sortable: true,
@@ -167,7 +205,7 @@ export class AuditLogPageComponent {
     },
     {
       field: 'summary',
-      headerName: 'summary',
+      headerName: 'Summary',
       minWidth: 260,
       flex: 1.5,
       sortable: false,
@@ -179,10 +217,10 @@ export class AuditLogPageComponent {
     ];
 
     if (visible.has('workspace')) {
-      columns.splice(4, 0, { field: 'workspace', headerName: 'workspace', minWidth: 180, flex: 1, sortable: true, wrapText: true });
+      columns.splice(4, 0, { field: 'workspace', headerName: 'Workspace', minWidth: 180, flex: 1, sortable: true, wrapText: true });
     }
     if (visible.has('requestId')) {
-      columns.push({ field: 'requestId', headerName: 'requestId', minWidth: 160, flex: 0.9, sortable: true, wrapText: true });
+      columns.push({ field: 'requestId', headerName: 'Request ID', minWidth: 160, flex: 0.9, sortable: true, wrapText: true });
     }
 
     return columns;
@@ -316,7 +354,7 @@ export class AuditLogPageComponent {
     if (preserveForHistory && context && this.drawerReturnContext() === context) {
       this.drawerReturnContext.set(null);
     }
-    this.focusDrawerFallback();
+    this.focusPageTitle();
   }
 
   private resolveReturnFocusTarget(context: DrawerReturnContext): HTMLElement | null {
@@ -366,7 +404,7 @@ export class AuditLogPageComponent {
     return target.closest<HTMLElement>('[data-grid-row-id]')?.dataset['gridRowId'] === auditId;
   }
 
-  private focusDrawerFallback(): void {
+  private focusPageTitle(): void {
     this.document
       .querySelector<HTMLElement>('[data-testid="audit-log-title"]')
       ?.focus({ preventScroll: true });
@@ -375,8 +413,33 @@ export class AuditLogPageComponent {
   private renderBadge(label: string): HTMLElement {
     const badge = document.createElement('span');
     badge.className = 'admin-grid-badge';
-    badge.textContent = label;
+    badge.textContent = label.trim() || 'Unrecognized audit classification';
     return badge;
+  }
+
+  private describeAuditStatus(
+    page: AuditLogViewModel,
+    density: AuditGridDensity,
+    visibleColumns: ReadonlySet<AuditGridOptionalColumn>,
+  ): string {
+    if (page.status === 'loading') {
+      return page.loadPhase === 'retry' ? 'Retrying audit log.' : 'Loading audit log.';
+    }
+    if (page.status === 'permissionDenied') {
+      return 'Audit log access is unavailable.';
+    }
+    if (page.status === 'error') {
+      return 'Audit log could not be loaded.';
+    }
+    if (page.status === 'empty' || page.rows.length === 0) {
+      return 'No audit entries are available for the current authorized scope.';
+    }
+
+    const count = page.rows.length;
+    const optionalColumnStatus = this.optionalColumns
+      .map((column) => `${column.label} ${visibleColumns.has(column.id) ? 'shown' : 'hidden'}`)
+      .join('; ');
+    return `Showing ${count} audit ${count === 1 ? 'entry' : 'entries'}. ${density === 'dense' ? 'Dense' : 'Default'} density. Optional columns: ${optionalColumnStatus}.`;
   }
 
   private renderDetailButton(row: AuditGridRow | undefined): HTMLElement {

@@ -445,6 +445,30 @@ Attachment links should be represented by scoped join tables when needed, for ex
 - `Role`
 - `JoinedAtUtc`
 
+### ProjectExecutionScope
+
+Every persisted Project owns one default source-policy row:
+
+- `TenantId`, `WorkspaceId`, `ProjectId` (unique)
+- `WebEnabled`, `ProjectFilesEnabled`
+- positive `VersionNo`
+- `UpdatedByUserId`, audit timestamps
+
+It stores only policy booleans. It has no Web address or host, file ID/name/
+count, source content, credential, prompt, provider configuration, or output.
+
+### TaskExecutionScopeOverride
+
+An optional row keyed uniquely by `TaskItemId` replaces—not merges with—the
+Project default for that Task:
+
+- `TenantId`, `WorkspaceId`, `ProjectId`, `TaskItemId`
+- `WebEnabled`, `ProjectFilesEnabled`
+- positive `VersionNo`
+- `UpdatedByUserId`, audit timestamps
+
+The absence of this row means inherit the current Project default.
+
 ### Milestone
 
 - `Id`
@@ -495,6 +519,20 @@ rename the aggregate or table.
 Indexes:
 
 - Unique `(TaskId, UserId)`
+
+### TaskExecutionRun
+
+`TaskExecutionRun` is an append-only immutable policy snapshot for an accepted
+Task run request, not a source-material or execution-output record:
+
+- `TenantId`, `WorkspaceId`, `ProjectId`, `TaskItemId`, `RequestedByUserId`
+- `RequestedAtUtc`, mutable lifecycle `FinishedAtUtc`/`Status`/safe failure
+  code, and `VersionNo`
+- immutable snapshot schema, scope origin, Project/Task-override versions, and
+  the two source-policy booleans.
+
+No persisted snapshot contains URLs, source identifiers, file metadata or
+bytes, credentials, provider data, prompt content, or an execution result.
 
 ### TaskDependency
 

@@ -1,7 +1,11 @@
 import { HttpClient } from '@angular/common/http';
 import { inject, Injectable, InjectionToken, signal } from '@angular/core';
+import { Subscription } from 'rxjs';
 import { normalizeApiError } from '../../core/api/api-error.adapter';
-import { RealtimeFacade } from '../../core/realtime/realtime.facade';
+import {
+  ProtectedStateClearReason,
+  RealtimeFacade,
+} from '../../core/realtime/realtime.facade';
 import { DurableRealtimeEvent } from '../../core/realtime/realtime.models';
 
 import {
@@ -22,6 +26,8 @@ import {
   markAnnouncementDetailLoading,
   markAnnouncementDetailUnavailable,
   markAnnouncementReadConfirmed,
+  markAnnouncementReadFailed,
+  markAnnouncementReadPending,
   PagedResponseDto,
   toCreateAnnouncementRequest,
 } from './announcements.api';
@@ -41,9 +47,20 @@ export class AnnouncementsFacade {
     this.mockPage ?? this.emptyPage('loading'),
   );
   private readonly detailRequests = new Set<string>();
+  /** Command state is kept outside mapped DTOs so delayed list/detail responses cannot undo it. */
+  private readonly readRequests = new Set<string>();
+  private readonly readConfirmedIds = new Set<string>();
+  private readonly readFailedIds = new Set<string>();
+  /** Details reached through an authorized deep link but absent from the current list page. */
+  private readonly detailOnlyIds = new Set<string>();
+  /** Invalidates callbacks started before a session, tenant, workspace, or authorization boundary. */
+  private protectedStateGeneration = 0;
+  private readonly protectedRequests = new Set<Subscription>();
   private audienceOptions: readonly AnnouncementAudienceOption[] =
     this.mockPage?.editorDraft?.availableAudiences ?? [];
   private editorActive = false;
+  /** A publication has no idempotency contract, so one browser editor permits one in-flight POST. */
+  private publicationInFlight = false;
   private editorDraftRevision = 0;
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -52,6 +69,11 @@ export class AnnouncementsFacade {
   constructor() {
     this.realtime.durableEvents$.subscribe((event) => this.handleRealtimeEvent(event));
     if (!this.mockPage) {
+      this.realtime.registerProtectedStateClearer?.(
+        'announcements',
+        (reason) => this.clearProtectedState(reason),
+      );
+      this.realtime.registerCatchUp('announcements', () => this.loadAnnouncements());
       this.loadAnnouncements();
     }
   }
@@ -83,6 +105,7 @@ export class AnnouncementsFacade {
       editorDraft: this.createDraft(this.audienceOptions),
       message: undefined,
       editorError: undefined,
+      isPublishing: false,
     }));
     return true;
   }
@@ -102,6 +125,13 @@ export class AnnouncementsFacade {
       return;
     }
 
+    if (this.publicationInFlight) {
+      return;
+    }
+
+    this.publicationInFlight = true;
+    this.pageState.update((page) => ({ ...page, isPublishing: true }));
+
     const authorizedSubmission: AnnouncementEditorSubmission = {
       ...submission,
       audience: authorizedAudience,
@@ -109,6 +139,7 @@ export class AnnouncementsFacade {
 
     if (this.mockPage) {
       const created = this.mockCreatedAnnouncement(authorizedSubmission);
+      this.publicationInFlight = false;
       this.pageState.update((page) => ({
         ...page,
         status: 'ready',
@@ -117,12 +148,14 @@ export class AnnouncementsFacade {
         editorDraft: undefined,
         message: 'お知らせを公開しました。',
         editorError: undefined,
+        isPublishing: false,
       }));
       this.editorActive = false;
       return;
     }
 
-    this.http
+    const generation = this.protectedStateGeneration;
+    const request = this.http
       .post<AnnouncementDetailDto>(
         '/api/announcements',
         toCreateAnnouncementRequest(authorizedSubmission),
@@ -132,6 +165,10 @@ export class AnnouncementsFacade {
       )
       .subscribe({
         next: (response) => {
+          if (!this.isCurrentProtectedGeneration(generation)) {
+            return;
+          }
+          this.publicationInFlight = false;
           const created = mapAnnouncementDetail(response);
           this.pageState.update((page) => ({
             ...page,
@@ -144,10 +181,16 @@ export class AnnouncementsFacade {
             editorDraft: undefined,
             message: 'お知らせを公開しました。',
             editorError: undefined,
+            isPublishing: false,
           }));
           this.editorActive = false;
         },
         error: (error: unknown) => {
+          if (!this.isCurrentProtectedGeneration(generation)) {
+            return;
+          }
+          this.publicationInFlight = false;
+          this.pageState.update((page) => ({ ...page, isPublishing: false }));
           if (this.isAudienceAuthorizationFailure(error)) {
             this.preserveSubmissionAsDraft(
               authorizedSubmission,
@@ -165,34 +208,68 @@ export class AnnouncementsFacade {
           );
         },
       });
+    this.trackProtectedRequest(request);
   }
 
   private loadAnnouncements(): void {
-    this.http
+    const generation = this.protectedStateGeneration;
+    const request = this.http
       .get<PagedResponseDto<AnnouncementListItemDto>>('/api/announcements', {
         withCredentials: true,
       })
       .subscribe({
         next: (response) => {
-          const announcements = (response.items ?? []).map((announcement) =>
-            mapAnnouncementListItem(announcement),
+          if (!this.isCurrentProtectedGeneration(generation)) {
+            return;
+          }
+          // A refresh can have started immediately before the user opened the
+          // editor. Its authoritative list data is still safe to apply, but
+          // it must never replace that local, unsubmitted create draft.
+          const activeDraft = this.editorActive ? this.pageState().editorDraft : undefined;
+          const activeEditorError = activeDraft ? this.pageState().editorError : undefined;
+          const isPublishing = activeDraft ? this.pageState().isPublishing : false;
+          const listedAnnouncements = (response.items ?? []).map((announcement) =>
+            this.reconcileReadActionState(mapAnnouncementListItem(announcement)),
           );
           const selectedAnnouncementId =
-            this.pageState().selectedAnnouncementId ?? announcements[0]?.id ?? null;
+            this.pageState().selectedAnnouncementId ?? listedAnnouncements[0]?.id ?? null;
+          const selectedDetail = selectedAnnouncementId
+            ? this.findAnnouncement(selectedAnnouncementId)
+            : undefined;
+          const preserveSelectedDetail =
+            selectedAnnouncementId !== null &&
+            selectedDetail?.detailState === 'loaded' &&
+            this.detailOnlyIds.has(selectedAnnouncementId) &&
+            !listedAnnouncements.some((announcement) => announcement.id === selectedAnnouncementId);
+          const announcements = preserveSelectedDetail
+            ? [...listedAnnouncements, this.reconcileReadActionState(selectedDetail!)]
+            : listedAnnouncements;
+          if (selectedAnnouncementId && !preserveSelectedDetail) {
+            this.detailOnlyIds.delete(selectedAnnouncementId);
+          }
           this.pageState.set({
             ...this.emptyPage(announcements.length === 0 ? 'empty' : 'ready'),
             announcements,
             selectedAnnouncementId,
+            editorDraft: activeDraft,
+            editorError: activeEditorError,
+            isPublishing,
             pageCapabilities: announcements.length > 0 ? ['readAnnouncement'] : [],
             message:
               announcements.length === 0 ? '表示できるお知らせはまだありません。' : undefined,
           });
-          this.loadAudienceOptions();
+          this.loadAudienceOptions(generation);
           if (selectedAnnouncementId) {
-            this.selectAnnouncement(selectedAnnouncementId);
+            this.selectAnnouncement(selectedAnnouncementId, {
+              forceRefresh: preserveSelectedDetail,
+              keepLoadedContent: preserveSelectedDetail,
+            });
           }
         },
         error: (error: { status?: number }) => {
+          if (!this.isCurrentProtectedGeneration(generation)) {
+            return;
+          }
           this.pageState.set({
             ...this.emptyPage(
               error.status === 401 || error.status === 403 ? 'permissionDenied' : 'error',
@@ -204,15 +281,19 @@ export class AnnouncementsFacade {
           });
         },
       });
+    this.trackProtectedRequest(request);
   }
 
-  private loadAudienceOptions(): void {
-    this.http
+  private loadAudienceOptions(generation = this.protectedStateGeneration): void {
+    const request = this.http
       .get<readonly AnnouncementAudienceOptionDto[]>('/api/announcements/audiences', {
         withCredentials: true,
       })
       .subscribe({
         next: (response) => {
+          if (!this.isCurrentProtectedGeneration(generation)) {
+            return;
+          }
           this.audienceOptions = response
             .map((option) => mapAnnouncementAudienceOption(option))
             .filter((option): option is AnnouncementAudienceOption => option !== null);
@@ -228,6 +309,9 @@ export class AnnouncementsFacade {
           }));
         },
         error: () => {
+          if (!this.isCurrentProtectedGeneration(generation)) {
+            return;
+          }
           this.audienceOptions = [];
           this.pageState.update((page) => ({
             ...page,
@@ -243,6 +327,7 @@ export class AnnouncementsFacade {
           }));
         },
       });
+    this.trackProtectedRequest(request);
   }
 
   private handleRealtimeEvent(event: DurableRealtimeEvent): void {
@@ -262,39 +347,76 @@ export class AnnouncementsFacade {
     if (this.refreshTimer !== null) {
       return;
     }
+    const generation = this.protectedStateGeneration;
     this.refreshTimer = setTimeout(() => {
       this.refreshTimer = null;
+      if (!this.isCurrentProtectedGeneration(generation)) {
+        return;
+      }
+
+      // The event may have arrived just before a user opened the editor. Do
+      // not let the deferred list response replace that new, local draft.
+      // The editor is already told that it needs a fresh review before the
+      // one immediate publication command is sent.
+      if (this.editorActive) {
+        this.pageState.update((page) => ({
+          ...page,
+          message:
+            'An announcement changed elsewhere. Your draft was preserved; reload before publishing.',
+        }));
+        return;
+      }
+
       this.loadAnnouncements();
     }, 100);
   }
 
-  selectAnnouncement(announcementId: string): void {
+  selectAnnouncement(
+    announcementId: string,
+    options: { readonly forceRefresh?: boolean; readonly keepLoadedContent?: boolean } = {},
+  ): void {
     this.pageState.update((page) => ({ ...page, selectedAnnouncementId: announcementId }));
     if (!announcementId || this.mockPage || this.detailRequests.has(announcementId)) {
       return;
     }
 
     const current = this.findAnnouncement(announcementId);
-    if (current?.detailState === 'loaded') {
+    if (current?.detailState === 'loaded' && !options.forceRefresh) {
       return;
     }
 
     this.detailRequests.add(announcementId);
-    if (current) {
+    if (current && !options.keepLoadedContent) {
       this.replaceAnnouncement(markAnnouncementDetailLoading(current));
     }
 
-    this.http
+    const generation = this.protectedStateGeneration;
+    const request = this.http
       .get<AnnouncementDetailDto>(`/api/announcements/${announcementId}`, { withCredentials: true })
       .subscribe({
         next: (detail) => {
+          if (!this.isCurrentProtectedGeneration(generation)) {
+            return;
+          }
           this.detailRequests.delete(announcementId);
-          this.replaceAnnouncement(mapAnnouncementDetail(detail));
+          const mappedDetail = this.reconcileReadActionState(mapAnnouncementDetail(detail));
+          if (!this.findAnnouncement(announcementId)) {
+            this.detailOnlyIds.add(announcementId);
+          }
+          this.upsertAnnouncement(mappedDetail);
         },
         error: (error: { status?: number }) => {
+          if (!this.isCurrentProtectedGeneration(generation)) {
+            return;
+          }
           this.detailRequests.delete(announcementId);
           const announcement = this.findAnnouncement(announcementId);
           if (!announcement) {
+            return;
+          }
+
+          if (this.detailOnlyIds.delete(announcementId)) {
+            this.removeAnnouncement(announcementId);
             return;
           }
 
@@ -308,38 +430,57 @@ export class AnnouncementsFacade {
           );
         },
       });
+    this.trackProtectedRequest(request);
   }
 
   markAnnouncementRead(announcementId: string): void {
-    if (!announcementId) {
+    const announcement = this.findAnnouncement(announcementId);
+    if (
+      !announcementId ||
+      !announcement ||
+      announcement.readState.isRead ||
+      this.readRequests.has(announcementId)
+    ) {
       return;
     }
+
+    this.readFailedIds.delete(announcementId);
+    this.readRequests.add(announcementId);
+    this.replaceAnnouncement(markAnnouncementReadPending(announcement));
 
     if (this.mockPage) {
-      const announcement = this.findAnnouncement(announcementId);
-      if (announcement) {
-        this.replaceAnnouncement(
-          markAnnouncementReadConfirmed(announcement, new Date().toLocaleString()),
-        );
-      }
+      this.readRequests.delete(announcementId);
+      this.readConfirmedIds.add(announcementId);
+      const current = this.findAnnouncement(announcementId);
+      if (current) this.replaceAnnouncement(markAnnouncementReadConfirmed(current));
       return;
     }
 
-    this.http
+    const generation = this.protectedStateGeneration;
+    const request = this.http
       .post(`/api/announcements/${announcementId}/read`, {}, { withCredentials: true })
       .subscribe({
         next: () => {
-          const announcement = this.findAnnouncement(announcementId);
-          if (announcement) {
-            this.replaceAnnouncement(
-              markAnnouncementReadConfirmed(announcement, new Date().toLocaleString()),
-            );
+          if (!this.isCurrentProtectedGeneration(generation)) {
+            return;
           }
+          this.readRequests.delete(announcementId);
+          this.readConfirmedIds.add(announcementId);
+          this.readFailedIds.delete(announcementId);
+          const current = this.findAnnouncement(announcementId);
+          if (current) this.replaceAnnouncement(markAnnouncementReadConfirmed(current));
         },
         error: () => {
-          // Keep read state unchanged unless the backend confirms persistence.
+          if (!this.isCurrentProtectedGeneration(generation)) {
+            return;
+          }
+          this.readRequests.delete(announcementId);
+          this.readFailedIds.add(announcementId);
+          const current = this.findAnnouncement(announcementId);
+          if (current) this.replaceAnnouncement(markAnnouncementReadFailed(current));
         },
       });
+    this.trackProtectedRequest(request);
   }
 
   private createDraft(
@@ -420,7 +561,7 @@ export class AnnouncementsFacade {
       readState: {
         requiresReadConfirmation: submission.requiresReadConfirmation,
         isRead: true,
-        confirmedAtLabel: '公開済み',
+        isMarkingRead: false,
       },
       capabilities: ['readAnnouncement', 'editAnnouncement'],
       notificationTarget: 'announcementDetail',
@@ -434,6 +575,7 @@ export class AnnouncementsFacade {
       announcements: [],
       selectedAnnouncementId: null,
       pageCapabilities: [],
+      isPublishing: false,
     };
   }
 
@@ -450,6 +592,98 @@ export class AnnouncementsFacade {
         announcement.id === nextAnnouncement.id ? nextAnnouncement : announcement,
       ),
     }));
+  }
+
+  private upsertAnnouncement(nextAnnouncement: AnnouncementViewModel): void {
+    this.pageState.update((page) => {
+      const hasAnnouncement = page.announcements.some(
+        (announcement) => announcement.id === nextAnnouncement.id,
+      );
+      return {
+        ...page,
+        status: page.status === 'empty' || page.status === 'loading' ? 'ready' : page.status,
+        announcements: hasAnnouncement
+          ? page.announcements.map((announcement) =>
+              announcement.id === nextAnnouncement.id ? nextAnnouncement : announcement,
+            )
+          : [...page.announcements, nextAnnouncement],
+        pageCapabilities: page.pageCapabilities.includes('readAnnouncement')
+          ? page.pageCapabilities
+          : [...page.pageCapabilities, 'readAnnouncement'],
+        message: page.status === 'empty' ? undefined : page.message,
+      };
+    });
+  }
+
+  private removeAnnouncement(announcementId: string): void {
+    this.pageState.update((page) => ({
+      ...page,
+      announcements: page.announcements.filter((announcement) => announcement.id !== announcementId),
+    }));
+  }
+
+  private isCurrentProtectedGeneration(generation: number): boolean {
+    return generation === this.protectedStateGeneration;
+  }
+
+  private trackProtectedRequest(request: Subscription): void {
+    this.protectedRequests.add(request);
+    request.add(() => this.protectedRequests.delete(request));
+  }
+
+  private cancelProtectedRequests(): void {
+    for (const request of [...this.protectedRequests]) {
+      request.unsubscribe();
+    }
+    this.protectedRequests.clear();
+  }
+
+  private clearProtectedState(_reason: ProtectedStateClearReason): void {
+    // A boundary may race list, detail, audience, or mutation callbacks. Ignore
+    // all prior responses before clearing their protected projections.
+    this.protectedStateGeneration += 1;
+    this.cancelProtectedRequests();
+    if (this.refreshTimer !== null) {
+      clearTimeout(this.refreshTimer);
+      this.refreshTimer = null;
+    }
+    this.detailRequests.clear();
+    this.readRequests.clear();
+    this.readConfirmedIds.clear();
+    this.readFailedIds.clear();
+    this.detailOnlyIds.clear();
+    this.audienceOptions = [];
+    this.editorActive = false;
+    this.publicationInFlight = false;
+    this.editorDraftRevision += 1;
+    this.pageState.set(this.emptyPage('loading'));
+  }
+
+  private reconcileReadActionState(announcement: AnnouncementViewModel): AnnouncementViewModel {
+    const announcementId = announcement.id;
+    if (!announcementId) {
+      return announcement;
+    }
+
+    if (announcement.readState.isRead) {
+      this.readConfirmedIds.delete(announcementId);
+      this.readFailedIds.delete(announcementId);
+      return announcement;
+    }
+
+    if (this.readRequests.has(announcementId)) {
+      return markAnnouncementReadPending(announcement);
+    }
+
+    if (this.readConfirmedIds.has(announcementId)) {
+      return markAnnouncementReadConfirmed(announcement);
+    }
+
+    if (this.readFailedIds.has(announcementId)) {
+      return markAnnouncementReadFailed(announcement);
+    }
+
+    return announcement;
   }
 }
 

@@ -1,6 +1,10 @@
 @let vm = page();
 
-<section class="announcements-page" data-testid="announcements-page">
+<section
+  class="announcements-page"
+  [class.announcements-page--detail-route]="detailRouteActive()"
+  data-testid="announcements-page"
+>
   <header class="announcements-page__header">
     <div>
       <p>公開</p>
@@ -39,12 +43,13 @@
     <section class="announcements-page__state" data-testid="announcement-permission-denied">
       このお知らせを表示する権限がありません。
     </section>
-  } @else if (vm.status === 'empty' || vm.announcements.length === 0) {
+  } @else if ((vm.status === 'empty' || vm.announcements.length === 0) && !detailRouteActive()) {
     @if (editorVisible() && activeEditorDraft()) {
       <div class="announcements-page__main">
         <app-announcement-editor
           [draft]="activeEditorDraft()!"
           [submissionError]="editingAnnouncementId() === null ? vm.editorError : undefined"
+          [publishing]="editingAnnouncementId() === null && vm.isPublishing === true"
           (draftChanged)="updateAnnouncementDraft($event)"
           (publishRequested)="publishAnnouncement($event)"
         />
@@ -67,15 +72,31 @@
       />
     </label>
 
-    <div class="announcements-page__content">
+    <div
+      class="announcements-page__content"
+      [class.announcements-page__content--detail-route]="detailRouteActive()"
+      [class.announcements-page__content--list-route]="!detailRouteActive()"
+      [class.announcements-page__content--editor]="editorVisible()"
+      [class.announcements-page__content--has-filter-results]="filteredAnnouncements().length > 0"
+    >
       <app-announcement-list
         [announcements]="filteredAnnouncements()"
         [selectedAnnouncementId]="selectedAnnouncement()?.id ?? null"
+        [focusRequest]="listFocusRequest()"
+        [focusAnnouncementId]="listFocusAnnouncementId()"
         (announcementSelected)="selectAnnouncement($event)"
       />
 
       <div class="announcements-page__main">
-        @if (filteredAnnouncements().length === 0) {
+        @if (detailRouteActive() && !selectedAnnouncement()) {
+          <app-announcement-detail
+            [announcement]="null"
+            [canEdit]="false"
+            [mobileFocusRequest]="detailFocusRequest()"
+            [mobileDetailActive]="detailRouteActive()"
+            (backRequested)="returnToList()"
+          />
+        } @else if (filteredAnnouncements().length === 0) {
           <section class="announcements-page__state" data-testid="announcements-filter-empty">
             表示できるお知らせがありません。
           </section>
@@ -83,6 +104,7 @@
           <app-announcement-editor
             [draft]="activeEditorDraft()!"
             [submissionError]="editingAnnouncementId() === null ? vm.editorError : undefined"
+            [publishing]="editingAnnouncementId() === null && vm.isPublishing === true"
             (draftChanged)="updateAnnouncementDraft($event)"
             (publishRequested)="publishAnnouncement($event)"
           />
@@ -90,8 +112,11 @@
           <app-announcement-detail
             [announcement]="selectedAnnouncement()"
             [canEdit]="canEdit()"
+            [mobileFocusRequest]="detailFocusRequest()"
+            [mobileDetailActive]="detailRouteActive()"
             (editRequested)="showEditEditor()"
             (markReadRequested)="markRead($event)"
+            (backRequested)="returnToList()"
           />
         }
       </div>

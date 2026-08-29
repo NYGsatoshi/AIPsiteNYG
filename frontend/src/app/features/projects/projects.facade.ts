@@ -6,6 +6,7 @@ import { catchError, finalize, map, switchMap } from 'rxjs/operators';
 
 import { normalizeApiError } from '../../core/api/api-error.adapter';
 import { FrontendApiError } from '../../core/api/api-error.model';
+import { ContinueWorkingHistoryService } from '../../shared/continue-working/continue-working-history.service';
 import { MyTasksFacade } from './my-tasks.facade';
 import {
   ProtectedStateClearReason,
@@ -74,6 +75,7 @@ export class ProjectsFacade {
   private readonly myTasksFacade = inject(MyTasksFacade);
   private readonly realtime = inject(RealtimeFacade);
   private readonly activeWorkspace = inject(ActiveWorkspaceFacade);
+  private readonly continueWorkingHistory = inject(ContinueWorkingHistoryService);
   private readonly router = inject(Router, { optional: true });
   private readonly scenario = inject(AIP_PROJECTS_MOCK, { optional: true });
   private readonly liveState = signal<ProjectsScenario>(
@@ -174,6 +176,8 @@ export class ProjectsFacade {
         tasks: [], selectedTab: 'assigned', scope: 'currentWorkspace', workspaceId: null, workspaceOptions: [], counts: [], totalCount: 0,
         page: 1, selectedPageSize: PROJECTS_DEFAULT_PAGE_SIZE, lastPage: 1,
         filters: { projectId: '', stageCategory: '', priority: '', blocked: '', search: '', timeGroup: null },
+        projectFilterInputValue: '', savedFilters: [], savedFiltersAvailable: false, canPersistSavedFilters: false,
+        filterConditions: [{ id: 'relationship', label: 'Relationship: Assigned to Me' }], filterAnnouncement: '',
         realtimeDegraded: false
       };
     }
@@ -190,6 +194,8 @@ export class ProjectsFacade {
         tasks: [], selectedTab: 'assigned', scope: 'currentWorkspace', workspaceId: null, workspaceOptions: [], counts: [], totalCount: 0,
         page: 1, selectedPageSize: PROJECTS_DEFAULT_PAGE_SIZE, lastPage: 1,
         filters: { projectId: '', stageCategory: '', priority: '', blocked: '', search: '', timeGroup: null },
+        projectFilterInputValue: '', savedFilters: [], savedFiltersAvailable: false, canPersistSavedFilters: false,
+        filterConditions: [{ id: 'relationship', label: 'Relationship: Assigned to Me' }], filterAnnouncement: '',
         realtimeDegraded: false
     };
   }
@@ -677,6 +683,14 @@ export class ProjectsFacade {
         const refreshActivity = this.getDetailSectionState('activity').status !== 'idle';
         this.applyAggregate(taskId, response.detail, scope);
         this.replaceTask(response.task);
+        const authorizedTask = (response.detail.task ?? response.detail) as TaskDto;
+        const taskProjectId = authorizedTask.projectId;
+        const taskWorkspaceId = authorizedTask.workspaceId;
+        if (typeof taskProjectId === 'string' && typeof taskWorkspaceId === 'string') {
+          // A Task is not a Continue-working card. Its successfully applied,
+          // authorized aggregate advances only its parent Research recency.
+          this.continueWorkingHistory.touchProject(taskProjectId, taskWorkspaceId);
+        }
         if (scope.kind === 'taskBodyReload') {
           this.taskMutationState.set({ status: this.taskMutationState().status === 'savedButRefreshFailed' ? 'success' : 'idle' });
           this.taskConflictReloadState.set('idle');

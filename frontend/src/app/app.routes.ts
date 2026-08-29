@@ -129,6 +129,13 @@ export const routes: Routes = [
           )
       },
       {
+        path: 'projects/:projectId/tasks/new',
+        loadComponent: () =>
+          import('./features/projects/task-create-page/task-create-page.component').then(
+            (m) => m.TaskCreatePageComponent
+          )
+      },
+      {
         path: 'projects/:projectId/tasks/:taskId',
         loadComponent: () =>
           import('./features/projects/task-detail-page/task-detail-page.component').then(

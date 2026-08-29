@@ -8,6 +8,7 @@ import { MessageNavigationStateService } from '../message-navigation-state.servi
 import { MessageTimelineComponent } from '../message-timeline/message-timeline.component';
 import { MessagingFacade } from '../messaging.facade';
 import { RealtimeFacade } from '../../../core/realtime/realtime.facade';
+import { ThreadPreviewComponent } from '../thread-preview/thread-preview.component';
 
 @Component({
   selector: 'app-dm-page',
@@ -17,6 +18,7 @@ import { RealtimeFacade } from '../../../core/realtime/realtime.facade';
     MessageComposerComponent,
     MessageTimelineComponent,
     RouterLink,
+    ThreadPreviewComponent,
   ],
   templateUrl: './dm-page.component.html',
   styleUrl: './dm-page.component.scss',
@@ -46,6 +48,12 @@ export class DmPageComponent {
   readonly canPost = computed(
     () => this.canReadBody() && this.page().conversation.capabilities.includes('postMessage'),
   );
+
+  readonly canCreateThread = computed(() =>
+    this.canPost() && this.page().conversation.capabilities.includes('createThread'),
+  );
+
+  readonly threadOpen = computed(() => this.facade.thread().status !== 'closed');
 
   readonly showComposer = computed(
     () =>

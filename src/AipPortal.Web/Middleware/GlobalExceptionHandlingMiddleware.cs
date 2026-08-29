@@ -72,7 +72,7 @@ public sealed class GlobalExceptionHandlingMiddleware(
 
     private static bool IsWpcPath(string? path)
     {
-        return ApiEnvelope.IsWorkspaceCreationPath(path);
+        return ApiEnvelope.IsCanonicalCreatePath(path);
     }
 
     private static bool IsPr06SnapshotPath(string? path) =>

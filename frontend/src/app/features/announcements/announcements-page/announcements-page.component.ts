@@ -1,10 +1,12 @@
-import { Component, computed, inject, OnDestroy, signal } from '@angular/core';
+import { Component, computed, DestroyRef, inject, OnDestroy, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute } from '@angular/router';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { ActivatedRoute, Router } from '@angular/router';
 
 import { AnnouncementDetailComponent } from '../announcement-detail/announcement-detail.component';
 import { AnnouncementEditorComponent } from '../announcement-editor/announcement-editor.component';
 import { AnnouncementListComponent } from '../announcement-list/announcement-list.component';
+import { AnnouncementNavigationStateService } from '../announcement-navigation-state.service';
 import { AnnouncementsFacade } from '../announcements.facade';
 import {
   ANNOUNCEMENT_PUBLICATION_STATE_LABELS,
@@ -28,13 +30,20 @@ import {
 export class AnnouncementsPageComponent implements OnDestroy {
   private readonly facade = inject(AnnouncementsFacade);
   private readonly route = inject(ActivatedRoute);
-  private readonly routeAnnouncementId = this.route.snapshot.paramMap.get('announcementId');
+  private readonly router = inject(Router);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly navigationState = inject(AnnouncementNavigationStateService);
+  private readonly routeAnnouncementId = signal<string | null>(null);
 
   readonly page = this.facade.page;
   readonly searchValue = signal('');
   readonly selectedAnnouncementId = signal<string | null>(
-    this.routeAnnouncementId ?? this.page().selectedAnnouncementId,
+    this.route.snapshot.paramMap.get('announcementId') ?? this.page().selectedAnnouncementId,
   );
+  readonly detailRouteActive = computed(() => this.routeAnnouncementId() !== null);
+  readonly detailFocusRequest = signal(0);
+  readonly listFocusRequest = signal(0);
+  readonly listFocusAnnouncementId = signal<string | null>(null);
   readonly editorVisible = signal(false);
   readonly editingAnnouncementId = signal<string | null>(null);
 
@@ -42,7 +51,15 @@ export class AnnouncementsPageComponent implements OnDestroy {
     this.filterAuthorizedAnnouncements(this.page().announcements, this.searchValue()),
   );
   readonly selectedAnnouncement = computed(() => {
-    const selectedId = this.page().selectedAnnouncementId ?? this.selectedAnnouncementId();
+    const routeAnnouncementId = this.routeAnnouncementId();
+    if (routeAnnouncementId) {
+      return (
+        this.filteredAnnouncements().find((announcement) => announcement.id === routeAnnouncementId) ??
+        null
+      );
+    }
+
+    const selectedId = this.selectedAnnouncementId() ?? this.page().selectedAnnouncementId;
     if (selectedId) {
       return (
         this.filteredAnnouncements().find((announcement) => announcement.id === selectedId) ?? null
@@ -89,17 +106,53 @@ export class AnnouncementsPageComponent implements OnDestroy {
   });
 
   constructor() {
-    if (this.routeAnnouncementId) {
-      this.facade.selectAnnouncement(this.routeAnnouncementId);
-    }
+    this.route.paramMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((paramMap) => {
+      const announcementId = paramMap.get('announcementId');
+      const previousRouteAnnouncementId = this.routeAnnouncementId();
+      this.routeAnnouncementId.set(announcementId);
+
+      if (announcementId) {
+        this.selectedAnnouncementId.set(announcementId);
+        this.facade.selectAnnouncement(announcementId);
+        if (announcementId !== previousRouteAnnouncementId) {
+          this.navigationState.resetDetailScroll(() =>
+            this.detailFocusRequest.update((request) => request + 1),
+          );
+        }
+      } else if (previousRouteAnnouncementId || this.navigationState.hasPendingListState()) {
+        this.navigationState.restoreListState((originAnnouncementId) => {
+          this.listFocusAnnouncementId.set(originAnnouncementId);
+          this.listFocusRequest.update((request) => request + 1);
+        });
+      }
+    });
   }
 
   selectAnnouncement(announcementId: string): void {
+    if (!announcementId) {
+      return;
+    }
+
+    this.navigationState.rememberListState(announcementId);
     this.selectedAnnouncementId.set(announcementId);
     this.editorVisible.set(false);
     this.editingAnnouncementId.set(null);
     this.facade.setEditorActive(false);
-    this.facade.selectAnnouncement(announcementId);
+    if (this.routeAnnouncementId() === announcementId) {
+      this.facade.selectAnnouncement(announcementId);
+      return;
+    }
+
+    void this.router.navigate(['/announcements', announcementId]).catch(() => undefined);
+  }
+
+  returnToList(): void {
+    if (!this.detailRouteActive()) {
+      return;
+    }
+
+    this.navigationState.rememberListHeadingFallback();
+    void this.router.navigate(['/announcements'], { replaceUrl: true }).catch(() => undefined);
   }
 
   markRead(announcementId: string): void {
@@ -163,6 +216,7 @@ export class AnnouncementsPageComponent implements OnDestroy {
         announcement.title,
         announcement.body,
         announcement.publishedAtLabel,
+        announcement.expiresAtLabel ?? '',
         announcement.scheduledAtLabel ?? '',
         announcement.timeZoneLabel ?? '',
         ANNOUNCEMENT_PUBLICATION_STATE_LABELS[announcement.publicationState],

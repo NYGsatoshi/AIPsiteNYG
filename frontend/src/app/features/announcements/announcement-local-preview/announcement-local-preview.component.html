@@ -1,0 +1,60 @@
+<section
+  class="announcement-local-preview"
+  aria-labelledby="announcement-local-preview-heading"
+  data-testid="announcement-local-preview"
+>
+  <header class="announcement-local-preview__header">
+    <div>
+      <p class="announcement-local-preview__priority" data-testid="announcement-preview-priority">
+        <app-announcement-priority-badge [priority]="preview.priority" />
+      </p>
+      <h3 #heading id="announcement-local-preview-heading" tabindex="-1" data-testid="announcement-preview-heading">
+        Recipient view — not published
+      </h3>
+    </div>
+    <p class="announcement-local-preview__delivery" data-testid="announcement-preview-delivery">
+      Publish immediately only after the separate confirmation.
+    </p>
+  </header>
+
+  <h4 data-testid="announcement-preview-title">{{ preview.title || 'Title not entered' }}</h4>
+
+  <dl class="announcement-local-preview__meta">
+    <div>
+      <dt>Audience</dt>
+      <dd data-testid="announcement-preview-audience">{{ preview.audience.displayName }}</dd>
+    </div>
+    <div>
+      <dt>Recipients</dt>
+      <dd data-testid="announcement-preview-recipient-count">
+        @if (preview.audience.recipientCount !== undefined) {
+          {{ preview.audience.recipientCount.toLocaleString('ja-JP') }} recipients
+        } @else {
+          Recipient estimate unavailable
+        }
+      </dd>
+    </div>
+    <div>
+      <dt>Read confirmation</dt>
+      <dd data-testid="announcement-preview-read-confirmation">
+        {{ preview.requiresReadConfirmation ? 'Required after publication' : 'Not required' }}
+      </dd>
+    </div>
+  </dl>
+
+  <p class="announcement-local-preview__body" data-testid="announcement-preview-body">
+    {{ preview.body || 'Message not entered' }}
+  </p>
+
+  @if (preview.requiresReadConfirmation) {
+    <p class="announcement-local-preview__inert-action" data-testid="announcement-preview-cta-inert">
+      A read-confirmation request is shown here for review only. Preview does not record a read.
+    </p>
+  }
+
+  <p class="announcement-local-preview__boundary" data-testid="announcement-preview-boundary">
+    This local preview makes no request and does not publish, deliver, mark read, or record analytics.
+    Links, attachments, scheduling, and saved drafts are not available in the current announcement
+    create contract.
+  </p>
+</section>
