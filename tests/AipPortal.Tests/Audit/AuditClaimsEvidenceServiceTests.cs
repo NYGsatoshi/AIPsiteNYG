@@ -44,7 +44,7 @@ public sealed class AuditClaimsEvidenceServiceTests
 
         var result = await fixture.Service.GetAsync(fixture.Version.Id);
 
-        Assert.True(result.IsSuccess);
+        Assert.True(result.IsSuccess, result.Error ?? result.ErrorDetail?.Message);
         var claim = Assert.Single(result.Value!.Claims);
         Assert.True(claim.CitationPresent);
         Assert.Equal("Contradicted", claim.SupportStatus);
@@ -84,7 +84,7 @@ public sealed class AuditClaimsEvidenceServiceTests
 
         var result = await fixture.Service.GetAsync(fixture.Version.Id);
 
-        Assert.True(result.IsSuccess);
+        Assert.True(result.IsSuccess, result.Error ?? result.ErrorDetail?.Message);
         var evidence = Assert.Single(Assert.Single(result.Value!.Claims).Evidence);
         Assert.Equal("Visible source", evidence.SourceTitle);
         var serialized = System.Text.Json.JsonSerializer.Serialize(result.Value);
@@ -111,7 +111,7 @@ public sealed class AuditClaimsEvidenceServiceTests
 
         var result = await fixture.Service.GetAsync(fixture.Version.Id);
 
-        Assert.True(result.IsSuccess);
+        Assert.True(result.IsSuccess, result.Error ?? result.ErrorDetail?.Message);
         Assert.Null(Assert.Single(Assert.Single(result.Value!.Claims).Evidence).SourceEventAuditId);
     }
 
@@ -203,10 +203,31 @@ public sealed class AuditClaimsEvidenceServiceTests
                 ArtifactId = artifact.Id,
                 Artifact = artifact,
                 VersionNumber = 1,
-                AttachmentId = Guid.NewGuid(),
                 CreatedByUserId = userId,
             };
+            var attachment = new Attachment
+            {
+                TenantId = tenantId,
+                FileObjectId = Guid.NewGuid(),
+                WorkspaceId = Guid.NewGuid(),
+                OwnerType = AttachmentOwnerType.ArtifactVersion,
+                OwnerId = version.Id,
+                OwnerUserId = userId,
+                UploadedByUserId = userId,
+                FileName = "research-report.pdf",
+                StoredFileName = "research-report.pdf",
+                FilePath = "test/research-report.pdf",
+                ContentType = "application/pdf",
+                Extension = ".pdf",
+                SizeBytes = 1,
+                StorageProvider = "Test",
+                StorageKey = "test/research-report.pdf",
+                ScanStatus = FileScanStatus.Skipped,
+            };
+            version.AttachmentId = attachment.Id;
+            version.Attachment = attachment;
             context.Artifacts.Add(artifact);
+            context.Attachments.Add(attachment);
             context.ArtifactVersions.Add(version);
             await context.SaveChangesAsync();
 
