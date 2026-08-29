@@ -66,8 +66,11 @@ interface RecipientOption {
       } @else {
         <app-message-search-filters
           [conversations]="page().conversations"
+          [inbox]="facade.inbox()"
           [preserveListScroll]="true"
           [showUnreadBadges]="globalSettings.showUnreadBadges()"
+          (inboxViewChanged)="facade.selectInboxView($event)"
+          (conversationLaterChanged)="facade.setConversationLater($event.conversationId, $event.isLater)"
         >
           @if (page().conversations.length === 0) {
             <section message-search-empty class="messages-page__state" data-testid="messages-list-empty">
