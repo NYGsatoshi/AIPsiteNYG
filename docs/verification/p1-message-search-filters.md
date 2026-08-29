@@ -14,6 +14,9 @@ Status: implementation candidate on `feat/359-message-search-filters`.
 - Conversation chips use only the authorized list projection's `unreadCount`
   and `hasMention`. They combine independently, expose `aria-pressed`, and can
   be removed individually or together.
+- Active query and conversation conditions reuse the canonical shared
+  `AipFilterChipComponent`; its native remove button keeps the condition label
+  and value in the accessible name.
 - Search and local conversation filtering are labeled as separate scopes;
   advanced compound result filters remain Issue #367.
 - Search-empty and conversation-filter-empty states both offer an immediate

@@ -94,8 +94,7 @@
   min-width: 0;
 }
 
-.message-discovery__quick-filter-buttons button,
-.message-discovery__active-chip {
+.message-discovery__quick-filter-buttons button {
   border-radius: 999px;
 }
 
@@ -127,12 +126,6 @@
 
 .message-discovery__active button {
   min-height: 36px;
-}
-
-.message-discovery__active-chip {
-  max-width: 100%;
-  overflow-wrap: anywhere;
-  text-align: left;
 }
 
 .message-discovery__results {

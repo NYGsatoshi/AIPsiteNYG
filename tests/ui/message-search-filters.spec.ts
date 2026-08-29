@@ -92,7 +92,7 @@ test.describe('Issue #359 Message search and quick filters', () => {
     expect(searchRequests[0].searchParams.get('type')).toBe('Message');
     expect(searchRequests[0].searchParams.get('pageSize')).toBe('50');
 
-    const removeUnread = page.getByTestId('message-active-unread-chip');
+    const removeUnread = page.getByTestId('message-active-unread-chip').getByRole('button');
     await removeUnread.focus();
     await removeUnread.press('Enter');
     await expect(page.getByTestId('conversation-list-item')).toHaveCount(3);

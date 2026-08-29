@@ -2,6 +2,7 @@ import { Component, ElementRef, Input, OnDestroy, ViewChild, computed, inject, s
 import { RouterLink } from '@angular/router';
 import { Subscription } from 'rxjs';
 
+import { AipFilterChipComponent } from '../../../shared/ui/aip-filter-chip/aip-filter-chip.component';
 import { ConversationListComponent } from '../conversation-list/conversation-list.component';
 import { MessageSearchResponseDto, MessagingApi } from '../messaging.api';
 import { MessagingConversationListItem } from '../messaging.types';
@@ -23,7 +24,7 @@ const CONVERSATION_ROUTE_PATTERN = /^\/conversations\/([0-9a-f-]+)$/i;
 @Component({
   selector: 'app-message-search-filters',
   standalone: true,
-  imports: [ConversationListComponent, RouterLink],
+  imports: [AipFilterChipComponent, ConversationListComponent, RouterLink],
   template: `
     <section
       class="message-discovery"
@@ -136,37 +137,28 @@ const CONVERSATION_ROUTE_PATTERN = /^\/conversations\/([0-9a-f-]+)$/i;
           </div>
           <div class="message-discovery__active-chips" data-testid="message-active-filters">
             @if (appliedQuery()) {
-              <button
-                type="button"
-                class="message-discovery__active-chip"
+              <app-aip-filter-chip
                 data-testid="message-active-search-chip"
-                [attr.aria-label]="'Remove search condition: ' + appliedQuery()"
-                (click)="clearSearch(true)"
-              >
-                Search: “{{ appliedQuery() }}” <span aria-hidden="true">×</span>
-              </button>
+                label="Search"
+                [value]="appliedQuery()"
+                (removed)="clearSearch(true)"
+              />
             }
             @if (unreadOnly()) {
-              <button
-                type="button"
-                class="message-discovery__active-chip"
+              <app-aip-filter-chip
                 data-testid="message-active-unread-chip"
-                aria-label="Remove Unread conversation filter"
-                (click)="toggleUnread(true)"
-              >
-                Unread <span aria-hidden="true">×</span>
-              </button>
+                label="Conversation"
+                value="Unread"
+                (removed)="toggleUnread(true)"
+              />
             }
             @if (mentionsOnly()) {
-              <button
-                type="button"
-                class="message-discovery__active-chip"
+              <app-aip-filter-chip
                 data-testid="message-active-mentions-chip"
-                aria-label="Remove @Me conversation filter"
-                (click)="toggleMentions(true)"
-              >
-                &#64;Me <span aria-hidden="true">×</span>
-              </button>
+                label="Conversation"
+                value="@Me"
+                (removed)="toggleMentions(true)"
+              />
             }
           </div>
         </section>

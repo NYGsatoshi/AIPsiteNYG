@@ -78,6 +78,12 @@ describe('MessageSearchFiltersComponent', () => {
     expect(conversationRows(root)).toHaveLength(2);
     expect(testElement(root, 'message-filter-unread').getAttribute('aria-pressed')).toBe('true');
     expect(testElement(root, 'message-active-unread-chip')).not.toBeNull();
+    expect(
+      testElement(root, 'message-active-unread-chip').querySelector('[data-testid="filter-chip"]')
+    ).not.toBeNull();
+    expect(
+      testElement(root, 'message-active-unread-chip').querySelector('button')?.getAttribute('aria-label')
+    ).toBe('Remove filter Conversation: Unread');
 
     click(root, '[data-testid="message-filter-mentions"]');
     fixture.detectChanges();
@@ -85,7 +91,7 @@ describe('MessageSearchFiltersComponent', () => {
     expect(conversationRows(root)[0].textContent).toContain('Unread mention');
     expect(testElement(root, 'message-active-mentions-chip')).not.toBeNull();
 
-    click(root, '[data-testid="message-active-unread-chip"]');
+    click(root, '[data-testid="message-active-unread-chip"] button');
     fixture.detectChanges();
     await nextTask();
     expect(conversationRows(root)).toHaveLength(2);
