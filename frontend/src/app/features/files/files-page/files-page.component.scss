@@ -211,7 +211,9 @@
 .files-page__toolbar:focus-visible,
 .files-page__toolbar button:focus-visible,
 .files-page__toolbar-action:focus-visible,
-.files-page__view-settings summary:focus-visible {
+.files-page__view-settings summary:focus-visible,
+.files-page__preview button:focus-visible,
+.files-page__preview-action:focus-visible {
   outline: 3px solid var(--aip-color-focus, #2f6feb);
   outline-offset: 2px;
 }
@@ -258,6 +260,106 @@
   --ag-row-height: 36px;
 }
 
+.files-page__preview,
+.files-page__preview-media,
+.files-page__preview-document,
+.files-page__preview-text {
+  box-sizing: border-box;
+}
+
+.files-page__preview {
+  position: sticky;
+  top: 12px;
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  border: 1px solid var(--aip-color-border-default);
+  border-radius: 10px;
+  padding: 14px;
+  background: var(--aip-color-bg-surface);
+  color: var(--aip-color-text-secondary);
+  font-size: 0.84rem;
+}
+
+.files-page__preview-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.files-page__preview p,
+.files-page__preview h2 {
+  margin: 0;
+}
+
+.files-page__preview-header h2 {
+  color: var(--aip-color-text-primary);
+  font-size: 1rem;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.files-page__preview button,
+.files-page__preview-action {
+  min-height: 38px;
+  border: 1px solid var(--aip-color-border-default);
+  border-radius: 7px;
+  padding: 8px 12px;
+  background: var(--aip-color-bg-surface-subtle);
+  color: var(--aip-color-text-primary);
+  font: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.files-page__preview button:disabled,
+.files-page__preview-action[aria-disabled='true'] {
+  color: var(--aip-color-text-muted);
+  cursor: not-allowed;
+}
+
+.files-page__preview-body {
+  display: grid;
+  gap: 8px;
+}
+
+.files-page__preview-media {
+  width: 100%;
+  max-height: min(62vh, 680px);
+  object-fit: contain;
+}
+
+.files-page__preview-document {
+  width: 100%;
+  min-height: 520px;
+  border: 1px solid var(--aip-color-border-default);
+}
+
+.files-page__preview-text {
+  width: 100%;
+  max-height: 62vh;
+  overflow: auto;
+  margin: 0;
+  border: 1px solid var(--aip-color-border-default);
+  padding: 12px;
+  background: var(--aip-color-bg-surface-subtle);
+  color: var(--aip-color-text-primary);
+  font: 0.8rem/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.files-page__preview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.files-page__preview-backdrop {
+  display: none;
+}
+
 .files-page__policy {
   display: grid;
   gap: 6px;
@@ -269,8 +371,15 @@
   font-size: 0.86rem;
   font-weight: 800;
 }
-.files-page__upload-status{margin:0;color:var(--aip-color-text-secondary)}
-.files-page__mobile-list{display:none}
+
+.files-page__upload-status {
+  margin: 0;
+  color: var(--aip-color-text-secondary);
+}
+
+.files-page__mobile-list {
+  display: none;
+}
 
 .files-page__policy strong {
   color: var(--aip-color-text-primary);
@@ -285,6 +394,33 @@
   .files-page__grid {
     grid-template-columns: minmax(0, 1fr);
   }
+
+  .files-page__preview-backdrop {
+    position: fixed;
+    z-index: 40;
+    inset: 0;
+    display: block;
+    border: 0;
+    padding: 0;
+    background: rgb(0 0 0 / 45%);
+  }
+
+  .files-page__preview--overlay {
+    position: fixed;
+    z-index: 41;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(430px, 100vw);
+    overflow-x: hidden;
+    overflow-y: auto;
+    border-radius: 0;
+    padding: 16px;
+  }
+
+  .files-page__preview--overlay .files-page__preview-document {
+    min-height: min(65dvh, 560px);
+  }
 }
 
 @media (max-width: 640px) {
@@ -293,13 +429,36 @@
     display: grid;
     align-items: start;
   }
+
   .files-page__toolbar,
   .files-page__pagination {
     flex-wrap: wrap;
   }
+
   .files-page__pagination {
     justify-content: flex-start;
   }
-  .files-page__desktop-grid{display:none}
-  .files-page__mobile-list{display:block}
+
+  .files-page__desktop-grid {
+    display: none;
+  }
+
+  .files-page__mobile-list {
+    display: block;
+  }
+}
+
+@media (max-width: 320px) {
+  .files-page__preview--overlay {
+    width: 100vw;
+    padding: 12px;
+  }
+
+  .files-page__preview-header {
+    flex-wrap: wrap;
+  }
+
+  .files-page__preview-document {
+    min-height: 360px;
+  }
 }

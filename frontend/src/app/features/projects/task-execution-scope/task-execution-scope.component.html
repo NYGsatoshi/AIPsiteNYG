@@ -59,17 +59,21 @@
       This summary is the current next-run policy. Changes apply to future run requests only; a run policy snapshot is locked when that request is accepted.
     </p>
     <p class="task-execution-scope__runtime-notice" data-testid="task-execution-runtime-unavailable">
-      Execution provider: None. No execution runtime is configured; a run request can record an immutable policy snapshot, but no Web or Project-file I/O starts and the run finishes unavailable. No Web request can be sent from this screen.
+      Execution provider: None. No execution runtime is configured in this release; a run request can record an immutable policy snapshot, but no Web or Project-file I/O starts and the run finishes unavailable. No Web request can be sent from this screen.
     </p>
 
     @if (current.task.latestRun; as latestRun) {
       <section class="task-execution-scope__snapshot" aria-labelledby="task-execution-snapshot-heading" data-testid="task-execution-snapshot">
-        <h3 id="task-execution-snapshot-heading">Most recent policy snapshot</h3>
+        <h3 id="task-execution-snapshot-heading">Most recent execution</h3>
+        <p class="task-execution-scope__major-state" role="status" aria-live="polite" aria-atomic="true" data-testid="task-execution-major-state-status">
+          <span>Execution state</span>
+          <strong data-testid="task-execution-major-state">{{ majorStateLabel(latestRun.majorState) }}</strong>
+        </p>
         <dl>
           <div><dt>Scope at request</dt><dd>{{ scopeOriginLabel(latestRun.snapshotScopeOrigin) }}</dd></div>
           <div><dt>Web at request</dt><dd>{{ latestRun.snapshotWebEnabled ? 'Allow' : 'Exclude' }}</dd></div>
           <div><dt>Project files at request</dt><dd>{{ latestRun.snapshotProjectFilesEnabled ? 'Allow' : 'Exclude' }}</dd></div>
-          <div><dt>Runtime result</dt><dd>{{ runStatusLabel(latestRun.status) }}</dd></div>
+          <div><dt>Runtime detail</dt><dd>{{ runStatusLabel(latestRun.status) }}</dd></div>
         </dl>
       </section>
     }
@@ -104,11 +108,11 @@
               <p>Used by Tasks that inherit the Project default.</p>
               <label class="task-execution-scope__toggle">
                 <input type="checkbox" [checked]="projectWebEnabled()" (change)="setProjectWebEnabled($event)" />
-                <span><strong>Allow Web in the next-run policy</strong><small>Provider is None in this release, so allowing Web does not start Web retrieval.</small></span>
+                <span><strong>Allow Web as a future source</strong><small>Enables policy only. This release cannot retrieve from the Web.</small></span>
               </label>
               <label class="task-execution-scope__toggle">
                 <input type="checkbox" [checked]="projectFilesEnabled()" (change)="setProjectFilesEnabled($event)" />
-                <span><strong>Allow authorized Project files in the next-run policy</strong><small>Provider is None in this release and no file names, counts, content, or file I/O are exposed here.</small></span>
+                <span><strong>Allow authorized Project files as a future source</strong><small>Does not reveal file names, counts, or content.</small></span>
               </label>
               <button type="submit" [disabled]="saving() !== null">{{ saving() === 'project' ? 'Saving project default...' : 'Save project default' }}</button>
             </fieldset>
@@ -132,11 +136,11 @@
                 <div class="task-execution-scope__override-options">
                   <label class="task-execution-scope__toggle">
                     <input type="checkbox" [checked]="overrideWebEnabled()" (change)="setOverrideWebEnabled($event)" />
-                    <span><strong>Allow Web in this Task override</strong><small>This changes next-run policy only; no Web retrieval is enabled by the current provider.</small></span>
+                    <span><strong>Allow Web as a future source</strong><small>Policy only; no Web retrieval is enabled.</small></span>
                   </label>
                   <label class="task-execution-scope__toggle">
                     <input type="checkbox" [checked]="overrideProjectFilesEnabled()" (change)="setOverrideProjectFilesEnabled($event)" />
-                    <span><strong>Allow authorized Project files in this Task override</strong><small>This changes next-run policy only; no file inventory or content is displayed.</small></span>
+                    <span><strong>Allow authorized Project files as a future source</strong><small>Policy only; no file inventory is displayed.</small></span>
                   </label>
                 </div>
               }

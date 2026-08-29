@@ -13,6 +13,7 @@ import { FileViewModel } from '../files.types';
 export class FileRowComponent {
   @Input({ required: true }) file!: FileViewModel;
   @Input() selected = false;
+  @Output() readonly previewRequested = new EventEmitter<FileViewModel>();
   @Output() readonly downloadRequested = new EventEmitter<string>();
   @Output() readonly selectionChanged = new EventEmitter<{ file: FileViewModel; selected: boolean }>();
   @Output() readonly adminOverrideRequested = new EventEmitter<{ fileId: string; reason: string }>();
@@ -54,6 +55,10 @@ export class FileRowComponent {
 
   canRequestAdminOverride(): boolean {
     return this.file.capabilities.includes('adminOverrideBlockedDownload') && this.auditReason().trim().length > 0;
+  }
+
+  requestPreview(): void {
+    this.previewRequested.emit(this.file);
   }
 
   requestDownload(): void {
