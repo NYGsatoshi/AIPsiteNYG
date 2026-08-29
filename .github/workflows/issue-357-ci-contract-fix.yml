@@ -1,0 +1,58 @@
+name: Issue 357 one-shot CI contract fix
+
+on:
+  push:
+    branches:
+      - feat/357-active-source-scope-completion
+
+permissions:
+  contents: write
+
+jobs:
+  patch-stale-smoke-contract:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feat/357-active-source-scope-completion
+          fetch-depth: 0
+
+      - name: Patch stale execution-scope smoke assertions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('tests/ui/angular-smoke.spec.ts')
+          text = path.read_text(encoding='utf-8')
+          start_marker = "  test('keeps the server-authorized Task execution policy responsive without offering a runtime action', async ({ page }) => {"
+          end_marker = "\n  test('edits and reviews the Task Brief in stable order without narrow-screen overflow'"
+          start = text.index(start_marker)
+          end = text.index(end_marker, start)
+          section = text[start:end]
+
+          old_web = "    await expect(scope.getByTestId('task-execution-scope-web')).toHaveText('Enabled for a future approved runtime');"
+          new_web = "    await expect(scope.getByTestId('task-execution-scope-web')).toHaveText('Enabled');\n    await expect(scope.getByTestId('task-execution-scope-web-policy')).toHaveText('Allow — eligible under this Task scope');"
+          old_files = "    await expect(scope.getByTestId('task-execution-scope-files')).toHaveText('Disabled');"
+          new_files = "    await expect(scope.getByTestId('task-execution-scope-files')).toHaveText('Disabled');\n    await expect(scope.getByTestId('task-execution-scope-files-policy')).toHaveText('Exclude — not eligible under this Task scope');"
+
+          if section.count(old_web) != 2:
+              raise SystemExit(f'expected 2 stale Web assertions, found {section.count(old_web)}')
+          if section.count(old_files) != 2:
+              raise SystemExit(f'expected 2 Project-file assertions in target test, found {section.count(old_files)}')
+
+          section = section.replace(old_web, new_web)
+          section = section.replace(old_files, new_files)
+          updated = text[:start] + section + text[end:]
+          path.write_text(updated, encoding='utf-8')
+          PY
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/issue-357-ci-contract-fix.yml
+          git add tests/ui/angular-smoke.spec.ts
+          git diff --cached --check
+          git commit -m 'test(ui): align execution scope smoke contract'
+          git push origin HEAD:feat/357-active-source-scope-completion
