@@ -278,7 +278,6 @@
   background: var(--aip-color-bg-surface);
   color: var(--aip-color-text-secondary);
   font-size: 0.84rem;
-  box-shadow: 0 8px 24px rgb(0 0 0 / 8%);
 }
 
 .files-page__preview-header {
@@ -303,7 +302,6 @@
 }
 
 .files-page__preview-header h2 {
-  margin-top: 2px;
   color: var(--aip-color-text-primary);
   font-size: 1rem;
   line-height: 1.3;
@@ -318,7 +316,6 @@
   background: var(--aip-color-bg-surface-subtle);
   color: var(--aip-color-text-primary);
   font: inherit;
-  font-weight: 900;
   cursor: pointer;
 }
 
@@ -329,8 +326,6 @@
 }
 
 .files-page__preview button:disabled {
-  border-color: var(--aip-color-border-default);
-  background: var(--aip-color-bg-surface-subtle);
   color: var(--aip-color-text-muted);
   cursor: not-allowed;
 }
@@ -339,25 +334,18 @@
   display: grid;
   gap: 8px;
   min-width: 0;
-  min-height: 120px;
 }
 
 .files-page__preview-media {
-  display: block;
   width: 100%;
   max-height: min(62vh, 680px);
-  border-radius: 8px;
   object-fit: contain;
-  background: var(--aip-color-bg-surface-subtle);
 }
 
 .files-page__preview-document {
-  display: block;
   width: 100%;
   min-height: 520px;
   border: 1px solid var(--aip-color-border-default);
-  border-radius: 8px;
-  background: var(--aip-color-bg-surface-subtle);
 }
 
 .files-page__preview-text {
@@ -366,7 +354,6 @@
   overflow: auto;
   margin: 0;
   border: 1px solid var(--aip-color-border-default);
-  border-radius: 8px;
   padding: 12px;
   background: var(--aip-color-bg-surface-subtle);
   color: var(--aip-color-text-primary);
@@ -377,7 +364,6 @@
 
 .files-page__preview-actions {
   display: flex;
-  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -434,8 +420,6 @@
     z-index: 40;
     inset: 0;
     display: block;
-    width: 100%;
-    height: 100%;
     border: 0;
     padding: 0;
     background: rgb(0 0 0 / 45%);
@@ -448,14 +432,10 @@
     right: 0;
     bottom: 0;
     width: min(430px, 100vw);
-    max-width: 100vw;
-    max-height: 100dvh;
     overflow-x: hidden;
     overflow-y: auto;
-    overscroll-behavior: contain;
     border-radius: 0;
     padding: 16px;
-    box-shadow: -8px 0 28px rgb(0 0 0 / 20%);
   }
 
   .files-page__preview--overlay .files-page__preview-document {
