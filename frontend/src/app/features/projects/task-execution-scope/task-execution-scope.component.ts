@@ -9,7 +9,8 @@ import { AIP_PROJECTS_MOCK } from '../projects.facade';
 
 type ScopeOrigin = 'ProjectDefault' | 'TaskOverride';
 type ScopeEditorMode = 'inherit' | 'override';
-type RunStatus = 'Prepared' | 'RuntimeUnavailable';
+type RunStatus = 'Prepared' | 'RuntimeUnavailable' | 'Waiting' | 'NeedsInput' | 'Failed' | 'Completed';
+type MajorState = 'Running' | 'Waiting' | 'NeedsInput' | 'Failed' | 'Completed';
 
 interface SourcePolicy {
   readonly webEnabled: boolean;
@@ -24,6 +25,7 @@ interface ProjectExecutionScope {
 
 interface LatestExecutionRun {
   readonly status: RunStatus;
+  readonly majorState: MajorState;
   readonly snapshotScopeOrigin: ScopeOrigin;
   readonly snapshotWebEnabled: boolean;
   readonly snapshotProjectFilesEnabled: boolean;
@@ -261,10 +263,20 @@ export class TaskExecutionScopeComponent implements OnChanges, OnDestroy {
     return origin === 'TaskOverride' ? 'Task override' : 'Project default';
   }
 
+  majorStateLabel(state: MajorState): string {
+    return state === 'NeedsInput' ? 'Needs input' : state;
+  }
+
   runStatusLabel(status: RunStatus): string {
-    return status === 'RuntimeUnavailable'
-      ? 'Unavailable - no execution was started.'
-      : 'Policy record prepared. This release does not configure a provider.';
+    switch (status) {
+      case 'RuntimeUnavailable': return 'Runtime unavailable - execution did not start.';
+      case 'Prepared': return 'Execution request accepted by the configured runtime.';
+      case 'Waiting': return 'Execution is waiting.';
+      case 'NeedsInput': return 'Execution is waiting for input.';
+      case 'Failed': return 'Execution failed.';
+      case 'Completed': return 'Execution completed.';
+      default: return 'Execution state unavailable.';
+    }
   }
 
   private loadScope(preserveFeedback = false): void {
@@ -493,9 +505,9 @@ function nullableLatestRun(value: unknown): LatestExecutionRun | null {
   }
 
   const record = requiredRecord(value, 'Latest execution run');
-  const status = requiredRunStatus(record['status']);
   return {
-    status,
+    status: requiredRunStatus(record['status']),
+    majorState: requiredMajorState(record['majorState']),
     snapshotScopeOrigin: requiredOrigin(record['snapshotScopeOrigin'], 'Latest execution run source origin'),
     snapshotWebEnabled: requiredBoolean(record['snapshotWebEnabled'], 'Latest execution run Web policy'),
     snapshotProjectFilesEnabled: requiredBoolean(record['snapshotProjectFilesEnabled'], 'Latest execution run file policy'),
@@ -551,11 +563,19 @@ function requiredOrigin(value: unknown, label: string): ScopeOrigin {
 }
 
 function requiredRunStatus(value: unknown): RunStatus {
-  if (value === 'Prepared' || value === 'RuntimeUnavailable') {
+  if (value === 'Prepared' || value === 'RuntimeUnavailable' || value === 'Waiting' || value === 'NeedsInput' || value === 'Failed' || value === 'Completed') {
     return value;
   }
 
   throw new Error('Latest execution run status is invalid.');
+}
+
+function requiredMajorState(value: unknown): MajorState {
+  if (value === 'Running' || value === 'Waiting' || value === 'NeedsInput' || value === 'Failed' || value === 'Completed') {
+    return value;
+  }
+
+  throw new Error('Latest execution run major state is invalid.');
 }
 
 function checkboxValue(event: Event): boolean {
