@@ -90,6 +90,35 @@ const flushPreview = (
   download.flush(blob, { headers: { 'content-type': blob.type } });
 };
 
+const installBlobTextPolyfill = (): (() => void) => {
+  const prototype = Blob.prototype as unknown as { text?: () => Promise<string> };
+  const existing = Object.getOwnPropertyDescriptor(Blob.prototype, 'text');
+  if (typeof prototype.text === 'function') {
+    return () => undefined;
+  }
+
+  Object.defineProperty(Blob.prototype, 'text', {
+    configurable: true,
+    writable: true,
+    value(this: Blob): Promise<string> {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+        reader.onerror = () => reject(reader.error ?? new Error('Blob text read failed.'));
+        reader.readAsText(this);
+      });
+    },
+  });
+
+  return () => {
+    if (existing) {
+      Object.defineProperty(Blob.prototype, 'text', existing);
+    } else {
+      Reflect.deleteProperty(Blob.prototype, 'text');
+    }
+  };
+};
+
 describe('FilesPageComponent issue #352', () => {
   afterEach(() => {
     TestBed.inject(HttpTestingController).verify();
@@ -136,42 +165,47 @@ describe('FilesPageComponent issue #352', () => {
   }, 15_000);
 
   it('renders PDF, video, and text-like files from authorized blobs without public URLs', async () => {
-    const { fixture, http } = await renderLiveFilesPage([
-      backendFile(PDF_ID, 'brief.pdf', 'application/pdf'),
-      backendFile(VIDEO_ID, 'lesson.mp4', 'video/mp4'),
-      backendFile(TEXT_ID, 'notes.txt', 'text/plain'),
-    ]);
-    const component = fixture.componentInstance;
-    const [pdf, video, text] = component.page().recentFiles;
-    if (!pdf || !video || !text) {
-      throw new Error('Expected PDF, video, and text fixtures.');
+    const restoreBlobText = installBlobTextPolyfill();
+    try {
+      const { fixture, http } = await renderLiveFilesPage([
+        backendFile(PDF_ID, 'brief.pdf', 'application/pdf'),
+        backendFile(VIDEO_ID, 'lesson.mp4', 'video/mp4'),
+        backendFile(TEXT_ID, 'notes.txt', 'text/plain'),
+      ]);
+      const component = fixture.componentInstance;
+      const [pdf, video, text] = component.page().recentFiles;
+      if (!pdf || !video || !text) {
+        throw new Error('Expected PDF, video, and text fixtures.');
+      }
+
+      vi.spyOn(URL, 'createObjectURL')
+        .mockReturnValueOnce('blob:authorized-pdf')
+        .mockReturnValueOnce('blob:authorized-video');
+      vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+
+      component.openPreview(pdf);
+      flushPreview(http, PDF_ID, 'grant-pdf', new Blob(['pdf'], { type: 'application/pdf' }));
+      fixture.detectChanges();
+      expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="files-preview-pdf"]')).not.toBeNull();
+
+      component.openPreview(video);
+      flushPreview(http, VIDEO_ID, 'grant-video', new Blob(['video'], { type: 'video/mp4' }));
+      fixture.detectChanges();
+      expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="files-preview-video"]')).not.toBeNull();
+
+      component.openPreview(text);
+      flushPreview(http, TEXT_ID, 'grant-text', new Blob(['hello from preview'], { type: 'text/plain' }));
+      await fixture.whenStable();
+      await Promise.resolve();
+      fixture.detectChanges();
+      expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="files-preview-text"]')?.textContent)
+        .toContain('hello from preview');
+
+      const policy = (fixture.nativeElement as HTMLElement).querySelector('[data-testid="file-policy"]')?.textContent ?? '';
+      expect(policy).toContain('CDN links, public links, and external signed URL sharing are disabled. Preview never uses those links.');
+    } finally {
+      restoreBlobText();
     }
-
-    vi.spyOn(URL, 'createObjectURL')
-      .mockReturnValueOnce('blob:authorized-pdf')
-      .mockReturnValueOnce('blob:authorized-video');
-    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
-
-    component.openPreview(pdf);
-    flushPreview(http, PDF_ID, 'grant-pdf', new Blob(['pdf'], { type: 'application/pdf' }));
-    fixture.detectChanges();
-    expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="files-preview-pdf"]')).not.toBeNull();
-
-    component.openPreview(video);
-    flushPreview(http, VIDEO_ID, 'grant-video', new Blob(['video'], { type: 'video/mp4' }));
-    fixture.detectChanges();
-    expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="files-preview-video"]')).not.toBeNull();
-
-    component.openPreview(text);
-    flushPreview(http, TEXT_ID, 'grant-text', new Blob(['hello from preview'], { type: 'text/plain' }));
-    await fixture.whenStable();
-    await Promise.resolve();
-    fixture.detectChanges();
-    expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="files-preview-text"]')?.textContent)
-      .toContain('hello from preview');
-
-    const policy = (fixture.nativeElement as HTMLElement).querySelector('[data-testid="file-policy"]')?.textContent ?? '';
-    expect(policy).toContain('CDN links, public links, and external signed URL sharing are not used for preview.');
   }, 15_000);
 
   it('fails closed without requesting preview content when scan or access state is not authorized', async () => {
@@ -230,6 +264,7 @@ describe('FilesPageComponent issue #352', () => {
       trigger.click();
       fixture.detectChanges();
       await fixture.whenStable();
+      fixture.detectChanges();
 
       const pane = host.querySelector('[data-testid="files-preview-pane"]') as HTMLElement;
       const close = host.querySelector('[data-testid="files-preview-close"]') as HTMLButtonElement;
