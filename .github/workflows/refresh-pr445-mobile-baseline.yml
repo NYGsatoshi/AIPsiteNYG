@@ -1,0 +1,104 @@
+name: PR445 Mobile Baseline Refresh
+
+on:
+  push:
+    branches:
+      - feature/account-language-settings
+    paths:
+      - .github/workflows/refresh-pr445-mobile-baseline.yml
+
+permissions:
+  contents: write
+
+jobs:
+  refresh-mobile-baseline:
+    if: github.repository == 'NYGsatoshi/AIPsiteNYG'
+    runs-on: self-hosted
+    timeout-minutes: 45
+
+    steps:
+      - name: Repair previous Docker workspace ownership
+        shell: bash
+        run: |
+          uid="$(id -u)"
+          gid="$(id -g)"
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            alpine:3.21 \
+            sh -c "chown -R ${uid}:${gid} /workspace"
+
+      - name: Checkout PR branch without persisted credentials
+        uses: actions/checkout@v7
+        with:
+          ref: feature/account-language-settings
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
+      - name: Refresh only the Linux mobile screenshot baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          project="aipsite-pr445-baseline-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          export PLAYWRIGHT_NPM_CACHE_VOLUME=aipsite-playwright-npm-cache-node24-v1
+          export PLAYWRIGHT_ANGULAR_CACHE_VOLUME=aipsite-playwright-angular-cache-node24-v1
+
+          docker volume create "$PLAYWRIGHT_NPM_CACHE_VOLUME" >/dev/null
+          docker volume create "$PLAYWRIGHT_ANGULAR_CACHE_VOLUME" >/dev/null
+
+          set +e
+          docker compose -p "$project" -f docker-compose.playwright.yml run --build --rm angular-playwright \
+            bash -lc 'bash scripts/ci/npm-ci-retry.sh . && \
+              bash scripts/ci/npm-ci-retry.sh frontend && \
+              npm --prefix frontend run build && \
+              node tests/ui/run-angular-playwright.mjs \
+                --project=chromium-mobile \
+                --grep "matches approved Angular P0 screenshot baselines" \
+                --update-snapshots'
+          status=$?
+          set -e
+
+          docker compose -p "$project" -f docker-compose.playwright.yml down --volumes --remove-orphans || true
+          exit "$status"
+
+      - name: Repair generated file ownership
+        if: always()
+        shell: bash
+        run: |
+          uid="$(id -u)"
+          gid="$(id -g)"
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            alpine:3.21 \
+            sh -c "chown -R ${uid}:${gid} /workspace"
+
+      - name: Verify baseline update scope and integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='tests/ui/__angular_snapshots__/linux/angular-smoke.spec.ts/mobile-shell-workspaces-drawer.png'
+          mapfile -t changed < <(git diff --name-only)
+          printf 'Changed files:\n%s\n' "${changed[*]:-<none>}"
+          test "${#changed[@]}" -eq 1
+          test "${changed[0]}" = "$expected"
+          file "$expected" | grep -F 'PNG image data, 390 x 844'
+          git diff --check
+          echo "Generated blob: $(git hash-object "$expected")"
+
+      - name: Commit approved baseline
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          expected='tests/ui/__angular_snapshots__/linux/angular-smoke.spec.ts/mobile-shell-workspaces-drawer.png'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$expected"
+          git commit -m 'test(frontend): approve English mobile shell baseline'
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            HEAD:feature/account-language-settings
