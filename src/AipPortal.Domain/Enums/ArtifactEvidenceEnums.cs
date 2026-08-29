@@ -5,7 +5,8 @@ public enum ArtifactClaimSupportStatus
     Unverified = 0,
     Supported = 1,
     Contradicted = 2,
-    Insufficient = 3
+    Insufficient = 3,
+    Unsupported = 4
 }
 
 public enum ArtifactClaimReviewStatus
