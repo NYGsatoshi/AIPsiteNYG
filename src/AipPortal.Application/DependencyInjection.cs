@@ -131,6 +131,7 @@ public static class DependencyInjection
         services.AddScoped<IFileObjectService>(provider => provider.GetRequiredService<IFileService>() as IFileObjectService
             ?? throw new InvalidOperationException("IFileService must be implemented by IFileObjectService."));
         services.AddScoped<IArtifactService, ArtifactService>();
+        services.AddScoped<IArtifactEvidenceManifestService, ArtifactEvidenceManifestService>();
         services.AddScoped<IPlanningService, PlanningService>();
         services.AddScoped<IUiShellService, UiShellService>();
         services.AddScoped<IStudentRecordService, StudentRecordService>();
