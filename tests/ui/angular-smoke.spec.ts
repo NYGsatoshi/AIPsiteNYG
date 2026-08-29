@@ -553,6 +553,105 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await expect(page.getByTestId('workspace-research-status')).toHaveText(/Status unavailable/);
   });
 
+  test('keeps one keyboard-accessible File inspector with staged metadata at 320px', async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 800 });
+    const workspace: WorkspaceContextFixture = {
+      id: '35600000-0000-4000-8000-000000000001',
+      name: 'Inspector Workspace',
+      canAddFiles: true,
+      runningProjectCount: 0,
+      needsReviewProjectCount: 0
+    };
+    const fileObjectId = '35600000-0000-4000-8000-000000000002';
+    const sensitiveRequests: string[] = [];
+    page.on('request', (request) => {
+      const path = new URL(request.url()).pathname;
+      if (/audit|activity|version/i.test(path)) sensitiveRequests.push(path);
+    });
+
+    await installWorkspaceContextApi(page, [workspace], workspace);
+    await page.route('**/api/files**', async (route) => {
+      const request = route.request();
+      const url = new URL(request.url());
+      if (request.method() !== 'GET' || url.pathname !== '/api/files') {
+        await route.fulfill({ status: 404 });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json; charset=utf-8',
+        body: JSON.stringify({
+          items: [{
+            id: '35600000-0000-4000-8000-000000000003',
+            fileObjectId,
+            workspaceId: workspace.id,
+            originalFileName: 'inspector-evidence.zip',
+            contentType: 'application/zip',
+            sizeBytes: 4096,
+            status: 'Active',
+            scanStatus: 'Clean',
+            uploadedByUserId: 'mock-user-a',
+            uploadedByDisplayName: 'Mock User A',
+            createdAt: '2026-08-28T02:00:00Z',
+            updatedAt: '2026-08-29T03:30:00Z',
+            canDelete: false
+          }],
+          page: 1,
+          pageSize: 20,
+          totalCount: 1,
+          hasMore: false
+        })
+      });
+    });
+
+    await page.goto('/app/files');
+    const previewAction = page.getByRole('button', { name: 'Preview inspector-evidence.zip' });
+    await expect(previewAction).toBeVisible();
+    await previewAction.focus();
+    await page.keyboard.press('Enter');
+
+    const inspector = page.getByTestId('files-preview-pane');
+    await expect(inspector).toHaveAttribute('role', 'dialog');
+    const previewTab = inspector.getByRole('tab', { name: 'Preview' });
+    const detailsTab = inspector.getByRole('tab', { name: 'Details' });
+    const activityTab = inspector.getByRole('tab', { name: 'Activity' });
+    await expect(inspector.getByRole('tab')).toHaveCount(3);
+    await expect(previewTab).toHaveAttribute('aria-selected', 'true');
+    await expect(inspector.getByTestId('files-inspector-panel-preview')).toBeVisible();
+
+    await detailsTab.focus();
+    await page.keyboard.press('ArrowRight');
+    await expect(activityTab).toBeFocused();
+    await expect(activityTab).toHaveAttribute('aria-selected', 'true');
+    await page.keyboard.press('Home');
+    await expect(previewTab).toBeFocused();
+    await expect(previewTab).toHaveAttribute('aria-selected', 'true');
+
+    await detailsTab.click();
+    const details = inspector.getByTestId('files-inspector-panel-details');
+    await expect(details).toContainText('Essential metadata');
+    for (const label of ['Type', 'Size', 'Owner', 'Modified', 'Location', 'Access']) {
+      await expect(details.getByText(label, { exact: true })).toBeVisible();
+    }
+    await expect(details.getByRole('textbox')).toHaveCount(0);
+    const moreDetails = details.getByTestId('files-inspector-more-details');
+    expect(await moreDetails.getAttribute('open')).toBeNull();
+    await moreDetails.getByText('More metadata', { exact: true }).click();
+    await expect(moreDetails).toHaveAttribute('open', '');
+    await expect(moreDetails).toContainText(fileObjectId);
+
+    await activityTab.click();
+    await expect(inspector.getByTestId('files-inspector-panel-activity')).toContainText(
+      'No file activity or version history is available from the current authorized Files API.'
+    );
+    expect(sensitiveRequests).toEqual([]);
+    await expectNoDocumentHorizontalOverflow(page);
+    await expectNoAccessibilityViolations(page, '[data-testid="files-preview-pane"]');
+
+    await inspector.getByTestId('files-preview-close').click();
+    await expect(previewAction).toBeFocused();
+  });
+
   test('keeps the canonical Research Quick Create flow accessible and duplicate-safe at 320px', async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 800 });
     const workspace: WorkspaceContextFixture = {

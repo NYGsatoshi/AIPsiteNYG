@@ -300,6 +300,39 @@
   overflow-wrap: anywhere;
 }
 
+.files-page__inspector-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.files-page__inspector-tabs button {
+  min-height: 44px;
+  padding-inline: 4px;
+}
+
+.files-page__inspector-tabs button[aria-selected='true'] {
+  outline: 2px solid currentColor;
+  font-weight: 900;
+}
+
+.files-page__inspector-panel,
+.files-page__details dl {
+  display: grid;
+  gap: 8px;
+}
+
+.files-page__details dl div {
+  display: grid;
+  grid-template-columns: 5.5rem minmax(0, 1fr);
+  gap: 8px;
+}
+
+.files-page__details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
 .files-page__preview button,
 .files-page__preview-action {
   min-height: 38px;
