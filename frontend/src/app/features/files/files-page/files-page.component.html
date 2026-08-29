@@ -30,7 +30,7 @@
         <div class="files-page__panel-header">
           <div>
             <p>Recent files</p>
-            <strong>Choose files with checkboxes. Open a file from its name.</strong>
+            <strong>Choose files with checkboxes. Preview a file from its name.</strong>
           </div>
         </div>
 
@@ -124,6 +124,7 @@
           <app-recent-files-list
             [files]="vm.recentFiles"
             [selectedFileIds]="selectedFileIds()"
+            (previewRequested)="openPreview($event)"
             (selectionChanged)="handleMobileSelection($event)"
             (downloadRequested)="downloadFile($event)"
           />
@@ -136,17 +137,115 @@
       </section>
     </div>
 
+    @if (previewOpen() && previewOverlay()) {
+      <button
+        type="button"
+        class="files-page__preview-backdrop"
+        aria-label="Close file preview"
+        (click)="closePreview()"
+        data-testid="files-preview-backdrop"
+      ></button>
+    }
+
     <aside class="files-page__side">
+      <section
+        #previewPane
+        class="files-page__preview"
+        [class.files-page__preview--overlay]="previewOpen() && previewOverlay()"
+        [attr.role]="previewOpen() && previewOverlay() ? 'dialog' : 'region'"
+        [attr.aria-modal]="previewOpen() && previewOverlay() ? 'true' : null"
+        [attr.aria-labelledby]="previewOpen() ? 'files-preview-title' : null"
+        [attr.aria-label]="previewOpen() ? null : 'File preview'"
+        [cdkTrapFocus]="previewOpen() && previewOverlay()"
+        [cdkTrapFocusAutoCapture]="previewOpen() && previewOverlay()"
+        data-testid="files-preview-pane"
+      >
+        @if (previewFile(); as file) {
+          <header class="files-page__preview-header">
+            <div>
+              <p>Preview</p>
+              <h2 id="files-preview-title">{{ file.originalFileName }}</h2>
+            </div>
+            <button
+              type="button"
+              class="files-page__preview-close"
+              (click)="closePreview()"
+              data-testid="files-preview-close"
+            >Close</button>
+          </header>
+
+          <p class="files-page__preview-meta">{{ file.contentType }} · {{ formatBytes(file.sizeBytes) }}</p>
+
+          <div class="files-page__preview-body">
+            @if (previewState() === 'loading') {
+              <p role="status" aria-live="polite" data-testid="files-preview-loading">Authorizing preview…</p>
+            } @else if (previewState() === 'failed') {
+              <p role="alert" data-testid="files-preview-error">{{ previewMessage() }}</p>
+            } @else if (previewState() === 'unsupported') {
+              <p role="status" data-testid="files-preview-unsupported">{{ previewMessage() }}</p>
+            } @else if (previewState() === 'ready') {
+              @switch (previewRenderer()) {
+                @case ('image') {
+                  <img
+                    class="files-page__preview-media"
+                    [src]="previewUrl()"
+                    [alt]="file.originalFileName"
+                    data-testid="files-preview-image"
+                  />
+                }
+                @case ('pdf') {
+                  <iframe
+                    class="files-page__preview-document"
+                    [src]="previewResourceUrl()"
+                    [title]="'Preview of ' + file.originalFileName"
+                    data-testid="files-preview-pdf"
+                  ></iframe>
+                }
+                @case ('video') {
+                  <video
+                    class="files-page__preview-media"
+                    [src]="previewUrl()"
+                    controls
+                    preload="metadata"
+                    data-testid="files-preview-video"
+                  ></video>
+                }
+                @case ('text') {
+                  <pre class="files-page__preview-text" data-testid="files-preview-text">{{ previewText() }}</pre>
+                }
+              }
+              @if (previewMessage()) {
+                <p class="files-page__preview-note" role="status">{{ previewMessage() }}</p>
+              }
+            }
+          </div>
+
+          <div class="files-page__preview-actions">
+            <button
+              type="button"
+              [disabled]="!previewCanDownload()"
+              (click)="downloadPreviewFile()"
+              data-testid="files-preview-download"
+            >Download</button>
+          </div>
+        } @else {
+          <div class="files-page__preview-empty" data-testid="files-preview-empty">
+            <strong>Select a file name to preview.</strong>
+            <span>Selection stays on the checkboxes; opening Preview does not change it.</span>
+          </div>
+        }
+      </section>
+
       <app-attachment-picker-dialog
         [files]="vm.pickerFiles"
         [disabled]="true"
         disabledMessage="Attachment picker is not available in MVP0."
       />
       <section class="files-page__policy" data-testid="file-policy">
-        <strong>Preview is not available in MVP0.</strong>
-        <span>Images, SVG, PDF, ZIP extraction, video playback, and streaming are not rendered in this screen.</span>
-        <span>CDN links, public links, and external signed URL sharing are disabled.</span>
-        <span>Opening a file uses backend authorization and a short-lived download grant until Preview is implemented.</span>
+        <strong>Preview content is fetched only through backend authorization.</strong>
+        <span>Images, SVG, PDF, video, and text-like files use the short-lived file grant.</span>
+        <span>Archives and unsupported document formats stay closed until an explicit Download.</span>
+        <span>CDN links, public links, and external signed URL sharing are not used for preview.</span>
       </section>
     </aside>
   </div>
