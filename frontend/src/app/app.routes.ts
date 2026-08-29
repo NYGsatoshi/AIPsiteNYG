@@ -186,16 +186,16 @@ export const routes: Routes = [
           import('./features/account/account-page/account-page.component').then((m) => m.AccountPageComponent)
       },
       {
-        path: 'admin/audit',
-        loadComponent: () =>
-          import('./features/admin/audit-log-page/audit-log-page.component').then((m) => m.AuditLogPageComponent)
-      },
-      {
         path: 'admin/audit/claims-evidence',
         loadComponent: () =>
           import('./features/admin/audit-claims-evidence-page/audit-claims-evidence-page.component').then(
             (m) => m.AuditClaimsEvidencePageComponent
           )
+      },
+      {
+        path: 'admin/audit',
+        loadComponent: () =>
+          import('./features/admin/audit-log-page/audit-log-page.component').then((m) => m.AuditLogPageComponent)
       },
       {
         path: 'admin/invites',
