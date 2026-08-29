@@ -1,4 +1,3 @@
-import { HttpClient, HttpParams } from '@angular/common/http';
 import {
   Component,
   ElementRef,
@@ -12,7 +11,6 @@ import {
   signal,
 } from '@angular/core';
 import { Router } from '@angular/router';
-import { Observable, Subscription, forkJoin } from 'rxjs';
 
 interface WorkspaceSearchApiResponse {
   readonly items?: unknown;
@@ -261,9 +259,8 @@ export class WorkspaceSearchComponent implements OnChanges, OnDestroy {
   @Input() workspaceLabel = '';
   @ViewChild('searchInput') private searchInput?: ElementRef<HTMLInputElement>;
 
-  private readonly http = inject(HttpClient);
   private readonly router = inject(Router);
-  private request: Subscription | null = null;
+  private requestController: AbortController | null = null;
   private requestGeneration = 0;
 
   readonly query = signal('');
@@ -322,17 +319,19 @@ export class WorkspaceSearchComponent implements OnChanges, OnDestroy {
       return;
     }
 
+    this.requestController?.abort();
+    const controller = new AbortController();
+    this.requestController = controller;
     const generation = ++this.requestGeneration;
-    this.request?.unsubscribe();
-    this.request = null;
     this.results.set([]);
     this.status.set('loading');
 
-    const projects = this.searchType('Project', query, workspaceId);
-    const files = this.searchType('File', query, workspaceId);
-    const request = forkJoin({ projects, files }).subscribe({
-      next: ({ projects: projectResponse, files: fileResponse }) => {
-        if (!this.isCurrent(generation, workspaceId, query)) {
+    void Promise.all([
+      this.searchType('Project', query, workspaceId, controller.signal),
+      this.searchType('File', query, workspaceId, controller.signal),
+    ])
+      .then(([projectResponse, fileResponse]) => {
+        if (!this.isCurrent(generation, workspaceId, query, controller)) {
           return;
         }
 
@@ -352,20 +351,21 @@ export class WorkspaceSearchComponent implements OnChanges, OnDestroy {
 
         this.results.set(results);
         this.status.set(results.length > 0 ? 'ready' : 'empty');
-      },
-      error: () => {
-        if (this.isCurrent(generation, workspaceId, query)) {
-          this.results.set([]);
-          this.status.set('error');
+      })
+      .catch(() => {
+        if (!this.isCurrent(generation, workspaceId, query, controller)) {
+          return;
         }
-      },
-    });
-    this.request = request;
-    request.add(() => {
-      if (this.request === request) {
-        this.request = null;
-      }
-    });
+
+        controller.abort();
+        this.results.set([]);
+        this.status.set('error');
+      })
+      .finally(() => {
+        if (this.requestController === controller) {
+          this.requestController = null;
+        }
+      });
   }
 
   dismissResults(): void {
@@ -379,14 +379,30 @@ export class WorkspaceSearchComponent implements OnChanges, OnDestroy {
     void this.router.navigateByUrl(result.route);
   }
 
-  private searchType(type: 'Project' | 'File', query: string, workspaceId: string): Observable<unknown> {
-    const params = new HttpParams()
-      .set('q', query)
-      .set('type', type)
-      .set('workspaceId', workspaceId)
-      .set('page', '1')
-      .set('pageSize', String(TYPE_PAGE_SIZE));
-    return this.http.get<unknown>('/api/search', { params, withCredentials: true });
+  private async searchType(
+    type: 'Project' | 'File',
+    query: string,
+    workspaceId: string,
+    signal: AbortSignal,
+  ): Promise<unknown> {
+    const params = new URLSearchParams({
+      q: query,
+      type,
+      workspaceId,
+      page: '1',
+      pageSize: String(TYPE_PAGE_SIZE),
+    });
+    const response = await fetch(`/api/search?${params.toString()}`, {
+      method: 'GET',
+      credentials: 'include',
+      headers: { Accept: 'application/json' },
+      signal,
+    });
+    if (!response.ok) {
+      throw new Error('Workspace search request failed.');
+    }
+
+    return response.json() as Promise<unknown>;
   }
 
   private parseResponse(
@@ -451,13 +467,20 @@ export class WorkspaceSearchComponent implements OnChanges, OnDestroy {
 
   private cancelRequest(): void {
     this.requestGeneration++;
-    this.request?.unsubscribe();
-    this.request = null;
+    this.requestController?.abort();
+    this.requestController = null;
   }
 
-  private isCurrent(generation: number, workspaceId: string, query: string): boolean {
+  private isCurrent(
+    generation: number,
+    workspaceId: string,
+    query: string,
+    controller: AbortController,
+  ): boolean {
     return (
       generation === this.requestGeneration &&
+      this.requestController === controller &&
+      !controller.signal.aborted &&
       this.workspaceId === workspaceId &&
       this.query().trim() === query
     );
