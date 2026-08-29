@@ -114,11 +114,10 @@ describe('TaskExecutionScopeComponent', () => {
     expect(component.scope()?.task.effectivePolicy).toEqual({ webEnabled: true, projectFilesEnabled: true });
   });
 
-  it('renders a locked policy-only snapshot without offering a start control', () => {
+  it('renders a locked legacy policy-only snapshot and derives its major state only from durable run status', () => {
     flushScope(expectScopeReads(http), {
       latestRun: {
         status: 'RuntimeUnavailable',
-        majorState: 'Failed',
         snapshotScopeOrigin: 'TaskOverride',
         snapshotWebEnabled: true,
         snapshotProjectFilesEnabled: false,
@@ -129,7 +128,7 @@ describe('TaskExecutionScopeComponent', () => {
     const native = fixture.nativeElement as HTMLElement;
     expect(native.querySelector('[data-testid="task-execution-snapshot"]')?.textContent).toContain('Task override');
     expect(native.querySelector('[data-testid="task-execution-major-state"]')?.textContent).toContain('Failed');
-    expect(native.querySelector('[data-testid="task-execution-snapshot"]')?.textContent).toContain('Runtime unavailable - execution did not start.');
+    expect(native.querySelector('[data-testid="task-execution-snapshot"]')?.textContent).toContain('Unavailable - no execution was started.');
     expect(native.textContent).not.toContain('Start execution');
   });
 
