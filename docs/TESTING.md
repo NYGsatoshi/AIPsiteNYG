@@ -131,6 +131,21 @@ not applicable to the local browser-history behavior. See
 `docs/verification/p0-continue-working.md` for exact candidate results and
 remaining exact-head gates.
 
+### Issue #356 Files inspector tabs
+
+Focused Angular coverage verifies the single Preview/Details/Activity
+inspector, native tab semantics and keyboard movement, Preview reset, essential
+versus secondary metadata, absent edit controls, and non-rendering of internal
+storage/scan values. The built-app Chromium scenario runs at 320 pixels in both
+configured projects and covers focus restoration, horizontal containment, axe,
+and the absence of Audit/activity/version requests.
+
+This Issue changes no backend contract. Static Playwright responses are mocked
+and do not establish ASP.NET Core integration. The Activity tab remains an
+explicit unavailable state until Issue #363 defines a bounded, file-specific,
+server-authorized activity/version projection. See
+`docs/verification/p0-files-inspector-tabs.md` for exact results and limits.
+
 ### Issue #410 canonical Task create
 
 The focused backend selection covers strict canonical request binding,

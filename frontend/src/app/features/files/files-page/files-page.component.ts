@@ -30,6 +30,7 @@ type FileListOptionalColumn = 'type' | 'size' | 'scan';
 type FileListDensity = 'comfortable' | 'compact';
 type FilePreviewState = 'idle' | 'loading' | 'ready' | 'unsupported' | 'failed';
 type FilePreviewRenderer = 'image' | 'pdf' | 'video' | 'text' | 'unsupported';
+type FileInspectorTab = 'preview' | 'details' | 'activity';
 
 const TEXT_PREVIEW_MAX_BYTES = 512 * 1024;
 const PREVIEW_OVERLAY_MAX_WIDTH = 860;
@@ -62,6 +63,7 @@ export class FilesPageComponent {
 
   readonly page = this.facade.page;
   readonly syncfusionUploaderEnabled = this.flags.syncfusionUploaderEnabled;
+  readonly fileScanStatusLabels = FILE_SCAN_STATUS_LABELS;
   readonly density = signal<FileListDensity>('comfortable');
   readonly selectedFiles = signal<readonly FileViewModel[]>([]);
   readonly selectedCount = computed(() => this.selectedFiles().length);
@@ -90,6 +92,10 @@ export class FilesPageComponent {
   readonly previewActionStatus = signal('');
   readonly previewOverlay = signal(this.isCompactViewport());
   readonly previewOpen = computed(() => this.previewFile() !== null);
+  readonly inspectorTab = signal<FileInspectorTab>('preview');
+  readonly inspectorTabs: readonly FileInspectorTab[] = ['preview', 'details', 'activity'];
+  readonly fileLocationLabel = computed(() =>
+    this.activeWorkspace.activeWorkspace()?.label ?? 'Current Workspace');
   readonly previewCanDownload = computed(() => {
     const file = this.previewFile();
     return !!file?.canonicalFileId && file.downloadPolicy === 'available' &&
@@ -279,6 +285,7 @@ export class FilesPageComponent {
     this.cancelPreviewRequest();
     this.revokePreviewObjectUrl();
     this.previewFile.set(file);
+    this.inspectorTab.set('preview');
     this.previewRenderer.set(this.previewRendererFor(file));
     this.previewText.set('');
     this.previewMessage.set('');
@@ -327,6 +334,7 @@ export class FilesPageComponent {
     this.cancelPreviewRequest();
     this.revokePreviewObjectUrl();
     this.previewFile.set(null);
+    this.inspectorTab.set('preview');
     this.previewState.set('idle');
     this.previewRenderer.set('unsupported');
     this.previewText.set('');
@@ -352,6 +360,55 @@ export class FilesPageComponent {
     if (this.previewCanDownload() && file?.canonicalFileId) {
       this.downloadFile(file.canonicalFileId);
     }
+  }
+
+  selectInspectorTab(tab: FileInspectorTab): void {
+    if (!this.previewFile()) {
+      return;
+    }
+    this.inspectorTab.set(tab);
+  }
+
+  handleInspectorTabKeydown(event: KeyboardEvent, currentTab: FileInspectorTab): void {
+    const currentIndex = this.inspectorTabs.indexOf(currentTab);
+    let targetIndex = currentIndex;
+
+    switch (event.key) {
+      case 'ArrowRight':
+        targetIndex = (currentIndex + 1) % this.inspectorTabs.length;
+        break;
+      case 'ArrowLeft':
+        targetIndex = (currentIndex - 1 + this.inspectorTabs.length) % this.inspectorTabs.length;
+        break;
+      case 'Home':
+        targetIndex = 0;
+        break;
+      case 'End':
+        targetIndex = this.inspectorTabs.length - 1;
+        break;
+      default:
+        return;
+    }
+
+    event.preventDefault();
+    const targetTab = this.inspectorTabs[targetIndex] ?? currentTab;
+    this.inspectorTab.set(targetTab);
+    const tabList = event.currentTarget instanceof HTMLElement
+      ? event.currentTarget.parentElement
+      : null;
+    queueMicrotask(() => {
+      tabList
+        ?.querySelector<HTMLButtonElement>(`[data-inspector-tab="${targetTab}"]`)
+        ?.focus();
+    });
+  }
+
+  fileAccessLabel(file: FileViewModel): string {
+    return file.downloadPolicy === 'available' &&
+      file.scanStatus === 'allowed' &&
+      file.capabilities.includes('download')
+      ? 'Authorized download'
+      : 'Restricted';
   }
 
   copyPreviewCitation(): void {

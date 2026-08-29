@@ -163,7 +163,7 @@
         @if (previewFile(); as file) {
           <header class="files-page__preview-header">
             <div>
-              <p>Preview</p>
+              <p>File inspector</p>
               <h2 id="files-preview-title">{{ file.originalFileName }}</h2>
             </div>
             <button
@@ -175,94 +175,185 @@
             >Close</button>
           </header>
 
-          <div class="files-page__preview-actions" role="toolbar" aria-label="Preview actions">
-            <a
-              class="files-page__preview-action"
-              [attr.href]="previewCanOpen() ? previewUrl() : null"
-              [attr.aria-disabled]="!previewCanOpen()"
-              [attr.tabindex]="previewCanOpen() ? 0 : -1"
-              target="_blank"
-              rel="noopener noreferrer"
-              data-testid="files-preview-open"
-            >Open</a>
+          <div class="files-page__inspector-tabs" role="tablist" aria-label="File inspector views">
             <button
               type="button"
-              [disabled]="!file.canonicalFileId"
-              (click)="copyPreviewCitation()"
-              data-testid="files-preview-cite"
-            >Cite</button>
-            <a
-              class="files-page__preview-action"
-              [attr.href]="researchHandoffHref()"
-              [attr.aria-disabled]="!researchHandoffHref()"
-              [attr.tabindex]="researchHandoffHref() ? 0 : -1"
-              data-testid="files-preview-research"
-            >Researchに追加</a>
+              id="files-inspector-tab-preview"
+              role="tab"
+              data-inspector-tab="preview"
+              data-testid="files-inspector-tab-preview"
+              aria-controls="files-inspector-panel-preview"
+              [attr.aria-selected]="inspectorTab() === 'preview'"
+              [attr.tabindex]="inspectorTab() === 'preview' ? 0 : -1"
+              (click)="selectInspectorTab('preview')"
+              (keydown)="handleInspectorTabKeydown($event, 'preview')"
+            >Preview</button>
             <button
               type="button"
-              [disabled]="!previewCanShare()"
-              (click)="sharePreview()"
-              data-testid="files-preview-share"
-            >Share</button>
-            <details>
-              <summary class="files-page__preview-action" aria-label="More preview actions" data-testid="files-preview-more">…</summary>
-              <button
-                type="button"
-                [disabled]="!previewCanDownload()"
-                (click)="downloadPreviewFile()"
-                data-testid="files-preview-download"
-              >Download</button>
-            </details>
+              id="files-inspector-tab-details"
+              role="tab"
+              data-inspector-tab="details"
+              data-testid="files-inspector-tab-details"
+              aria-controls="files-inspector-panel-details"
+              [attr.aria-selected]="inspectorTab() === 'details'"
+              [attr.tabindex]="inspectorTab() === 'details' ? 0 : -1"
+              (click)="selectInspectorTab('details')"
+              (keydown)="handleInspectorTabKeydown($event, 'details')"
+            >Details</button>
+            <button
+              type="button"
+              id="files-inspector-tab-activity"
+              role="tab"
+              data-inspector-tab="activity"
+              data-testid="files-inspector-tab-activity"
+              aria-controls="files-inspector-panel-activity"
+              [attr.aria-selected]="inspectorTab() === 'activity'"
+              [attr.tabindex]="inspectorTab() === 'activity' ? 0 : -1"
+              (click)="selectInspectorTab('activity')"
+              (keydown)="handleInspectorTabKeydown($event, 'activity')"
+            >Activity</button>
           </div>
-          @if (previewActionStatus()) {
-            <p role="status" aria-live="polite" data-testid="files-preview-action-status">{{ previewActionStatus() }}</p>
+
+          @if (inspectorTab() === 'preview') {
+            <section
+              id="files-inspector-panel-preview"
+              class="files-page__inspector-panel"
+              role="tabpanel"
+              aria-labelledby="files-inspector-tab-preview"
+              tabindex="0"
+              data-testid="files-inspector-panel-preview"
+            >
+              <div class="files-page__preview-actions" role="toolbar" aria-label="Preview actions">
+                <a
+                  class="files-page__preview-action"
+                  [attr.href]="previewCanOpen() ? previewUrl() : null"
+                  [attr.aria-disabled]="!previewCanOpen()"
+                  [attr.tabindex]="previewCanOpen() ? 0 : -1"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  data-testid="files-preview-open"
+                >Open</a>
+                <button
+                  type="button"
+                  [disabled]="!file.canonicalFileId"
+                  (click)="copyPreviewCitation()"
+                  data-testid="files-preview-cite"
+                >Cite</button>
+                <a
+                  class="files-page__preview-action"
+                  [attr.href]="researchHandoffHref()"
+                  [attr.aria-disabled]="!researchHandoffHref()"
+                  [attr.tabindex]="researchHandoffHref() ? 0 : -1"
+                  data-testid="files-preview-research"
+                >Researchに追加</a>
+                <button
+                  type="button"
+                  [disabled]="!previewCanShare()"
+                  (click)="sharePreview()"
+                  data-testid="files-preview-share"
+                >Share</button>
+                <details>
+                  <summary class="files-page__preview-action" aria-label="More preview actions" data-testid="files-preview-more">…</summary>
+                  <button
+                    type="button"
+                    [disabled]="!previewCanDownload()"
+                    (click)="downloadPreviewFile()"
+                    data-testid="files-preview-download"
+                  >Download</button>
+                </details>
+              </div>
+              @if (previewActionStatus()) {
+                <p role="status" aria-live="polite" data-testid="files-preview-action-status">{{ previewActionStatus() }}</p>
+              }
+
+              <div class="files-page__preview-body">
+                @if (previewState() === 'loading') {
+                  <p role="status" aria-live="polite" data-testid="files-preview-loading">Authorizing preview…</p>
+                } @else if (previewState() === 'failed') {
+                  <p role="alert" data-testid="files-preview-error">{{ previewMessage() }}</p>
+                } @else if (previewState() === 'unsupported') {
+                  <p role="status" data-testid="files-preview-unsupported">{{ previewMessage() }}</p>
+                } @else if (previewState() === 'ready') {
+                  @switch (previewRenderer()) {
+                    @case ('image') {
+                      <img
+                        class="files-page__preview-media"
+                        [src]="previewUrl()"
+                        [alt]="file.originalFileName"
+                        data-testid="files-preview-image"
+                      />
+                    }
+                    @case ('pdf') {
+                      <iframe
+                        class="files-page__preview-document"
+                        [src]="previewResourceUrl()"
+                        [title]="'Preview of ' + file.originalFileName"
+                        data-testid="files-preview-pdf"
+                      ></iframe>
+                    }
+                    @case ('video') {
+                      <video
+                        class="files-page__preview-media"
+                        [src]="previewUrl()"
+                        controls
+                        preload="metadata"
+                        data-testid="files-preview-video"
+                      ></video>
+                    }
+                    @case ('text') {
+                      <pre class="files-page__preview-text" data-testid="files-preview-text">{{ previewText() }}</pre>
+                    }
+                  }
+                  @if (previewMessage()) {
+                    <p class="files-page__preview-note" role="status">{{ previewMessage() }}</p>
+                  }
+                }
+              </div>
+            </section>
+          } @else if (inspectorTab() === 'details') {
+            <section
+              id="files-inspector-panel-details"
+              class="files-page__inspector-panel files-page__details"
+              role="tabpanel"
+              aria-labelledby="files-inspector-tab-details"
+              tabindex="0"
+              data-testid="files-inspector-panel-details"
+            >
+              <h3>Essential metadata</h3>
+              <dl>
+                <div><dt>Type</dt><dd>{{ file.contentType }}</dd></div>
+                <div><dt>Size</dt><dd>{{ formatBytes(file.sizeBytes) }}</dd></div>
+                <div><dt>Owner</dt><dd>{{ file.uploadedByDisplay }}</dd></div>
+                <div><dt>Modified</dt><dd>{{ file.modifiedAtLabel }}</dd></div>
+                <div><dt>Location</dt><dd>{{ fileLocationLabel() }}</dd></div>
+                <div><dt>Access</dt><dd>{{ fileAccessLabel(file) }}</dd></div>
+              </dl>
+              <details class="files-page__details-secondary" data-testid="files-inspector-more-details">
+                <summary>More metadata</summary>
+                <dl>
+                  <div><dt>Created</dt><dd>{{ file.createdAtLabel }}</dd></div>
+                  <div><dt>Scan status</dt><dd>{{ fileScanStatusLabels[file.scanStatus] }}</dd></div>
+                  <div><dt>File ID</dt><dd>{{ file.canonicalFileId || 'Unavailable' }}</dd></div>
+                </dl>
+              </details>
+              <p class="files-page__details-note">
+                This API projects no editable file fields. The inspector never infers edit authority from browser state.
+              </p>
+            </section>
+          } @else {
+            <section
+              id="files-inspector-panel-activity"
+              class="files-page__inspector-panel files-page__activity"
+              role="tabpanel"
+              aria-labelledby="files-inspector-tab-activity"
+              tabindex="0"
+              data-testid="files-inspector-panel-activity"
+            >
+              <h3>Activity</h3>
+              <p>No file activity or version history is available from the current authorized Files API.</p>
+              <p>This view does not query the broader Audit log or expose actor, correlation, or storage metadata.</p>
+            </section>
           }
-
-          <p class="files-page__preview-meta">{{ file.contentType }} · {{ formatBytes(file.sizeBytes) }}</p>
-
-          <div class="files-page__preview-body">
-            @if (previewState() === 'loading') {
-              <p role="status" aria-live="polite" data-testid="files-preview-loading">Authorizing preview…</p>
-            } @else if (previewState() === 'failed') {
-              <p role="alert" data-testid="files-preview-error">{{ previewMessage() }}</p>
-            } @else if (previewState() === 'unsupported') {
-              <p role="status" data-testid="files-preview-unsupported">{{ previewMessage() }}</p>
-            } @else if (previewState() === 'ready') {
-              @switch (previewRenderer()) {
-                @case ('image') {
-                  <img
-                    class="files-page__preview-media"
-                    [src]="previewUrl()"
-                    [alt]="file.originalFileName"
-                    data-testid="files-preview-image"
-                  />
-                }
-                @case ('pdf') {
-                  <iframe
-                    class="files-page__preview-document"
-                    [src]="previewResourceUrl()"
-                    [title]="'Preview of ' + file.originalFileName"
-                    data-testid="files-preview-pdf"
-                  ></iframe>
-                }
-                @case ('video') {
-                  <video
-                    class="files-page__preview-media"
-                    [src]="previewUrl()"
-                    controls
-                    preload="metadata"
-                    data-testid="files-preview-video"
-                  ></video>
-                }
-                @case ('text') {
-                  <pre class="files-page__preview-text" data-testid="files-preview-text">{{ previewText() }}</pre>
-                }
-              }
-              @if (previewMessage()) {
-                <p class="files-page__preview-note" role="status">{{ previewMessage() }}</p>
-              }
-            }
-          </div>
         } @else {
           <div class="files-page__preview-empty" data-testid="files-preview-empty">
             <strong>Select a file name to preview.</strong>
