@@ -193,6 +193,18 @@ an environmental startup limitation, not a P0 assertion failure or
 real-backend evidence. See `docs/verification/p0-task-create.md` for scope and
 limits.
 
+### Issue #359 Message search and quick filters
+
+Focused Angular coverage verifies the exact bounded `type=Message` Search
+request, strict result type/identity/internal-route validation, canonical DM
+route reuse, independent and combined Unread / `@Me` list filters, removable
+condition chips, clear-all behavior, zero-result focus recovery, stale-request
+cancellation, and fixed error redaction. The static Playwright scenario uses a
+320-pixel viewport and exercises the mobile disclosure, keyboard submit/toggle/
+remove/Escape/focus-return flow, no horizontal overflow, and axe. Its APIs are
+mocked; the existing HTTP/PostgreSQL Search tests remain the authorization
+evidence. See `docs/verification/p1-message-search-filters.md`.
+
 ### Issue #362 same-Conversation Message threads
 
 Backend tests tagged `Scope=Issue362` cover the exact read/post routes,

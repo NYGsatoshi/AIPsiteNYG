@@ -2,9 +2,9 @@ import { Component, computed, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 
-import { ConversationListComponent } from '../conversation-list/conversation-list.component';
 import { MessageGlobalSettingsService } from '../message-global-settings.service';
 import { MessageNavigationStateService } from '../message-navigation-state.service';
+import { MessageSearchFiltersComponent } from '../message-search-filters/message-search-filters.component';
 import { ConversationRecipientDto, MessagingApi } from '../messaging.api';
 import { MessagingFacade } from '../messaging.facade';
 
@@ -18,7 +18,7 @@ interface RecipientOption {
 @Component({
   selector: 'app-messages-page',
   standalone: true,
-  imports: [ConversationListComponent, FormsModule, RouterLink],
+  imports: [FormsModule, MessageSearchFiltersComponent, RouterLink],
   template: `
     <section class="messages-page" data-testid="messages-page">
       <header class="messages-page__header">
@@ -63,25 +63,27 @@ interface RecipientOption {
           <p>APIの取得に失敗しました。空の会話一覧としては扱いません。</p>
           <button type="button" (click)="facade.manualRefresh()">再試行</button>
         </section>
-      } @else if (page().conversations.length > 0) {
-        <app-conversation-list
+      } @else {
+        <app-message-search-filters
           [conversations]="page().conversations"
           [preserveListScroll]="true"
           [showUnreadBadges]="globalSettings.showUnreadBadges()"
-        />
-      } @else {
-        <section class="messages-page__state" data-testid="messages-list-empty">
-          <h2>まだ会話はありません</h2>
-          <p>「新しいメッセージ」から相手を選んで会話を開始できます。</p>
-          <button
-            type="button"
-            class="messages-page__primary"
-            aria-label="新しいメッセージを作成"
-            (click)="openCreateDialog()"
-          >
-            新しいメッセージ
-          </button>
-        </section>
+        >
+          @if (page().conversations.length === 0) {
+            <section message-search-empty class="messages-page__state" data-testid="messages-list-empty">
+              <h2>まだ会話はありません</h2>
+              <p>「新しいメッセージ」から相手を選んで会話を開始できます。</p>
+              <button
+                type="button"
+                class="messages-page__primary"
+                aria-label="新しいメッセージを作成"
+                (click)="openCreateDialog()"
+              >
+                新しいメッセージ
+              </button>
+            </section>
+          }
+        </app-message-search-filters>
       }
 
       <section class="messages-page__hint" data-testid="messages-selection-hint">

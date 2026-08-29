@@ -123,6 +123,10 @@ export interface MessageNotificationPreferenceDto {
   readonly messageNotificationsEnabled?: unknown;
 }
 
+export interface MessageSearchResponseDto {
+  readonly items?: unknown;
+}
+
 @Injectable({ providedIn: 'root' })
 export class MessagingApi {
   private readonly http = inject(HttpClient);
@@ -136,6 +140,18 @@ export class MessagingApi {
   searchRecipients(query: string): Observable<readonly ConversationRecipientDto[]> {
     return this.http.get<readonly ConversationRecipientDto[]>('/api/conversations/recipients', {
       params: { query },
+      withCredentials: true
+    });
+  }
+
+  searchMessages(query: string): Observable<MessageSearchResponseDto> {
+    return this.http.get<MessageSearchResponseDto>('/api/search', {
+      params: {
+        q: query,
+        type: 'Message',
+        page: '1',
+        pageSize: '50'
+      },
       withCredentials: true
     });
   }
