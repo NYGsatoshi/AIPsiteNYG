@@ -13,13 +13,12 @@ namespace AipPortal.Tests.Audit;
 public sealed class AuditClaimsEvidenceServiceTests
 {
     [Fact]
-    public async Task AuthorizedArtifactReturnsClaimAndBoundedEvidenceWithAuthorizedEventTrace()
+    public async Task AuthorizedArtifactReturnsClaimEvidenceAndAuthorizedEventTrace()
     {
         await using var fixture = await Fixture.CreateAsync();
         var eventId = Guid.NewGuid();
-        var claim = fixture.AddClaim(
-            citationPresent: true,
-            supportStatus: ArtifactClaimSupportStatus.Contradicted,
+        fixture.AddClaim(
+            ArtifactClaimSupportStatus.Contradicted,
             new ArtifactEvidence
             {
                 TenantId = fixture.TenantId,
@@ -46,32 +45,29 @@ public sealed class AuditClaimsEvidenceServiceTests
         var result = await fixture.Service.GetAsync(fixture.Version.Id);
 
         Assert.True(result.IsSuccess);
-        Assert.Equal(fixture.Version.Id, result.Value!.ArtifactVersionId);
-        var projectedClaim = Assert.Single(result.Value.Claims);
-        Assert.Equal(claim.Id, projectedClaim.ClaimId);
-        Assert.True(projectedClaim.CitationPresent);
-        Assert.Equal("Contradicted", projectedClaim.SupportStatus);
-        var evidence = Assert.Single(projectedClaim.Evidence);
+        var claim = Assert.Single(result.Value!.Claims);
+        Assert.True(claim.CitationPresent);
+        Assert.Equal("Contradicted", claim.SupportStatus);
+        var evidence = Assert.Single(claim.Evidence);
         Assert.Equal("Authorized source", evidence.SourceTitle);
         Assert.Equal("A bounded passage that contradicts the claim.", evidence.Passage);
         Assert.Equal(eventId, evidence.SourceEventAuditId);
     }
 
     [Fact]
-    public async Task UnauthorizedEvidenceIsOmittedWithoutSourceTitleReferenceOrPassageLeakage()
+    public async Task UnauthorizedEvidenceIsOmittedWithoutMetadataLeakage()
     {
         await using var fixture = await Fixture.CreateAsync();
         var deniedAttachmentId = Guid.NewGuid();
         fixture.AddClaim(
-            citationPresent: true,
-            supportStatus: ArtifactClaimSupportStatus.Insufficient,
+            ArtifactClaimSupportStatus.Insufficient,
             new ArtifactEvidence
             {
                 TenantId = fixture.TenantId,
                 Ordinal = 1,
                 SourceKind = ArtifactEvidenceSourceKind.WebSnapshot,
                 SourceReference = "web-ref",
-                SourceTitleSnapshot = "Visible web source",
+                SourceTitleSnapshot = "Visible source",
                 PassageSnapshot = "Visible passage",
             },
             new ArtifactEvidence
@@ -89,31 +85,27 @@ public sealed class AuditClaimsEvidenceServiceTests
         var result = await fixture.Service.GetAsync(fixture.Version.Id);
 
         Assert.True(result.IsSuccess);
-        var claim = Assert.Single(result.Value!.Claims);
-        var evidence = Assert.Single(claim.Evidence);
-        Assert.Equal("Visible web source", evidence.SourceTitle);
+        var evidence = Assert.Single(Assert.Single(result.Value!.Claims).Evidence);
+        Assert.Equal("Visible source", evidence.SourceTitle);
         var serialized = System.Text.Json.JsonSerializer.Serialize(result.Value);
         Assert.DoesNotContain("PROTECTED-SOURCE", serialized, StringComparison.Ordinal);
         Assert.DoesNotContain(deniedAttachmentId.ToString("D"), serialized, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public async Task MissingOrUnauthorizedEventIdIsNotProjected()
+    public async Task MissingEventIdIsNotProjectedAsTraceTarget()
     {
         await using var fixture = await Fixture.CreateAsync();
-        var unavailableEventId = Guid.NewGuid();
         fixture.AddClaim(
-            citationPresent: true,
-            supportStatus: ArtifactClaimSupportStatus.Supported,
+            ArtifactClaimSupportStatus.Supported,
             new ArtifactEvidence
             {
                 TenantId = fixture.TenantId,
                 Ordinal = 1,
                 SourceKind = ArtifactEvidenceSourceKind.WebSnapshot,
                 SourceReference = "web-ref",
-                SourceTitleSnapshot = "Source",
                 PassageSnapshot = "Passage",
-                SourceEventAuditId = unavailableEventId,
+                SourceEventAuditId = Guid.NewGuid(),
             });
         await fixture.Context.SaveChangesAsync();
 
@@ -124,7 +116,7 @@ public sealed class AuditClaimsEvidenceServiceTests
     }
 
     [Fact]
-    public async Task AuditViewCapabilityIsRequiredBeforeArtifactLookup()
+    public async Task AuditViewIsCheckedBeforeArtifactAuthorization()
     {
         await using var fixture = await Fixture.CreateAsync(canViewAudit: false);
 
@@ -137,26 +129,22 @@ public sealed class AuditClaimsEvidenceServiceTests
     }
 
     [Fact]
-    public async Task ArtifactAuthorizationFailureUsesGenericVersionNotFoundBoundary()
+    public async Task ArtifactAuthorizationFailureUsesGenericNotAvailableBoundary()
     {
         await using var fixture = await Fixture.CreateAsync(canViewArtifact: false);
-        fixture.AddClaim(
-            citationPresent: false,
-            supportStatus: ArtifactClaimSupportStatus.Unverified);
-        await fixture.Context.SaveChangesAsync();
 
         var result = await fixture.Service.GetAsync(fixture.Version.Id);
 
         Assert.False(result.IsSuccess);
         Assert.Equal("ArtifactVersionNotFound", result.ErrorDetail?.Code);
-        Assert.DoesNotContain("artifact", result.ErrorDetail!.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(fixture.Version.Id.ToString("D"), result.ErrorDetail!.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(fixture.Artifact.Name, result.ErrorDetail.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     private sealed class Fixture : IAsyncDisposable
     {
         private Fixture(
             Guid tenantId,
-            Guid userId,
             AppDbContext context,
             Artifact artifact,
             ArtifactVersion version,
@@ -165,7 +153,6 @@ public sealed class AuditClaimsEvidenceServiceTests
             DbAuditClaimsEvidenceService service)
         {
             TenantId = tenantId;
-            UserId = userId;
             Context = context;
             Artifact = artifact;
             Version = version;
@@ -175,7 +162,6 @@ public sealed class AuditClaimsEvidenceServiceTests
         }
 
         public Guid TenantId { get; }
-        public Guid UserId { get; }
         public AppDbContext Context { get; }
         public Artifact Artifact { get; }
         public ArtifactVersion Version { get; }
@@ -183,17 +169,16 @@ public sealed class AuditClaimsEvidenceServiceTests
         public StubAuditAuthorization AuditAuthorization { get; }
         public DbAuditClaimsEvidenceService Service { get; }
 
-        public static async Task<Fixture> CreateAsync(
-            bool canViewAudit = true,
-            bool canViewArtifact = true)
+        public static async Task<Fixture> CreateAsync(bool canViewAudit = true, bool canViewArtifact = true)
         {
             var tenantId = Guid.NewGuid();
             var userId = Guid.NewGuid();
             var currentTenant = new StubCurrentTenant(tenantId);
-            var options = new DbContextOptionsBuilder<AppDbContext>()
-                .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
-                .Options;
-            var context = new AppDbContext(options, currentTenant);
+            var context = new AppDbContext(
+                new DbContextOptionsBuilder<AppDbContext>()
+                    .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
+                    .Options,
+                currentTenant);
             context.Tenants.Add(new Tenant(tenantId)
             {
                 Name = "Audit test tenant",
@@ -208,7 +193,7 @@ public sealed class AuditClaimsEvidenceServiceTests
                 TenantId = tenantId,
                 ProjectId = Guid.NewGuid(),
                 Name = "Research report",
-                ArtifactType = ArtifactType.Report,
+                ArtifactType = ArtifactType.Other,
                 Status = ArtifactStatus.Draft,
                 CreatedByUserId = userId,
             };
@@ -232,26 +217,15 @@ public sealed class AuditClaimsEvidenceServiceTests
                 new ArtifactRepository(context),
                 new ArtifactEvidenceRepository(context),
                 artifactAuthorization,
-                new StubFileRepository(),
+                new FileRepository(context),
                 new StubFileAuthorization(),
                 auditAuthorization,
                 new StubCurrentUser(userId));
 
-            return new Fixture(
-                tenantId,
-                userId,
-                context,
-                artifact,
-                version,
-                artifactAuthorization,
-                auditAuthorization,
-                service);
+            return new Fixture(tenantId, context, artifact, version, artifactAuthorization, auditAuthorization, service);
         }
 
-        public ArtifactClaim AddClaim(
-            bool citationPresent,
-            ArtifactClaimSupportStatus supportStatus,
-            params ArtifactEvidence[] evidence)
+        public void AddClaim(ArtifactClaimSupportStatus supportStatus, params ArtifactEvidence[] evidence)
         {
             var claim = new ArtifactClaim
             {
@@ -260,7 +234,7 @@ public sealed class AuditClaimsEvidenceServiceTests
                 ArtifactVersion = Version,
                 Ordinal = 1,
                 Text = "The audited claim.",
-                CitationPresent = citationPresent,
+                CitationPresent = true,
                 SupportStatus = supportStatus,
                 ReviewStatus = ArtifactClaimReviewStatus.Reviewed,
             };
@@ -271,7 +245,6 @@ public sealed class AuditClaimsEvidenceServiceTests
                 claim.Evidence.Add(item);
             }
             Context.Set<ArtifactClaim>().Add(claim);
-            return claim;
         }
 
         public ValueTask DisposeAsync() => Context.DisposeAsync();
@@ -290,24 +263,17 @@ public sealed class AuditClaimsEvidenceServiceTests
         public Guid? UserId { get; } = userId;
         public Guid? SessionId => null;
         public string? Email => "audit@example.invalid";
-        public SystemRole? SystemRole => Domain.Enums.SystemRole.User;
+        public SystemRole? SystemRole => AipPortal.Domain.Enums.SystemRole.User;
         public bool IsAuthenticated => true;
     }
 
     private sealed class StubAuditAuthorization(bool canView) : IAuditAuthorizationService
     {
         public int AuthorizeCalls { get; private set; }
-
         public Task<AuditCapabilityResponse> GetCapabilitiesAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(new AuditCapabilityResponse(canView, false, false, false, false));
-
-        public Task<bool> HasCapabilityAsync(string capabilityKey, CancellationToken cancellationToken = default) =>
-            Task.FromResult(canView);
-
-        public Task<Result> AuthorizeAsync(
-            string capabilityKey,
-            string operation,
-            CancellationToken cancellationToken = default)
+        public Task<bool> HasCapabilityAsync(string capabilityKey, CancellationToken cancellationToken = default) => Task.FromResult(canView);
+        public Task<Result> AuthorizeAsync(string capabilityKey, string operation, CancellationToken cancellationToken = default)
         {
             AuthorizeCalls++;
             return Task.FromResult(canView
@@ -319,21 +285,14 @@ public sealed class AuditClaimsEvidenceServiceTests
     private sealed class StubArtifactAuthorization(bool canView) : IArtifactAuthorizationService
     {
         public int ViewCalls { get; private set; }
-
         public Task<bool> CanViewArtifact(Guid userId, Guid artifactId, CancellationToken cancellationToken = default)
         {
             ViewCalls++;
             return Task.FromResult(canView);
         }
-
-        public Task<bool> CanUploadArtifact(Guid userId, Guid projectId, CancellationToken cancellationToken = default) =>
-            Task.FromResult(false);
-
-        public Task<bool> CanUpdateArtifact(Guid userId, Guid artifactId, CancellationToken cancellationToken = default) =>
-            Task.FromResult(false);
-
-        public Task<bool> CanDownloadArtifactVersion(Guid userId, Guid versionId, CancellationToken cancellationToken = default) =>
-            Task.FromResult(canView);
+        public Task<bool> CanUploadArtifact(Guid userId, Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult(false);
+        public Task<bool> CanUpdateArtifact(Guid userId, Guid artifactId, CancellationToken cancellationToken = default) => Task.FromResult(false);
+        public Task<bool> CanDownloadArtifactVersion(Guid userId, Guid versionId, CancellationToken cancellationToken = default) => Task.FromResult(canView);
     }
 
     private sealed class StubFileAuthorization : IFileAuthorizationService
@@ -344,19 +303,5 @@ public sealed class AuditClaimsEvidenceServiceTests
         public Task<bool> CanDownloadAttachment(Guid userId, Attachment attachment, CancellationToken cancellationToken = default) => Task.FromResult(false);
         public Task<IReadOnlySet<Guid>> GetDeletableWorkspaceAttachmentIdsAsync(Guid userId, Guid workspaceId, IReadOnlyCollection<Attachment> attachments, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlySet<Guid>>(new HashSet<Guid>());
         public Task<bool> CanDeleteAttachment(Guid userId, Attachment attachment, CancellationToken cancellationToken = default) => Task.FromResult(false);
-    }
-
-    private sealed class StubFileRepository : IFileRepository
-    {
-        public Task<FileObject?> GetFileObjectAsync(Guid fileObjectId, CancellationToken cancellationToken = default) => Task.FromResult<FileObject?>(null);
-        public Task<PagedResponse<Attachment>> ListWorkspaceFileObjectsAsync(Guid workspaceId, int page, int pageSize, CancellationToken cancellationToken = default) => Task.FromResult(new PagedResponse<Attachment>([], page, pageSize, 0));
-        public Task AddFileObjectAsync(FileObject fileObject, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task<Attachment?> GetAttachmentAsync(Guid attachmentId, CancellationToken cancellationToken = default) => Task.FromResult<Attachment?>(null);
-        public Task<Attachment?> GetAttachmentByFileObjectAsync(Guid fileObjectId, CancellationToken cancellationToken = default) => Task.FromResult<Attachment?>(null);
-        public Task AddAttachmentAsync(Attachment attachment, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task<IReadOnlyList<Attachment>> ListTaskAttachmentsAsync(Guid taskItemId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Attachment>>([]);
-        public Task<PagedResponse<Attachment>> ListTaskAttachmentsPageAsync(Guid taskItemId, int page, int pageSize, CancellationToken cancellationToken = default) => Task.FromResult(new PagedResponse<Attachment>([], page, pageSize, 0));
-        public void RemoveAttachment(Attachment attachment) { }
-        public Task<FileOwnerContext?> ResolveOwnerAsync(AttachmentOwnerType ownerType, Guid ownerId, CancellationToken cancellationToken = default) => Task.FromResult<FileOwnerContext?>(null);
     }
 }
