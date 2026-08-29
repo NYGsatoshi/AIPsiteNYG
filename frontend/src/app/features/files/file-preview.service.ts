@@ -5,9 +5,11 @@ import { Observable, catchError, map, of, switchMap } from 'rxjs';
 import { normalizeApiError } from '../../core/api/api-error.adapter';
 import { FileDownloadGrantDto } from './files.api';
 
-export type FilePreviewLoadResult =
-  | { readonly ok: true; readonly blob: Blob }
-  | { readonly ok: false; readonly message: string };
+export interface FilePreviewLoadResult {
+  readonly ok: boolean;
+  readonly blob: Blob | null;
+  readonly message: string;
+}
 
 @Injectable({ providedIn: 'root' })
 export class FilePreviewService {
@@ -40,7 +42,7 @@ export class FilePreviewService {
           withCredentials: true,
         }).pipe(
           map((response): FilePreviewLoadResult => response.body
-            ? { ok: true, blob: response.body }
+            ? { ok: true, blob: response.body, message: '' }
             : previewFailure('Preview content was empty.')),
         );
       }),
@@ -56,7 +58,7 @@ export class FilePreviewService {
 }
 
 function previewFailure(message: string): FilePreviewLoadResult {
-  return { ok: false, message };
+  return { ok: false, blob: null, message };
 }
 
 function stringValue(value: unknown): string | undefined {
