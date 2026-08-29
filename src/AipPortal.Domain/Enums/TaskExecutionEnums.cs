@@ -12,12 +12,29 @@ public enum TaskExecutionScopeOrigin
 }
 
 /// <summary>
-/// Lifecycle of a persisted execution request. The foundation release can only
-/// record an unavailable runtime outcome; it does not execute work or fetch
-/// sources.
+/// Durable lifecycle of a persisted execution request. Values 0 and 1 preserve
+/// the foundation contract; subsequent values are runtime-owned states and are
+/// never inferred from Workflow Stage, Activity text, or progress percentage.
 /// </summary>
 public enum TaskExecutionRunStatus
 {
     Prepared = 0,
-    RuntimeUnavailable = 1
+    RuntimeUnavailable = 1,
+    Waiting = 2,
+    NeedsInput = 3,
+    Failed = 4,
+    Completed = 5
+}
+
+/// <summary>
+/// Stable user-facing execution state required by Task Progress. This is a
+/// projection of TaskExecutionRunStatus, not a second mutable lifecycle.
+/// </summary>
+public enum TaskExecutionMajorState
+{
+    Running = 0,
+    Waiting = 1,
+    NeedsInput = 2,
+    Failed = 3,
+    Completed = 4
 }

@@ -35,12 +35,16 @@
 
     @if (current.task.latestRun; as latestRun) {
       <section class="task-execution-scope__snapshot" aria-labelledby="task-execution-snapshot-heading" data-testid="task-execution-snapshot">
-        <h3 id="task-execution-snapshot-heading">Most recent policy snapshot</h3>
+        <h3 id="task-execution-snapshot-heading">Most recent execution</h3>
+        <p class="task-execution-scope__major-state" role="status" aria-live="polite" aria-atomic="true" data-testid="task-execution-major-state-status">
+          <span>Execution state</span>
+          <strong data-testid="task-execution-major-state">{{ majorStateLabel(latestRun.majorState) }}</strong>
+        </p>
         <dl>
           <div><dt>Scope at request</dt><dd>{{ scopeOriginLabel(latestRun.snapshotScopeOrigin) }}</dd></div>
           <div><dt>Web at request</dt><dd>{{ sourceEligibility(latestRun.snapshotWebEnabled) }}</dd></div>
           <div><dt>Project files at request</dt><dd>{{ sourceEligibility(latestRun.snapshotProjectFilesEnabled) }}</dd></div>
-          <div><dt>Runtime result</dt><dd>{{ runStatusLabel(latestRun.status) }}</dd></div>
+          <div><dt>Runtime detail</dt><dd>{{ runStatusLabel(latestRun.status) }}</dd></div>
         </dl>
       </section>
     }

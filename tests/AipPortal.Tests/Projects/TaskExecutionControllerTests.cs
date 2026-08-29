@@ -46,7 +46,38 @@ public sealed class TaskExecutionControllerTests
         var body = Assert.IsType<TaskExecutionRunResponse>(response.Value);
         Assert.Equal(run.Id, body.Id);
         Assert.Equal(TaskExecutionRunStatus.RuntimeUnavailable, body.Status);
+        Assert.Equal(TaskExecutionMajorState.Failed, body.MajorState);
         Assert.Equal("TASK_EXECUTION_RUNTIME_UNAVAILABLE", body.FailureCode);
+    }
+
+    [Theory]
+    [Trait("Scope", "Issue369")]
+    [InlineData(TaskExecutionRunStatus.Prepared, TaskExecutionMajorState.Running)]
+    [InlineData(TaskExecutionRunStatus.RuntimeUnavailable, TaskExecutionMajorState.Failed)]
+    [InlineData(TaskExecutionRunStatus.Waiting, TaskExecutionMajorState.Waiting)]
+    [InlineData(TaskExecutionRunStatus.NeedsInput, TaskExecutionMajorState.NeedsInput)]
+    [InlineData(TaskExecutionRunStatus.Failed, TaskExecutionMajorState.Failed)]
+    [InlineData(TaskExecutionRunStatus.Completed, TaskExecutionMajorState.Completed)]
+    public void ExecutionRunProjectsStableMajorState(
+        TaskExecutionRunStatus status,
+        TaskExecutionMajorState expected)
+    {
+        var run = new TaskExecutionRunResponse(
+            Guid.NewGuid(),
+            status,
+            status is TaskExecutionRunStatus.Failed or TaskExecutionRunStatus.RuntimeUnavailable ? "EXECUTION_FAILED" : null,
+            new DateTimeOffset(2026, 8, 29, 8, 30, 0, TimeSpan.Zero),
+            status is TaskExecutionRunStatus.Completed or TaskExecutionRunStatus.Failed or TaskExecutionRunStatus.RuntimeUnavailable
+                ? new DateTimeOffset(2026, 8, 29, 8, 31, 0, TimeSpan.Zero)
+                : null,
+            TaskExecutionRun.SnapshotSchemaVersion1,
+            TaskExecutionScopeOrigin.ProjectDefault,
+            1,
+            null,
+            false,
+            false);
+
+        Assert.Equal(expected, run.MajorState);
     }
 
     [Fact]

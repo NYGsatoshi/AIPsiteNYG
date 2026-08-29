@@ -55,4 +55,16 @@ public sealed record TaskExecutionRunResponse(
     long SnapshotProjectScopeVersion,
     long? SnapshotTaskOverrideVersion,
     bool SnapshotWebEnabled,
-    bool SnapshotProjectFilesEnabled);
+    bool SnapshotProjectFilesEnabled)
+{
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public TaskExecutionMajorState MajorState => Status switch
+    {
+        TaskExecutionRunStatus.Prepared => TaskExecutionMajorState.Running,
+        TaskExecutionRunStatus.Waiting => TaskExecutionMajorState.Waiting,
+        TaskExecutionRunStatus.NeedsInput => TaskExecutionMajorState.NeedsInput,
+        TaskExecutionRunStatus.Completed => TaskExecutionMajorState.Completed,
+        TaskExecutionRunStatus.RuntimeUnavailable or TaskExecutionRunStatus.Failed => TaskExecutionMajorState.Failed,
+        _ => TaskExecutionMajorState.Failed
+    };
+}
