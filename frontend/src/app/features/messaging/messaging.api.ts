@@ -6,6 +6,23 @@ export interface PagedResponseDto<T> {
   readonly items?: readonly T[];
 }
 
+export type ConversationInboxViewDto = 'All' | 'Unread' | 'Mentions' | 'Later';
+
+export interface ConversationInboxCountsDto {
+  readonly all?: unknown;
+  readonly unread?: unknown;
+  readonly mentions?: unknown;
+  readonly later?: unknown;
+}
+
+export interface ConversationInboxResponseDto extends PagedResponseDto<ConversationDto> {
+  readonly page?: unknown;
+  readonly pageSize?: unknown;
+  readonly totalCount?: unknown;
+  readonly view?: unknown;
+  readonly counts?: ConversationInboxCountsDto | null;
+}
+
 export type ConversationTypeDto =
   | 'DirectMessage'
   | 'ProjectChannel'
@@ -32,6 +49,7 @@ export interface ConversationDto {
   readonly hasMention?: unknown;
   readonly isMuted?: unknown;
   readonly isArchived?: unknown;
+  readonly isLater?: unknown;
   readonly isLocked?: unknown;
   readonly updatedAt?: unknown;
   readonly createdAt?: unknown;
@@ -115,6 +133,7 @@ export interface ParticipantStateDto {
   readonly unreadCount?: unknown;
   readonly isMuted?: unknown;
   readonly isArchived?: unknown;
+  readonly isLater?: unknown;
   readonly createdAt?: unknown;
   readonly updatedAt?: unknown;
 }
@@ -131,8 +150,9 @@ export interface MessageSearchResponseDto {
 export class MessagingApi {
   private readonly http = inject(HttpClient);
 
-  listConversations(): Observable<PagedResponseDto<ConversationDto>> {
-    return this.http.get<PagedResponseDto<ConversationDto>>('/api/conversations', {
+  listConversations(view: ConversationInboxViewDto = 'All'): Observable<ConversationInboxResponseDto> {
+    return this.http.get<ConversationInboxResponseDto>('/api/conversations', {
+      params: view === 'All' ? undefined : { view },
       withCredentials: true
     });
   }
@@ -241,6 +261,14 @@ export class MessagingApi {
     return this.http.patch<ParticipantStateDto>(
       `/api/conversations/${conversationId}/state`,
       { isMuted },
+      { withCredentials: true }
+    );
+  }
+
+  updateConversationLater(conversationId: string, isLater: boolean): Observable<ParticipantStateDto> {
+    return this.http.patch<ParticipantStateDto>(
+      `/api/conversations/${conversationId}/state`,
+      { isLater },
       { withCredentials: true }
     );
   }

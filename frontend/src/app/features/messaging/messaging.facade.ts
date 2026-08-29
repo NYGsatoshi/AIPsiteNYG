@@ -9,7 +9,7 @@ import {
 } from '../../core/realtime/realtime.facade';
 import { DurableRealtimeEvent } from '../../core/realtime/realtime.models';
 import { DraftStorageService } from './draft-storage.service';
-import { MessagingApi } from './messaging.api';
+import { ConversationInboxResponseDto, MessagingApi, ParticipantStateDto } from './messaging.api';
 import {
   mapConversationListItem,
   mapConversationPage,
@@ -19,6 +19,9 @@ import {
 } from './messaging.mapper';
 import {
   MessagingDraftScope,
+  MessagingInboxCounts,
+  MessagingInboxView,
+  MessagingInboxViewModel,
   MessageFailureCode,
   MessagingMessageActionState,
   MessagingMessageViewModel,
@@ -49,6 +52,12 @@ const EMPTY_THREAD: MessagingThreadViewModel = {
   draft: '',
   sending: false
 };
+const EMPTY_INBOX_COUNTS: MessagingInboxCounts = {
+  all: 0,
+  unread: 0,
+  mentions: 0,
+  later: 0
+};
 
 @Injectable({ providedIn: 'root' })
 export class MessagingFacade {
@@ -65,6 +74,7 @@ export class MessagingFacade {
   );
   private readonly messageActionState = signal<MessagingMessageActionState>(EMPTY_MESSAGE_ACTION);
   private readonly threadState = signal<MessagingThreadViewModel>(EMPTY_THREAD);
+  private readonly inboxState = signal<MessagingInboxViewModel>(emptyMessagingInbox());
   private readonly loadedConversationId = signal<string | null>(
     this.mockPage?.conversation.id ?? null
   );
@@ -81,6 +91,7 @@ export class MessagingFacade {
   readonly page = computed(() => this.withSortedMessages(this.pageState()));
   readonly messageAction = this.messageActionState.asReadonly();
   readonly thread = this.threadState.asReadonly();
+  readonly inbox = this.inboxState.asReadonly();
 
   constructor() {
     this.durableEvents = this.realtime.durableEvents$.subscribe((event) => this.applyRealtimeEvent(event));
@@ -97,15 +108,87 @@ export class MessagingFacade {
       return;
     }
 
+    const view = this.inboxState().view;
     const generation = this.beginRequestGeneration();
     this.releaseConversationRealtime();
     this.loadedConversationId.set(null);
     this.pageState.set(emptyMessagingPage(routeKind, 'loading'));
+    this.inboxState.update((inbox) => ({ ...inbox, status: 'loading', requestedView: view, error: undefined }));
     this.realtimeCatchUpCleanup = this.realtime.registerCatchUp(
       MESSAGING_REALTIME_OWNER,
       () => this.catchUpConversationList(routeKind),
     );
-    void this.loadConversationList(routeKind, true, generation);
+    void this.loadConversationList(routeKind, true, generation, view);
+  }
+
+  selectInboxView(view: MessagingInboxView): void {
+    if (this.mockPage || (this.inboxState().status === 'loading' && this.inboxState().requestedView === view)) {
+      return;
+    }
+
+    const generation = this.beginRequestGeneration();
+    this.inboxState.update((inbox) => ({
+      ...inbox,
+      status: 'loading',
+      requestedView: view,
+      laterPendingConversationId: undefined,
+      error: undefined
+    }));
+    void this.loadConversationList(this.pageState().routeKind, true, generation, view, true);
+  }
+
+  setConversationLater(conversationId: string, isLater: boolean): void {
+    const conversation = this.pageState().conversations.find((item) => item.id === conversationId);
+    const inbox = this.inboxState();
+    if (
+      this.mockPage ||
+      !conversation ||
+      inbox.laterPendingConversationId ||
+      conversation.isLater === isLater
+    ) {
+      return;
+    }
+
+    const generation = this.requestGeneration;
+    this.inboxState.set({
+      ...inbox,
+      laterPendingConversationId: conversationId,
+      error: undefined
+    });
+    const request = this.api.updateConversationLater(conversationId, isLater).subscribe({
+      next: (response) => {
+        if (generation !== this.requestGeneration) {
+          return;
+        }
+        if (!isMatchingLaterState(response, conversationId, isLater)) {
+          this.failLaterMutation(conversationId);
+          return;
+        }
+
+        const currentView = this.inboxState().view;
+        const refreshGeneration = this.beginRequestGeneration();
+        this.inboxState.update((current) => ({
+          ...current,
+          status: 'loading',
+          requestedView: currentView,
+          laterPendingConversationId: conversationId,
+          error: undefined
+        }));
+        void this.loadConversationList(
+          this.pageState().routeKind,
+          true,
+          refreshGeneration,
+          currentView,
+          true
+        );
+      },
+      error: () => {
+        if (generation === this.requestGeneration) {
+          this.failLaterMutation(conversationId);
+        }
+      }
+    });
+    this.trackProtectedRequest(request);
   }
 
   loadConversation(
@@ -790,11 +873,18 @@ export class MessagingFacade {
     routeKind: MessagingRouteKind,
     listOnly: boolean,
     generation: number,
+    view: MessagingInboxView = this.inboxState().view,
+    preserveRowsOnError = false,
   ): Promise<void> {
     return new Promise<void>((resolve) => {
-      const request = this.api.listConversations().subscribe({
+      const request = this.api.listConversations(view).subscribe({
       next: (response) => {
         if (generation !== this.requestGeneration) {
+          return;
+        }
+        const projection = mapInboxProjection(response);
+        if (projection && projection.view !== view) {
+          this.failInboxLoad(preserveRowsOnError);
           return;
         }
         const conversations = (response.items ?? []).map((conversation) =>
@@ -808,27 +898,81 @@ export class MessagingFacade {
           title: listOnly ? 'Messages' : page.title,
           inlineError: undefined
         }));
+        this.inboxState.set(projection
+          ? { ...projection, status: 'ready' }
+          : {
+              view,
+              counts: EMPTY_INBOX_COUNTS,
+              status: 'unavailable',
+              error: 'Conversation categories are unavailable until the server returns authoritative counts.'
+            });
       },
       error: (error: { status?: number }) => {
         if (generation !== this.requestGeneration) {
           return;
         }
-        this.pageState.update((page) => ({
-          ...page,
-          conversations: [],
-          status: listOnly
-            ? error.status === 401 || error.status === 403
-              ? 'permissionDenied'
-              : 'manualRefreshError'
-            : page.status,
-          inlineError: 'Conversation list API request failed.'
-        }));
+        if (preserveRowsOnError) {
+          this.failInboxLoad(true);
+        } else {
+          this.pageState.update((page) => ({
+            ...page,
+            conversations: [],
+            status: listOnly
+              ? error.status === 401 || error.status === 403
+                ? 'permissionDenied'
+                : 'manualRefreshError'
+              : page.status,
+            inlineError: 'Conversation list API request failed.'
+          }));
+          this.inboxState.update((inbox) => ({
+            ...inbox,
+            status: 'error',
+            requestedView: undefined,
+            laterPendingConversationId: undefined,
+            error: 'Conversation categories could not be loaded.'
+          }));
+        }
         },
         complete: resolve,
       });
       request.add(resolve);
       this.trackProtectedRequest(request);
     });
+  }
+
+  private failInboxLoad(preserveRows: boolean): void {
+    this.inboxState.update((inbox) => ({
+      ...inbox,
+      status: 'error',
+      requestedView: undefined,
+      laterPendingConversationId: undefined,
+      error: 'Conversation categories could not be loaded. Try again.'
+    }));
+    if (!preserveRows) {
+      this.pageState.update((page) => ({ ...page, conversations: [] }));
+    }
+  }
+
+  private failLaterMutation(conversationId: string): void {
+    const inbox = this.inboxState();
+    if (inbox.laterPendingConversationId !== conversationId) {
+      return;
+    }
+
+    // Participant-state failures can represent access revocation through the
+    // legacy 400 boundary. Clear every protected row before revalidating the
+    // selected inbox projection instead of retaining stale metadata.
+    const routeKind = this.pageState().routeKind;
+    const generation = this.beginRequestGeneration();
+    this.pageState.set(emptyMessagingPage(routeKind, 'loading'));
+    this.inboxState.set({
+      ...inbox,
+      status: 'loading',
+      requestedView: inbox.view,
+      laterPendingConversationId: undefined,
+      error: 'The Later state could not be changed. Refresh and try again.'
+    });
+    void this.loadConversationList(routeKind, true, generation, inbox.view);
   }
 
   private loadThread(rootMessageId: string, triggerElementId: string): void {
@@ -1201,7 +1345,9 @@ export class MessagingFacade {
     }
     const generation = this.beginRequestGeneration();
     this.pageState.set(emptyMessagingPage(routeKind, 'loading'));
-    return this.loadConversationList(routeKind, true, generation);
+    const view = this.inboxState().view;
+    this.inboxState.update((inbox) => ({ ...inbox, status: 'loading', requestedView: view, error: undefined }));
+    return this.loadConversationList(routeKind, true, generation, view);
   }
 
   private applyRealtimeEvent(event: DurableRealtimeEvent): void {
@@ -1456,7 +1602,51 @@ export class MessagingFacade {
       'loading',
       'Waiting for an active Workspace selection.',
     ));
+    this.inboxState.set(emptyMessagingInbox());
   }
+}
+
+function emptyMessagingInbox(): MessagingInboxViewModel {
+  return {
+    view: 'All',
+    counts: EMPTY_INBOX_COUNTS,
+    status: 'loading'
+  };
+}
+
+function mapInboxProjection(
+  response: ConversationInboxResponseDto
+): Omit<MessagingInboxViewModel, 'status'> | null {
+  if (!isInboxView(response.view) || !response.counts) {
+    return null;
+  }
+  const all = nonNegativeInteger(response.counts.all);
+  const unread = nonNegativeInteger(response.counts.unread);
+  const mentions = nonNegativeInteger(response.counts.mentions);
+  const later = nonNegativeInteger(response.counts.later);
+  if (all === null || unread === null || mentions === null || later === null) {
+    return null;
+  }
+  return {
+    view: response.view,
+    counts: { all, unread, mentions, later }
+  };
+}
+
+function isMatchingLaterState(
+  response: ParticipantStateDto,
+  conversationId: string,
+  isLater: boolean
+): boolean {
+  return nonEmptyString(response.conversationId) === conversationId && response.isLater === isLater;
+}
+
+function isInboxView(value: unknown): value is MessagingInboxView {
+  return value === 'All' || value === 'Unread' || value === 'Mentions' || value === 'Later';
+}
+
+function nonNegativeInteger(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
 }
 
 function emptyMessagingPage(

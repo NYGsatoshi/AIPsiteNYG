@@ -71,6 +71,27 @@ export interface MessagingConversationListItem {
   readonly viewerIsParticipant: boolean;
   readonly unreadCount?: number;
   readonly hasMention?: boolean;
+  readonly isLater?: boolean;
+}
+
+export type MessagingInboxView = 'All' | 'Unread' | 'Mentions' | 'Later';
+
+export interface MessagingInboxCounts {
+  readonly all: number;
+  readonly unread: number;
+  readonly mentions: number;
+  readonly later: number;
+}
+
+export type MessagingInboxStatus = 'loading' | 'ready' | 'unavailable' | 'error';
+
+export interface MessagingInboxViewModel {
+  readonly view: MessagingInboxView;
+  readonly requestedView?: MessagingInboxView;
+  readonly counts: MessagingInboxCounts;
+  readonly status: MessagingInboxStatus;
+  readonly laterPendingConversationId?: string;
+  readonly error?: string;
 }
 
 export interface MessagingMentionCandidate {
