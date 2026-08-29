@@ -1,5 +1,6 @@
-import { Component, Input } from '@angular/core';
+import { Component, inject, Input } from '@angular/core';
 
+import { I18nService } from '../../../core/i18n/i18n.service';
 import { AccountProfileViewModel } from '../account.types';
 
 @Component({
@@ -9,5 +10,6 @@ import { AccountProfileViewModel } from '../account.types';
   styleUrl: './account-profile-panel.component.scss'
 })
 export class AccountProfilePanelComponent {
+  readonly i18n = inject(I18nService);
   @Input({ required: true }) profile!: AccountProfileViewModel;
 }

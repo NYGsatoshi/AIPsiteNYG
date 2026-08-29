@@ -1,4 +1,4 @@
 <section class="status-panel status-panel--{{ status.accountStatus }}" data-testid="account-status-panel">
-  <p class="status-panel__label">{{ status.accountStatusLabel }}</p>
-  <p class="status-panel__message">{{ status.message }}</p>
+  <p class="status-panel__label">{{ i18n.accountStatusLabel(status.accountStatus) }}</p>
+  <p class="status-panel__message">{{ i18n.accountStatusMessage(status.accountStatus) }}</p>
 </section>

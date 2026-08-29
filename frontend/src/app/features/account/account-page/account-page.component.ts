@@ -1,6 +1,7 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { finalize } from 'rxjs';
 
+import { I18nService } from '../../../core/i18n/i18n.service';
 import { AppEmptyStateComponent } from '../../../shared/empty-state/app-empty-state/app-empty-state.component';
 import { AppInlineLoadingComponent } from '../../../shared/loading/app-inline-loading/app-inline-loading.component';
 import { AppPermissionDeniedComponent } from '../../../shared/permission/app-permission-denied/app-permission-denied.component';
@@ -8,6 +9,7 @@ import { AccountFacade } from '../account.facade';
 import { PasswordChangeResult, PasswordChangeSubmit } from '../account.types';
 import { AccountProfilePanelComponent } from '../account-profile-panel/account-profile-panel.component';
 import { AccountStatusPanelComponent } from '../account-status-panel/account-status-panel.component';
+import { LanguagePreferencesComponent } from '../language-preferences/language-preferences.component';
 import { PasswordPanelComponent } from '../password-panel/password-panel.component';
 import { SessionListComponent } from '../session-list/session-list.component';
 import { TaskNotificationPreferencesComponent } from '../task-notification-preferences/task-notification-preferences.component';
@@ -21,6 +23,7 @@ import { TaskNotificationPreferencesComponent } from '../task-notification-prefe
     AppEmptyStateComponent,
     AppInlineLoadingComponent,
     AppPermissionDeniedComponent,
+    LanguagePreferencesComponent,
     PasswordPanelComponent,
     SessionListComponent,
     TaskNotificationPreferencesComponent
@@ -30,6 +33,7 @@ import { TaskNotificationPreferencesComponent } from '../task-notification-prefe
 })
 export class AccountPageComponent {
   private readonly facade = inject(AccountFacade);
+  readonly i18n = inject(I18nService);
 
   readonly page = computed(() => this.facade.getPage());
   readonly passwordResult = signal<PasswordChangeResult | null>(null);
