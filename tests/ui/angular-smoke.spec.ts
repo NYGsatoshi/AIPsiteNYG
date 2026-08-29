@@ -239,13 +239,31 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
 
   test('keeps the redacted audit drawer deep-linkable, focus-safe, and accessible at 320px', async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 800 });
-    await installAuditGridApi(page, auditGridFixtures(8));
+    const rows = auditGridFixtures(8);
+    await installAuditGridApi(page, rows, {
+      canViewSensitiveMetadata: true,
+      sensitiveMetadata: {
+        [rows[0].id]: {
+          outcome: 'Allowed',
+          change: { category: '<img src=x onerror=alert(1)>' },
+        },
+      },
+      redactionApplied: true,
+    });
+    let sensitiveMetadataRequests = 0;
+    page.on('request', (request) => {
+      if (new URL(request.url()).pathname.endsWith('/sensitive-metadata')) {
+        sensitiveMetadataRequests += 1;
+      }
+    });
 
     const firstAuditId = auditGridFixtureId(0);
     await page.goto(`/app/admin/audit?event=${firstAuditId}`);
     const drawer = page.getByTestId('audit-detail-drawer');
     await expect(drawer).toBeVisible();
     await expect(drawer).toContainText('Audit row 001 was opened with safe fields.');
+    await expect(page.getByTestId('audit-sensitive-metadata-toggle')).toBeVisible();
+    expect(sensitiveMetadataRequests).toBe(0);
     await page.getByTestId('audit-detail-close').click();
     await expect(page).toHaveURL(/\/app\/admin\/audit$/);
     await expect(page.getByTestId('audit-log-title')).toBeFocused();
@@ -267,6 +285,19 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await expect(drawer).toContainText('Audit row 001 was opened with safe fields.');
     await expect(drawer).not.toContainText('restricted body must stay hidden');
     await expect(drawer).not.toContainText('tenant/private/key');
+    const disclosure = page.getByTestId('audit-sensitive-metadata-toggle');
+    await disclosure.focus();
+    await page.keyboard.press('Enter');
+    await expect.poll(() => sensitiveMetadataRequests).toBe(1);
+    await expect(page.getByTestId('audit-sensitive-metadata-json')).toContainText('Allowed');
+    await expect(page.getByTestId('audit-sensitive-metadata-json')).toContainText('<img src=x onerror=alert(1)>');
+    await expect(drawer.locator('img')).toHaveCount(0);
+    await expect(page.getByTestId('audit-sensitive-metadata-redacted')).toContainText('Prohibited fields were removed by the server.');
+    await expect(disclosure).toBeFocused();
+    await page.keyboard.press('Space');
+    await expect(page.getByTestId('audit-sensitive-metadata-json')).toHaveCount(0);
+    await expect(disclosure).toHaveText('Show sensitive metadata');
+    await expect(disclosure).toBeFocused();
     await expectNoDocumentHorizontalOverflow(page);
     await expectNoAccessibilityViolations(page);
 
@@ -3639,6 +3670,12 @@ interface AuditGridFixture {
   readonly requestId: string | null;
 }
 
+interface AuditGridApiOptions {
+  readonly canViewSensitiveMetadata?: boolean;
+  readonly sensitiveMetadata?: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
+  readonly redactionApplied?: boolean;
+}
+
 function auditGridFixtures(count: number): readonly AuditGridFixture[] {
   return Array.from({ length: count }, (_, index) => {
     const number = String(index + 1).padStart(3, '0');
@@ -3661,7 +3698,25 @@ function auditGridFixtureId(index: number): string {
   return `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`;
 }
 
-async function installAuditGridApi(page: Page, rows: readonly AuditGridFixture[]): Promise<void> {
+async function installAuditGridApi(
+  page: Page,
+  rows: readonly AuditGridFixture[],
+  options: AuditGridApiOptions = {},
+): Promise<void> {
+  await page.route('**/api/audit/capabilities', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json; charset=utf-8',
+      body: JSON.stringify({
+        canView: true,
+        canReview: true,
+        canApprove: false,
+        canExport: false,
+        canViewSensitiveMetadata: options.canViewSensitiveMetadata === true,
+      }),
+    });
+  });
+
   await page.route('**/api/admin/audit-grid**', async (route) => {
     const request = route.request();
     if (request.method() !== 'GET') {
@@ -3679,7 +3734,31 @@ async function installAuditGridApi(page: Page, rows: readonly AuditGridFixture[]
       return;
     }
 
-    const auditId = url.pathname.slice('/api/admin/audit-grid/'.length);
+    const routeSuffix = url.pathname.slice('/api/admin/audit-grid/'.length);
+    if (routeSuffix.endsWith('/sensitive-metadata')) {
+      const auditId = routeSuffix.slice(0, -'/sensitive-metadata'.length);
+      const metadata = options.sensitiveMetadata?.[auditId];
+      await route.fulfill(
+        options.canViewSensitiveMetadata === true && metadata
+          ? {
+              status: 200,
+              contentType: 'application/json; charset=utf-8',
+              body: JSON.stringify({
+                auditId,
+                metadata,
+                redactionApplied: options.redactionApplied === true,
+              }),
+            }
+          : {
+              status: options.canViewSensitiveMetadata === true ? 404 : 403,
+              contentType: 'application/json; charset=utf-8',
+              body: JSON.stringify({ error: { code: 'AuditEventNotFound' } }),
+            },
+      );
+      return;
+    }
+
+    const auditId = routeSuffix;
     const row = rows.find((item) => item.id === auditId);
     await route.fulfill(row
       ? {

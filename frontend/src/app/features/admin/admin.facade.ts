@@ -1,5 +1,6 @@
 import { HttpClient } from '@angular/common/http';
 import { inject, Injectable, InjectionToken, signal } from '@angular/core';
+import { Subscription } from 'rxjs';
 
 import {
   ADMIN_DEFAULT_PAGE_SIZE,
@@ -7,12 +8,14 @@ import {
   AUDIT_TYPED_FIELD_NOTE,
   AdminPageStatus,
   AuditGridRow,
+  AuditCapabilityViewModel,
   AuditDetailViewModel,
   AuditLogScenario,
   AuditLogViewModel,
   AuditMockRecord,
   AuditResultDisplay,
   AuditSeverityDisplay,
+  AuditSensitiveMetadataViewModel,
   EXPORT_AUTHORIZATION_NOTE,
   ExportDiagnosticsScenario,
   ExportDiagnosticsViewModel,
@@ -72,6 +75,16 @@ interface AuditLogDto {
   readonly requestId?: string | null;
 }
 
+interface AuditCapabilityDto {
+  readonly canViewSensitiveMetadata?: unknown;
+}
+
+interface AuditSensitiveMetadataDto {
+  readonly auditId?: unknown;
+  readonly metadata?: unknown;
+  readonly redactionApplied?: unknown;
+}
+
 @Injectable({
   providedIn: 'root',
 })
@@ -83,6 +96,13 @@ export class AdminFacade {
     this.auditScenario ? this.auditFromScenario(this.auditScenario) : this.emptyAudit('loading'),
   );
   private readonly auditDetailState = signal<AuditDetailViewModel>(this.emptyAuditDetail());
+  private readonly auditCapabilityState = signal<AuditCapabilityViewModel>({
+    loaded: this.auditScenario !== null,
+    canViewSensitiveMetadata: this.auditScenario?.canViewSensitiveMetadata === true,
+  });
+  private readonly auditSensitiveMetadataState = signal<AuditSensitiveMetadataViewModel>(
+    this.emptyAuditSensitiveMetadata(),
+  );
   private readonly exportState = signal<ExportDiagnosticsViewModel>(
     this.exportScenario
       ? this.exportFromScenario(this.exportScenario)
@@ -91,6 +111,9 @@ export class AdminFacade {
   private auditLogRequestVersion = 0;
   private auditLogRequestInFlight = false;
   private auditDetailRequestVersion = 0;
+  private auditCapabilityRequestVersion = 0;
+  private auditSensitiveMetadataRequestVersion = 0;
+  private auditSensitiveMetadataSubscription?: Subscription;
 
   constructor() {
     if (!this.auditScenario) {
@@ -113,11 +136,21 @@ export class AdminFacade {
     return this.auditDetailState();
   }
 
+  getAuditCapabilities(): AuditCapabilityViewModel {
+    return this.auditCapabilityState();
+  }
+
+  getAuditSensitiveMetadata(): AuditSensitiveMetadataViewModel {
+    return this.auditSensitiveMetadataState();
+  }
+
   selectAuditDetail(auditId: string): void {
     const current = this.auditDetailState();
     if (current.auditId === auditId && (current.status === 'loading' || current.status === 'ready')) {
       return;
     }
+
+    this.clearAuditSensitiveMetadata(auditId);
 
     if (this.auditScenario) {
       const record = this.auditScenario.auditRecords.find((item) => item.id === auditId);
@@ -131,6 +164,8 @@ export class AdminFacade {
           });
       return;
     }
+
+    this.loadAuditCapabilities();
 
     const requestVersion = ++this.auditDetailRequestVersion;
     this.auditDetailState.set({ status: 'loading', auditId, row: null });
@@ -178,6 +213,93 @@ export class AdminFacade {
   clearAuditDetail(): void {
     this.auditDetailRequestVersion += 1;
     this.auditDetailState.set(this.emptyAuditDetail());
+    this.clearAuditSensitiveMetadata();
+  }
+
+  revealAuditSensitiveMetadata(auditId: string): void {
+    const capability = this.auditCapabilityState();
+    const detail = this.auditDetailState();
+    if (
+      this.auditScenario ||
+      !capability.loaded ||
+      !capability.canViewSensitiveMetadata ||
+      detail.status !== 'ready' ||
+      detail.auditId !== auditId
+    ) {
+      return;
+    }
+
+    const current = this.auditSensitiveMetadataState();
+    if (current.auditId === auditId && (current.status === 'loading' || current.status === 'ready')) {
+      return;
+    }
+
+    this.auditSensitiveMetadataSubscription?.unsubscribe();
+    const requestVersion = ++this.auditSensitiveMetadataRequestVersion;
+    this.auditSensitiveMetadataState.set({
+      status: 'loading',
+      auditId,
+      formattedJson: '',
+      redactionApplied: false,
+    });
+    this.auditSensitiveMetadataSubscription = this.http
+      .get<AuditSensitiveMetadataDto>(
+        `/api/admin/audit-grid/${encodeURIComponent(auditId)}/sensitive-metadata`,
+        { withCredentials: true },
+      )
+      .subscribe({
+        next: (response) => {
+          if (requestVersion !== this.auditSensitiveMetadataRequestVersion) {
+            return;
+          }
+
+          const metadata = toJsonObject(response.metadata);
+          if (
+            response.auditId !== auditId ||
+            metadata === null ||
+            typeof response.redactionApplied !== 'boolean'
+          ) {
+            this.auditSensitiveMetadataState.set(this.auditSensitiveMetadataError(auditId));
+            return;
+          }
+
+          const formattedJson = JSON.stringify(metadata, null, 2);
+          this.auditSensitiveMetadataState.set({
+            status: Object.keys(metadata).length === 0 ? 'empty' : 'ready',
+            auditId,
+            formattedJson,
+            redactionApplied: response.redactionApplied,
+          });
+        },
+        error: (error: { status?: number }) => {
+          if (requestVersion !== this.auditSensitiveMetadataRequestVersion) {
+            return;
+          }
+
+          const status = error.status === 401 || error.status === 403
+            ? 'permissionDenied'
+            : error.status === 404
+              ? 'notFound'
+              : 'error';
+          const message = status === 'permissionDenied'
+            ? 'Sensitive audit metadata access is unavailable.'
+            : status === 'notFound'
+              ? 'Sensitive metadata for this audit event is unavailable.'
+              : 'Sensitive audit metadata could not be loaded.';
+          this.auditSensitiveMetadataState.set({
+            status,
+            auditId,
+            formattedJson: '',
+            redactionApplied: false,
+            message,
+          });
+        },
+      });
+  }
+
+  hideAuditSensitiveMetadata(): void {
+    const auditId = this.auditDetailState().auditId;
+    this.clearAuditSensitiveMetadata(auditId);
   }
 
   getExportDiagnostics(): ExportDiagnosticsViewModel {
@@ -230,6 +352,32 @@ export class AdminFacade {
                 ? 'Authentication or audit permission is required.'
                 : 'Audit log API request failed.',
           });
+        },
+      });
+  }
+
+  private loadAuditCapabilities(): void {
+    const requestVersion = ++this.auditCapabilityRequestVersion;
+    this.auditCapabilityState.set({ loaded: false, canViewSensitiveMetadata: false });
+    this.http
+      .get<AuditCapabilityDto>('/api/audit/capabilities', { withCredentials: true })
+      .subscribe({
+        next: (response) => {
+          if (requestVersion !== this.auditCapabilityRequestVersion) {
+            return;
+          }
+
+          this.auditCapabilityState.set({
+            loaded: true,
+            canViewSensitiveMetadata: response.canViewSensitiveMetadata === true,
+          });
+        },
+        error: () => {
+          if (requestVersion !== this.auditCapabilityRequestVersion) {
+            return;
+          }
+
+          this.auditCapabilityState.set({ loaded: true, canViewSensitiveMetadata: false });
         },
       });
   }
@@ -289,6 +437,32 @@ export class AdminFacade {
 
   private emptyAuditDetail(): AuditDetailViewModel {
     return { status: 'idle', auditId: null, row: null };
+  }
+
+  private emptyAuditSensitiveMetadata(auditId: string | null = null): AuditSensitiveMetadataViewModel {
+    return {
+      status: 'hidden',
+      auditId,
+      formattedJson: '',
+      redactionApplied: false,
+    };
+  }
+
+  private auditSensitiveMetadataError(auditId: string): AuditSensitiveMetadataViewModel {
+    return {
+      status: 'error',
+      auditId,
+      formattedJson: '',
+      redactionApplied: false,
+      message: 'Sensitive audit metadata could not be loaded.',
+    };
+  }
+
+  private clearAuditSensitiveMetadata(auditId: string | null = null): void {
+    this.auditSensitiveMetadataSubscription?.unsubscribe();
+    this.auditSensitiveMetadataSubscription = undefined;
+    this.auditSensitiveMetadataRequestVersion += 1;
+    this.auditSensitiveMetadataState.set(this.emptyAuditSensitiveMetadata(auditId));
   }
 
   private emptyExportDiagnostics(): ExportDiagnosticsViewModel {
@@ -383,4 +557,10 @@ function toAuditResult(value: unknown): AuditResultDisplay {
 
 function isRetryableAuditListError(status: number | undefined): boolean {
   return status === undefined || status === 0 || status === 408 || status === 429 || (status >= 500 && status <= 599);
+}
+
+function toJsonObject(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
 }

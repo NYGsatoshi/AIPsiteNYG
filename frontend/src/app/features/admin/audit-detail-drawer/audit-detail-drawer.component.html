@@ -75,6 +75,54 @@
           </dl>
         </section>
       }
+
+      @if (canViewSensitiveMetadata) {
+        <section class="admin-drawer__section" aria-labelledby="audit-sensitive-metadata-title">
+          <h3 id="audit-sensitive-metadata-title">Sensitive metadata</h3>
+          <p class="admin-drawer__disclosure-note">
+            Loaded only for this event after an explicit server-authorized request.
+          </p>
+          <button
+            type="button"
+            class="admin-drawer__disclosure"
+            data-testid="audit-sensitive-metadata-toggle"
+            [attr.aria-expanded]="sensitiveMetadataExpanded"
+            aria-controls="audit-sensitive-metadata-content"
+            (click)="sensitiveMetadataToggle.emit()"
+          >{{ sensitiveMetadataExpanded ? 'Hide sensitive metadata' : 'Show sensitive metadata' }}</button>
+
+          <div id="audit-sensitive-metadata-content" class="admin-drawer__metadata">
+            @if (sensitiveMetadata.status === 'loading') {
+              <p role="status" aria-live="polite" data-testid="audit-sensitive-metadata-loading">
+                Loading sensitive metadata for this event.
+              </p>
+            } @else if (sensitiveMetadata.status === 'ready') {
+              @if (sensitiveMetadata.redactionApplied) {
+                <p class="admin-drawer__redaction-note" data-testid="audit-sensitive-metadata-redacted">
+                  Prohibited fields were removed by the server.
+                </p>
+              }
+              <pre
+                tabindex="0"
+                aria-label="Sensitive metadata JSON"
+                data-testid="audit-sensitive-metadata-json"
+              >{{ sensitiveMetadata.formattedJson }}</pre>
+            } @else if (sensitiveMetadata.status === 'empty') {
+              <p role="status" aria-live="polite" data-testid="audit-sensitive-metadata-empty">
+                No additional metadata is available for this event.
+              </p>
+            } @else if (
+              sensitiveMetadata.status === 'permissionDenied' ||
+              sensitiveMetadata.status === 'notFound' ||
+              sensitiveMetadata.status === 'error'
+            ) {
+              <p role="alert" class="admin-drawer__state admin-drawer__state--unavailable" data-testid="audit-sensitive-metadata-error">
+                {{ sensitiveMetadata.message }}
+              </p>
+            }
+          </div>
+        </section>
+      }
     }
   </aside>
 }

@@ -12,7 +12,7 @@
   </header>
 
   <p class="admin-page__policy" data-testid="audit-typed-field-note">
-    This read-only inspector uses server-classified fields only. It does not parse or request raw metadata.
+    This read-only inspector uses server-classified fields. Sensitive metadata is requested only after explicit disclosure and a server capability check.
   </p>
   <p class="admin-page__status" role="status" aria-live="polite" aria-atomic="true" data-testid="audit-log-status">
     {{ accessibilityStatus() }}
@@ -107,8 +107,11 @@
         [audit]="selectedAudit()"
         [status]="auditDetail().status"
         [message]="auditDetail().message"
+        [canViewSensitiveMetadata]="auditCapabilities().loaded && auditCapabilities().canViewSensitiveMetadata"
+        [sensitiveMetadata]="sensitiveMetadata()"
         [selectedAuditId]="selectedAuditId()"
         (close)="closeDrawer()"
+        (sensitiveMetadataToggle)="toggleSensitiveMetadata()"
       />
     </div>
   }

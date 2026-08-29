@@ -427,6 +427,7 @@ describe('Admin audit and export mock UI', () => {
     expect(text).not.toContain('tenant/private/key');
     expect(text).not.toContain('sample-target-001');
     expect(text).not.toContain('select hidden');
+    expect(query(fixture, '[data-testid="audit-sensitive-metadata-toggle"]')).toBeNull();
   });
 
   it('severity and result are typed fields in the view model', () => {
@@ -438,7 +439,7 @@ describe('Admin audit and export mock UI', () => {
 
     expect(page.rows[0].severity).toBe('info');
     expect(page.rows[1].result).toBe('denied');
-    expect(page.typedFieldNote.metadataParsing).toBe('prohibited');
+    expect(page.typedFieldNote.metadataParsing).toBe('serverAuthorizedProgressiveDisclosure');
   });
 
   it('maps live audit grid result and severity from backend typed fields', () => {
@@ -538,6 +539,13 @@ describe('Admin audit and export mock UI', () => {
     httpMock.expectOne('/api/admin/audit-grid').flush({ items: [] });
 
     facade.selectAuditDetail('audit-live-safe');
+    httpMock.expectOne('/api/audit/capabilities').flush({
+      canView: true,
+      canReview: true,
+      canApprove: false,
+      canExport: false,
+      canViewSensitiveMetadata: false,
+    });
     httpMock.expectOne('/api/admin/audit-grid/audit-live-safe').flush({
       id: 'audit-live-safe',
       createdAt: '2026-08-25T08:00:00Z',
@@ -554,6 +562,123 @@ describe('Admin audit and export mock UI', () => {
     const detail = facade.getAuditDetail();
     expect(detail.status).toBe('ready');
     expect(detail.row?.redactedDetails).toEqual([]);
+    httpMock.verify();
+  });
+
+  it('progressively discloses exact-event metadata only after capability and user action', async () => {
+    const { fixture, httpMock } = await renderLiveAudit();
+    httpMock.expectOne('/api/admin/audit-grid').flush({
+      items: [{
+        id: 'audit-live-sensitive',
+        createdAt: '2026-08-25T08:00:00Z',
+        action: 'audit.metadata.read',
+        actorDisplayName: 'Authorized auditor',
+        targetType: 'AuditLog',
+        workspaceLabel: 'Workspace A',
+        severity: 'info',
+        result: 'success',
+        summary: 'A safe audit summary.',
+        requestId: 'request-safe',
+      }],
+    });
+    fixture.detectChanges();
+
+    query<HTMLButtonElement>(fixture, '[data-testid="open-audit-detail"]')?.click();
+    httpMock.expectOne('/api/audit/capabilities').flush({ canViewSensitiveMetadata: true });
+    httpMock.expectOne('/api/admin/audit-grid/audit-live-sensitive').flush({
+      id: 'audit-live-sensitive',
+      createdAt: '2026-08-25T08:00:00Z',
+      action: 'audit.metadata.read',
+      actorDisplayName: 'Authorized auditor',
+      targetType: 'AuditLog',
+      workspaceLabel: 'Workspace A',
+      severity: 'info',
+      result: 'success',
+      summary: 'A safe audit summary.',
+      requestId: 'request-safe',
+    });
+    fixture.detectChanges();
+
+    const toggle = query<HTMLButtonElement>(fixture, '[data-testid="audit-sensitive-metadata-toggle"]');
+    expect(toggle?.textContent?.trim()).toBe('Show sensitive metadata');
+    httpMock.expectNone('/api/admin/audit-grid/audit-live-sensitive/sensitive-metadata');
+    toggle?.focus();
+    toggle?.click();
+    fixture.detectChanges();
+    expect(toggle?.textContent?.trim()).toBe('Hide sensitive metadata');
+    expect(document.activeElement).toBe(toggle);
+
+    httpMock.expectOne('/api/admin/audit-grid/audit-live-sensitive/sensitive-metadata').flush({
+      auditId: 'audit-live-sensitive',
+      metadata: {
+        outcome: 'Allowed',
+        change: { category: '<img src=x onerror=alert(1)>' },
+      },
+      redactionApplied: true,
+    });
+    fixture.detectChanges();
+
+    const metadata = query<HTMLElement>(fixture, '[data-testid="audit-sensitive-metadata-json"]');
+    expect(metadata?.textContent).toContain('Allowed');
+    expect(metadata?.textContent).toContain('<img src=x onerror=alert(1)>');
+    expect(query(fixture, '.admin-drawer__metadata img')).toBeNull();
+    expect(query(fixture, '[data-testid="audit-sensitive-metadata-redacted"]')?.textContent)
+      .toContain('Prohibited fields were removed by the server.');
+    expect(document.activeElement).toBe(toggle);
+
+    toggle?.click();
+    fixture.detectChanges();
+    expect(query(fixture, '[data-testid="audit-sensitive-metadata-json"]')).toBeNull();
+    expect(toggle?.textContent?.trim()).toBe('Show sensitive metadata');
+    expect(document.activeElement).toBe(toggle);
+    httpMock.verify();
+  });
+
+  it('cancels an exact-event metadata request and ignores stale state when selection changes', () => {
+    TestBed.configureTestingModule({
+      providers: [provideHttpClient(), provideHttpClientTesting()],
+    });
+    const facade = TestBed.inject(AdminFacade);
+    const httpMock = TestBed.inject(HttpTestingController);
+    httpMock.expectOne('/api/admin/audit-grid').flush({ items: [] });
+
+    facade.selectAuditDetail('audit-first');
+    httpMock.expectOne('/api/audit/capabilities').flush({ canViewSensitiveMetadata: true });
+    httpMock.expectOne('/api/admin/audit-grid/audit-first').flush({
+      id: 'audit-first',
+      createdAt: '2026-08-25T08:00:00Z',
+      action: 'first',
+      actorDisplayName: 'Auditor',
+      targetType: 'AuditLog',
+      severity: 'info',
+      result: 'success',
+      summary: 'First event.',
+    });
+    facade.revealAuditSensitiveMetadata('audit-first');
+    const firstMetadata = httpMock.expectOne('/api/admin/audit-grid/audit-first/sensitive-metadata');
+
+    facade.selectAuditDetail('audit-second');
+    expect(firstMetadata.cancelled).toBe(true);
+    httpMock.expectOne('/api/audit/capabilities').flush({ canViewSensitiveMetadata: true });
+    httpMock.expectOne('/api/admin/audit-grid/audit-second').flush({
+      id: 'audit-second',
+      createdAt: '2026-08-25T08:01:00Z',
+      action: 'second',
+      actorDisplayName: 'Auditor',
+      targetType: 'AuditLog',
+      severity: 'info',
+      result: 'success',
+      summary: 'Second event.',
+    });
+    facade.revealAuditSensitiveMetadata('audit-second');
+    httpMock.expectOne('/api/admin/audit-grid/audit-second/sensitive-metadata').flush({
+      auditId: 'audit-second',
+      metadata: { outcome: 'SecondOnly' },
+      redactionApplied: false,
+    });
+
+    expect(facade.getAuditSensitiveMetadata().auditId).toBe('audit-second');
+    expect(facade.getAuditSensitiveMetadata().formattedJson).toContain('SecondOnly');
     httpMock.verify();
   });
 

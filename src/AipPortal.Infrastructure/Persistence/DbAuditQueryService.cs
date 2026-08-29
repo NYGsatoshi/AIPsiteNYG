@@ -277,6 +277,53 @@ public sealed class DbAuditQueryService : IAuditQueryService
                 ToAuditGridRow(record, capabilities.CanViewSensitiveMetadata));
     }
 
+    public async Task<Result<AuditSensitiveMetadataResponse>> GetAuditSensitiveMetadataAsync(
+        Guid auditId,
+        CancellationToken cancellationToken = default)
+    {
+        var capabilities = await auditAuthorization.GetCapabilitiesAsync(cancellationToken);
+        if (!capabilities.CanView)
+        {
+            var denied = await auditAuthorization.AuthorizeAsync(
+                CapabilityKeys.AuditView,
+                "audit.grid.sensitive-metadata.read",
+                cancellationToken);
+            return AuthorizationFailure<AuditSensitiveMetadataResponse>(denied);
+        }
+
+        if (!capabilities.CanViewSensitiveMetadata)
+        {
+            var denied = await auditAuthorization.AuthorizeAsync(
+                CapabilityKeys.AuditSensitiveMetadataView,
+                "audit.grid.sensitive-metadata.read",
+                cancellationToken);
+            return AuthorizationFailure<AuditSensitiveMetadataResponse>(denied);
+        }
+
+        var scopeError = ValidateQueryScope<AuditSensitiveMetadataResponse>();
+        if (scopeError is not null)
+        {
+            return scopeError;
+        }
+
+        // Authorize and apply the current Tenant/platform scope before the ID
+        // predicate. Missing, malformed, and other-Tenant IDs therefore share
+        // one result and cannot be used as an existence oracle.
+        var record = auditId == Guid.Empty
+            ? null
+            : await ScopeToCurrentTenant(dbContext.AuditLogs.AsNoTracking())
+                .Where(log => log.Id == auditId)
+                .Select(log => new AuditSensitiveMetadataProjection(
+                    log.Id,
+                    log.MetadataJson))
+                .SingleOrDefaultAsync(cancellationToken);
+
+        return record is null
+            ? AuditSensitiveMetadataNotFound()
+            : Result<AuditSensitiveMetadataResponse>.Success(
+                AuditMetadataDisclosurePolicy.Project(record.Id, record.MetadataJson));
+    }
+
     public async Task<Result<PagedResponse<SecurityEventListItemResponse>>> ListSecurityEventsAsync(
         SecurityEventQuery query,
         CancellationToken cancellationToken = default)
@@ -407,6 +454,11 @@ public sealed class DbAuditQueryService : IAuditQueryService
             "AuditEventNotFound",
             "The requested audit event is not available."));
 
+    private static Result<AuditSensitiveMetadataResponse> AuditSensitiveMetadataNotFound() =>
+        Result<AuditSensitiveMetadataResponse>.Failure(new ApplicationErrorDetail(
+            "AuditEventNotFound",
+            "The requested audit event is not available."));
+
     private static AuditGridRowResponse ToAuditGridRow(
         AuditGridProjection log,
         bool canViewSensitiveMetadata)
@@ -437,6 +489,10 @@ public sealed class DbAuditQueryService : IAuditQueryService
         Guid? WorkspaceId,
         string? Summary,
         string? CorrelationId);
+
+    private sealed record AuditSensitiveMetadataProjection(
+        Guid Id,
+        string? MetadataJson);
 
     private static string ClassifyResult(string action)
     {

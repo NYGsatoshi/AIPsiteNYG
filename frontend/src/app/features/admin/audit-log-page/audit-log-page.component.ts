@@ -76,6 +76,8 @@ export class AuditLogPageComponent {
 
   readonly vm = computed(() => this.withColumns(this.facade.getAuditLog()));
   readonly auditDetail = computed(() => this.facade.getAuditDetail());
+  readonly auditCapabilities = computed(() => this.facade.getAuditCapabilities());
+  readonly sensitiveMetadata = computed(() => this.facade.getAuditSensitiveMetadata());
   readonly selectedAudit = computed(() => this.auditDetail().row);
   readonly drawerOpen = computed(() => this.selectedAuditId() !== null);
   readonly accessibilityStatus = computed(() =>
@@ -149,6 +151,21 @@ export class AuditLogPageComponent {
       this.restoreDrawerFocus();
     }
     void this.updateRouteSelection(null, true);
+  }
+
+  toggleSensitiveMetadata(): void {
+    const auditId = this.selectedAuditId();
+    if (!auditId) {
+      return;
+    }
+
+    const metadata = this.sensitiveMetadata();
+    if (metadata.status !== 'hidden') {
+      this.facade.hideAuditSensitiveMetadata();
+      return;
+    }
+
+    this.facade.revealAuditSensitiveMetadata(auditId);
   }
 
   isColumnVisible(column: AuditGridOptionalColumn): boolean {

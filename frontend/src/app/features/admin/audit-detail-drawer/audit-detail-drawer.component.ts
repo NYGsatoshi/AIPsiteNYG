@@ -2,7 +2,11 @@ import { AfterViewChecked, Component, ElementRef, EventEmitter, HostListener, In
 
 import { AuditResultBadgeComponent } from '../audit-result-badge/audit-result-badge.component';
 import { AuditSeverityBadgeComponent } from '../audit-severity-badge/audit-severity-badge.component';
-import { AuditDetailStatus, AuditGridRow } from '../admin.types';
+import {
+  AuditDetailStatus,
+  AuditGridRow,
+  AuditSensitiveMetadataViewModel,
+} from '../admin.types';
 
 @Component({
   selector: 'app-audit-detail-drawer',
@@ -17,10 +21,22 @@ export class AuditDetailDrawerComponent implements AfterViewChecked {
   @Input() audit: AuditGridRow | null = null;
   @Input() status: AuditDetailStatus = 'idle';
   @Input() message?: string;
+  @Input() canViewSensitiveMetadata = false;
+  @Input() sensitiveMetadata: AuditSensitiveMetadataViewModel = {
+    status: 'hidden',
+    auditId: null,
+    formattedJson: '',
+    redactionApplied: false,
+  };
   @Output() close = new EventEmitter<void>();
+  @Output() sensitiveMetadataToggle = new EventEmitter<void>();
   @ViewChild('closeButton') closeButton?: ElementRef<HTMLButtonElement>;
 
   private focusedAuditId: string | null = null;
+
+  get sensitiveMetadataExpanded(): boolean {
+    return this.sensitiveMetadata.status !== 'hidden';
+  }
 
   ngAfterViewChecked(): void {
     if (!this.isOpen) {
