@@ -10,7 +10,7 @@ This record completes the visible Active Source Scope contract on top of the pol
 
 The maintained Task detail source-scope panel consumes only the server-authoritative Project and Task scope routes. It does not derive source state from client roles, Project metadata, file lists, integration state, or realtime payloads.
 
-The current release exposes two configurable source kinds: Web and authorized clean Project files. Enabled is displayed as `Allow`; disabled is displayed as `Exclude`. The panel also explains the distinct meanings of `Restrict` and `Prioritize` without inventing either richer rule. Specific Sites and Connected Apps are presented generically as unavailable under the current contract.
+The current release exposes two configurable source kinds: Web and authorized clean Project files. The compatibility state remains `Enabled` / `Disabled`, while the explicit source-policy semantics are displayed alongside it as `Allow` / `Exclude`. The panel also explains the distinct meanings of `Restrict` and `Prioritize` without inventing either richer rule. Specific Sites and Connected Apps are presented generically as unavailable under the current contract.
 
 The current execution provider is canonically `None`. A run request may persist its immutable source-policy snapshot, but the registered runtime performs no Web or Project-file I/O and returns `RuntimeUnavailable`. Scope changes are next-run changes only.
 
@@ -27,7 +27,7 @@ The current execution provider is canonically `None`. A run request may persist 
 ## Additional canonical checks
 
 - `ProjectDefault` and `TaskOverride` remain visibly distinct.
-- Web and Project-file policy values use explicit `Allow` / `Exclude` wording.
+- Web and Project-file rows preserve `Enabled` / `Disabled` compatibility text and separately expose explicit `Allow` / `Exclude` policy semantics.
 - Specific Sites and Connected Apps are not silently omitted and are not inferred from unrelated integrations.
 - `Execution provider: None` is visible; the UI does not claim retrieval or execution.
 - The most recent run snapshot displays source state at request time independently from the current next-run policy.
@@ -49,5 +49,7 @@ Full frontend regression:
 npm --prefix frontend test
 npm --prefix frontend run build
 ```
+
+The Angular smoke regression asserts both compatibility state (`Enabled` / `Disabled`) and explicit policy semantics (`Allow` / `Exclude`) so the maintained Real Backend surface and the richer Issue #357 presentation contract stay aligned.
 
 Repository CI remains authoritative for backend, architecture, security, Playwright, PostgreSQL-qualified, and cross-surface regression gates. The completion PR must not merge until all required CI checks on its head commit are green.
