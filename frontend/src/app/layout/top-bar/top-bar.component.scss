@@ -132,6 +132,10 @@
     padding-block: var(--shell-space-3, 12px);
   }
 
+  :host-context(.app-shell--drawer-open) .top-bar__search {
+    display: none;
+  }
+
   .top-bar__actions {
     justify-content: start;
   }
