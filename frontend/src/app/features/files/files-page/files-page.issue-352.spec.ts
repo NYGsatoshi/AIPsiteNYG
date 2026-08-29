@@ -119,6 +119,25 @@ const installBlobTextPolyfill = (): (() => void) => {
   };
 };
 
+const installClipboardMock = (): { writeText: ReturnType<typeof vi.fn>; restore: () => void } => {
+  const existing = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(navigator, 'clipboard', {
+    configurable: true,
+    value: { writeText },
+  });
+  return {
+    writeText,
+    restore: () => {
+      if (existing) {
+        Object.defineProperty(navigator, 'clipboard', existing);
+      } else {
+        Reflect.deleteProperty(navigator, 'clipboard');
+      }
+    },
+  };
+};
+
 describe('FilesPageComponent issue #352', () => {
   afterEach(() => {
     TestBed.inject(HttpTestingController).verify();
@@ -127,41 +146,63 @@ describe('FilesPageComponent issue #352', () => {
   });
 
   it('opens an authorized image in the right inspector without changing selection or list scroll', async () => {
-    const { fixture, http } = await renderLiveFilesPage([
-      backendFile(IMAGE_ID, 'photo.png', 'image/png'),
-    ]);
-    const component = fixture.componentInstance;
-    const file = component.page().recentFiles[0];
-    if (!file) {
-      throw new Error('Expected a listed file.');
+    const clipboard = installClipboardMock();
+    try {
+      const { fixture, http } = await renderLiveFilesPage([
+        backendFile(IMAGE_ID, 'photo.png', 'image/png'),
+      ]);
+      const component = fixture.componentInstance;
+      const file = component.page().recentFiles[0];
+      if (!file) {
+        throw new Error('Expected a listed file.');
+      }
+
+      const listSurface = (fixture.nativeElement as HTMLElement).querySelector('.files-page__desktop-grid') as HTMLElement;
+      listSurface.scrollTop = 173;
+      component.handleSelectionChanged({ rows: [file] });
+      const createObjectUrl = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:authorized-image');
+      const revokeObjectUrl = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+
+      component.handleGridAction({ actionId: 'open', row: file });
+      fixture.detectChanges();
+
+      expect(component.selectedCount()).toBe(1);
+      expect(listSurface.scrollTop).toBe(173);
+      flushPreview(http, IMAGE_ID, 'grant-image', new Blob(['image'], { type: 'image/png' }));
+      fixture.detectChanges();
+
+      const host = fixture.nativeElement as HTMLElement;
+      expect(host.querySelector('[data-testid="files-preview-image"]')).not.toBeNull();
+      expect(host.querySelector('[data-testid="files-preview-pdf"]')).toBeNull();
+      expect(createObjectUrl).toHaveBeenCalledTimes(1);
+      expect(component.selectedCount()).toBe(1);
+      expect(listSurface.scrollTop).toBe(173);
+
+      const open = host.querySelector('[data-testid="files-preview-open"]') as HTMLAnchorElement;
+      const research = host.querySelector('[data-testid="files-preview-research"]') as HTMLAnchorElement;
+      expect(open.getAttribute('href')).toBe('blob:authorized-image');
+      expect(research.getAttribute('href')).toContain(`/workspaces/${WORKSPACE_ID}/research/new?`);
+      expect(research.getAttribute('href')).toContain(`sourceFileObjectId=${IMAGE_ID}`);
+      expect(research.getAttribute('href')).toContain('sourceFileName=photo.png');
+      expect(host.querySelector('[data-testid="files-preview-share"]')).not.toBeNull();
+      expect(host.querySelector('[data-testid="files-preview-more"]')).not.toBeNull();
+
+      component.copyPreviewCitation();
+      await Promise.resolve();
+      fixture.detectChanges();
+      expect(clipboard.writeText).toHaveBeenCalledTimes(1);
+      expect(String(clipboard.writeText.mock.calls[0]?.[0])).toContain('photo.png');
+      expect(String(clipboard.writeText.mock.calls[0]?.[0])).toContain(IMAGE_ID);
+      expect(component.previewActionStatus()).toBe('Citation copied.');
+
+      component.closePreview();
+      fixture.detectChanges();
+      expect(component.selectedCount()).toBe(1);
+      expect(listSurface.scrollTop).toBe(173);
+      expect(revokeObjectUrl).toHaveBeenCalledWith('blob:authorized-image');
+    } finally {
+      clipboard.restore();
     }
-
-    const listSurface = (fixture.nativeElement as HTMLElement).querySelector('.files-page__desktop-grid') as HTMLElement;
-    listSurface.scrollTop = 173;
-    component.handleSelectionChanged({ rows: [file] });
-    const createObjectUrl = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:authorized-image');
-    const revokeObjectUrl = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
-
-    component.handleGridAction({ actionId: 'open', row: file });
-    fixture.detectChanges();
-
-    expect(component.selectedCount()).toBe(1);
-    expect(listSurface.scrollTop).toBe(173);
-    flushPreview(http, IMAGE_ID, 'grant-image', new Blob(['image'], { type: 'image/png' }));
-    fixture.detectChanges();
-
-    const host = fixture.nativeElement as HTMLElement;
-    expect(host.querySelector('[data-testid="files-preview-image"]')).not.toBeNull();
-    expect(host.querySelector('[data-testid="files-preview-pdf"]')).toBeNull();
-    expect(createObjectUrl).toHaveBeenCalledTimes(1);
-    expect(component.selectedCount()).toBe(1);
-    expect(listSurface.scrollTop).toBe(173);
-
-    component.closePreview();
-    fixture.detectChanges();
-    expect(component.selectedCount()).toBe(1);
-    expect(listSurface.scrollTop).toBe(173);
-    expect(revokeObjectUrl).toHaveBeenCalledWith('blob:authorized-image');
   }, 15_000);
 
   it('renders PDF, video, and text-like files from authorized blobs without public URLs', async () => {
@@ -180,7 +221,8 @@ describe('FilesPageComponent issue #352', () => {
 
       vi.spyOn(URL, 'createObjectURL')
         .mockReturnValueOnce('blob:authorized-pdf')
-        .mockReturnValueOnce('blob:authorized-video');
+        .mockReturnValueOnce('blob:authorized-video')
+        .mockReturnValueOnce('blob:authorized-text');
       vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
 
       component.openPreview(pdf);
@@ -200,6 +242,8 @@ describe('FilesPageComponent issue #352', () => {
       fixture.detectChanges();
       expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="files-preview-text"]')?.textContent)
         .toContain('hello from preview');
+      expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="files-preview-open"]')?.getAttribute('href'))
+        .toBe('blob:authorized-text');
 
       const policy = (fixture.nativeElement as HTMLElement).querySelector('[data-testid="file-policy"]')?.textContent ?? '';
       expect(policy).toContain('CDN links, public links, and external signed URL sharing are disabled. Preview never uses those links.');
