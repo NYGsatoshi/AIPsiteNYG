@@ -284,10 +284,11 @@ public sealed class ArtifactEvidenceManifestServiceTests
                 Status = ArtifactStatus.Draft,
                 CreatedByUserId = userId,
             };
-            var (version, attachment) = CreateVersion(tenantId, userId, artifact, 1);
-            var (secondVersion, secondAttachment) = CreateVersion(tenantId, userId, artifact, 2);
+            var (version, attachment, fileObject) = CreateVersion(tenantId, userId, artifact, 1);
+            var (secondVersion, secondAttachment, secondFileObject) = CreateVersion(tenantId, userId, artifact, 2);
 
             context.Artifacts.Add(artifact);
+            context.FileObjects.AddRange(fileObject, secondFileObject);
             context.Attachments.AddRange(attachment, secondAttachment);
             context.ArtifactVersions.AddRange(version, secondVersion);
             await context.SaveChangesAsync();
@@ -333,7 +334,7 @@ public sealed class ArtifactEvidenceManifestServiceTests
 
         public ValueTask DisposeAsync() => Context.DisposeAsync();
 
-        private static (ArtifactVersion Version, Attachment Attachment) CreateVersion(
+        private static (ArtifactVersion Version, Attachment Attachment, FileObject FileObject) CreateVersion(
             Guid tenantId,
             Guid userId,
             Artifact artifact,
@@ -347,11 +348,25 @@ public sealed class ArtifactEvidenceManifestServiceTests
                 VersionNumber = versionNumber,
                 CreatedByUserId = userId,
             };
+            var workspaceId = Guid.NewGuid();
+            var fileObject = new FileObject
+            {
+                TenantId = tenantId,
+                WorkspaceId = workspaceId,
+                ProjectId = artifact.ProjectId,
+                UploadedByUserId = userId,
+                OriginalFileName = $"research-report-v{versionNumber}.pdf",
+                StorageKey = $"test/research-report-v{versionNumber}.pdf",
+                ContentType = "application/pdf",
+                SizeBytes = 1,
+                Status = FileObjectStatus.Active,
+            };
             var attachment = new Attachment
             {
                 TenantId = tenantId,
-                FileObjectId = Guid.NewGuid(),
-                WorkspaceId = Guid.NewGuid(),
+                FileObjectId = fileObject.Id,
+                FileObject = fileObject,
+                WorkspaceId = workspaceId,
                 OwnerType = AttachmentOwnerType.ArtifactVersion,
                 OwnerId = version.Id,
                 OwnerUserId = userId,
@@ -368,7 +383,9 @@ public sealed class ArtifactEvidenceManifestServiceTests
             };
             version.AttachmentId = attachment.Id;
             version.Attachment = attachment;
-            return (version, attachment);
+            version.FileObjectId = fileObject.Id;
+            version.FileObject = fileObject;
+            return (version, attachment, fileObject);
         }
     }
 
