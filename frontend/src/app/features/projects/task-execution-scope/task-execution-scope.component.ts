@@ -269,7 +269,7 @@ export class TaskExecutionScopeComponent implements OnChanges, OnDestroy {
 
   runStatusLabel(status: RunStatus): string {
     switch (status) {
-      case 'RuntimeUnavailable': return 'Runtime unavailable - execution did not start.';
+      case 'RuntimeUnavailable': return 'Unavailable - no execution was started.';
       case 'Prepared': return 'Execution request accepted by the configured runtime.';
       case 'Waiting': return 'Execution is waiting.';
       case 'NeedsInput': return 'Execution is waiting for input.';
@@ -505,9 +505,13 @@ function nullableLatestRun(value: unknown): LatestExecutionRun | null {
   }
 
   const record = requiredRecord(value, 'Latest execution run');
+  const status = requiredRunStatus(record['status']);
+  const majorState = record['majorState'] === null || record['majorState'] === undefined
+    ? majorStateFromRunStatus(status)
+    : requiredMajorState(record['majorState']);
   return {
-    status: requiredRunStatus(record['status']),
-    majorState: requiredMajorState(record['majorState']),
+    status,
+    majorState,
     snapshotScopeOrigin: requiredOrigin(record['snapshotScopeOrigin'], 'Latest execution run source origin'),
     snapshotWebEnabled: requiredBoolean(record['snapshotWebEnabled'], 'Latest execution run Web policy'),
     snapshotProjectFilesEnabled: requiredBoolean(record['snapshotProjectFilesEnabled'], 'Latest execution run file policy'),
@@ -576,6 +580,18 @@ function requiredMajorState(value: unknown): MajorState {
   }
 
   throw new Error('Latest execution run major state is invalid.');
+}
+
+function majorStateFromRunStatus(status: RunStatus): MajorState {
+  switch (status) {
+    case 'Prepared': return 'Running';
+    case 'Waiting': return 'Waiting';
+    case 'NeedsInput': return 'NeedsInput';
+    case 'Completed': return 'Completed';
+    case 'RuntimeUnavailable':
+    case 'Failed':
+      return 'Failed';
+  }
 }
 
 function checkboxValue(event: Event): boolean {
