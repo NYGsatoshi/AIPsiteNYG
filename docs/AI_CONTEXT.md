@@ -17,6 +17,7 @@ P0 authorization-recovery candidate update: **2026-08-27**.
 Issue #330 Workspace Continue-working candidate update: **2026-08-28**.
 Issue #341 Files search and Filter Chips candidate update: **2026-08-30**.
 Issue #344 Audit filters and saved views candidate update: **2026-08-30**.
+Issue #339 Task context summary candidate update: **2026-08-30**.
 
 ## Documentation authority
 
@@ -133,6 +134,19 @@ visibility is not authorization. This is Conversation-level inbox deferral
 only. It does not create a saved-Message identity, completion state, reminder,
 or notification schedule; those per-Message follow-up semantics remain owned by
 Issue #368.
+
+### Issue #339 Task context summary candidate
+
+The maintained Task detail source-scope component adds a compact summary of
+the server-authorized Issue #357 projection. Its count is only the number of
+enabled generic source kinds (`Web` and `Project files`), from zero through
+two; it is explicitly not a file, site, App, integration, or resource
+inventory count. The summary distinguishes Project default from Task override,
+moves keyboard focus to the detailed context, and shares the existing
+authoritative refetch, generation, and protected-state clearing boundary. It
+adds no API, source inventory, execution provider, or runtime behavior. See
+`docs/decisions/issue-339-task-context-summary.md` and
+`docs/verification/p1-task-context-summary.md`.
 
 ### Current P0 authorization-recovery candidate
 

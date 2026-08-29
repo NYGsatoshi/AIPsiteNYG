@@ -103,6 +103,22 @@ it cannot prove an outbound-Web or source-material workflow. See
 `docs/verification/p0-task-execution-scope-foundation.md` for the current
 candidate evidence and limitations.
 
+### Issue #339 Task context summary
+
+Focused Angular coverage derives only a zero-to-two count from the two
+server-authorized Issue #357 policy booleans, distinguishes Project default
+from Task override, follows authoritative Project/Task invalidation refetches,
+and synchronously removes the compact summary on authorization clearing or a
+denied refresh. Contract coverage requires the explicit non-inventory label
+and rejects source identifiers/details.
+
+The existing Task execution-scope Playwright scenario runs at 320 pixels and
+adds keyboard focus transfer from the compact summary to the detailed context,
+horizontal-containment, and axe checks. Its API is mocked and does not replace
+the existing backend authorization tests. Issue #339 adds no backend route,
+schema, provider, or runtime behavior. See
+`docs/verification/p1-task-context-summary.md`.
+
 ### Issue #330 Workspace Continue working
 
 Focused Angular coverage validates the strict versioned opaque history schema,

@@ -71,6 +71,7 @@ export class TaskExecutionScopeComponent implements OnChanges, OnDestroy {
   private readonly scenario = inject(AIP_PROJECTS_MOCK, { optional: true });
   private readonly owner = `task-execution-scope-${++componentSequence}`;
   private readonly feedbackElement = viewChild<ElementRef<HTMLElement>>('scopeFeedback');
+  private readonly detailsElement = viewChild<ElementRef<HTMLElement>>('scopeDetails');
   private readonly state = signal<ScopePanelData | null>(null);
   private readonly scopeGeneration = signal(0);
   readonly activeRead = signal(false);
@@ -93,6 +94,15 @@ export class TaskExecutionScopeComponent implements OnChanges, OnDestroy {
   readonly canManageProject = computed(() => this.state()?.project.canManage ?? false);
   readonly canManageTask = computed(() => this.state()?.task.canManage ?? false);
   readonly canManageAnything = computed(() => this.canManageProject() || this.canManageTask());
+  readonly allowedSourceKindCount = computed(() => {
+    const policy = this.state()?.task.effectivePolicy;
+    if (!policy) {
+      return 0;
+    }
+
+    return Number(policy.webEnabled) + Number(policy.projectFilesEnabled);
+  });
+  readonly detailsId = `${this.owner}-details`;
 
   constructor() {
     this.unregisterProtectedStateClearer = this.realtime?.registerProtectedStateClearer(
@@ -118,6 +128,16 @@ export class TaskExecutionScopeComponent implements OnChanges, OnDestroy {
 
   retry(): void {
     this.loadScope();
+  }
+
+  focusScopeDetails(): void {
+    const details = this.detailsElement()?.nativeElement;
+    if (!details) {
+      return;
+    }
+
+    details.focus({ preventScroll: true });
+    details.scrollIntoView?.({ block: 'nearest' });
   }
 
   setProjectWebEnabled(event: Event): void {

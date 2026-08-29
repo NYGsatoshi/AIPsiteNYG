@@ -2,7 +2,8 @@
 
 Last broad implementation audit: 2026-06-18. WPC-02B Workspace-create
 security-boundary update: 2026-08-24. WS-02 active-Workspace and WS-03
-Workspace-create client-boundary update: 2026-08-24.
+Workspace-create client-boundary update: 2026-08-24. Issue #339 Task context
+summary boundary update: 2026-08-30.
 
 This document separates implemented security controls from intended policy. Root `SECURITY.md` describes vulnerability reporting; `docs/SECURITY.md` contains additional engineering guidance.
 
@@ -391,6 +392,14 @@ outbound request or access file material. Web egress, redirect/IP/SSRF policy,
 content retention, revocation, source capture, provider selection, and output
 authorization remain unapproved future work; the foundation must not be used
 to imply their security controls exist.
+
+Issue #339 derives its compact Task context summary exclusively from this
+authorized projection. Its numeric value is the count of enabled generic
+policy kinds (`Web` and `Project files`), never a file/site/App/integration or
+resource inventory count. It displays the server-owned effective origin and
+uses the existing authoritative refetch and protected-state clearing boundary;
+authorization loss removes the compact and detailed projections together.
+The summary adds no read, mutation, provider, or runtime authority.
 
 ### Immediate Task notification boundary
 
