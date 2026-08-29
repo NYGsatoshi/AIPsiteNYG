@@ -26,17 +26,20 @@ describe('TopBarComponent', () => {
     return fixture;
   }
 
-  afterEach(() => TestBed.resetTestingModule());
+  afterEach(() => {
+    window.localStorage.removeItem('aip.locale');
+    TestBed.resetTestingModule();
+  });
 
   it('separates Workspace context/actions from global actions and exposes textual Research state', async () => {
     const fixture = await createComponent();
     const element = fixture.nativeElement as HTMLElement;
 
-    expect(element.querySelector('nav[aria-label="Workspace actions"]')?.textContent).toContain('Members');
-    expect(element.querySelector('nav[aria-label="Global actions"]')?.textContent).toContain('Notifications');
-    expect(element.querySelector('nav[aria-label="Global actions"]')?.textContent).toContain('Account');
-    expect(element.querySelector('[data-testid="workspace-research-status"]')?.textContent).toContain('2 Running');
-    expect(element.querySelector('[data-testid="workspace-research-status"]')?.textContent).toContain('1 Needs review');
+    expect(element.querySelector('nav[aria-label="ワークスペースの操作"]')?.textContent).toContain('メンバー');
+    expect(element.querySelector('nav[aria-label="共通の操作"]')?.textContent).toContain('通知');
+    expect(element.querySelector('nav[aria-label="共通の操作"]')?.textContent).toContain('アカウント');
+    expect(element.querySelector('[data-testid="workspace-research-status"]')?.textContent).toContain('2 進行中');
+    expect(element.querySelector('[data-testid="workspace-research-status"]')?.textContent).toContain('1 要レビュー');
     expect(element.querySelector('[data-testid="workspace-search-input"]')).not.toBeNull();
     expect(element.querySelector('[data-testid="page-search"]')).toBeNull();
   });
@@ -66,12 +69,12 @@ describe('TopBarComponent', () => {
     const status = (fixture.nativeElement as HTMLElement).querySelector(
       '[data-testid="workspace-research-status"]'
     );
-    expect(status?.textContent).toContain('0 Running');
-    expect(status?.textContent).toContain('0 Needs review');
+    expect(status?.textContent).toContain('0 進行中');
+    expect(status?.textContent).toContain('0 要レビュー');
 
     fixture.componentRef.setInput('runningProjectCount', null);
     fixture.detectChanges();
-    expect(status?.textContent).toContain('Status unavailable');
+    expect(status?.textContent).toContain('状況を取得できません');
   });
 
   it('fails closed when selection data or member capability is unavailable', async () => {
