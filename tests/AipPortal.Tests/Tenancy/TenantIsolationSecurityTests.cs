@@ -413,6 +413,144 @@ public sealed class TenantIsolationSecurityTests
         Assert.NotEqual("AuditEventNotFound", result.ErrorDetail?.Code);
     }
 
+    [Fact]
+    public async Task AuditSensitiveMetadataRequiresIndependentCapabilityBeforeIdentifierLookup()
+    {
+        var (dbContext, currentTenant, data) = await CreateSeededContextAsync();
+        currentTenant.SetTenant(data.TenantA.Id, data.TenantA.Slug);
+        var existingAuditId = await dbContext.AuditLogs
+            .Where(log => log.TenantId == data.TenantA.Id)
+            .Select(log => log.Id)
+            .SingleAsync();
+        var service = CreateAuditQueryService(
+            dbContext,
+            currentTenant,
+            data.TenantAAdmin,
+            new FixedAuditAuthorizationService(new AuditCapabilityResponse(
+                CanView: true,
+                CanReview: true,
+                CanApprove: false,
+                CanExport: false,
+                CanViewSensitiveMetadata: false)));
+
+        var existing = await service.GetAuditSensitiveMetadataAsync(existingAuditId);
+        var absent = await service.GetAuditSensitiveMetadataAsync(Guid.NewGuid());
+        var malformed = await service.GetAuditSensitiveMetadataAsync(Guid.Empty);
+
+        Assert.False(existing.IsSuccess);
+        Assert.Equal("CapabilityDenied", existing.ErrorDetail?.Code);
+        Assert.Equal(existing.ErrorDetail, absent.ErrorDetail);
+        Assert.Equal(existing.Error, absent.Error);
+        Assert.Equal(existing.ErrorDetail, malformed.ErrorDetail);
+        Assert.Equal(existing.Error, malformed.Error);
+    }
+
+    [Fact]
+    public async Task AuditSensitiveMetadataIsTenantScopedAndRecursivelyRemovesProhibitedFields()
+    {
+        var (dbContext, currentTenant, data) = await CreateSeededContextAsync();
+        var otherTenantAuditId = await dbContext.AuditLogs.IgnoreQueryFilters()
+            .Where(log => log.TenantId == data.TenantB.Id)
+            .Select(log => log.Id)
+            .SingleAsync();
+        currentTenant.SetTenant(data.TenantA.Id, data.TenantA.Slug);
+        var currentTenantAudit = new AuditLog
+        {
+            TenantId = data.TenantA.Id,
+            ActorUserId = data.TenantAAdmin.Id,
+            Action = "audit.metadata.read",
+            EntityType = "AuditLog",
+            WorkspaceId = data.WorkspaceA.Id,
+            Summary = "Metadata disclosure test.",
+            MetadataJson = """
+                {
+                  "outcome": "Allowed",
+                  "change": { "category": "Role", "refreshToken": "never-return", "secret": "never-return" },
+                  "items": [
+                    { "field": "status", "from": "Pending", "to": "Active" },
+                    { "body": "private body", "claimId": "excluded contract", "evidenceId": "excluded contract" }
+                  ]
+                }
+                """,
+            CreatedAt = DateTimeOffset.UtcNow,
+        };
+        dbContext.AuditLogs.Add(currentTenantAudit);
+        await dbContext.SaveChangesAsync();
+        var service = CreateAuditQueryService(
+            dbContext,
+            currentTenant,
+            data.TenantAAdmin,
+            new FixedAuditAuthorizationService(new AuditCapabilityResponse(
+                CanView: true,
+                CanReview: true,
+                CanApprove: false,
+                CanExport: false,
+                CanViewSensitiveMetadata: true)));
+
+        var visible = await service.GetAuditSensitiveMetadataAsync(currentTenantAudit.Id);
+        var crossTenant = await service.GetAuditSensitiveMetadataAsync(otherTenantAuditId);
+        var absent = await service.GetAuditSensitiveMetadataAsync(Guid.NewGuid());
+        var malformed = await service.GetAuditSensitiveMetadataAsync(Guid.Empty);
+
+        Assert.True(visible.IsSuccess);
+        Assert.Equal(currentTenantAudit.Id, visible.Value!.AuditId);
+        Assert.True(visible.Value.RedactionApplied);
+        var payload = visible.Value.Metadata.ToJsonString();
+        Assert.Contains("Allowed", payload, StringComparison.Ordinal);
+        Assert.Contains("Role", payload, StringComparison.Ordinal);
+        Assert.Contains("Pending", payload, StringComparison.Ordinal);
+        Assert.DoesNotContain("never-return", payload, StringComparison.Ordinal);
+        Assert.DoesNotContain("private body", payload, StringComparison.Ordinal);
+        Assert.DoesNotContain("excluded contract", payload, StringComparison.Ordinal);
+        Assert.DoesNotContain("secret", payload, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("claim", payload, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("evidence", payload, StringComparison.OrdinalIgnoreCase);
+
+        Assert.False(crossTenant.IsSuccess);
+        Assert.Equal("AuditEventNotFound", crossTenant.ErrorDetail?.Code);
+        Assert.Equal(absent.ErrorDetail, crossTenant.ErrorDetail);
+        Assert.Equal(absent.Error, crossTenant.Error);
+        Assert.Equal(absent.ErrorDetail, malformed.ErrorDetail);
+        Assert.Equal(absent.Error, malformed.Error);
+    }
+
+    [Fact]
+    public async Task AuditGridListNeverIncludesSensitiveMetadataPayload()
+    {
+        var (dbContext, currentTenant, data) = await CreateSeededContextAsync();
+        currentTenant.SetTenant(data.TenantA.Id, data.TenantA.Slug);
+        const string safeMetadataValue = "metadata-value-only-for-exact-event";
+        dbContext.AuditLogs.Add(new AuditLog
+        {
+            TenantId = data.TenantA.Id,
+            ActorUserId = data.TenantAAdmin.Id,
+            Action = "audit.metadata.list-boundary",
+            EntityType = "AuditLog",
+            WorkspaceId = data.WorkspaceA.Id,
+            Summary = "List boundary test.",
+            MetadataJson = $$"""{"outcome":"{{safeMetadataValue}}"}""",
+            CreatedAt = DateTimeOffset.UtcNow,
+        });
+        await dbContext.SaveChangesAsync();
+        var service = CreateAuditQueryService(
+            dbContext,
+            currentTenant,
+            data.TenantAAdmin,
+            new FixedAuditAuthorizationService(new AuditCapabilityResponse(
+                CanView: true,
+                CanReview: true,
+                CanApprove: false,
+                CanExport: false,
+                CanViewSensitiveMetadata: true)));
+
+        var result = await service.ListAuditGridAsync(new AuditLogQuery(Page: 1, PageSize: 100));
+
+        Assert.True(result.IsSuccess);
+        var payload = JsonSerializer.Serialize(result.Value);
+        Assert.DoesNotContain(safeMetadataValue, payload, StringComparison.Ordinal);
+        Assert.DoesNotContain("MetadataJson", payload, StringComparison.OrdinalIgnoreCase);
+    }
+
  [Fact]
 public async Task WorkspaceAdminCannotReadAuditLogsForTheirWorkspace()
 {
@@ -658,13 +796,29 @@ public async Task WorkspaceAdminCannotReadAuditLogsForTheirWorkspace()
         public Task<bool> HasCapabilityAsync(
             string capabilityKey,
             CancellationToken cancellationToken = default) =>
-            Task.FromResult(capabilityKey == CapabilityKeys.AuditView && capabilities.CanView);
+            Task.FromResult(capabilityKey switch
+            {
+                CapabilityKeys.AuditView => capabilities.CanView,
+                CapabilityKeys.AuditReview => capabilities.CanReview,
+                CapabilityKeys.AuditApprove => capabilities.CanApprove,
+                CapabilityKeys.AuditExport => capabilities.CanExport,
+                CapabilityKeys.AuditSensitiveMetadataView => capabilities.CanViewSensitiveMetadata,
+                _ => false,
+            });
 
         public Task<Result> AuthorizeAsync(
             string capabilityKey,
             string operation,
             CancellationToken cancellationToken = default) =>
-            Task.FromResult(capabilities.CanView
+            Task.FromResult((capabilityKey switch
+            {
+                CapabilityKeys.AuditView => capabilities.CanView,
+                CapabilityKeys.AuditReview => capabilities.CanReview,
+                CapabilityKeys.AuditApprove => capabilities.CanApprove,
+                CapabilityKeys.AuditExport => capabilities.CanExport,
+                CapabilityKeys.AuditSensitiveMetadataView => capabilities.CanViewSensitiveMetadata,
+                _ => false,
+            })
                 ? Result.Success()
                 : Result.Failure(new ApplicationErrorDetail(
                     "CapabilityDenied",

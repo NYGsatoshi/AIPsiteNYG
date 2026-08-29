@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using AipPortal.Application.Audit;
 using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
@@ -116,6 +117,79 @@ public sealed class AuditControllerTests
         Assert.DoesNotContain("Claims", payload, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("Evidence", payload, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("Duration", payload, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task AdminAuditSensitiveMetadata_UsesGenericNotFoundForMalformedIdentifier()
+    {
+        var audit = new CapturingAuditQueryService(
+            sensitiveMetadataResult: Result<AuditSensitiveMetadataResponse>.Failure(
+                new ApplicationErrorDetail(
+                    "AuditEventNotFound",
+                    "The requested audit event is not available.")));
+        var controller = CreateController(
+            audit,
+            capabilities: new AuditCapabilityResponse(true, false, false, false, true));
+
+        var result = await controller.AdminAuditSensitiveMetadata(
+            "not-an-audit-id",
+            CancellationToken.None);
+
+        var notFound = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status404NotFound, notFound.StatusCode);
+        Assert.Equal(Guid.Empty, audit.LastSensitiveMetadataId);
+        var payload = JsonSerializer.Serialize(notFound.Value);
+        Assert.Contains("AuditEventNotFound", payload, StringComparison.Ordinal);
+        Assert.DoesNotContain("not-an-audit-id", payload, StringComparison.Ordinal);
+        Assert.DoesNotContain("The requested audit event is not available.", payload, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AdminAuditSensitiveMetadata_ReturnsCapabilityDenialWithoutSensitiveValues()
+    {
+        var audit = new CapturingAuditQueryService(
+            sensitiveMetadataResult: Result<AuditSensitiveMetadataResponse>.Failure(
+                new ApplicationErrorDetail(
+                    "CapabilityDenied",
+                    "The requested Audit operation is not permitted.")));
+        var controller = CreateController(
+            audit,
+            capabilities: new AuditCapabilityResponse(true, true, false, false, false));
+
+        var result = await controller.AdminAuditSensitiveMetadata(
+            Guid.NewGuid().ToString("D"),
+            CancellationToken.None);
+
+        var forbidden = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status403Forbidden, forbidden.StatusCode);
+        var payload = JsonSerializer.Serialize(forbidden.Value);
+        Assert.Contains("CapabilityDenied", payload, StringComparison.Ordinal);
+        Assert.DoesNotContain("metadata", payload, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task AdminAuditSensitiveMetadata_AppliesCanonicalServerRedaction()
+    {
+        var auditId = Guid.NewGuid();
+        var metadata = JsonNode.Parse(
+            """{"outcome":"Allowed","nested":{"secret":"must-not-render","category":"Policy"}}""")!
+            .AsObject();
+        var audit = new CapturingAuditQueryService(
+            sensitiveMetadataResult: Result<AuditSensitiveMetadataResponse>.Success(
+                new AuditSensitiveMetadataResponse(auditId, metadata, RedactionApplied: true)));
+        var controller = CreateController(
+            audit,
+            capabilities: new AuditCapabilityResponse(true, true, false, false, true));
+
+        var result = await controller.AdminAuditSensitiveMetadata(
+            auditId.ToString("D"),
+            CancellationToken.None);
+
+        var payload = SerializeOk(result);
+        Assert.Contains("Allowed", payload, StringComparison.Ordinal);
+        Assert.Contains("Policy", payload, StringComparison.Ordinal);
+        Assert.DoesNotContain("must-not-render", payload, StringComparison.Ordinal);
+        Assert.DoesNotContain("secret", payload, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -274,17 +348,24 @@ public sealed class AuditControllerTests
 
     private sealed class CapturingAuditQueryService(
         IReadOnlyList<SecurityEventListItemResponse>? securityEvents = null,
-        Result<AuditGridRowResponse>? gridRowResult = null) : IAuditQueryService
+        Result<AuditGridRowResponse>? gridRowResult = null,
+        Result<AuditSensitiveMetadataResponse>? sensitiveMetadataResult = null) : IAuditQueryService
     {
         private readonly IReadOnlyList<SecurityEventListItemResponse> securityEvents = securityEvents ?? [];
         private readonly Result<AuditGridRowResponse> gridRowResult = gridRowResult ??
             Result<AuditGridRowResponse>.Failure(new ApplicationErrorDetail(
                 "AuditEventNotFound",
                 "The requested audit event is not available."));
+        private readonly Result<AuditSensitiveMetadataResponse> sensitiveMetadataResult =
+            sensitiveMetadataResult ?? Result<AuditSensitiveMetadataResponse>.Failure(
+                new ApplicationErrorDetail(
+                    "AuditEventNotFound",
+                    "The requested audit event is not available."));
 
         public AuditLogQuery? LastGridQuery { get; private set; }
         public Guid? LastGridRowId { get; private set; }
         public Result<AuditGridRowResponse>? LastGridRowResult { get; private set; }
+        public Guid? LastSensitiveMetadataId { get; private set; }
 
         public Task<Result<PagedResponse<AuditLogListItemResponse>>> ListAuditLogsAsync(
             AuditLogQuery query,
@@ -318,6 +399,14 @@ public sealed class AuditControllerTests
             LastGridRowId = auditId;
             LastGridRowResult = gridRowResult;
             return Task.FromResult(gridRowResult);
+        }
+
+        public Task<Result<AuditSensitiveMetadataResponse>> GetAuditSensitiveMetadataAsync(
+            Guid auditId,
+            CancellationToken cancellationToken = default)
+        {
+            LastSensitiveMetadataId = auditId;
+            return Task.FromResult(sensitiveMetadataResult);
         }
 
         public Task<Result<PagedResponse<SecurityEventListItemResponse>>> ListSecurityEventsAsync(

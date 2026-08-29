@@ -723,6 +723,17 @@ This validation is heuristic and does not replace a secret manager, credential r
 - Many important service actions emit audit events.
 - Trace IDs are present in global exception responses.
 
+Issue #349 adds a read-only, exact-event disclosure boundary for stored Audit
+metadata. `GET /api/admin/audit-grid/{auditId}/sensitive-metadata` requires both
+`audit.view` and the independent `audit.sensitive_metadata.view` capability
+before the identifier is queried. Tenant scope is applied before ID matching;
+absent, malformed, and cross-Tenant IDs therefore return the same generic 404,
+while capability denial is a generic 403. The response contains a parsed JSON
+object, never the persisted JSON string. A recursive server policy removes
+prohibited secrets, content bodies, personal/medical contact data, raw search or
+export content, and Claims/Evidence fields from legacy/imported rows. List,
+count, and error responses do not carry this object.
+
 Needs verification:
 
 - retention and tamper controls;

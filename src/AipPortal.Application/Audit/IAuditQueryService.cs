@@ -15,5 +15,14 @@ public interface IAuditQueryService
     /// </summary>
     Task<Result<AuditGridRowResponse>> GetAuditGridRowAsync(Guid auditId, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Returns only the selected event's stored, recursively sanitized metadata.
+    /// The independent audit.sensitive_metadata.view capability and exact
+    /// Tenant/platform scope are checked before the identifier is queried.
+    /// </summary>
+    Task<Result<AuditSensitiveMetadataResponse>> GetAuditSensitiveMetadataAsync(
+        Guid auditId,
+        CancellationToken cancellationToken = default);
+
     Task<Result<PagedResponse<SecurityEventListItemResponse>>> ListSecurityEventsAsync(SecurityEventQuery query, CancellationToken cancellationToken = default);
 }

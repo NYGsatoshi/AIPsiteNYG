@@ -87,6 +87,49 @@
 .admin-drawer__section {
   display: grid;
   gap: 0.5rem;
+  min-width: 0;
+}
+
+.admin-drawer__disclosure-note,
+.admin-drawer__redaction-note {
+  color: var(--aip-color-text-secondary);
+  font-size: var(--aip-font-size-sm);
+}
+
+.admin-drawer__disclosure {
+  justify-self: start;
+  border: 1px solid var(--aip-color-border-strong);
+  border-radius: var(--aip-radius-sm);
+  background: var(--aip-color-bg-surface-subtle);
+  color: var(--aip-color-text-primary);
+  cursor: pointer;
+  min-height: var(--aip-touch-target);
+  padding: 0.4rem 0.7rem;
+}
+
+.admin-drawer__disclosure:focus-visible,
+.admin-drawer__metadata pre:focus-visible {
+  outline: var(--aip-focus-outline);
+  outline-offset: var(--aip-focus-offset);
+}
+
+.admin-drawer__metadata {
+  min-width: 0;
+}
+
+.admin-drawer__metadata pre {
+  box-sizing: border-box;
+  max-width: 100%;
+  max-height: 20rem;
+  margin: 0;
+  overflow: auto;
+  border: 1px solid var(--aip-color-border-default);
+  border-radius: var(--aip-radius-sm);
+  background: var(--aip-color-bg-surface-subtle);
+  color: var(--aip-color-text-primary);
+  padding: var(--aip-space-3);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .admin-drawer__state {

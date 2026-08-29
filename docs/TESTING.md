@@ -131,6 +131,23 @@ not applicable to the local browser-history behavior. See
 `docs/verification/p0-continue-working.md` for exact candidate results and
 remaining exact-head gates.
 
+### Issue #349 exact-event Audit metadata disclosure
+
+Focused backend coverage verifies the independent sensitive-metadata
+capability is denied before identifier lookup, current-Tenant projection,
+generic absent/malformed/cross-Tenant 404 behavior, recursive prohibited-field
+removal, canonical response redaction, and absence of metadata from the Audit
+grid list and errors. These tests use EF Core InMemory; the change adds no
+schema or provider-specific query.
+
+Focused Angular coverage verifies capability-gated presentation, no request
+before explicit disclosure, safe text-only JSON rendering, fixed error text,
+hide/focus behavior, exact-event request cancellation, and stale-response
+rejection. The static Playwright case exercises the same flow at 320 pixels
+with keyboard activation, horizontal-overflow checks, and axe. Its responses
+are mocked and do not replace backend authorization evidence. See
+`docs/verification/p0-audit-sensitive-metadata.md`.
+
 ### Issue #356 Files inspector tabs
 
 Focused Angular coverage verifies the single Preview/Details/Activity
