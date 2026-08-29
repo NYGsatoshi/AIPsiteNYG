@@ -175,6 +175,49 @@
             >Close</button>
           </header>
 
+          <div class="files-page__preview-actions" role="toolbar" aria-label="Preview actions">
+            <a
+              class="files-page__preview-action"
+              [attr.href]="previewCanOpen() ? previewUrl() : null"
+              [attr.aria-disabled]="!previewCanOpen()"
+              [attr.tabindex]="previewCanOpen() ? 0 : -1"
+              target="_blank"
+              rel="noopener noreferrer"
+              data-testid="files-preview-open"
+            >Open</a>
+            <button
+              type="button"
+              [disabled]="!file.canonicalFileId"
+              (click)="copyPreviewCitation()"
+              data-testid="files-preview-cite"
+            >Cite</button>
+            <a
+              class="files-page__preview-action"
+              [attr.href]="researchHandoffHref()"
+              [attr.aria-disabled]="!researchHandoffHref()"
+              [attr.tabindex]="researchHandoffHref() ? 0 : -1"
+              data-testid="files-preview-research"
+            >Researchに追加</a>
+            <button
+              type="button"
+              [disabled]="!previewCanShare()"
+              (click)="sharePreview()"
+              data-testid="files-preview-share"
+            >Share</button>
+            <details>
+              <summary class="files-page__preview-action" aria-label="More preview actions" data-testid="files-preview-more">…</summary>
+              <button
+                type="button"
+                [disabled]="!previewCanDownload()"
+                (click)="downloadPreviewFile()"
+                data-testid="files-preview-download"
+              >Download</button>
+            </details>
+          </div>
+          @if (previewActionStatus()) {
+            <p role="status" aria-live="polite" data-testid="files-preview-action-status">{{ previewActionStatus() }}</p>
+          }
+
           <p class="files-page__preview-meta">{{ file.contentType }} · {{ formatBytes(file.sizeBytes) }}</p>
 
           <div class="files-page__preview-body">
@@ -219,15 +262,6 @@
                 <p class="files-page__preview-note" role="status">{{ previewMessage() }}</p>
               }
             }
-          </div>
-
-          <div class="files-page__preview-actions">
-            <button
-              type="button"
-              [disabled]="!previewCanDownload()"
-              (click)="downloadPreviewFile()"
-              data-testid="files-preview-download"
-            >Download</button>
           </div>
         } @else {
           <div class="files-page__preview-empty" data-testid="files-preview-empty">
