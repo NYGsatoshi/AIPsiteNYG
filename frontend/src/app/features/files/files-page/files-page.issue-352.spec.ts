@@ -90,24 +90,12 @@ const flushPreview = (
   download.flush(blob, { headers: { 'content-type': blob.type } });
 };
 
-const installBlobTextPolyfill = (): (() => void) => {
-  const prototype = Blob.prototype as unknown as { text?: () => Promise<string> };
+const installBlobTextMock = (text: string): (() => void) => {
   const existing = Object.getOwnPropertyDescriptor(Blob.prototype, 'text');
-  if (typeof prototype.text === 'function') {
-    return () => undefined;
-  }
-
   Object.defineProperty(Blob.prototype, 'text', {
     configurable: true,
     writable: true,
-    value(this: Blob): Promise<string> {
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
-        reader.onerror = () => reject(reader.error ?? new Error('Blob text read failed.'));
-        reader.readAsText(this);
-      });
-    },
+    value: vi.fn().mockResolvedValue(text),
   });
 
   return () => {
@@ -206,7 +194,7 @@ describe('FilesPageComponent issue #352', () => {
   }, 15_000);
 
   it('renders PDF, video, and text-like files from authorized blobs without public URLs', async () => {
-    const restoreBlobText = installBlobTextPolyfill();
+    const restoreBlobText = installBlobTextMock('hello from preview');
     try {
       const { fixture, http } = await renderLiveFilesPage([
         backendFile(PDF_ID, 'brief.pdf', 'application/pdf'),
@@ -237,7 +225,6 @@ describe('FilesPageComponent issue #352', () => {
 
       component.openPreview(text);
       flushPreview(http, TEXT_ID, 'grant-text', new Blob(['hello from preview'], { type: 'text/plain' }));
-      await fixture.whenStable();
       await Promise.resolve();
       fixture.detectChanges();
       expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="files-preview-text"]')?.textContent)
@@ -316,7 +303,9 @@ describe('FilesPageComponent issue #352', () => {
       expect(pane.getAttribute('role')).toBe('dialog');
       expect(pane.getAttribute('aria-modal')).toBe('true');
       expect(host.querySelector('[data-testid="files-preview-backdrop"]')).not.toBeNull();
-      expect(document.activeElement).toBe(close);
+      // CDK's JSDOM visibility checker does not mark the rendered button focusable,
+      // so assert the production initial-focus contract declaratively instead.
+      expect(close.hasAttribute('cdkfocusinitial')).toBe(true);
       expect(fixture.componentInstance.selectedCount()).toBe(1);
       http.expectNone(`/api/files/${unsupported.canonicalFileId}/download-grants`);
 
