@@ -26,11 +26,11 @@ Use these in order:
 
 ## Migration history
 
-There are fifty timestamped EF migration classes in the current source,
+There are fifty-one timestamped EF migration classes in the current source,
 from:
 
 - `20260606135558_InitialCreate`
-- through `20260827154230_AddMessageThreadRootContext`
+- through `20260829153230_AddConversationInboxLater`
 
 Migration files live in `src/AipPortal.Infrastructure/Persistence/Migrations/`.
 
@@ -100,6 +100,21 @@ it is not projected through general Tenant membership DTOs. Updating it also
 updates the membership row's existing `UpdatedAt` audit timestamp. The Down
 path removes only the new column; values written to it are not retained after
 rollback.
+
+### Issue #355 private Later state and inbox index
+
+Migration `20260829153230_AddConversationInboxLater` adds the non-null Boolean
+`conversation_members.IsLater` with default `false` and the query index
+`(TenantId, UserId, IsLater)`. The default preserves every existing
+participant as not deferred without changing read cursors, unread state,
+mentions, mute, archive, or membership lifecycle.
+
+Later is participant-private workflow state. It is stored on the same exact
+current-user membership row as mute/archive and is never aggregated from
+another participant. Inbox rows and all four category counts first compose the
+existing recursive readable-Conversation relation, then apply unread,
+recipient-owned Mention, or Later predicates. The Down path drops only this
+index and column.
 
 ### Issue #362 same-Conversation Message threads
 

@@ -298,10 +298,25 @@ Indexes:
 ### ConversationMember
 
 - `Id`
+- `TenantId`
 - `ConversationId`
 - `UserId`
+- `Role`
+- `CanRead`
+- `CanPost`
+- `CanManageMembers`
+- `CanCreateThread`
 - `JoinedAtUtc`
+- `LeftAtUtc` nullable
+- `RemovedAtUtc` nullable
+- `LastOpenedAtUtc` nullable
 - `LastReadMessageId` nullable
+- `LastReadAtUtc` nullable
+- `UnreadCursorMessageId` nullable
+- `IsMuted`
+- `IsArchived`
+- `IsLater` — current participant's private follow-up state; independent of
+  read and Mention state
 
 ### Message
 

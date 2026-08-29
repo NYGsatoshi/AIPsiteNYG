@@ -114,6 +114,7 @@ public sealed class MentionAttentionResolverTests
             Task.FromResult(messages.GetValueOrDefault(messageId));
 
         public Task<PagedResponse<Conversation>> ListForUserAsync(Guid userId, int page, int pageSize, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<ConversationInboxRepositoryResult> ListInboxForUserAsync(Guid userId, ConversationInboxView view, int page, int pageSize, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public IQueryable<Guid>? QueryReadableConversationIds(Guid userId) => null;
         public Task<IReadOnlySet<Guid>> FilterReadableConversationIdsAsync(Guid userId, IReadOnlyCollection<Guid> conversationIds, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<User>> SearchDirectRecipientsAsync(Guid userId, string? query, int limit, CancellationToken cancellationToken = default) => throw new NotSupportedException();

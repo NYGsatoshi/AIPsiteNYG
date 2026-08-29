@@ -87,9 +87,11 @@ public sealed class ConversationMemberConfiguration : IEntityTypeConfiguration<C
         builder.Property(member => member.CanCreateThread).IsRequired().HasDefaultValue(true);
         builder.Property(member => member.IsMuted).IsRequired().HasDefaultValue(false);
         builder.Property(member => member.IsArchived).IsRequired().HasDefaultValue(false);
+        builder.Property(member => member.IsLater).IsRequired().HasDefaultValue(false);
 
         builder.HasIndex(member => new { member.TenantId, member.ConversationId, member.UserId }).IsUnique();
         builder.HasIndex(member => new { member.TenantId, member.UserId });
+        builder.HasIndex(member => new { member.TenantId, member.UserId, member.IsLater });
         builder.HasIndex(member => member.UserId);
         builder.HasIndex(member => member.LastOpenedAt);
         builder.HasIndex(member => member.LastReadMessageId);

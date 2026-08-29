@@ -7,6 +7,7 @@ namespace AipPortal.Application.Common.Interfaces;
 public interface IMessagingRepository
 {
     Task<PagedResponse<Conversation>> ListForUserAsync(Guid userId, int page, int pageSize, CancellationToken cancellationToken = default);
+    Task<ConversationInboxRepositoryResult> ListInboxForUserAsync(Guid userId, ConversationInboxView view, int page, int pageSize, CancellationToken cancellationToken = default);
     /// <summary>
     /// Returns the provider-composable authoritative Conversation readability
     /// relation, or <see langword="null"/> when the provider requires the
@@ -35,3 +36,7 @@ public interface IMessagingRepository
     Task AddReadStateAsync(ReadState readState, CancellationToken cancellationToken = default);
     Task AddAttachmentAsync(Attachment attachment, MessageAttachment link, CancellationToken cancellationToken = default);
 }
+
+public sealed record ConversationInboxRepositoryResult(
+    PagedResponse<Conversation> Page,
+    ConversationInboxCountsResponse Counts);

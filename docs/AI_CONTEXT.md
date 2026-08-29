@@ -106,15 +106,32 @@ Project references enforce a conventional dependency direction. See `docs/ARCHIT
 
 - Issue #359 adds an expanded desktop Messages search and a one-action mobile
   search/filter disclosure. Text matches come only from the existing bounded,
-  server-authorized `type=Message` Search projection. Unread and `@Me` chips
-  operate only on authorized Conversation-list metadata and remain visibly
-  separate from server Message matches. Every condition is explicit and
-  removable, and zero results provide Change search and Clear all recovery.
+  server-authorized `type=Message` Search projection. Conversation inbox
+  conditions remain visibly separate from server Message matches; Issue #355
+  upgrades those conditions to the authoritative All/Unread/Mentions/Later
+  projection described below. Every condition is explicit and removable, and
+  zero results provide Change search and Clear all recovery.
 - No attachment filter exists: BE-004 still leaves canonical Message
   attachment ownership/persistence unresolved. Advanced compound Message
   result filters remain Issue #367. See
   `docs/contracts/message-search-filters-v1.md` and
   `docs/verification/p1-message-search-filters.md`.
+
+### Issue #355 Conversation inbox candidate
+
+The Conversation list now has one server-authorized, paginated All/Unread/
+Mentions/Later projection. Each category total is a Conversation count over the
+same recursive current-readable relation used by production Messaging; rows
+outside that relation contribute no count or metadata. Unread remains derived
+from the current user's read cursor, Mentions from unread recipient-owned
+Message Mention Notifications, and Later from a new private
+`ConversationMember.IsLater` Boolean. Updating Later uses the existing
+self-participant state route and does not mutate read or Mention state. The
+Angular Messages surface consumes these server counts and rows; frontend
+visibility is not authorization. This is Conversation-level inbox deferral
+only. It does not create a saved-Message identity, completion state, reminder,
+or notification schedule; those per-Message follow-up semantics remain owned by
+Issue #368.
 
 ### Current P0 authorization-recovery candidate
 
