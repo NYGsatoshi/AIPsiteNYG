@@ -7,7 +7,7 @@ import { FileDownloadGrantDto } from './files.api';
 
 export interface FilePreviewLoadResult {
   readonly ok: boolean;
-  readonly blob: Blob | null;
+  readonly blob: Blob;
   readonly message: string;
 }
 
@@ -58,7 +58,9 @@ export class FilePreviewService {
 }
 
 function previewFailure(message: string): FilePreviewLoadResult {
-  return { ok: false, blob: null, message };
+  // Callers gate on `ok` before reading `blob`. Keeping the field total avoids
+  // Angular template/build narrowing differences while preserving fail-closed behavior.
+  return { ok: false, blob: new Blob(), message };
 }
 
 function stringValue(value: unknown): string | undefined {
