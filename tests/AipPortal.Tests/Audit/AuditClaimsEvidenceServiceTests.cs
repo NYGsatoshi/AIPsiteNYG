@@ -116,6 +116,49 @@ public sealed class AuditClaimsEvidenceServiceTests
     }
 
     [Fact]
+    public async Task CrossTenantEventIdIsNotProjectedEvenInPlatformScope()
+    {
+        await using var fixture = await Fixture.CreateAsync(platformScope: true);
+        var crossTenantId = Guid.NewGuid();
+        var crossTenantEventId = Guid.NewGuid();
+        fixture.Context.Tenants.Add(new Tenant(crossTenantId)
+        {
+            Name = "Other tenant",
+            Slug = "other-tenant",
+            DisplayName = "Other tenant",
+            Status = TenantStatus.Active,
+        });
+        fixture.AddClaim(
+            ArtifactClaimSupportStatus.Supported,
+            new ArtifactEvidence
+            {
+                TenantId = fixture.TenantId,
+                Ordinal = 1,
+                SourceKind = ArtifactEvidenceSourceKind.WebSnapshot,
+                SourceReference = "web-ref",
+                PassageSnapshot = "Passage",
+                SourceEventAuditId = crossTenantEventId,
+            });
+        fixture.Context.AuditLogs.Add(new AuditLog
+        {
+            Id = crossTenantEventId,
+            TenantId = crossTenantId,
+            Action = "OtherTenantSourceCaptured",
+            EntityType = "ArtifactVersion",
+            EntityId = Guid.NewGuid(),
+            Summary = "Other tenant source captured.",
+            CreatedAt = DateTimeOffset.UtcNow,
+        });
+        await fixture.Context.SaveChangesAsync();
+
+        var result = await fixture.Service.GetAsync(fixture.Version.Id);
+
+        Assert.True(result.IsSuccess, result.Error ?? result.ErrorDetail?.Message);
+        var evidence = Assert.Single(Assert.Single(result.Value!.Claims).Evidence);
+        Assert.Null(evidence.SourceEventAuditId);
+    }
+
+    [Fact]
     public async Task AuditViewIsCheckedBeforeArtifactAuthorization()
     {
         await using var fixture = await Fixture.CreateAsync(canViewAudit: false);
@@ -169,11 +212,14 @@ public sealed class AuditClaimsEvidenceServiceTests
         public StubAuditAuthorization AuditAuthorization { get; }
         public DbAuditClaimsEvidenceService Service { get; }
 
-        public static async Task<Fixture> CreateAsync(bool canViewAudit = true, bool canViewArtifact = true)
+        public static async Task<Fixture> CreateAsync(
+            bool canViewAudit = true,
+            bool canViewArtifact = true,
+            bool platformScope = false)
         {
             var tenantId = Guid.NewGuid();
             var userId = Guid.NewGuid();
-            var currentTenant = new StubCurrentTenant(tenantId);
+            var currentTenant = new StubCurrentTenant(tenantId, platformScope);
             var context = new AppDbContext(
                 new DbContextOptionsBuilder<AppDbContext>()
                     .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
@@ -271,12 +317,12 @@ public sealed class AuditClaimsEvidenceServiceTests
         public ValueTask DisposeAsync() => Context.DisposeAsync();
     }
 
-    private sealed class StubCurrentTenant(Guid tenantId) : ICurrentTenant
+    private sealed class StubCurrentTenant(Guid tenantId, bool isPlatformScope) : ICurrentTenant
     {
         public Guid TenantId { get; } = tenantId;
         public bool IsAvailable => true;
-        public string? TenantSlug => "audit-test";
-        public bool IsPlatformScope => false;
+        public string? TenantSlug => isPlatformScope ? null : "audit-test";
+        public bool IsPlatformScope { get; } = isPlatformScope;
     }
 
     private sealed class StubCurrentUser(Guid userId) : ICurrentUser
