@@ -18,11 +18,13 @@
       </div>
       <div>
         <dt>Web</dt>
-        <dd data-testid="task-execution-scope-web">{{ current.task.effectivePolicy.webEnabled ? 'Allow — eligible under this Task scope' : 'Exclude — Disabled for this Task scope' }}</dd>
+        <dd data-testid="task-execution-scope-web">{{ current.task.effectivePolicy.webEnabled ? 'Enabled' : 'Disabled' }}</dd>
+        <dd data-testid="task-execution-scope-web-policy">{{ current.task.effectivePolicy.webEnabled ? 'Allow — eligible under this Task scope' : 'Exclude — not eligible under this Task scope' }}</dd>
       </div>
       <div>
         <dt>Project files</dt>
-        <dd data-testid="task-execution-scope-files">{{ current.task.effectivePolicy.projectFilesEnabled ? 'Allow — eligible under this Task scope' : 'Exclude — Disabled for this Task scope' }}</dd>
+        <dd data-testid="task-execution-scope-files">{{ current.task.effectivePolicy.projectFilesEnabled ? 'Enabled' : 'Disabled' }}</dd>
+        <dd data-testid="task-execution-scope-files-policy">{{ current.task.effectivePolicy.projectFilesEnabled ? 'Allow — eligible under this Task scope' : 'Exclude — not eligible under this Task scope' }}</dd>
       </div>
       <div>
         <dt>Specific sites</dt>
@@ -57,7 +59,7 @@
       This summary is the current next-run policy. Changes apply to future run requests only; a run policy snapshot is locked when that request is accepted.
     </p>
     <p class="task-execution-scope__runtime-notice" data-testid="task-execution-runtime-unavailable">
-      Execution provider: None. No execution runtime is configured; a run request can record an immutable policy snapshot, but no Web or Project-file I/O starts and the run finishes unavailable.
+      Execution provider: None. No execution runtime is configured; a run request can record an immutable policy snapshot, but no Web or Project-file I/O starts and the run finishes unavailable. No Web request can be sent from this screen.
     </p>
 
     @if (current.task.latestRun; as latestRun) {
