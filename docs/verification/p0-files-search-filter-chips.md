@@ -54,13 +54,15 @@ coverage only; they are not browser-to-ASP.NET Core integration evidence.
 - .NET Web build: passed with 0 warnings/errors.
 - Full .NET solution suite: passed. PostgreSQL-dependent cases were skipped
   because `POSTGRES_TEST_CONNECTION_STRING` is not set locally.
-- Focused Angular Files/chip selection: 56 passed across 7 files.
+- Focused Angular Files/chip selection after rebasing onto the Issue #356
+  inspector: 61 passed across 8 files.
 - Full Angular suite: 964 passed across 93 files.
 - Angular production build: passed. Existing repository bundle/style warnings
   remain non-blocking; the Files stylesheet remains below its hard 8 kB gate.
 - Syncfusion license policy, bundle analysis, and frontend architecture checks:
   passed (including all 4 architecture policy tests).
 - Focused Chromium desktop/mobile Playwright at a forced 320-pixel viewport:
-  2 passed, including keyboard chip removal, horizontal containment, and axe.
+  4 passed across the search/chip and inspector flows, including keyboard chip
+  removal, inspector tab operation, horizontal containment, and axe.
 - Conditional PostgreSQL execution is not claimed unless the required
   connection string is supplied; authoritative CI supplies that gate.
