@@ -8,8 +8,14 @@ public sealed class ArtifactClaimConfiguration : IEntityTypeConfiguration<Artifa
 {
     public void Configure(EntityTypeBuilder<ArtifactClaim> builder)
     {
+        // These append-only audit-evidence tables are intentionally managed by
+        // the explicit contract migration. Excluding them from automatic model
+        // differ operations keeps later unrelated migrations from rewriting the
+        // immutable evidence schema while the checked-in migration remains the
+        // deployment owner.
         builder.ToTable("artifact_claims", table =>
         {
+            table.ExcludeFromMigrations();
             table.HasCheckConstraint("CK_artifact_claims_ordinal", "\"Ordinal\" > 0");
         });
         builder.ConfigureAuditableEntity();
@@ -31,6 +37,7 @@ public sealed class ArtifactEvidenceConfiguration : IEntityTypeConfiguration<Art
     {
         builder.ToTable("artifact_evidence", table =>
         {
+            table.ExcludeFromMigrations();
             table.HasCheckConstraint("CK_artifact_evidence_ordinal", "\"Ordinal\" > 0");
         });
         builder.ConfigureAuditableEntity();
