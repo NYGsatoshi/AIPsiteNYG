@@ -15,6 +15,9 @@
 .task-execution-scope__error { border-color: var(--aip-color-danger); background: var(--aip-color-danger-subtle); color: var(--aip-color-danger); }
 .task-execution-scope__feedback { border-color: var(--aip-color-info); background: var(--aip-color-bg-selected); }
 .task-execution-scope__snapshot, .task-execution-scope__editor { display: grid; gap: var(--aip-space-3); }
+.task-execution-scope__major-state { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--aip-space-2); padding: var(--aip-space-3); border: 1px solid var(--aip-color-info); border-inline-start-width: 4px; border-radius: var(--aip-radius-md); background: var(--aip-color-bg-selected); }
+.task-execution-scope__major-state span { color: var(--aip-color-text-secondary); font-size: .875rem; }
+.task-execution-scope__major-state strong { font-size: 1.05rem; }
 .task-execution-scope__snapshot dl { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .task-execution-scope__form { display: grid; gap: var(--aip-space-2); }
 .task-execution-scope fieldset { display: grid; gap: var(--aip-space-3); min-width: 0; margin: 0; }
