@@ -3,6 +3,7 @@
     <app-file-row
       [file]="file"
       [selected]="selectedFileIds.has(file.id)"
+      (previewRequested)="previewRequested.emit($event)"
       (selectionChanged)="selectionChanged.emit($event)"
       (downloadRequested)="downloadRequested.emit($event)"
     />

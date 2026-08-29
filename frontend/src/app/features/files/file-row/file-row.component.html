@@ -11,7 +11,15 @@
   </label>
   <div class="file-row__main">
     <div class="file-row__title-line">
-      <h3 data-testid="file-name">{{ file.originalFileName }}</h3>
+      <h3 data-testid="file-name">
+        <button
+          type="button"
+          class="file-row__preview-trigger"
+          [attr.aria-label]="'Preview ' + file.originalFileName"
+          (click)="requestPreview()"
+          data-testid="preview-action"
+        >{{ file.originalFileName }}</button>
+      </h3>
       <app-file-scan-status-badge [status]="file.scanStatus" />
     </div>
 
@@ -33,19 +41,6 @@
         <dd>{{ file.createdAtLabel }}</dd>
       </div>
     </dl>
-
-    <p class="file-row__preview-policy" role="status" data-testid="preview-disabled">
-      Preview is not available in MVP0.
-      @if (file.kind === 'zip') {
-        <span>ZIP extraction and preview are disabled.</span>
-      } @else if (file.kind === 'video') {
-        <span>Video playback, streaming, and public video links are disabled.</span>
-      } @else if (file.kind === 'svg') {
-        <span>SVG is not rendered as an image.</span>
-      } @else if (file.kind === 'image') {
-        <span>Image rendering is disabled.</span>
-      }
-    </p>
   </div>
 
   <div class="file-row__actions">
