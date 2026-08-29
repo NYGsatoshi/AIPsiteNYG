@@ -23,10 +23,13 @@ public static class DependencyInjection
             ?? throw new InvalidOperationException("ConnectionStrings:DefaultConnection is not configured.");
 
         services.AddScoped<ProjectGovernanceSaveChangesInterceptor>();
+        services.AddScoped<TaskPhaseActivitySaveChangesInterceptor>();
         services.AddDbContext<AppDbContext>((serviceProvider, options) =>
             options
                 .UseNpgsql(connectionString)
-                .AddInterceptors(serviceProvider.GetRequiredService<ProjectGovernanceSaveChangesInterceptor>()));
+                .AddInterceptors(
+                    serviceProvider.GetRequiredService<ProjectGovernanceSaveChangesInterceptor>(),
+                    serviceProvider.GetRequiredService<TaskPhaseActivitySaveChangesInterceptor>()));
 
         services.AddScoped<IUserRepository, UserRepository>();
         services.AddScoped<ITenantRepository, TenantRepository>();
