@@ -61,8 +61,10 @@ describe('TaskExecutionScopeComponent canonical source-scope presentation', () =
 
     const native = fixture.nativeElement as HTMLElement;
     expect(native.querySelector('[data-testid="task-execution-scope-origin"]')?.textContent).toContain('Task override');
-    expect(native.querySelector('[data-testid="task-execution-scope-web"]')?.textContent).toContain('Allow');
-    expect(native.querySelector('[data-testid="task-execution-scope-files"]')?.textContent).toContain('Exclude');
+    expect(native.querySelector('[data-testid="task-execution-scope-web"]')?.textContent).toBe('Enabled');
+    expect(native.querySelector('[data-testid="task-execution-scope-web-policy"]')?.textContent).toContain('Allow');
+    expect(native.querySelector('[data-testid="task-execution-scope-files"]')?.textContent).toBe('Disabled');
+    expect(native.querySelector('[data-testid="task-execution-scope-files-policy"]')?.textContent).toContain('Exclude');
 
     const terms = native.querySelector('[data-testid="task-execution-scope-terms"]')?.textContent ?? '';
     expect(terms).toContain('Allow');
