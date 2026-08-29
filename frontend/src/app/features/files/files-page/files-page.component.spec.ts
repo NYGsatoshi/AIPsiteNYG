@@ -13,7 +13,7 @@ import { FilesPageViewModel } from '../files.types';
 import { AipFileUploaderComponent } from '../../../shared/ui/adapters/syncfusion/aip-file-uploader.component';
 import { FilesPageComponent } from './files-page.component';
 
-const WORKSPACE_ID = '11111111-1111-1111-1111-111111111111';
+const WORKSPACE_ID = '11111111-1111-4111-8111-111111111111';
 const FILE_OBJECT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
 const backendFile = {
@@ -116,6 +116,105 @@ describe('FilesPageComponent', () => {
     expect(textContent(fixture)).toContain('Upload accepted by backend.');
     expect(textContent(fixture)).toContain('note.txt');
   }, 15_000);
+
+  it('keeps File search and Type, Modified, and Owner filters in one scoped surface with removable chips', async () => {
+    const { fixture, http } = await renderLiveFilesPage([backendFile]);
+    const host = fixture.nativeElement as HTMLElement;
+    const input = host.querySelector('[data-testid="files-search-input"]') as HTMLInputElement;
+    const type = host.querySelector('[data-testid="files-filter-type"]') as HTMLSelectElement;
+    const modified = host.querySelector('[data-testid="files-filter-modified"]') as HTMLSelectElement;
+    const owner = host.querySelector('[data-testid="files-filter-owner"]') as HTMLSelectElement;
+
+    input.value = 'report';
+    input.dispatchEvent(new Event('input'));
+    type.value = 'pdf';
+    type.dispatchEvent(new Event('change'));
+    modified.value = 'last30Days';
+    modified.dispatchEvent(new Event('change'));
+    owner.value = 'me';
+    owner.dispatchEvent(new Event('change'));
+    (host.querySelector('[data-testid="files-search-surface"] form') as HTMLFormElement)
+      .dispatchEvent(new Event('submit'));
+    fixture.detectChanges();
+
+    const search = http.expectOne(request => request.url === '/api/search');
+    expect(search.request.params.get('workspaceId')).toBe(WORKSPACE_ID);
+    expect(search.request.params.get('type')).toBe('File');
+    expect(search.request.params.get('q')).toBe('report');
+    expect(search.request.params.get('fileKind')).toBe('Pdf');
+    expect(search.request.params.get('fromDate')).toBeTruthy();
+    expect(search.request.params.get('authorUserId')).toBe(DEFAULT_AUTH_SESSION.currentUser?.userId);
+    search.flush({
+      page: 1,
+      pageSize: 50,
+      totalCount: 1,
+      items: [{
+        type: 13,
+        id: FILE_OBJECT_ID,
+        title: 'report.pdf',
+        workspaceId: WORKSPACE_ID,
+        createdAt: '2026-08-20T00:00:00Z',
+        updatedAt: '2026-08-28T00:00:00Z',
+        authorDisplayName: 'Fixture User',
+        contentType: 'application/pdf',
+        sizeBytes: 2048,
+        status: 'Active',
+        scanStatus: 'Allowed',
+      }],
+    });
+    fixture.detectChanges();
+
+    expect(textContent(fixture)).toContain('Results and counts include only files you are currently authorized to view.');
+    expect(textContent(fixture)).toContain('Type: PDF');
+    expect(textContent(fixture)).toContain('Modified: Last 30 days');
+    expect(textContent(fixture)).toContain('Owner: Uploaded by me');
+    expect(textContent(fixture)).toContain('1 currently authorized file matches.');
+    expect(textContent(fixture)).toContain('report.pdf');
+
+    input.value = 'unsubmitted draft';
+    input.dispatchEvent(new Event('input'));
+    owner.value = 'any';
+    owner.dispatchEvent(new Event('change'));
+    const removeType = host.querySelector('button[aria-label="Remove filter Type: PDF"]') as HTMLButtonElement;
+    removeType.click();
+    const refreshed = http.expectOne(request => request.url === '/api/search');
+    expect(refreshed.request.params.has('fileKind')).toBe(false);
+    expect(refreshed.request.params.get('q')).toBe('report');
+    expect(refreshed.request.params.get('authorUserId')).toBe(DEFAULT_AUTH_SESSION.currentUser?.userId);
+    refreshed.flush({ page: 1, pageSize: 50, totalCount: 0, items: [] });
+    fixture.detectChanges();
+    expect(host.querySelector('button[aria-label="Remove filter Type: PDF"]')).toBeNull();
+  });
+
+  it('fails closed without rendering a mismatched Workspace search row or server count', async () => {
+    const { fixture, http } = await renderLiveFilesPage([]);
+    const host = fixture.nativeElement as HTMLElement;
+    const input = host.querySelector('[data-testid="files-search-input"]') as HTMLInputElement;
+    input.value = 'report';
+    input.dispatchEvent(new Event('input'));
+    (host.querySelector('[data-testid="files-search-surface"] form') as HTMLFormElement)
+      .dispatchEvent(new Event('submit'));
+    http.expectOne(request => request.url === '/api/search').flush({
+      page: 1,
+      pageSize: 50,
+      totalCount: 99,
+      items: [{
+        type: 13,
+        id: FILE_OBJECT_ID,
+        title: 'other-workspace-secret.pdf',
+        workspaceId: '22222222-2222-4222-8222-222222222222',
+        createdAt: '2026-08-20T00:00:00Z',
+        contentType: 'application/pdf',
+        sizeBytes: 1,
+        status: 'Active',
+      }],
+    });
+    fixture.detectChanges();
+
+    expect(textContent(fixture)).toContain('invalid or mismatched response');
+    expect(textContent(fixture)).not.toContain('other-workspace-secret.pdf');
+    expect(textContent(fixture)).not.toContain('99 files');
+  });
 
   it('keeps retry state when backend upload fails', async () => {
     const { fixture, http } = await renderLiveFilesPage([]);

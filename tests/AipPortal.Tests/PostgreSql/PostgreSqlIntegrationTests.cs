@@ -214,7 +214,48 @@ public sealed class PostgreSqlIntegrationTests
         Assert.Null(fileItem.Snippet);
         Assert.Equal(tenantAData.Workspace.Id, fileItem.WorkspaceId);
         Assert.Equal($"/workspaces/{tenantAData.Workspace.Id}/files", fileItem.Route);
+        Assert.Equal(tenantAData.FileObject.ContentType, fileItem.ContentType);
+        Assert.Equal(tenantAData.FileObject.SizeBytes, fileItem.SizeBytes);
+        Assert.Equal(tenantAData.FileObject.Status.ToString(), fileItem.Status);
+        Assert.Equal(tenantAData.Attachment.ScanStatus.ToString(), fileItem.ScanStatus);
+        Assert.Equal(tenantAData.FileObject.UpdatedAt, fileItem.UpdatedAt);
         Assert.DoesNotContain(tenantBData.FileObject.Id, workspaceFileResult.Value.Items.Select(item => item.Id));
+
+        var filteredFileResult = await search.SearchAsync(new SearchRequest(
+            "securesearchneedle",
+            SearchResultType.File,
+            WorkspaceId: tenantAData.Workspace.Id,
+            AuthorUserId: userA.Id,
+            FromDate: now.AddDays(-1),
+            PageSize: 50,
+            FileKind: FileSearchKind.Pdf));
+        Assert.True(filteredFileResult.IsSuccess, filteredFileResult.Error);
+        Assert.Equal(1, filteredFileResult.Value!.TotalCount);
+        Assert.Equal(tenantAData.FileObject.Id, Assert.Single(filteredFileResult.Value.Items).Id);
+
+        var wrongKindResult = await search.SearchAsync(new SearchRequest(
+            "securesearchneedle",
+            SearchResultType.File,
+            WorkspaceId: tenantAData.Workspace.Id,
+            PageSize: 50,
+            FileKind: FileSearchKind.Image));
+        Assert.True(wrongKindResult.IsSuccess, wrongKindResult.Error);
+        Assert.Empty(wrongKindResult.Value!.Items);
+        Assert.Equal(0, wrongKindResult.Value.TotalCount);
+
+        var invalidFacetType = await search.SearchAsync(new SearchRequest(
+            "securesearchneedle",
+            SearchResultType.Project,
+            WorkspaceId: tenantAData.Workspace.Id,
+            FileKind: FileSearchKind.Pdf));
+        Assert.False(invalidFacetType.IsSuccess);
+
+        var invalidFileKind = await search.SearchAsync(new SearchRequest(
+            "securesearchneedle",
+            SearchResultType.File,
+            WorkspaceId: tenantAData.Workspace.Id,
+            FileKind: (FileSearchKind)999));
+        Assert.False(invalidFileKind.IsSuccess);
 
         foreach (var type in new[] { SearchResultType.Workspace, SearchResultType.Group, SearchResultType.Channel, SearchResultType.Post, SearchResultType.Message, SearchResultType.Project, SearchResultType.Task, SearchResultType.Artifact, SearchResultType.File })
         {
@@ -236,6 +277,19 @@ public sealed class PostgreSqlIntegrationTests
             PageSize: 50));
         Assert.True(revokedFileResult.IsSuccess, revokedFileResult.Error);
         Assert.Empty(revokedFileResult.Value!.Items);
+        Assert.Equal(0, revokedFileResult.Value.TotalCount);
+
+        var revokedFilteredFileResult = await search.SearchAsync(new SearchRequest(
+            "securesearchneedle",
+            SearchResultType.File,
+            WorkspaceId: tenantAData.Workspace.Id,
+            AuthorUserId: userA.Id,
+            FromDate: now.AddDays(-1),
+            PageSize: 50,
+            FileKind: FileSearchKind.Pdf));
+        Assert.True(revokedFilteredFileResult.IsSuccess, revokedFilteredFileResult.Error);
+        Assert.Empty(revokedFilteredFileResult.Value!.Items);
+        Assert.Equal(0, revokedFilteredFileResult.Value.TotalCount);
     }
 
     private sealed record SearchGraph(

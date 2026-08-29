@@ -14,17 +14,27 @@ import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { Subscription } from 'rxjs';
 
 import { FrontendFeatureFlagsService } from '../../../core/feature-flags/frontend-feature-flags.service';
+import { AuthSessionFacade } from '../../../core/auth/auth-session.facade';
+import { RealtimeFacade } from '../../../core/realtime/realtime.facade';
 import { ActiveWorkspaceFacade } from '../../../core/workspace/active-workspace.facade';
 import { AppDataGridComponent } from '../../../shared/grid/app-data-grid/app-data-grid.component';
 import { AppDataGridColumnDef } from '../../../shared/grid/app-data-grid/app-data-grid.types';
 import { AipDialogComponent } from '../../../shared/ui/aip-dialog/aip-dialog.component';
+import { AipFilterChipComponent } from '../../../shared/ui/aip-filter-chip/aip-filter-chip.component';
 import { AipFileUploaderComponent } from '../../../shared/ui/adapters/syncfusion/aip-file-uploader.component';
 import { AttachmentPickerDialogComponent } from '../attachment-picker-dialog/attachment-picker-dialog.component';
 import { FilePreviewService } from '../file-preview.service';
 import { FileQuotaStateComponent } from '../file-quota-state/file-quota-state.component';
 import { FilesFacade } from '../files.facade';
 import { RecentFilesListComponent } from '../recent-files-list/recent-files-list.component';
-import { FILE_SCAN_STATUS_LABELS, FileViewModel } from '../files.types';
+import {
+  FILE_SCAN_STATUS_LABELS,
+  FileSearchFilters,
+  FileSearchKindFilter,
+  FileSearchModifiedFilter,
+  FileSearchOwnerFilter,
+  FileViewModel,
+} from '../files.types';
 
 type FileListOptionalColumn = 'type' | 'size' | 'scan';
 type FileListDensity = 'comfortable' | 'compact';
@@ -41,6 +51,7 @@ const PREVIEW_OVERLAY_MAX_WIDTH = 860;
   imports: [
     A11yModule,
     AipDialogComponent,
+    AipFilterChipComponent,
     AipFileUploaderComponent,
     AppDataGridComponent,
     AttachmentPickerDialogComponent,
@@ -60,10 +71,39 @@ export class FilesPageComponent {
   private readonly destroyRef = inject(DestroyRef);
   private readonly flags = inject(FrontendFeatureFlagsService);
   private readonly activeWorkspace = inject(ActiveWorkspaceFacade);
+  private readonly authSession = inject(AuthSessionFacade);
+  private readonly realtime = inject(RealtimeFacade);
 
   readonly page = this.facade.page;
+  readonly search = this.facade.search;
   readonly syncfusionUploaderEnabled = this.flags.syncfusionUploaderEnabled;
   readonly fileScanStatusLabels = FILE_SCAN_STATUS_LABELS;
+  readonly searchQuery = signal('');
+  readonly searchKind = signal<FileSearchKindFilter>('all');
+  readonly searchModified = signal<FileSearchModifiedFilter>('any');
+  readonly searchOwner = signal<FileSearchOwnerFilter>('any');
+  readonly activeWorkspaceLabel = computed(() => this.activeWorkspace.activeWorkspace()?.label ?? 'Current Workspace');
+  readonly searchApplied = computed(() => this.search().status !== 'idle');
+  readonly displayedList = computed(() => {
+    const search = this.search();
+    if (search.status !== 'idle') {
+      return {
+        files: search.files,
+        page: search.page,
+        pageSize: search.pageSize,
+        totalCount: search.totalCount,
+        hasMore: search.hasMore,
+      };
+    }
+    const page = this.page();
+    return {
+      files: page.recentFiles,
+      page: page.page,
+      pageSize: page.pageSize,
+      totalCount: page.totalCount,
+      hasMore: page.hasMore,
+    };
+  });
   readonly density = signal<FileListDensity>('comfortable');
   readonly selectedFiles = signal<readonly FileViewModel[]>([]);
   readonly selectedCount = computed(() => this.selectedFiles().length);
@@ -132,7 +172,7 @@ export class FilesPageComponent {
     return `Delete ${targets.length} selected files? Files are deleted one at a time; this is not an atomic batch.`;
   });
   readonly totalPages = computed(() => {
-    const page = this.page();
+    const page = this.displayedList();
     return Math.max(1, Math.ceil(page.totalCount / Math.max(1, page.pageSize)));
   });
   readonly optionalColumns = [
@@ -189,11 +229,16 @@ export class FilesPageComponent {
   });
 
   constructor() {
+    const unregisterSearchDraftClearer = this.realtime.registerProtectedStateClearer?.(
+      'files-page-search-draft',
+      () => this.resetSearchControls(),
+    );
     effect(() => {
       const pageFacade = this.facade as FilesFacade & {
         loadPageFilesForWorkspace?: (workspaceId: string | undefined) => void;
       };
       const workspaceId = this.activeWorkspace.activeWorkspace()?.id;
+      this.resetSearchControls();
       this.closePreview(false);
       this.clearSelection();
       this.closeDeleteDialog();
@@ -207,7 +252,21 @@ export class FilesPageComponent {
       this.clearSelection();
       this.closeDeleteDialog();
     });
-    this.destroyRef.onDestroy(() => this.closePreview(false));
+    effect(() => {
+      // Search responses are server-authorized snapshots. Never keep a
+      // selection or preview from the snapshot they replace.
+      this.facade.searchRevision();
+      if (this.search().status === 'idle') {
+        this.resetSearchControls();
+      }
+      this.closePreview(false);
+      this.clearSelection();
+      this.closeDeleteDialog();
+    });
+    this.destroyRef.onDestroy(() => {
+      unregisterSearchDraftClearer?.();
+      this.closePreview(false);
+    });
   }
 
   @HostListener('window:resize')
@@ -227,6 +286,66 @@ export class FilesPageComponent {
 
   acceptUpload(files: readonly File[]): void {
     this.facade.uploadFiles(files);
+  }
+
+  updateSearchQuery(event: Event): void {
+    this.searchQuery.set(event.target instanceof HTMLInputElement ? event.target.value : '');
+  }
+
+  updateSearchKind(event: Event): void {
+    this.searchKind.set((event.target as HTMLSelectElement).value as FileSearchKindFilter);
+  }
+
+  updateSearchModified(event: Event): void {
+    this.searchModified.set((event.target as HTMLSelectElement).value as FileSearchModifiedFilter);
+  }
+
+  updateSearchOwner(event: Event): void {
+    this.searchOwner.set((event.target as HTMLSelectElement).value as FileSearchOwnerFilter);
+  }
+
+  submitFileSearch(event: Event): void {
+    event.preventDefault();
+    this.applyFileSearch();
+  }
+
+  clearFileSearch(): void {
+    this.searchQuery.set('');
+    this.searchKind.set('all');
+    this.searchModified.set('any');
+    this.searchOwner.set('any');
+    this.facade.clearFileSearch();
+  }
+
+  removeSearchFilter(filter: 'kind' | 'modified' | 'owner'): void {
+    const applied = this.search().filters;
+    // Chips describe the last server request, so removal starts from that
+    // request rather than combining it with unrelated, unsubmitted drafts.
+    this.searchQuery.set(applied.query);
+    this.searchKind.set(filter === 'kind' ? 'all' : applied.kind);
+    this.searchModified.set(filter === 'modified' ? 'any' : applied.modified);
+    this.searchOwner.set(filter === 'owner' ? 'any' : applied.owner);
+    this.applyFileSearch();
+  }
+
+  searchKindLabel(kind: FileSearchKindFilter): string {
+    return ({
+      all: 'Any type',
+      document: 'Documents',
+      image: 'Images',
+      pdf: 'PDF',
+      video: 'Video',
+      archive: 'Archives',
+    } as const)[kind];
+  }
+
+  searchModifiedLabel(modified: FileSearchModifiedFilter): string {
+    return ({
+      any: 'Any time',
+      last7Days: 'Last 7 days',
+      last30Days: 'Last 30 days',
+      last90Days: 'Last 90 days',
+    } as const)[modified];
   }
 
   cancelUpload(clientRequestId: string): void {
@@ -272,7 +391,7 @@ export class FilesPageComponent {
     } else {
       selectedIds.delete(event.file.id);
     }
-    this.selectedFiles.set(this.page().recentFiles.filter((file) => selectedIds.has(file.id)));
+    this.selectedFiles.set(this.displayedList().files.filter((file) => selectedIds.has(file.id)));
   }
 
   clearSelection(): void {
@@ -480,23 +599,31 @@ export class FilesPageComponent {
   }
 
   goToPreviousPage(): void {
-    const current = this.page();
+    const current = this.displayedList();
     if (current.page <= 1) {
       return;
     }
     this.closePreview(false);
     this.clearSelection();
-    this.facade.goToPage(current.page - 1);
+    if (this.searchApplied()) {
+      this.facade.goToSearchPage(current.page - 1);
+    } else {
+      this.facade.goToPage(current.page - 1);
+    }
   }
 
   goToNextPage(): void {
-    const current = this.page();
+    const current = this.displayedList();
     if (!current.hasMore) {
       return;
     }
     this.closePreview(false);
     this.clearSelection();
-    this.facade.goToPage(current.page + 1);
+    if (this.searchApplied()) {
+      this.facade.goToSearchPage(current.page + 1);
+    } else {
+      this.facade.goToPage(current.page + 1);
+    }
   }
 
   handleGridAction(event: { actionId: string; row: FileViewModel }): void {
@@ -514,6 +641,32 @@ export class FilesPageComponent {
       return `${Math.round(bytes / 1024 / 1024)} MB`;
     }
     return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  }
+
+  private applyFileSearch(): void {
+    const workspaceId = this.activeWorkspace.activeWorkspace()?.id;
+    if (!workspaceId) {
+      this.facade.clearFileSearch();
+      return;
+    }
+    const filters: FileSearchFilters = {
+      query: this.searchQuery(),
+      kind: this.searchKind(),
+      modified: this.searchModified(),
+      owner: this.searchOwner(),
+    };
+    this.facade.searchFilesForWorkspace(
+      workspaceId,
+      filters,
+      this.authSession.currentUser()?.userId ?? null,
+    );
+  }
+
+  private resetSearchControls(): void {
+    this.searchQuery.set('');
+    this.searchKind.set('all');
+    this.searchModified.set('any');
+    this.searchOwner.set('any');
   }
 
   private capturePreviewReturnFocus(): void {

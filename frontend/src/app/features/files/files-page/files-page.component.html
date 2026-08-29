@@ -1,4 +1,6 @@
 @let vm = page();
+@let list = displayedList();
+@let searchVm = search();
 
 <section class="files-page" data-testid="files-page">
   <header class="files-page__header">
@@ -26,10 +28,116 @@
 
       <app-file-quota-state [quota]="vm.quota" />
 
-      <section class="files-page__panel" aria-label="Recent files">
+      <section class="files-page__search" aria-labelledby="files-search-title" data-testid="files-search-surface">
+        <form
+          class="files-page__search-form"
+          role="search"
+          [attr.aria-busy]="searchVm.status === 'loading'"
+          (submit)="submitFileSearch($event)"
+        >
+          <div class="files-page__search-heading">
+            <div>
+              <h2 id="files-search-title">Search and filter files</h2>
+              <p id="files-search-scope">
+                Scope: {{ activeWorkspaceLabel() }}. Results and counts include only files you are currently authorized to view.
+              </p>
+            </div>
+            @if (searchApplied()) {
+              <button type="button" class="files-page__search-clear" (click)="clearFileSearch()" data-testid="files-search-clear">
+                Clear search and filters
+              </button>
+            }
+          </div>
+
+          <div class="files-page__search-controls">
+            <label class="files-page__search-query">
+              <span>File name</span>
+              <input
+                type="search"
+                autocomplete="off"
+                maxlength="120"
+                placeholder="Search file names"
+                aria-describedby="files-search-scope files-search-status"
+                [value]="searchQuery()"
+                (input)="updateSearchQuery($event)"
+                data-testid="files-search-input"
+              />
+            </label>
+            <label>
+              <span>Type</span>
+              <select [value]="searchKind()" (change)="updateSearchKind($event)" data-testid="files-filter-type">
+                <option value="all">Any type</option>
+                <option value="document">Documents</option>
+                <option value="image">Images</option>
+                <option value="pdf">PDF</option>
+                <option value="video">Video</option>
+                <option value="archive">Archives</option>
+              </select>
+            </label>
+            <label>
+              <span>Modified</span>
+              <select [value]="searchModified()" (change)="updateSearchModified($event)" data-testid="files-filter-modified">
+                <option value="any">Any time</option>
+                <option value="last7Days">Last 7 days</option>
+                <option value="last30Days">Last 30 days</option>
+                <option value="last90Days">Last 90 days</option>
+              </select>
+            </label>
+            <label>
+              <span>Owner</span>
+              <select [value]="searchOwner()" (change)="updateSearchOwner($event)" data-testid="files-filter-owner">
+                <option value="any">Anyone</option>
+                <option value="me">Uploaded by me</option>
+              </select>
+            </label>
+            <button type="submit" class="files-page__search-submit" [disabled]="searchVm.status === 'loading'" data-testid="files-search-submit">
+              {{ searchVm.status === 'loading' ? 'Searching' : 'Search' }}
+            </button>
+          </div>
+
+          @if (
+            searchApplied() &&
+            (searchVm.filters.kind !== 'all' || searchVm.filters.modified !== 'any' || searchVm.filters.owner !== 'any')
+          ) {
+            <div class="files-page__filter-chips" aria-label="Active file filters" data-testid="files-filter-chips">
+              @if (searchVm.filters.kind !== 'all') {
+                <app-aip-filter-chip
+                  label="Type"
+                  [value]="searchKindLabel(searchVm.filters.kind)"
+                  (removed)="removeSearchFilter('kind')"
+                />
+              }
+              @if (searchVm.filters.modified !== 'any') {
+                <app-aip-filter-chip
+                  label="Modified"
+                  [value]="searchModifiedLabel(searchVm.filters.modified)"
+                  (removed)="removeSearchFilter('modified')"
+                />
+              }
+              @if (searchVm.filters.owner !== 'any') {
+                <app-aip-filter-chip
+                  label="Owner"
+                  value="Uploaded by me"
+                  (removed)="removeSearchFilter('owner')"
+                />
+              }
+            </div>
+          }
+
+          <p
+            id="files-search-status"
+            class="files-page__search-status"
+            [attr.role]="searchVm.status === 'error' || searchVm.status === 'invalid' ? 'alert' : 'status'"
+            aria-live="polite"
+            data-testid="files-search-status"
+          >@if (searchApplied()) { {{ searchVm.message }} }</p>
+        </form>
+      </section>
+
+      <section class="files-page__panel" [attr.aria-label]="searchApplied() ? 'File search results' : 'Recent files'">
         <div class="files-page__panel-header">
           <div>
-            <p>Recent files</p>
+            <p>{{ searchApplied() ? 'Search results' : 'Recent files' }}</p>
             <strong>Choose files with checkboxes. Preview a file from its name.</strong>
           </div>
         </div>
@@ -112,9 +220,9 @@
             rowIdField="id"
             selectionMode="multiple"
             [rowHeight]="density() === 'compact' ? 36 : 48"
-            [defaultPageSize]="vm.pageSize"
-            [maximumPageSize]="vm.pageSize"
-            [rows]="vm.recentFiles"
+            [defaultPageSize]="list.pageSize"
+            [maximumPageSize]="list.pageSize"
+            [rows]="list.files"
             [columns]="columns()"
             (actionInvoked)="handleGridAction($event)"
             (selectionChanged)="handleSelectionChanged($event)"
@@ -122,7 +230,7 @@
         </div>
         <div class="files-page__mobile-list">
           <app-recent-files-list
-            [files]="vm.recentFiles"
+            [files]="list.files"
             [selectedFileIds]="selectedFileIds()"
             (previewRequested)="openPreview($event)"
             (selectionChanged)="handleMobileSelection($event)"
@@ -130,9 +238,9 @@
           />
         </div>
         <nav class="files-page__pagination" aria-label="File list pages">
-          <button type="button" data-testid="files-page-previous" [disabled]="vm.page <= 1" (click)="goToPreviousPage()">Previous</button>
-          <span data-testid="files-page-pagination-status">Page {{ vm.page }} of {{ totalPages() }} · {{ vm.totalCount }} files</span>
-          <button type="button" data-testid="files-page-next" [disabled]="!vm.hasMore" (click)="goToNextPage()">Next</button>
+          <button type="button" data-testid="files-page-previous" [disabled]="list.page <= 1" (click)="goToPreviousPage()">Previous</button>
+          <span data-testid="files-page-pagination-status">Page {{ list.page }} of {{ totalPages() }} · {{ list.totalCount }} files</span>
+          <button type="button" data-testid="files-page-next" [disabled]="!list.hasMore" (click)="goToNextPage()">Next</button>
         </nav>
       </section>
     </div>

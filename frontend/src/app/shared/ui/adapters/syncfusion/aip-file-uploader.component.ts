@@ -24,6 +24,7 @@ export interface AipFileUploaderItem {
         #fileInput
         class="aip-uploader__input"
         type="file"
+        [attr.aria-label]="ariaLabel"
         [multiple]="multiple"
         [disabled]="disabled"
         (change)="handleInputChange($event)"
