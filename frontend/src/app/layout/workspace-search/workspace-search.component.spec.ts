@@ -1,5 +1,3 @@
-import { provideHttpClient } from '@angular/common/http';
-import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 
@@ -12,14 +10,15 @@ const FILE_ID = '44444444-4444-4444-8444-444444444444';
 
 describe('WorkspaceSearchComponent', () => {
   afterEach(() => {
-    TestBed.inject(HttpTestingController, null)?.verify();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
     TestBed.resetTestingModule();
   });
 
   async function createFixture(workspaceId: string | null = WORKSPACE_A) {
     await TestBed.configureTestingModule({
       imports: [WorkspaceSearchComponent],
-      providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting()],
+      providers: [provideRouter([])],
     }).compileComponents();
 
     const fixture = TestBed.createComponent(WorkspaceSearchComponent);
@@ -40,59 +39,59 @@ describe('WorkspaceSearchComponent', () => {
   });
 
   it('queries only Project and File in the active Workspace and rejects mismatched result scopes', async () => {
-    const fixture = await createFixture();
-    const httpMock = TestBed.inject(HttpTestingController);
-    const component = fixture.componentInstance;
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({
+        items: [
+          {
+            type: 7,
+            id: PROJECT_ID,
+            title: 'Authorized Research',
+            workspaceId: WORKSPACE_A,
+            createdAt: '2026-08-28T00:00:00Z',
+          },
+          {
+            type: 7,
+            id: '55555555-5555-4555-8555-555555555555',
+            title: 'Wrong Workspace',
+            workspaceId: WORKSPACE_B,
+            createdAt: '2026-08-28T00:01:00Z',
+          },
+        ],
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        items: [
+          {
+            type: 'File',
+            id: FILE_ID,
+            title: 'authorized.pdf',
+            workspaceId: WORKSPACE_A,
+            createdAt: '2026-08-28T00:02:00Z',
+          },
+        ],
+      }));
+    vi.stubGlobal('fetch', fetchMock);
 
+    const fixture = await createFixture();
+    const component = fixture.componentInstance;
     component.query.set('needle');
     component.submitSearch(new Event('submit', { cancelable: true }));
 
-    const requests = httpMock.match((request) => request.url === '/api/search');
-    expect(requests.length).toBe(2);
-    const projectRequest = requests.find((request) => request.request.params.get('type') === 'Project');
-    const fileRequest = requests.find((request) => request.request.params.get('type') === 'File');
-    expect(projectRequest).toBeDefined();
-    expect(fileRequest).toBeDefined();
-
-    for (const request of requests) {
-      expect(request.request.method).toBe('GET');
-      expect(request.request.withCredentials).toBe(true);
-      expect(request.request.params.get('q')).toBe('needle');
-      expect(request.request.params.get('workspaceId')).toBe(WORKSPACE_A);
-      expect(request.request.params.get('page')).toBe('1');
-      expect(request.request.params.get('pageSize')).toBe('8');
-    }
-
-    projectRequest!.flush({
-      items: [
-        {
-          type: 7,
-          id: PROJECT_ID,
-          title: 'Authorized Research',
-          workspaceId: WORKSPACE_A,
-          createdAt: '2026-08-28T00:00:00Z',
-        },
-        {
-          type: 7,
-          id: '55555555-5555-4555-8555-555555555555',
-          title: 'Wrong Workspace',
-          workspaceId: WORKSPACE_B,
-          createdAt: '2026-08-28T00:01:00Z',
-        },
-      ],
-    });
-    fileRequest!.flush({
-      items: [
-        {
-          type: 'File',
-          id: FILE_ID,
-          title: 'authorized.pdf',
-          workspaceId: WORKSPACE_A,
-          createdAt: '2026-08-28T00:02:00Z',
-        },
-      ],
-    });
+    await vi.waitFor(() => expect(component.status()).toBe('ready'));
     fixture.detectChanges();
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const requestedTypes = new Set<string>();
+    for (const [input, init] of fetchMock.mock.calls) {
+      const url = new URL(String(input), 'https://aip.test');
+      requestedTypes.add(url.searchParams.get('type') ?? '');
+      expect(url.pathname).toBe('/api/search');
+      expect(url.searchParams.get('q')).toBe('needle');
+      expect(url.searchParams.get('workspaceId')).toBe(WORKSPACE_A);
+      expect(url.searchParams.get('page')).toBe('1');
+      expect(url.searchParams.get('pageSize')).toBe('8');
+      expect(init).toMatchObject({ method: 'GET', credentials: 'include' });
+    }
+    expect(requestedTypes).toEqual(new Set(['Project', 'File']));
 
     const root = fixture.nativeElement as HTMLElement;
     const text = root.textContent ?? '';
@@ -110,20 +109,26 @@ describe('WorkspaceSearchComponent', () => {
   });
 
   it('cancels stale reads and clears protected results when the Workspace changes', async () => {
-    const fixture = await createFixture();
-    const httpMock = TestBed.inject(HttpTestingController);
-    const component = fixture.componentInstance;
+    const signals: AbortSignal[] = [];
+    const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      const signal = init?.signal as AbortSignal;
+      signals.push(signal);
+      return pendingUntilAborted(signal);
+    });
+    vi.stubGlobal('fetch', fetchMock);
 
+    const fixture = await createFixture();
+    const component = fixture.componentInstance;
     component.query.set('needle');
     component.submitSearch(new Event('submit', { cancelable: true }));
-    const requests = httpMock.match((request) => request.url === '/api/search');
-    expect(requests.length).toBe(2);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
 
     fixture.componentRef.setInput('workspaceId', WORKSPACE_B);
     fixture.componentRef.setInput('workspaceLabel', 'Workspace B');
     fixture.detectChanges();
 
-    expect(requests.every((request) => request.cancelled)).toBe(true);
+    expect(signals).toHaveLength(2);
+    expect(signals.every((signal) => signal.aborted)).toBe(true);
     expect(component.query()).toBe('');
     expect(component.results()).toEqual([]);
     expect(component.status()).toBe('idle');
@@ -135,24 +140,28 @@ describe('WorkspaceSearchComponent', () => {
   });
 
   it('renders a fixed retry-safe error without exposing a response body', async () => {
-    const fixture = await createFixture();
-    const httpMock = TestBed.inject(HttpTestingController);
-    const component = fixture.componentInstance;
+    let secondSignal: AbortSignal | null = null;
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ detail: 'secret stack and internal filename' }, false))
+      .mockImplementationOnce((_input: RequestInfo | URL, init?: RequestInit) => {
+        secondSignal = init?.signal as AbortSignal;
+        return pendingUntilAborted(secondSignal);
+      });
+    vi.stubGlobal('fetch', fetchMock);
 
+    const fixture = await createFixture();
+    const component = fixture.componentInstance;
     component.query.set('needle');
     component.submitSearch(new Event('submit', { cancelable: true }));
-    const requests = httpMock.match((request) => request.url === '/api/search');
-    requests[0]!.flush(
-      { detail: 'secret stack and internal filename' },
-      { status: 500, statusText: 'Server Error' },
-    );
+
+    await vi.waitFor(() => expect(component.status()).toBe('error'));
     fixture.detectChanges();
 
     const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
     expect(text).toContain('Search is unavailable. Try again.');
     expect(text).not.toContain('secret stack');
     expect(text).not.toContain('internal filename');
-    expect(requests[1]!.cancelled).toBe(true);
+    expect(secondSignal?.aborted).toBe(true);
   });
 
   it('focuses the visible Workspace search field with Ctrl+K', async () => {
@@ -175,3 +184,21 @@ describe('WorkspaceSearchComponent', () => {
     fixture.destroy();
   });
 });
+
+function jsonResponse(body: unknown, ok = true): Response {
+  return {
+    ok,
+    json: async () => body,
+  } as Response;
+}
+
+function pendingUntilAborted(signal: AbortSignal): Promise<Response> {
+  return new Promise<Response>((_resolve, reject) => {
+    if (signal.aborted) {
+      reject(new DOMException('Aborted', 'AbortError'));
+      return;
+    }
+
+    signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
+  });
+}
