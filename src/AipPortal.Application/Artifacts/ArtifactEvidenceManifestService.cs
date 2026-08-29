@@ -1,6 +1,8 @@
+using AipPortal.Application.Audit;
 using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Files;
+using AipPortal.Application.Tenancy;
 using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
 
@@ -12,6 +14,7 @@ public sealed class ArtifactEvidenceManifestService(
     IArtifactAuthorizationService artifactAuthorization,
     IFileRepository files,
     IFileAuthorizationService fileAuthorization,
+    IAuditAuthorizationService auditAuthorization,
     ICurrentUser currentUser,
     IAuditLogger auditLogger,
     IUnitOfWork unitOfWork) : IArtifactEvidenceManifestService
@@ -32,6 +35,15 @@ public sealed class ArtifactEvidenceManifestService(
         if (!TryCurrentUser(out var userId))
         {
             return Failure("AuthenticationRequired", "Authentication is required.");
+        }
+
+        var auditReview = await auditAuthorization.AuthorizeAsync(
+            CapabilityKeys.AuditReview,
+            "audit.claims-evidence.attach",
+            cancellationToken);
+        if (!auditReview.IsSuccess)
+        {
+            return AuthorizationFailure(auditReview);
         }
 
         var version = await artifacts.GetVersionAsync(artifactVersionId, cancellationToken);
@@ -209,6 +221,11 @@ public sealed class ArtifactEvidenceManifestService(
         var normalized = value?.Trim();
         return string.IsNullOrWhiteSpace(normalized) ? null : normalized;
     }
+
+    private static Result<ArtifactEvidenceManifestResponse> AuthorizationFailure(Result denied) =>
+        denied.ErrorDetail is not null
+            ? Result<ArtifactEvidenceManifestResponse>.Failure(denied.ErrorDetail)
+            : Result<ArtifactEvidenceManifestResponse>.Failure(denied.Error ?? "Audit review is not permitted.");
 
     private static Result<ArtifactEvidenceManifestResponse> Failure(string code, string message) =>
         Result<ArtifactEvidenceManifestResponse>.Failure(new ApplicationErrorDetail(code, message));
