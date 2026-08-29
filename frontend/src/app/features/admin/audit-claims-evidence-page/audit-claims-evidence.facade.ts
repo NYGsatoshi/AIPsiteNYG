@@ -44,6 +44,7 @@ const supportLabels: Record<AuditClaimSupportStatus, string> = {
   Supported: 'Supported',
   Contradicted: 'Contradiction',
   Insufficient: 'Insufficient evidence',
+  Unsupported: 'Unsupported',
 };
 
 @Injectable({ providedIn: 'root' })
@@ -169,7 +170,10 @@ function toEvidenceViewModel(dto: AuditEvidenceDto): AuditEvidenceViewModel {
 }
 
 function toSupportStatus(value: unknown): AuditClaimSupportStatus {
-  return value === 'Supported' || value === 'Contradicted' || value === 'Insufficient'
+  return value === 'Supported' ||
+    value === 'Contradicted' ||
+    value === 'Insufficient' ||
+    value === 'Unsupported'
     ? value
     : 'Unverified';
 }
