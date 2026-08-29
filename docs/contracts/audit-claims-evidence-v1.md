@@ -56,12 +56,14 @@ This contract does not add outbound Web retrieval, provider credentials, or full
 
 ## Authorization
 
-1. The caller must first have `audit.view`.
-2. The caller must be able to view the owning Artifact through `IArtifactAuthorizationService.CanViewArtifact`.
+1. A read caller must first have `audit.view`.
+2. A read caller must be able to view the owning Artifact through `IArtifactAuthorizationService.CanViewArtifact`.
 3. Evidence is returned only if its source can be reauthorized at read time.
 4. `ArtifactVersion` file-backed evidence uses the existing Artifact/File authorization boundaries; inaccessible evidence is omitted completely rather than redacted with title/count/snippet placeholders.
 5. A Web source snapshot has no separately addressable repository resource in v1. It is visible only when the owning Artifact is visible; the contract exposes the bounded snapshot and opaque source reference that were captured with that version. No network re-fetch is performed.
-6. Cross-tenant, malformed, missing, and unauthorized resource identifiers are observationally equivalent from the Claims & Evidence endpoint.
+6. Cross-tenant, malformed, missing, and unauthorized resource identifiers are observationally equivalent from the Claims & Evidence read endpoint.
+7. The one-time evidence-manifest attach command requires both `audit.review` and current update authority over the owning Artifact. `audit.review` is checked before Artifact lookup so a non-reviewer cannot use the command as a resource probe.
+8. File and ArtifactVersion sources are reauthorized when the manifest is attached and again when Audit reads it.
 
 The browser must never infer authorization from citation presence, counts, or hidden controls.
 
@@ -101,7 +103,7 @@ Trace links may navigate to an authorized related Audit event via the existing `
 
 ## Mutation boundary
 
-Issue #340 is a verification workspace. This v1 contract does not create a new Audit Review mutation. Support/review status is persisted with the immutable artifact evidence set by the producer/importer boundary. A later issue may add a separately authorized review command without changing the ownership model.
+Issue #340 does not add an editable Audit Review workflow. It adds one immutable manifest-attach boundary for an ArtifactVersion so the verification projection has a durable source of truth. Because that manifest contains `reviewStatus`, the public attach command requires `audit.review` in addition to Artifact update authority. Once attached, this v1 API provides no update or delete command for Claims/Evidence. A later issue may add a separately authorized review command without changing the ArtifactVersion ownership model.
 
 ## Security invariants
 
