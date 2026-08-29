@@ -1,5 +1,6 @@
-import { Component, Input } from '@angular/core';
+import { Component, inject, Input } from '@angular/core';
 
+import { I18nService } from '../../../core/i18n/i18n.service';
 import { AccountSessionViewModel } from '../account.types';
 
 @Component({
@@ -9,5 +10,6 @@ import { AccountSessionViewModel } from '../account.types';
   styleUrl: './session-list.component.scss'
 })
 export class SessionListComponent {
+  readonly i18n = inject(I18nService);
   @Input({ required: true }) sessions!: readonly AccountSessionViewModel[];
 }

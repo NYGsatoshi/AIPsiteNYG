@@ -1,6 +1,7 @@
-import { Component, EventEmitter, Input, OnChanges, Output, SimpleChanges } from '@angular/core';
+import { Component, EventEmitter, inject, Input, OnChanges, Output, SimpleChanges } from '@angular/core';
 import { AbstractControl, FormBuilder, ReactiveFormsModule, ValidationErrors, ValidatorFn, Validators } from '@angular/forms';
 
+import { I18nService } from '../../../core/i18n/i18n.service';
 import { AppFieldErrorComponent } from '../../../shared/form/app-field-error/app-field-error.component';
 import { PasswordChangeResult, PasswordChangeSubmit } from '../account.types';
 
@@ -12,6 +13,7 @@ import { PasswordChangeResult, PasswordChangeSubmit } from '../account.types';
   styleUrl: './password-panel.component.scss'
 })
 export class PasswordPanelComponent implements OnChanges {
+  readonly i18n = inject(I18nService);
   @Input() result: PasswordChangeResult | null = null;
   @Input() pending = false;
   @Output() readonly passwordChange = new EventEmitter<PasswordChangeSubmit>();
@@ -27,12 +29,12 @@ export class PasswordPanelComponent implements OnChanges {
 
   get currentPasswordMessages(): readonly string[] {
     const control = this.form.controls.currentPassword;
-    return control.touched && control.hasError('required') ? ['現在のパスワードを入力してください。'] : [];
+    return control.touched && control.hasError('required') ? [this.i18n.translate('password.currentRequired')] : [];
   }
 
   get newPasswordMessages(): readonly string[] {
     const control = this.form.controls.newPassword;
-    return control.touched && control.hasError('required') ? ['新しいパスワードを入力してください。'] : [];
+    return control.touched && control.hasError('required') ? [this.i18n.translate('password.newRequired')] : [];
   }
 
   get confirmNewPasswordMessages(): readonly string[] {
@@ -42,10 +44,10 @@ export class PasswordPanelComponent implements OnChanges {
     }
 
     if (control.hasError('required')) {
-      return ['確認用パスワードを入力してください。'];
+      return [this.i18n.translate('password.confirmRequired')];
     }
 
-    return this.form.hasError('passwordMismatch') ? ['新しいパスワードが一致しません。'] : [];
+    return this.form.hasError('passwordMismatch') ? [this.i18n.translate('password.mismatch')] : [];
   }
 
   ngOnChanges(changes: SimpleChanges): void {

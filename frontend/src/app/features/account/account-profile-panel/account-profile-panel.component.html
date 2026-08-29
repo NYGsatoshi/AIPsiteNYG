@@ -1,35 +1,35 @@
 <section class="account-card" data-testid="account-profile-panel">
   <div class="account-card__header">
-    <p class="account-card__eyebrow">プロフィール</p>
+    <p class="account-card__eyebrow">{{ i18n.translate('account.profile') }}</p>
     <h2>{{ profile.displayName }}</h2>
   </div>
 
   <dl class="account-profile">
     @if (profile.ownEmail) {
       <div>
-        <dt>メール</dt>
+        <dt>{{ i18n.translate('account.email') }}</dt>
         <dd data-testid="own-email">{{ profile.ownEmail }}</dd>
       </div>
     } @else {
       <div>
-        <dt>メール</dt>
-        <dd>表示できるメールはありません</dd>
+        <dt>{{ i18n.translate('account.email') }}</dt>
+        <dd>{{ i18n.translate('account.emailUnavailable') }}</dd>
       </div>
     }
     <div>
-      <dt>状態</dt>
-      <dd>{{ profile.accountStatusLabel }}</dd>
+      <dt>{{ i18n.translate('account.status') }}</dt>
+      <dd>{{ i18n.accountStatusLabel(profile.accountStatus) }}</dd>
     </div>
     <div>
-      <dt>ロール</dt>
+      <dt>{{ i18n.translate('account.role') }}</dt>
       <dd>{{ profile.roleSummary }}</dd>
     </div>
     <div>
-      <dt>テナント</dt>
+      <dt>{{ i18n.translate('account.tenant') }}</dt>
       <dd>{{ profile.tenantSummary }}</dd>
     </div>
     <div>
-      <dt>ワークスペース</dt>
+      <dt>{{ i18n.translate('account.workspace') }}</dt>
       <dd>{{ profile.workspaceSummary }}</dd>
     </div>
   </dl>
