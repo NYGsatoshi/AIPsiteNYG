@@ -734,6 +734,16 @@ prohibited secrets, content bodies, personal/medical contact data, raw search or
 export content, and Claims/Evidence fields from legacy/imported rows. List,
 count, and error responses do not carry this object.
 
+Issue #344 keeps Audit discovery on the same server-owned boundary. The grid
+applies Tenant/platform scope before global search, Severity, Action Type,
+Actor, entity Source, Status, time, and `totalCount`. Supplying an Actor facet
+requires `audit.sensitive_metadata.view` before data access; global search
+simply excludes Actor names when that capability is absent. Metadata, request
+IDs, raw content, Claims, and Evidence are never search sources. Shareable URLs
+and strict identity-partitioned browser saved views contain filter inputs only;
+opening either performs a new authorized request. Session, Tenant, Workspace,
+or authorization invalidation cancels in-flight reads and clears rows/counts.
+
 Needs verification:
 
 - retention and tamper controls;

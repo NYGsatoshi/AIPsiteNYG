@@ -653,6 +653,13 @@ Linux screenshot parity:
 npm run test:ui:angular:docker
 ```
 
+Issue #344 Audit filter evidence is concentrated in the AuditGrid tenancy
+tests, `frontend/src/app/features/admin/admin-ui.spec.ts`,
+`frontend/src/app/features/admin/audit-view-preference.service.spec.ts`, and the
+320px keyboard/axe Audit-filter flow in `tests/ui/angular-smoke.spec.ts`. A
+mocked browser filter response demonstrates UI behavior only; server predicate,
+count, and negative-authorization claims require the backend tests.
+
 Use the Linux runner for screenshot baseline approval. Do not approve
 Windows/macOS host-native screenshots as authoritative baselines.
 

@@ -47,6 +47,26 @@ public sealed class AuditControllerTests
     }
 
     [Fact]
+    public async Task AdminAuditGrid_PreservesServerOwnedFilterContract()
+    {
+        var audit = new CapturingAuditQueryService();
+        var controller = CreateController(audit, "?q=retention&severity=critical&action=file.export.failed&actor=Admin&entityType=ExportJob&result=failed");
+        var query = new AuditLogQuery(
+            Action: "file.export.failed",
+            EntityType: "ExportJob",
+            PageSize: 100,
+            Q: "retention",
+            Actor: "Admin",
+            Severity: "critical",
+            Result: "failed");
+
+        var result = await controller.AdminAuditGrid(query, CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(result);
+        Assert.Equal(query, audit.LastGridQuery);
+    }
+
+    [Fact]
     public async Task AdminAuditGridRow_UsesGenericNotFoundForMalformedOrUnavailableIdentifiers()
     {
         var audit = new CapturingAuditQueryService(

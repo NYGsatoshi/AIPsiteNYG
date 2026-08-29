@@ -21,6 +21,35 @@ export type AuditSensitiveMetadataStatus =
   | 'error';
 export type AuditSeverity = 'info' | 'warning' | 'critical';
 export type AuditResult = 'success' | 'denied' | 'failed';
+export type AuditSeverityFilter = '' | AuditSeverity;
+export type AuditStatusFilter = '' | AuditResult;
+export type AuditTimeRange = '' | '24h' | '7d' | '30d';
+
+export interface AuditFilterSnapshot {
+  readonly q: string;
+  readonly severity: AuditSeverityFilter;
+  readonly type: string;
+  readonly actor: string;
+  readonly source: string;
+  readonly status: AuditStatusFilter;
+  readonly range: AuditTimeRange;
+}
+
+export const EMPTY_AUDIT_FILTERS: AuditFilterSnapshot = {
+  q: '',
+  severity: '',
+  type: '',
+  actor: '',
+  source: '',
+  status: '',
+  range: '',
+};
+
+export interface AuditSavedView {
+  readonly id: string;
+  readonly name: string;
+  readonly snapshot: AuditFilterSnapshot;
+}
 /**
  * The API contract currently classifies these values as `AuditSeverity` and
  * `AuditResult`. Keep an explicit, neutral display state for an unexpected
@@ -92,6 +121,8 @@ export interface AuditLogViewModel {
   readonly title: string;
   readonly subtitle: string;
   readonly rows: readonly AuditGridRow[];
+  readonly totalCount: number;
+  readonly appliedFilters: AuditFilterSnapshot;
   readonly columns: readonly AppDataGridColumnDef<AuditGridRow>[];
   readonly pageSize: AdminPageSizePolicy;
   readonly typedFieldNote: typeof AUDIT_TYPED_FIELD_NOTE;
