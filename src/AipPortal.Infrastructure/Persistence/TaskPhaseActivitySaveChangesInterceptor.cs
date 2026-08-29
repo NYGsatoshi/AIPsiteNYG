@@ -15,11 +15,16 @@ public sealed class TaskPhaseActivitySaveChangesInterceptor(
     ICurrentUser currentUser,
     IClock clock) : SaveChangesInterceptor
 {
+    private const string PhaseChangedPrefix = "Workflow phase changed";
+
     public override InterceptionResult<int> SavingChanges(
         DbContextEventData eventData,
         InterceptionResult<int> result)
     {
-        Apply(eventData.Context, currentUser.UserId, clock.UtcNow);
+        Apply(
+            eventData.Context,
+            currentUser.IsAuthenticated ? currentUser.UserId : null,
+            clock.UtcNow);
         return base.SavingChanges(eventData, result);
     }
 
@@ -28,7 +33,10 @@ public sealed class TaskPhaseActivitySaveChangesInterceptor(
         InterceptionResult<int> result,
         CancellationToken cancellationToken = default)
     {
-        Apply(eventData.Context, currentUser.UserId, clock.UtcNow);
+        Apply(
+            eventData.Context,
+            currentUser.IsAuthenticated ? currentUser.UserId : null,
+            clock.UtcNow);
         return base.SavingChangesAsync(eventData, result, cancellationToken);
     }
 
@@ -46,7 +54,7 @@ public sealed class TaskPhaseActivitySaveChangesInterceptor(
         if (transitions.Length == 0)
             return;
 
-        if (!actorUserId.HasValue)
+        if (!actorUserId.HasValue || actorUserId.Value == Guid.Empty)
             throw new InvalidOperationException("TASK_PHASE_ACTIVITY_AUTHOR_REQUIRED|A workflow phase change requires an authenticated activity author.");
 
         foreach (var entry in transitions)
@@ -55,15 +63,16 @@ public sealed class TaskPhaseActivitySaveChangesInterceptor(
             if (context.ChangeTracker.Entries<ActivityLog>().Any(activity =>
                     activity.State == EntityState.Added &&
                     activity.Entity.TaskItemId == task.Id &&
-                    activity.Entity.ActivityType == ActivityLogType.StatusUpdate))
+                    activity.Entity.ActivityType == ActivityLogType.StatusUpdate &&
+                    activity.Entity.Body.StartsWith(PhaseChangedPrefix, StringComparison.Ordinal)))
             {
                 continue;
             }
 
             var phaseName = task.WorkflowStage?.Name?.Trim();
             var body = string.IsNullOrWhiteSpace(phaseName)
-                ? "Workflow phase changed."
-                : $"Workflow phase changed to {phaseName}.";
+                ? $"{PhaseChangedPrefix}."
+                : $"{PhaseChangedPrefix} to {phaseName}.";
 
             context.Add(new ActivityLog
             {
