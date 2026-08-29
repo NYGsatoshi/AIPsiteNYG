@@ -25,6 +25,7 @@ public sealed class ArtifactEvidenceController(IArtifactEvidenceManifestService 
         var status = result.ErrorDetail?.Code switch
         {
             "AuthenticationRequired" => StatusCodes.Status401Unauthorized,
+            "CapabilityDenied" => StatusCodes.Status403Forbidden,
             "ArtifactVersionNotFound" or "SourceNotAuthorized" => StatusCodes.Status404NotFound,
             "EvidenceManifestAlreadyAttached" => StatusCodes.Status409Conflict,
             _ => StatusCodes.Status400BadRequest
