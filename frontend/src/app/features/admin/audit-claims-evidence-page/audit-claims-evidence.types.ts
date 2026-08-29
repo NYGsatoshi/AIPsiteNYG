@@ -7,7 +7,12 @@ export type AuditClaimsEvidenceStatus =
   | 'permissionDenied'
   | 'error';
 
-export type AuditClaimSupportStatus = 'Unverified' | 'Supported' | 'Contradicted' | 'Insufficient';
+export type AuditClaimSupportStatus =
+  | 'Unverified'
+  | 'Supported'
+  | 'Contradicted'
+  | 'Insufficient'
+  | 'Unsupported';
 export type AuditClaimReviewStatus = 'Unreviewed' | 'Reviewed';
 export type AuditEvidenceSourceKind = 'WebSnapshot' | 'FileAttachment' | 'ArtifactVersion' | 'Source';
 
