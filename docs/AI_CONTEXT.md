@@ -102,6 +102,20 @@ Project references enforce a conventional dependency direction. See `docs/ARCHIT
 | SignalR and transactional Outbox | Messaging, Project Kanban, and PR06 Schedule integration implemented; exact final-HEAD PR06 real-transport Gate pending | Authenticated `/hubs/app`, server-authorized subscriptions, durable Outbox persistence, dispatcher retry/dead-letter/retention, diagnostics, and Angular reconnect/catch-up exist. PR05 uses committed Task/Project invalidations for Kanban. PR06 transactionally queues Task/Project schedule invalidations and treats them as version hints for authoritative Gantt HTTP refetch, including active-edit queuing, reconnect, degraded HTTP behavior, and synchronous protected Kanban/Gantt clear plus generation invalidation when Project subscription reauthorization is denied. Historical exact `2fc5910` licensed smoke run `30639800642` passed all six scenarios with 0 failed/skipped; it is not final evidence after latest-main integration and scope cleanup. |
 | Billing/payments, SSO/MFA, general-purpose/external job orchestration | Planned | In-process Outbox and PR07-C digest hosted workers exist; no general-purpose external job runner was found |
 
+### Current P1 Message discovery candidate
+
+- Issue #359 adds an expanded desktop Messages search and a one-action mobile
+  search/filter disclosure. Text matches come only from the existing bounded,
+  server-authorized `type=Message` Search projection. Unread and `@Me` chips
+  operate only on authorized Conversation-list metadata and remain visibly
+  separate from server Message matches. Every condition is explicit and
+  removable, and zero results provide Change search and Clear all recovery.
+- No attachment filter exists: BE-004 still leaves canonical Message
+  attachment ownership/persistence unresolved. Advanced compound Message
+  result filters remain Issue #367. See
+  `docs/contracts/message-search-filters-v1.md` and
+  `docs/verification/p1-message-search-filters.md`.
+
 ### Current P0 authorization-recovery candidate
 
 - On the existing #410 Task-create route, a same-route authorization reset
