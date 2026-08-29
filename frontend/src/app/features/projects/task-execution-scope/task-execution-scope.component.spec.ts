@@ -118,6 +118,7 @@ describe('TaskExecutionScopeComponent', () => {
     flushScope(expectScopeReads(http), {
       latestRun: {
         status: 'RuntimeUnavailable',
+        majorState: 'Failed',
         snapshotScopeOrigin: 'TaskOverride',
         snapshotWebEnabled: true,
         snapshotProjectFilesEnabled: false,
@@ -127,8 +128,30 @@ describe('TaskExecutionScopeComponent', () => {
 
     const native = fixture.nativeElement as HTMLElement;
     expect(native.querySelector('[data-testid="task-execution-snapshot"]')?.textContent).toContain('Task override');
-    expect(native.querySelector('[data-testid="task-execution-snapshot"]')?.textContent).toContain('Unavailable - no execution was started.');
+    expect(native.querySelector('[data-testid="task-execution-major-state"]')?.textContent).toContain('Failed');
+    expect(native.querySelector('[data-testid="task-execution-snapshot"]')?.textContent).toContain('Runtime unavailable - execution did not start.');
     expect(native.textContent).not.toContain('Start execution');
+  });
+
+  it('renders Needs input from the server major-state contract in an atomic polite status region', () => {
+    flushScope(expectScopeReads(http), {
+      latestRun: {
+        status: 'NeedsInput',
+        majorState: 'NeedsInput',
+        snapshotScopeOrigin: 'ProjectDefault',
+        snapshotWebEnabled: false,
+        snapshotProjectFilesEnabled: true,
+      },
+    });
+    fixture.detectChanges();
+
+    const native = fixture.nativeElement as HTMLElement;
+    const status = native.querySelector('[data-testid="task-execution-major-state-status"]');
+    expect(status?.getAttribute('role')).toBe('status');
+    expect(status?.getAttribute('aria-live')).toBe('polite');
+    expect(status?.getAttribute('aria-atomic')).toBe('true');
+    expect(native.querySelector('[data-testid="task-execution-major-state"]')?.textContent).toContain('Needs input');
+    expect(native.querySelector('[data-testid="task-execution-snapshot"]')?.textContent).toContain('Execution is waiting for input.');
   });
 
   it('saves a complete Task override instead of merging it with the Project default', () => {
