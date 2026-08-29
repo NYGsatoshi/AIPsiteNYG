@@ -8,8 +8,8 @@
       <p>Verify whether each cited passage actually supports the claim.</p>
     </div>
     <nav class="claims-page__views" aria-label="Audit views">
-      <a href="/admin/audit">Event log</a>
-      <a href="/admin/audit/claims-evidence" aria-current="page">Claims &amp; Evidence</a>
+      <a href="/app/admin/audit">Event log</a>
+      <a href="/app/admin/audit/claims-evidence" aria-current="page">Claims &amp; Evidence</a>
     </nav>
   </header>
 
@@ -176,7 +176,7 @@
                 <li>Evidence {{ evidence.ordinal }}</li>
                 <li>{{ evidence.sourceTitle || sourceKindLabel(evidence.sourceKind) }}</li>
                 @if (evidence.sourceEventAuditId) {
-                  <li><a [href]="'/admin/audit?event=' + evidence.sourceEventAuditId">Related audit event</a></li>
+                  <li><a [href]="'/app/admin/audit?event=' + evidence.sourceEventAuditId">Related audit event</a></li>
                 }
               </ol>
             } @else {
