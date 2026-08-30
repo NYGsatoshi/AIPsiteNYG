@@ -734,7 +734,18 @@ docker compose -p aipsite-real-backend-smoke-config -f docker-compose.real-backe
 DB_PASSWORD=validation_only docker compose config --quiet
 docker compose -f docker-compose.local.yml config --quiet
 DB_PASSWORD=validation_only docker compose -f docker-compose.onprem.yml config --quiet
+DB_PASSWORD=validation_only docker compose -f docker-compose.onprem.yml -f docker-compose.onprem.ci.yml config --quiet
 ```
+
+CI also starts the on-prem PostgreSQL and one-shot `migrate` services under an
+isolated Compose project and requires the migration container to exit
+successfully. Its CI-only override uses Docker's built-in bridge and a local
+loopback connection, so cancelled jobs do not consume another per-project
+subnet. It does not alter the production on-prem topology, build, or start the
+licensed production app image; the full TLS-proxy startup remains environment
+evidence. That CI-only check uses a dummy database and does not start the app;
+the normal cleanup trap removes its scoped containers and volumes, while a
+force-cancelled runner can still leave those non-network resources behind.
 
 ## Coverage gaps
 
@@ -754,7 +765,7 @@ High priority:
 - successful invite acceptance creating tenant/workspace membership;
 - frontend/backend DTO contract tests;
 - cookie-authenticated tenant isolation against PostgreSQL;
-- on-prem migration/startup flow;
+- clean-volume on-prem app startup behind the intended TLS/reverse-proxy topology;
 - reverse-proxy/forwarded-header behavior;
 - object storage when implemented;
 - backup/restore rehearsal.

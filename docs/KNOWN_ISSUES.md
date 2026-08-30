@@ -369,12 +369,12 @@ Status after the MVP-A P0 Angular migration: obsolete as active frontend defects
 - Impact: SaaS example configurations cannot store or read files.
 - Suggested issue: **Implement and test an S3-compatible object-storage adapter**.
 
-### KI-005: On-prem Compose cannot initialize a fresh database
+### KI-005: On-prem Compose fresh-stack startup requires runtime evidence
 
-- Status: confirmed deployment gap.
-- Evidence: `docker-compose.onprem.yml` has no migration service; the app does not apply migrations.
-- Impact: startup seed queries an absent schema on a fresh database.
-- Suggested issue: **Add controlled migrations to the on-prem Compose workflow**.
+- Status: migration path verified under Issue #465; full app startup verification pending.
+- Evidence: `docker-compose.onprem.yml` now uses a one-shot SDK `migrate` service and makes the app wait for successful completion. An isolated clean PostgreSQL volume applied all current migrations successfully; the app itself still does not auto-migrate.
+- Remaining impact: the intended TLS/reverse-proxy topology, production build-secret availability, and a clean-volume startup still require recorded execution evidence.
+- Tracking issue: **#465 — Make on-prem Compose migrate a fresh database before app startup**.
 
 ### KI-006: Reverse-proxy HTTPS behavior still requires deployment-specific verification
 

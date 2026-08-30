@@ -1,0 +1,16 @@
+# CI-only override for the migration smoke check.
+#
+# The self-hosted runner's Compose subnet pool can be exhausted by cancelled
+# jobs. The check starts only PostgreSQL and the migration container. They
+# share PostgreSQL's built-in bridge network namespace, so the migration uses
+# loopback and Compose does not allocate a per-project network. This file is
+# intentionally not part of the on-prem deployment command.
+services:
+  migrate:
+    network_mode: service:postgres
+    environment:
+      ConnectionStrings__DefaultConnection: Host=127.0.0.1;Port=5432;Database=${DB_NAME:-aip_portal};Username=${DB_USER:-aip_portal};Password=${DB_PASSWORD:?set DB_PASSWORD}
+
+  postgres:
+    network_mode: bridge
+    networks: !reset []

@@ -11,7 +11,7 @@ This document describes what the repository currently supports. It is not a prod
 | Direct local development | Partially implemented | Requires external PostgreSQL and migrations; initial administrator seed is opt-in |
 | `docker-compose.local.yml` | Partially implemented | Migrates and can opt in to initial administrator seed |
 | `docker-compose.yml` | Partially implemented | Migrates and can opt in to initial administrator seed |
-| `docker-compose.onprem.yml` | Incomplete | Does not run migrations and expects production HTTPS behavior without including a reverse proxy |
+| `docker-compose.onprem.yml` | Partially implemented | Runs controlled migrations before the app; still expects production HTTPS behavior without including a reverse proxy, and needs fresh-stack runtime evidence |
 | `deploy/sakura/docker-compose.yml` | Implemented for the current Sakura VPS topology | Requires owner-only external environment and Syncfusion license files |
 | Broad public SaaS | Not ready | Object storage, bootstrap, API-token auth, recovery evidence, and deployment hardening are incomplete |
 
@@ -47,9 +47,9 @@ This document describes what the repository currently supports. It is not a prod
 
 ### `docker-compose.onprem.yml`
 
-- PostgreSQL and app only.
-- No migration service and no automatic migration in the app.
-- `Tenancy:SeedOnStartup=true`, but seeding cannot work against a fresh database before the schema exists.
+- PostgreSQL, a controlled one-shot SDK migration service, and the app.
+- The app waits for a successful migration service completion; the application process still does not auto-migrate.
+- `Tenancy:SeedOnStartup=true` begins only after the schema migration has completed.
 - Production HTTPS redirect and secure-cookie settings are enabled.
 - No reverse-proxy/TLS service is included.
 
@@ -65,7 +65,14 @@ This document describes what the repository currently supports. It is not a prod
 - Is deployed through `deploy/sakura/deploy.sh`, which rejects dirty source
   worktrees and group/other-readable secret or environment files.
 
-For a fresh on-prem deployment, apply migrations before starting the app.
+For a fresh on-prem deployment, start the Compose profile normally; its one-shot
+`migrate` service applies the schema before the app is allowed to start. A
+failed migration keeps the app from starting successfully. This is not a
+replacement for a fresh-stack deployment verification with the intended TLS
+proxy, credentials, and build secret.
+
+The current migration-only verification record is
+`docs/verification/procon-onprem-compose-migration.md`.
 
 ## Configuration sources
 

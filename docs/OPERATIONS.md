@@ -386,7 +386,7 @@ Do not paste passwords, raw tokens, invite token values, API token raw values, w
 ## Known Operational Gaps
 
 - First-user/PlatformAdmin bootstrap is startup-seed based and must be explicitly controlled per environment.
-- `docker-compose.onprem.yml` does not apply migrations.
+- `docker-compose.onprem.yml` runs its one-shot migration service before the app; a fresh production-profile startup behind the intended TLS proxy still needs recorded runtime evidence.
 - Forwarded-header handling for a TLS-terminating reverse proxy is not configured.
 - Production object storage adapter is not implemented.
 - Full tenant restore is not implemented.
