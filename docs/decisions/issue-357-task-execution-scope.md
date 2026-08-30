@@ -27,11 +27,24 @@ The UI presents enabled as **Allow** and disabled as **Exclude**. It also explai
 
 ## Provider and execution boundary
 
-The current provider selection is canonically **None**.
+The original provider-none foundation is superseded for provider selection by
+Issue #461's `FirstPartyProjectFilesRuntimeV1` decision. Issue #357 continues
+to own this Active Source Scope, its complete Project/Task override behavior,
+and the immutable accepted-policy snapshot.
 
-This means the current runtime performs no Web search, crawl, fetch, DNS, redirect handling, socket/network egress, Project-file materialization, provider credential use, prompt delivery, output production, or raw source/content persistence. A run request may record its immutable policy snapshot and then terminates as `RuntimeUnavailable` with `TASK_EXECUTION_RUNTIME_UNAVAILABLE`.
+The V1 runtime still performs no Web search, crawl, fetch, DNS, redirect
+handling, socket/network egress, browser-controlled remote-source processing,
+provider credential use, or external provider call. A Web-enabled scope is
+therefore rejected safely by the server runtime rather than fetched or silently
+ignored. The complete provider, lifecycle, result boundary, cancellation, and
+retry decision is recorded in
+`docs/decisions/issue-461-first-party-project-files-runtime-v1.md`.
 
-Because the provider is None, SSRF/redirect behavior, file consumption, credential isolation, source/raw-content retention, output, cancellation, and retry semantics are not merely unspecified: they are unreachable in the current release. Any future network-capable provider requires a separate canonical promotion that defines those controls before registration.
+Issue #461 changes an accepted run from the historical
+`RuntimeUnavailable` terminal record to durable `Accepted` state with an
+immutable provider identity and contract version. It deliberately does not add
+materialization or output: Issue #462 owns post-commit Project File
+materialization, and Issue #463 owns durable Task results.
 
 ## Scope-change timing
 

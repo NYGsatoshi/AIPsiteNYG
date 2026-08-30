@@ -50,6 +50,7 @@ public static class DependencyInjection
         services.AddScoped<ICreateIdempotencyCoordinator, UnavailableCreateIdempotencyCoordinator>();
         services.AddScoped<IProjectActivationWorkflowStore, UnavailableProjectActivationWorkflowStore>();
         services.AddScoped<IProjectActivationUnitOfWork, UnavailableProjectActivationUnitOfWork>();
+        services.AddScoped<IArtifactEvidenceRepository, UnavailableArtifactEvidenceRepository>();
         services.AddScoped<ICapabilityGrantEvaluator, CapabilityGrantEvaluator>();
         services.AddScoped<ICapabilityGrantService, CapabilityGrantService>();
         services.AddScoped<IAuditAuthorizationService, AuditAuthorizationService>();
@@ -123,7 +124,6 @@ public static class DependencyInjection
         services.AddScoped<ITaskCommandService, TaskCommandService>();
         services.AddScoped<ITaskSubresourceService, TaskSubresourceService>();
         services.AddScoped<ITaskExecutionScopeService, TaskExecutionScopeService>();
-        services.AddScoped<ITaskExecutionRuntime, UnavailableTaskExecutionRuntime>();
         services.AddScoped<ITaskWorkspaceTimeZoneResolver, TaskWorkspaceTimeZoneResolver>();
         services.AddScoped<IEventService, EventService>();
         services.AddScoped<IFormService, FormService>();
@@ -131,6 +131,7 @@ public static class DependencyInjection
         services.AddScoped<IFileObjectService>(provider => provider.GetRequiredService<IFileService>() as IFileObjectService
             ?? throw new InvalidOperationException("IFileService must be implemented by IFileObjectService."));
         services.AddScoped<IArtifactService, ArtifactService>();
+        services.AddScoped<IArtifactEvidenceManifestService, ArtifactEvidenceManifestService>();
         services.AddScoped<IPlanningService, PlanningService>();
         services.AddScoped<IUiShellService, UiShellService>();
         services.AddScoped<IStudentRecordService, StudentRecordService>();

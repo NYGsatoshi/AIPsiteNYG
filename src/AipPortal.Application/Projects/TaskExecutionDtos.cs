@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
 
 namespace AipPortal.Application.Projects;
@@ -55,16 +56,20 @@ public sealed record TaskExecutionRunResponse(
     long SnapshotProjectScopeVersion,
     long? SnapshotTaskOverrideVersion,
     bool SnapshotWebEnabled,
-    bool SnapshotProjectFilesEnabled)
+    bool SnapshotProjectFilesEnabled,
+    [property: JsonConverter(typeof(JsonStringEnumConverter))] TaskExecutionProvider RuntimeProvider = TaskExecutionProvider.FirstPartyProjectFilesRuntimeV1,
+    int RuntimeContractVersion = TaskExecutionRun.RuntimeContractVersion1,
+    DateTimeOffset? QueuedAtUtc = null,
+    DateTimeOffset? StartedAtUtc = null)
 {
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public TaskExecutionMajorState MajorState => Status switch
     {
-        TaskExecutionRunStatus.Prepared => TaskExecutionMajorState.Running,
-        TaskExecutionRunStatus.Waiting => TaskExecutionMajorState.Waiting,
-        TaskExecutionRunStatus.NeedsInput => TaskExecutionMajorState.NeedsInput,
-        TaskExecutionRunStatus.Completed => TaskExecutionMajorState.Completed,
-        TaskExecutionRunStatus.RuntimeUnavailable or TaskExecutionRunStatus.Failed => TaskExecutionMajorState.Failed,
+        TaskExecutionRunStatus.Accepted => TaskExecutionMajorState.Accepted,
+        TaskExecutionRunStatus.Queued => TaskExecutionMajorState.Queued,
+        TaskExecutionRunStatus.Running => TaskExecutionMajorState.Running,
+        TaskExecutionRunStatus.Succeeded => TaskExecutionMajorState.Succeeded,
+        TaskExecutionRunStatus.Failed => TaskExecutionMajorState.Failed,
         _ => TaskExecutionMajorState.Failed
     };
 }

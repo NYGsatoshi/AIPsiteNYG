@@ -66,6 +66,7 @@ public static class DependencyInjection
         services.AddScoped<IFileDownloadGrantRepository, FileDownloadGrantRepository>();
         services.AddScoped<ITenantPlanRepository, TenantPlanRepository>();
         services.AddScoped<IArtifactRepository, ArtifactRepository>();
+        services.AddScoped<IArtifactEvidenceRepository, ArtifactEvidenceRepository>();
         services.AddScoped<IPlanningRepository, PlanningRepository>();
         services.AddScoped<IUiShellRepository, UiShellRepository>();
         services.AddScoped<IAnnouncementRepository, AnnouncementRepository>();
@@ -132,6 +133,7 @@ public static class DependencyInjection
         services.AddScoped<INotificationOpenService, NotificationOpenService>();
         services.AddScoped<AipPortal.Application.Search.ISearchService, DbSearchService>();
         services.AddScoped<AipPortal.Application.Audit.IAuditQueryService, DbAuditQueryService>();
+        services.AddScoped<AipPortal.Application.Audit.IAuditClaimsEvidenceService, DbAuditClaimsEvidenceService>();
         services.AddSingleton<IClock, SystemClock>();
 
         return services;

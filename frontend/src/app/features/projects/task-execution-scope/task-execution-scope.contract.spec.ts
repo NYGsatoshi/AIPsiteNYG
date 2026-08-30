@@ -44,10 +44,8 @@ describe('TaskExecutionScopeComponent canonical source-scope presentation', () =
       canManage: true,
       latestRun: {
         id: '33333333-3333-3333-3333-333333333333',
-        status: 'RuntimeUnavailable',
-        failureCode: 'TASK_EXECUTION_RUNTIME_UNAVAILABLE',
+        status: 'Accepted',
         requestedAtUtc: '2026-08-29T00:00:00Z',
-        finishedAtUtc: '2026-08-29T00:00:01Z',
         snapshotSchemaVersion: 1,
         snapshotScopeOrigin: 'ProjectDefault',
         snapshotProjectScopeVersion: 5,
@@ -82,17 +80,17 @@ describe('TaskExecutionScopeComponent canonical source-scope presentation', () =
     expect(native.querySelector('[data-testid="task-execution-scope-sites"]')?.textContent).toContain('Not available');
     expect(native.querySelector('[data-testid="task-execution-scope-apps"]')?.textContent).toContain('Not available');
     expect(native.querySelector('[data-testid="task-execution-scope-future-only"]')?.textContent).toContain('current next-run policy');
-    expect(native.querySelector('[data-testid="task-execution-runtime-unavailable"]')?.textContent).toContain('Execution provider: None');
+    expect(native.querySelector('[data-testid="task-execution-runtime-contract"]')?.textContent).toContain('Execution provider: First-party Project Files V1');
     expect(native.querySelector('.task-execution-scope__editor-link')?.getAttribute('href')).toBe('#task-execution-scope-editor');
 
     const snapshot = native.querySelector('[data-testid="task-execution-snapshot"]')?.textContent ?? '';
-    expect(native.querySelector('[data-testid="task-execution-major-state"]')?.textContent).toContain('Failed');
+    expect(native.querySelector('[data-testid="task-execution-major-state"]')?.textContent).toContain('Accepted');
     expect(snapshot).toContain('Project default');
     expect(snapshot).toContain('Web at request');
     expect(snapshot).toContain('Exclude');
     expect(snapshot).toContain('Project files at request');
     expect(snapshot).toContain('Allow');
-    expect(snapshot).toContain('Unavailable - no execution was started.');
+    expect(snapshot).toContain('Execution request was durably accepted.');
   });
 
   it('uses only generic unsupported capability labels and exposes no source inventory', () => {
