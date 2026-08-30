@@ -1,0 +1,62 @@
+<section class="task-research-plan" aria-labelledby="task-research-plan-heading" data-testid="task-research-plan">
+  <header class="task-research-plan__header">
+    <div>
+      <p class="task-research-plan__eyebrow">Task planning</p>
+      <h2 id="task-research-plan-heading">Research Plan</h2>
+      <p class="task-research-plan__intro">Ordered saved steps define the plan reviewed at execution start. Editing creates a new immutable revision.</p>
+    </div>
+  </header>
+
+  @if (loading()) {
+    <p role="status">Loading Research Plan...</p>
+  } @else if (error(); as message) {
+    <p class="task-research-plan__error" role="alert">{{ message }} <button type="button" (click)="retry()">Retry</button></p>
+  } @else if (plan(); as current) {
+    <section class="task-research-plan__review" aria-labelledby="task-research-plan-review-heading">
+      <h3 id="task-research-plan-review-heading">Start and review summary</h3>
+      @if (current.currentRevision; as revision) {
+        <p data-testid="task-research-plan-revision">Current saved revision {{ revision.number }} &middot; {{ revision.steps.length }} {{ revision.steps.length === 1 ? 'step' : 'steps' }}</p>
+        <p>This is the current persisted plan used for execution-start review. The accepted-run revision snapshot is attached with the first-party execution contract.</p>
+      } @else {
+        <p>No Research Plan has been saved yet. Add steps to create the first revision.</p>
+      }
+    </section>
+
+    <ol class="task-research-plan__steps" aria-label="Research Plan steps">
+      @for (step of draft(); track $index; let index = $index) {
+        <li class="task-research-plan__step">
+          <div class="task-research-plan__step-heading">
+            <h3>Step {{ index + 1 }}</h3>
+            @if (canManage()) {
+              <div class="task-research-plan__step-actions" aria-label="Reorder and remove Step {{ index + 1 }}">
+                <button type="button" [disabled]="saving() || index === 0" (click)="moveStep(index, -1)" [attr.aria-label]="'Move Step ' + (index + 1) + ' up'">Move up</button>
+                <button type="button" [disabled]="saving() || index === draft().length - 1" (click)="moveStep(index, 1)" [attr.aria-label]="'Move Step ' + (index + 1) + ' down'">Move down</button>
+                <button type="button" [disabled]="saving()" (click)="removeStep(index)" [attr.aria-label]="'Remove Step ' + (index + 1)">Remove</button>
+              </div>
+            }
+          </div>
+          @if (canManage()) {
+            <label>Title <input type="text" maxlength="240" [value]="step.title" (input)="updateText(index, 'title', $any($event.target).value)" [disabled]="saving()" /></label>
+            <label>Objective <textarea maxlength="4000" [value]="step.objective" (input)="updateText(index, 'objective', $any($event.target).value)" [disabled]="saving()"></textarea></label>
+            <label>Scope summary <textarea maxlength="4000" [value]="step.scopeSummary" (input)="updateText(index, 'scopeSummary', $any($event.target).value)" [disabled]="saving()"></textarea></label>
+            <label>Status <select [value]="step.status" (change)="updateStatus(index, $any($event.target).value)" [disabled]="saving()">@for (status of statuses; track status) { <option [value]="status">{{ status }}</option> }</select></label>
+          } @else {
+            <dl><div><dt>Title</dt><dd>{{ step.title }}</dd></div><div><dt>Objective</dt><dd>{{ step.objective || 'Not specified' }}</dd></div><div><dt>Scope summary</dt><dd>{{ step.scopeSummary || 'Not specified' }}</dd></div><div><dt>Status</dt><dd>{{ step.status }}</dd></div></dl>
+          }
+        </li>
+      }
+    </ol>
+
+    @if (!draft().length) { <p class="task-research-plan__empty">No plan steps yet.</p> }
+
+    @if (canManage()) {
+      <div class="task-research-plan__actions">
+        <button type="button" (click)="addStep()" [disabled]="saving() || draft().length >= 100">Add step</button>
+        <button type="button" (click)="discard()" [disabled]="saving() || !dirty()">Discard changes</button>
+        <button type="button" class="task-research-plan__save" (click)="save()" [disabled]="saving() || !dirty()">{{ saving() ? 'Saving plan...' : 'Save Research Plan' }}</button>
+      </div>
+    }
+  }
+
+  @if (feedback(); as message) { <p class="task-research-plan__feedback" role="status">{{ message }}</p> }
+</section>

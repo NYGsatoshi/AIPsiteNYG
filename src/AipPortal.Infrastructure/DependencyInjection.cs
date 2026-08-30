@@ -52,6 +52,7 @@ public static class DependencyInjection
         services.AddScoped<IDefaultConversationStore, DefaultConversationStore>();
         services.AddScoped<IProjectRepository, ProjectRepository>();
         services.AddScoped<ITaskExecutionScopeRepository, TaskExecutionScopeRepository>();
+        services.AddScoped<IResearchPlanRepository, ResearchPlanRepository>();
         services.AddScoped<IProjectVisibilityService, ProjectVisibilityService>();
         services.AddScoped<IProjectActivationWorkflowStore, ProjectActivationWorkflowStore>();
         services.AddScoped<IProjectActivationUnitOfWork, ProjectActivationUnitOfWork>();

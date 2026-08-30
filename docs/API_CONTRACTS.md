@@ -776,6 +776,28 @@ Issue #462 owns post-commit server materialization of authorized clean Project
 Files; Issue #463 owns durable result storage and retrieval. The `Accepted`
 state alone is not evidence that any input was consumed or a result exists.
 
+## Issue #364 Task Research Plan
+
+`GET /api/tasks/{taskItemId}/research-plan` returns the current authorized
+Task-owned Research Plan revision (or a null current revision when no plan has
+been saved). `PUT /api/tasks/{taskItemId}/research-plan` accepts only a complete
+ordered step list and `expectedVersion`. It creates the next immutable revision
+atomically; it never updates or deletes an earlier revision or accepts ownership,
+source, provider, or execution identifiers from the client.
+
+Steps are bounded to 100 per revision. Each has a required title (240
+characters), optional objective and scope summary (4,000 characters each), and
+one of `Planned`, `Ready`, `Blocked`, or `Deferred`. Current Project readers may
+read; only current `CanManageProject` authority may save. Missing,
+cross-Tenant, deleted, and unauthorized Tasks use the same safe not-found
+response. A stale aggregate version returns 409 `RESEARCH_PLAN_STALE_VERSION`.
+
+The response returns the current immutable revision and safe Task-scoped fields
+only. It returns no historical raw sources, storage details, credentials,
+provider configuration, or execution outcome. The later Task execution request
+captures this exact current revision in its existing immutable run snapshot;
+the Research Plan introduces no separate execution snapshot system.
+
 ## TASK-V1-PR07-B hard deadline mutation
 
 The existing canonical versioned Task detail mutation is extended in place:

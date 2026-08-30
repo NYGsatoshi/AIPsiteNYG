@@ -65,6 +65,9 @@ public sealed class AppDbContext(
     public DbSet<TaskItem> TaskItems => Set<TaskItem>();
     public DbSet<TaskExecutionScopeOverride> TaskExecutionScopeOverrides => Set<TaskExecutionScopeOverride>();
     public DbSet<TaskExecutionRun> TaskExecutionRuns => Set<TaskExecutionRun>();
+    public DbSet<ResearchPlan> ResearchPlans => Set<ResearchPlan>();
+    public DbSet<ResearchPlanRevision> ResearchPlanRevisions => Set<ResearchPlanRevision>();
+    public DbSet<ResearchPlanStep> ResearchPlanSteps => Set<ResearchPlanStep>();
     public DbSet<TaskWorkflowDefinition> TaskWorkflowDefinitions => Set<TaskWorkflowDefinition>();
     public DbSet<TaskWorkflowStage> TaskWorkflowStages => Set<TaskWorkflowStage>();
     public DbSet<WorkItemCollaborator> WorkItemCollaborators => Set<WorkItemCollaborator>();
@@ -104,6 +107,7 @@ public sealed class AppDbContext(
         CancellationToken cancellationToken = default)
     {
         EnsureProjectExecutionScopeDefaults();
+        EnsureResearchPlanSnapshotImmutability();
         StampAuditableEntities();
         var hasNormalTenantWrite = ApplyTenantRules();
         EnsureLegacyUnclassifiedOperationalTaskWorkflowCompatibility();
@@ -138,6 +142,7 @@ public sealed class AppDbContext(
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
         EnsureProjectExecutionScopeDefaults();
+        EnsureResearchPlanSnapshotImmutability();
         StampAuditableEntities();
         var hasNormalTenantWrite = ApplyTenantRules();
         EnsureLegacyUnclassifiedOperationalTaskWorkflowCompatibility();
@@ -483,6 +488,35 @@ public sealed class AppDbContext(
                 throw new InvalidOperationException(
                     "Project execution scopes require a creator or owner as their updater.");
             }
+        }
+    }
+
+    /// <summary>
+    /// Research Plan revisions are historical snapshots. Plan edits append a
+    /// new revision and move the aggregate pointer; they never alter or remove
+    /// a prior revision or step in the normal persistence path.
+    /// </summary>
+    private void EnsureResearchPlanSnapshotImmutability()
+    {
+        if (ChangeTracker.Entries<ResearchPlanRevision>()
+            .Any(entry => entry.State is EntityState.Modified or EntityState.Deleted))
+        {
+            throw new InvalidOperationException(
+                "Research Plan revisions are immutable and cannot be changed or deleted.");
+        }
+
+        if (ChangeTracker.Entries<ResearchPlanStep>()
+            .Any(entry => entry.State is EntityState.Modified or EntityState.Deleted))
+        {
+            throw new InvalidOperationException(
+                "Research Plan steps are immutable and cannot be changed or deleted.");
+        }
+
+        if (ChangeTracker.Entries<ResearchPlan>()
+            .Any(entry => entry.State == EntityState.Deleted))
+        {
+            throw new InvalidOperationException(
+                "Research Plans are historical Task records and cannot be deleted.");
         }
     }
 
