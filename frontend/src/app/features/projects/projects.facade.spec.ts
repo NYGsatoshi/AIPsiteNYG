@@ -320,6 +320,36 @@ describe('ProjectsFacade live API mutations', () => {
     expect(facade.getTaskDetail('project-1', 'task-1').detail?.activity.items.map(item => item.id)).toEqual(['activity-new']);
   });
 
+  it('does not cancel an in-flight Activity request when a realtime aggregate refresh arrives', () => {
+    flushInitialLoad([]);
+    facade.ensureTaskDetail('project-1', 'task-1');
+    const aggregate = {
+      task: { ...editableTaskDto, status: undefined, workflowStageName: 'In progress', stageCategory: 2 },
+      checklist: [], labels: [], subtasks: { items: [] }, comments: { items: [] }, files: { items: [] }
+    };
+    httpMock.expectOne('/api/tasks/task-1').flush(aggregate);
+
+    facade.loadActivity('task-1');
+    const inFlightActivity = httpMock.expectOne('/api/tasks/task-1/activity?page=1&pageSize=20');
+    expect(facade.getDetailSectionState('activity').status).toBe('loading');
+
+    (facade as unknown as { handleRealtimeEvent(event: unknown): void }).handleRealtimeEvent({
+      eventId: 'task-refresh-during-activity-load', eventType: 'Projects.TaskChanged.v1', aggregateId: 'task-1'
+    });
+    httpMock.expectOne('/api/tasks/task-1').flush({
+      ...aggregate,
+      task: { ...aggregate.task, workflowStageName: 'Review', stageCategory: 3 }
+    });
+
+    expect(inFlightActivity.cancelled).toBe(false);
+    httpMock.expectNone('/api/tasks/task-1/activity?page=1&pageSize=20');
+    inFlightActivity.flush({ items: [], page: 1, pageSize: 20, totalCount: 0, hasMore: false });
+
+    expect(facade.getTaskDetail('project-1', 'task-1').task?.workflowStageName).toBe('Review');
+    expect(facade.getDetailSectionState('activity').status).toBe('empty');
+    expect(facade.getTaskDetail('project-1', 'task-1').detail?.activity).toMatchObject({ totalCount: 0, hasMore: false });
+  });
+
   it('keeps an authorized phase visible when the initial Activity request has a transient error', () => {
     flushInitialLoad([]);
     facade.ensureTaskDetail('project-1', 'task-1');
