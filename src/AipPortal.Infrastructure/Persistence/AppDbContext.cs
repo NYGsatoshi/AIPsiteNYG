@@ -51,6 +51,7 @@ public sealed class AppDbContext(
     public DbSet<TaskDeadlineDigestAttempt> TaskDeadlineDigestAttempts => Set<TaskDeadlineDigestAttempt>();
     public DbSet<Announcement> Announcements => Set<Announcement>();
     public DbSet<AnnouncementRead> AnnouncementReads => Set<AnnouncementRead>();
+    public DbSet<AnnouncementDraft> AnnouncementDrafts => Set<AnnouncementDraft>();
     public DbSet<ActivityEvent> ActivityEvents => Set<ActivityEvent>();
     public DbSet<EventAttendance> EventAttendances => Set<EventAttendance>();
     public DbSet<StudentRecord> StudentRecords => Set<StudentRecord>();

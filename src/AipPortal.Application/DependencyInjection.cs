@@ -90,6 +90,9 @@ public static class DependencyInjection
         services.AddSingleton<ICommunicationSafetyGuard, InMemoryCommunicationSafetyGuard>();
         services.AddScoped<IAnnouncementService, AnnouncementService>();
         services.AddScoped<IAnnouncementAudienceService, AnnouncementAudienceService>();
+        services.AddScoped<AnnouncementDraftService>();
+        services.AddScoped<IAnnouncementDraftService>(provider => provider.GetRequiredService<AnnouncementDraftService>());
+        services.AddScoped<IAnnouncementPublicationProcessor>(provider => provider.GetRequiredService<AnnouncementDraftService>());
         services.AddScoped<WorkspaceGeneralRequiredInitialization>();
         services.AddScoped<IWorkspaceRequiredInitialization>(provider =>
             provider.GetRequiredService<IDefaultConversationStore>() is UnavailableDefaultConversationStore

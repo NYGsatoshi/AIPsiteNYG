@@ -46,12 +46,26 @@ export interface AnnouncementAudienceOption {
 }
 
 export interface AnnouncementEditorSubmission {
+  /** Durable server draft identity; absent until the first successful save. */
+  readonly draftId?: string;
+  /** Optimistic version supplied by the server-owned draft workflow. */
+  readonly draftVersion?: number;
+  /** Browser retry identities, never authority for target or publication. */
+  readonly createIdempotencyKey?: string;
+  readonly transitionIdempotencyKey?: string;
   readonly title: string;
   readonly body: string;
   readonly priority: AnnouncementPriority;
   readonly audience: AnnouncementAudienceOption;
   readonly requiresReadConfirmation: boolean;
+  readonly deliveryMode?: AnnouncementDeliveryMode;
+  /** A local wall-clock value without a UTC offset. The server resolves it. */
+  readonly scheduledLocalDateTime?: string;
+  /** IANA time-zone ID selected by the browser user and validated server-side. */
+  readonly timeZoneId?: string;
 }
+
+export type AnnouncementDeliveryMode = 'now' | 'scheduled';
 
 /**
  * Current-tab presentation only. It is not persisted, routed, or sent as an
@@ -118,13 +132,20 @@ export interface AnnouncementViewModel {
 }
 
 export interface AnnouncementEditorDraft {
+  /** Durable workflow identity. It is unrelated to a published announcement ID. */
   readonly id?: string;
+  readonly version?: number;
+  readonly createIdempotencyKey?: string;
+  readonly transitionIdempotencyKey?: string;
   readonly title: string;
   readonly body: string;
   readonly priority: AnnouncementPriority;
   readonly audienceKey: string;
   readonly availableAudiences: readonly AnnouncementAudienceOption[];
   readonly requiresReadConfirmation: boolean;
+  readonly deliveryMode?: AnnouncementDeliveryMode;
+  readonly scheduledLocalDateTime?: string;
+  readonly timeZoneId?: string;
   readonly publicationState?: AnnouncementPublicationState;
   readonly scheduledAtLabel?: string;
   readonly timeZoneLabel?: string;

@@ -7,6 +7,7 @@ using AipPortal.Application.Projects;
 using AipPortal.Application.Realtime;
 using AipPortal.Application.Notifications;
 using AipPortal.Application.Workspaces;
+using AipPortal.Application.Announcements;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -70,6 +71,7 @@ public static class DependencyInjection
         services.AddScoped<IPlanningRepository, PlanningRepository>();
         services.AddScoped<IUiShellRepository, UiShellRepository>();
         services.AddScoped<IAnnouncementRepository, AnnouncementRepository>();
+        services.AddScoped<IAnnouncementDraftRepository, AnnouncementDraftRepository>();
         services.AddScoped<AipPortal.Application.Realtime.IOutboxEventRepository, OutboxEventRepository>();
         services.AddScoped<ITransactionalOutbox, TransactionalOutbox>();
         services.AddScoped<IOutboxReplayService, OutboxReplayService>();

@@ -173,7 +173,12 @@
 .announcement-editor__check input {
   width: 18px;
   height: 18px;
+  min-height: 18px;
   padding: 0;
+}
+
+fieldset {
+  min-inline-size: 0;
 }
 
 .announcement-editor__actions {

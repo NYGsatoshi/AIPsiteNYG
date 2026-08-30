@@ -162,6 +162,55 @@ describe('AnnouncementEditorComponent', () => {
       priority: 'important',
       audience: teacherGroupAudience,
       requiresReadConfirmation: true,
+      deliveryMode: 'now',
+    });
+  });
+
+  it('keeps Save draft separate from Preview and reviews a scheduled local time before emitting it', async () => {
+    const fixture = await renderEditor(createDraft());
+    let saved: AnnouncementEditorSubmission | undefined;
+    let published: AnnouncementEditorSubmission | undefined;
+    fixture.componentInstance.saveDraftRequested.subscribe((value) => {
+      saved = value;
+    });
+    fixture.componentInstance.publishRequested.subscribe((value) => {
+      published = value;
+    });
+
+    fixture.componentInstance.form.patchValue({
+      title: 'Scheduled safety update',
+      body: 'Review this scheduled announcement.',
+      deliveryMode: 'scheduled',
+      scheduledLocalDateTime: '2026-09-02T09:45',
+      timeZoneId: 'Asia/Tokyo',
+    });
+    fixture.detectChanges();
+
+    (fixture.nativeElement as HTMLElement)
+      .querySelector<HTMLButtonElement>('[data-testid="announcement-save-draft-action"]')
+      ?.click();
+    expect(saved).toMatchObject({
+      title: 'Scheduled safety update',
+      deliveryMode: 'scheduled',
+      scheduledLocalDateTime: '2026-09-02T09:45',
+      timeZoneId: 'Asia/Tokyo',
+    });
+    expect(published).toBeUndefined();
+
+    fixture.componentInstance.publish();
+    fixture.detectChanges();
+    const confirmation = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>(
+      '[data-testid="announcement-publication-confirmation"]',
+    );
+    expect(confirmation?.textContent).toContain('2026-09-02T09:45');
+    expect(confirmation?.textContent).toContain('Asia/Tokyo');
+    expect(published).toBeUndefined();
+
+    fixture.componentInstance.confirmPublication();
+    expect(published).toMatchObject({
+      deliveryMode: 'scheduled',
+      scheduledLocalDateTime: '2026-09-02T09:45',
+      timeZoneId: 'Asia/Tokyo',
     });
   });
 
@@ -215,12 +264,13 @@ describe('AnnouncementEditorComponent', () => {
     await nextRenderTick();
 
     expect(host.querySelector('[data-testid="announcement-local-preview"]')).toBeNull();
-    expect(fixture.componentInstance.form.getRawValue()).toEqual({
+    expect(fixture.componentInstance.form.getRawValue()).toMatchObject({
       title: 'Preview this title',
       body: 'Preview this body without publishing it.',
       priority: 'critical',
       audienceKey: teacherGroupAudience.key,
       requiresReadConfirmation: true,
+      deliveryMode: 'now',
     });
     expect(document.activeElement).toBe(
       host.querySelector('[data-testid="announcement-editor-title"]'),
@@ -380,7 +430,7 @@ describe('AnnouncementEditorComponent', () => {
     expect(fixture.componentInstance.selectedAudience()).toEqual(teacherGroupAudience);
   });
 
-  it('uses the authoritative announcement limits, local preview, and omits the unimplemented draft-save action', async () => {
+  it('uses the authoritative announcement limits and exposes a separate durable draft-save action', async () => {
     const fixture = await renderEditor(createDraft());
     const host = fixture.nativeElement as HTMLElement;
     const title = host.querySelector<HTMLInputElement>('[data-testid="announcement-editor-title"]');
@@ -391,7 +441,7 @@ describe('AnnouncementEditorComponent', () => {
     expect(title?.maxLength).toBe(200);
     expect(body?.maxLength).toBe(20_000);
     expect(host.querySelector('[data-testid="announcement-preview-action"]')).toBeTruthy();
-    expect(host.querySelector('[data-testid="announcement-save-draft-action"]')).toBeNull();
+    expect(host.querySelector('[data-testid="announcement-save-draft-action"]')).toBeTruthy();
 
     fixture.componentInstance.form.controls.title.setValue('a'.repeat(201));
     fixture.componentInstance.form.controls.title.markAsTouched();
@@ -424,12 +474,13 @@ describe('AnnouncementEditorComponent', () => {
 
     expect(fixture.componentInstance.publicationReviewOpen()).toBe(false);
     expect(fixture.componentInstance.publicationReview()).toBeNull();
-    expect(fixture.componentInstance.form.getRawValue()).toEqual({
+    expect(fixture.componentInstance.form.getRawValue()).toMatchObject({
       title: 'Review before publication',
       body: 'Keep this draft after returning to edit.',
       priority: 'critical',
       audienceKey: teacherGroupAudience.key,
       requiresReadConfirmation: false,
+      deliveryMode: 'now',
     });
   });
 

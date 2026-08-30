@@ -29,6 +29,7 @@ import {
   AnnouncementAudienceOption,
   AnnouncementEditorDraft,
   AnnouncementEditorSubmission,
+  AnnouncementDeliveryMode,
   AnnouncementLocalPreview,
   AnnouncementPriority,
   AnnouncementPublicationState,
@@ -52,6 +53,7 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
   @ViewChild('bodyInput') private bodyInput?: ElementRef<HTMLTextAreaElement>;
   @ViewChild('priorityInput') private priorityInput?: ElementRef<HTMLSelectElement>;
   @ViewChild('audienceInput') private audienceInput?: ElementRef<HTMLSelectElement>;
+  @ViewChild('scheduleInput') private scheduleInput?: ElementRef<HTMLInputElement>;
   @ViewChild(AnnouncementLocalPreviewComponent)
   private previewComponent?: AnnouncementLocalPreviewComponent;
 
@@ -59,6 +61,7 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
   @Input() submissionError: string | undefined;
   @Input() publishing = false;
   @Output() readonly draftChanged = new EventEmitter<AnnouncementEditorDraft>();
+  @Output() readonly saveDraftRequested = new EventEmitter<AnnouncementEditorSubmission>();
   @Output() readonly publishRequested = new EventEmitter<AnnouncementEditorSubmission>();
 
   readonly priorityOptions: readonly AnnouncementPriority[] = ['normal', 'important', 'critical'];
@@ -72,6 +75,7 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
   private submissionAttempted = false;
   private formInitialized = false;
   private formChanges?: Subscription;
+  private deliveryModeChanges?: Subscription;
 
   readonly form = new FormBuilder().nonNullable.group({
     title: [
@@ -93,6 +97,9 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
     priority: ['normal' as AnnouncementPriority, Validators.required],
     audienceKey: ['', Validators.required],
     requiresReadConfirmation: [false],
+    deliveryMode: ['now' as AnnouncementDeliveryMode, Validators.required],
+    scheduledLocalDateTime: [''],
+    timeZoneId: [browserTimeZoneId()],
   });
 
   /**
@@ -126,6 +133,10 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
     return this.publicationState === 'draft';
   }
 
+  get canSaveDraft(): boolean {
+    return this.publicationState === 'draft';
+  }
+
   get summaryErrors(): readonly AnnouncementEditorFieldError[] {
     if (!this.submissionAttempted) {
       return [];
@@ -140,11 +151,16 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
   }
 
   ngOnInit(): void {
+    this.deliveryModeChanges = this.form.controls.deliveryMode.valueChanges.subscribe(() =>
+      this.updateScheduleValidators(),
+    );
     this.formChanges = this.form.valueChanges.subscribe(() => this.emitDraftChange());
+    this.updateScheduleValidators();
   }
 
   ngOnDestroy(): void {
     this.formChanges?.unsubscribe();
+    this.deliveryModeChanges?.unsubscribe();
   }
 
   ngOnChanges(changes: SimpleChanges): void {
@@ -166,6 +182,7 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
     }
 
     this.availableAudiences.set(this.draft.availableAudiences);
+    this.syncEditability();
     const currentAudienceKey = this.form.controls.audienceKey.value;
     const preferredAudienceKey =
       this.formInitialized && this.form.dirty ? currentAudienceKey : this.draft.audienceKey;
@@ -192,11 +209,15 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
         priority: this.draft.priority,
         audienceKey: authorizedAudienceKey,
         requiresReadConfirmation: this.draft.requiresReadConfirmation,
+        deliveryMode: this.draft.deliveryMode ?? 'now',
+        scheduledLocalDateTime: this.draft.scheduledLocalDateTime ?? '',
+        timeZoneId: this.draft.timeZoneId ?? browserTimeZoneId(),
       },
       { emitEvent: false },
     );
     this.submissionAttempted = false;
     this.formInitialized = true;
+    this.updateScheduleValidators();
     this.previewRevision.update((revision) => revision + 1);
 
     if (this.previewOpen() && currentAudienceKey !== authorizedAudienceKey) {
@@ -219,6 +240,10 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
     const control = this.form.controls[field];
     if (!control.invalid || !control.touched) {
       return null;
+    }
+
+    if (field === 'scheduledLocalDateTime') {
+      return 'Choose a local date and time before scheduling.';
     }
 
     if (field === 'title') {
@@ -294,22 +319,26 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
       return;
     }
 
-    const value = this.form.getRawValue();
-    const title = value.title.trim();
-    const body = value.body.trim();
-    if (!title || !body) {
-      this.focusFirstInvalidControl(!title ? 'title' : 'body');
+    const submission = this.createSubmission(true);
+    if (submission === null) {
       return;
     }
 
-    this.publicationReview.set({
-      title,
-      body,
-      priority: value.priority,
-      audience,
-      requiresReadConfirmation: value.requiresReadConfirmation,
-    });
+    this.publicationReview.set(submission);
     this.publicationReviewOpen.set(true);
+  }
+
+  saveDraft(): void {
+    this.submissionAttempted = true;
+    this.form.controls.title.markAsTouched();
+    this.form.controls.body.markAsTouched();
+    this.form.controls.audienceKey.markAsTouched();
+    const submission = this.createSubmission(false);
+    if (submission === null || !this.canSaveDraft || this.publishing) {
+      return;
+    }
+
+    this.saveDraftRequested.emit(submission);
   }
 
   cancelPublicationReview(): void {
@@ -332,14 +361,28 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
   }
 
   publicationTimingLabel(): string {
-    // The create command has no approved scheduled-delivery contract.
-    return 'Publish immediately';
+    const review = this.publicationReview();
+    const mode = review?.deliveryMode ?? this.form.controls.deliveryMode.value;
+    if (mode !== 'scheduled') {
+      return 'Publish immediately';
+    }
+
+    const localDateTime = review?.scheduledLocalDateTime ?? this.form.controls.scheduledLocalDateTime.value;
+    const timeZoneId = review?.timeZoneId ?? this.form.controls.timeZoneId.value;
+    return localDateTime && timeZoneId
+      ? `Schedule for ${localDateTime} (${timeZoneId})`
+      : 'Scheduled publication requires a local date, time, and IANA time zone';
   }
 
   confirmationLabel(): string {
     const recipientCount = this.publicationReview()?.audience.recipientCount;
-    return recipientCount === undefined
-      ? 'Publish now'
+    const isScheduled = this.publicationReview()?.deliveryMode === 'scheduled';
+    if (recipientCount === undefined) {
+      return isScheduled ? 'Schedule publication' : 'Publish now';
+    }
+
+    return isScheduled
+      ? `Schedule for ${recipientCount.toLocaleString('ja-JP')} recipients`
       : `Publish to ${recipientCount.toLocaleString('ja-JP')} recipients now`;
   }
 
@@ -357,12 +400,18 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
     const value = this.form.getRawValue();
     this.draftChanged.emit({
       id: this.draft.id,
+      version: this.draft.version,
+      createIdempotencyKey: this.draft.createIdempotencyKey,
+      transitionIdempotencyKey: this.draft.transitionIdempotencyKey,
       title: value.title,
       body: value.body,
       priority: value.priority,
       audienceKey: value.audienceKey,
       availableAudiences: this.availableAudiences(),
       requiresReadConfirmation: value.requiresReadConfirmation,
+      deliveryMode: value.deliveryMode,
+      scheduledLocalDateTime: value.scheduledLocalDateTime,
+      timeZoneId: value.timeZoneId,
       publicationState: this.draft.publicationState,
       scheduledAtLabel: this.draft.scheduledAtLabel,
       timeZoneLabel: this.draft.timeZoneLabel,
@@ -393,11 +442,78 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
       case 'audienceKey':
         this.audienceInput?.nativeElement.focus();
         break;
+      case 'scheduledLocalDateTime':
+        this.scheduleInput?.nativeElement.focus();
+        break;
     }
+  }
+
+  private createSubmission(requireSchedule: boolean): AnnouncementEditorSubmission | null {
+    const audience = this.selectedAudience();
+    const value = this.form.getRawValue();
+    const title = value.title.trim();
+    const body = value.body.trim();
+    if (!title || !body || audience === null) {
+      this.focusFirstInvalidControl(!title ? 'title' : !body ? 'body' : 'audienceKey');
+      return null;
+    }
+
+    const deliveryMode = value.deliveryMode;
+    const scheduledLocalDateTime = value.scheduledLocalDateTime.trim();
+    const timeZoneId = value.timeZoneId.trim();
+    if (requireSchedule && deliveryMode === 'scheduled' && (!scheduledLocalDateTime || !timeZoneId)) {
+      this.form.controls.scheduledLocalDateTime.markAsTouched();
+      this.form.controls.timeZoneId.markAsTouched();
+      this.focusFirstInvalidControl('scheduledLocalDateTime');
+      return null;
+    }
+
+    return {
+      ...(this.draft.id ? { draftId: this.draft.id } : {}),
+      ...(this.draft.version !== undefined ? { draftVersion: this.draft.version } : {}),
+      ...(this.draft.createIdempotencyKey
+        ? { createIdempotencyKey: this.draft.createIdempotencyKey }
+        : {}),
+      ...(this.draft.transitionIdempotencyKey
+        ? { transitionIdempotencyKey: this.draft.transitionIdempotencyKey }
+        : {}),
+      title,
+      body,
+      priority: value.priority,
+      audience,
+      requiresReadConfirmation: value.requiresReadConfirmation,
+      deliveryMode,
+      ...(deliveryMode === 'scheduled'
+        ? { scheduledLocalDateTime, timeZoneId }
+        : {}),
+    };
+  }
+
+  private updateScheduleValidators(): void {
+    const scheduled = this.form.controls.deliveryMode.value === 'scheduled';
+    this.form.controls.scheduledLocalDateTime.setValidators(scheduled ? [Validators.required] : []);
+    this.form.controls.timeZoneId.setValidators(scheduled ? [Validators.required, ianaTimeZoneValidator] : []);
+    this.form.controls.scheduledLocalDateTime.updateValueAndValidity({ emitEvent: false });
+    this.form.controls.timeZoneId.updateValueAndValidity({ emitEvent: false });
+  }
+
+  /**
+   * Once the server has accepted a delivery request, the retained draft is a
+   * durable schedule rather than editable browser state. It stays visible so
+   * the author can see its accepted timing, but no local edit can race the
+   * worker's immutable Scheduled -> Published transition.
+   */
+  private syncEditability(): void {
+    if (this.draft.publicationState === 'scheduled' || this.draft.publicationState === 'published') {
+      this.form.disable({ emitEvent: false });
+      return;
+    }
+
+    this.form.enable({ emitEvent: false });
   }
 }
 
-type AnnouncementEditorField = 'title' | 'body' | 'priority' | 'audienceKey';
+type AnnouncementEditorField = 'title' | 'body' | 'priority' | 'audienceKey' | 'scheduledLocalDateTime';
 
 interface AnnouncementEditorFieldError {
   readonly field: AnnouncementEditorField;
@@ -409,14 +525,30 @@ const announcementEditorFields: readonly AnnouncementEditorField[] = [
   'body',
   'priority',
   'audienceKey',
+  'scheduledLocalDateTime',
 ];
 
 const announcementTitleMaximumLength = 200;
 const announcementBodyMaximumLength = 20_000;
 
 const announcementEditorFieldDomId = (field: AnnouncementEditorField): string =>
-  field === 'audienceKey' ? 'audience' : field;
+  field === 'audienceKey' ? 'audience' : field === 'scheduledLocalDateTime' ? 'schedule-local-time' : field;
 
 const nonWhitespaceValidator: ValidatorFn = (
   control: AbstractControl<string>,
 ): ValidationErrors | null => (control.value.trim().length > 0 ? null : { whitespace: true });
+
+const ianaTimeZoneValidator: ValidatorFn = (
+  control: AbstractControl<string>,
+): ValidationErrors | null => {
+  const value = control.value.trim();
+  return value === 'UTC' || value.includes('/') ? null : { ianaTimeZone: true };
+};
+
+function browserTimeZoneId(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  } catch {
+    return 'UTC';
+  }
+}

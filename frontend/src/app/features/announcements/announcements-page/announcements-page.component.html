@@ -51,6 +51,7 @@
           [submissionError]="editingAnnouncementId() === null ? vm.editorError : undefined"
           [publishing]="editingAnnouncementId() === null && vm.isPublishing === true"
           (draftChanged)="updateAnnouncementDraft($event)"
+          (saveDraftRequested)="saveAnnouncementDraft($event)"
           (publishRequested)="publishAnnouncement($event)"
         />
       </div>
@@ -106,6 +107,7 @@
             [submissionError]="editingAnnouncementId() === null ? vm.editorError : undefined"
             [publishing]="editingAnnouncementId() === null && vm.isPublishing === true"
             (draftChanged)="updateAnnouncementDraft($event)"
+            (saveDraftRequested)="saveAnnouncementDraft($event)"
             (publishRequested)="publishAnnouncement($event)"
           />
         } @else {

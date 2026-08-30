@@ -180,12 +180,19 @@ export class AnnouncementsPageComponent implements OnDestroy {
   }
 
   publishAnnouncement(submission: AnnouncementEditorSubmission): void {
-    // #377 wires the create/publish path. Existing-announcement mutation remains
-    // a separate contract, so never reinterpret an edit action as a new create.
+    // Existing-announcement mutation remains a separate contract, so never
+    // reinterpret an edit action as a new durable draft delivery request.
     if (this.editingAnnouncementId() !== null) {
       return;
     }
     this.facade.createAnnouncement(submission);
+  }
+
+  saveAnnouncementDraft(submission: AnnouncementEditorSubmission): void {
+    if (this.editingAnnouncementId() !== null) {
+      return;
+    }
+    this.facade.saveAnnouncementDraft(submission);
   }
 
   updateAnnouncementDraft(draft: AnnouncementEditorDraft): void {
