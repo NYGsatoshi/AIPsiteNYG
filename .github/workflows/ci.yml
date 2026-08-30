@@ -367,6 +367,7 @@ jobs:
           docker compose config --quiet
           docker compose -f docker-compose.local.yml config --quiet
           docker compose -f docker-compose.onprem.yml config --quiet
+          docker compose -f docker-compose.onprem.yml -f docker-compose.onprem.ci.yml config --quiet
           docker compose -p deploy -f deploy/sakura/docker-compose.yml config --quiet
 
       - name: Verify on-prem Compose migration service
@@ -377,10 +378,10 @@ jobs:
           set -euo pipefail
           project="aipsite-onprem-migration-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           cleanup() {
-            docker compose -p "$project" -f docker-compose.onprem.yml down --volumes --remove-orphans || true
+            docker compose -p "$project" -f docker-compose.onprem.yml -f docker-compose.onprem.ci.yml down --volumes --remove-orphans || true
           }
           trap cleanup EXIT
-          docker compose -p "$project" -f docker-compose.onprem.yml \
+          docker compose -p "$project" -f docker-compose.onprem.yml -f docker-compose.onprem.ci.yml \
             up --abort-on-container-exit --exit-code-from migrate postgres migrate
 
       - name: Build Docker image with persistent BuildKit caches

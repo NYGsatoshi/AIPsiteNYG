@@ -1,0 +1,21 @@
+# CI-only override for the migration smoke check.
+#
+# The self-hosted runner's Compose subnet pool can be exhausted by cancelled
+# jobs. The migration check needs only the three local containers below, so
+# they can safely share Docker's built-in bridge. Legacy links provide the
+# existing `db` hostname without allocating a per-project network. This file
+# is intentionally not part of the on-prem deployment command.
+services:
+  app:
+    network_mode: bridge
+    links:
+      - postgres:db
+
+  migrate:
+    network_mode: bridge
+    links:
+      - postgres:db
+
+  postgres:
+    network_mode: bridge
+    networks: !reset []
