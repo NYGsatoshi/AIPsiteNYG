@@ -17,12 +17,14 @@ Status: implementation candidate on `feat/359-message-search-filters`.
 - Active query and conversation conditions reuse the canonical shared
   `AipFilterChipComponent`; its native remove button keeps the condition label
   and value in the accessible name.
-- Search and local conversation filtering are labeled as separate scopes;
-  advanced compound result filters remain Issue #367.
+- Search and local conversation filtering are labeled as separate scopes. This
+  #359 record predates the additive #367 advanced-filter implementation in
+  `docs/verification/p2-message-advanced-filters.md`.
 - Search-empty and conversation-filter-empty states both offer an immediate
   adjustment path. Server failures use fixed redacted text.
-- No attachment control or attachment interpretation was added because BE-004
-  remains unresolved.
+- No attachment control or attachment interpretation was added by #359. The
+  later #367 facet recognizes only safe canonical pre-existing links and does
+  not resolve the still-open BE-004 upload/persistence defect.
 
 The exact contract and non-goals are recorded in
 `docs/contracts/message-search-filters-v1.md`.

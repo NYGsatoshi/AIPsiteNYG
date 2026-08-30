@@ -28,6 +28,20 @@ public enum FileSearchKind
     Archive = 5
 }
 
+public enum MessageReadFilter
+{
+    All = 0,
+    Read = 1,
+    Unread = 2
+}
+
+public enum MessageAttachmentFilter
+{
+    All = 0,
+    With = 1,
+    Without = 2
+}
+
 public sealed record SearchRequest(
     string? Q = null,
     SearchResultType Type = SearchResultType.All,
@@ -37,9 +51,24 @@ public sealed record SearchRequest(
     Guid? AuthorUserId = null,
     DateTimeOffset? FromDate = null,
     DateTimeOffset? ToDate = null,
+    DateTimeOffset? ToDateExclusive = null,
     int Page = 1,
     int PageSize = 20,
-    FileSearchKind FileKind = FileSearchKind.All);
+    FileSearchKind FileKind = FileSearchKind.All,
+    MessageReadFilter MessageRead = MessageReadFilter.All,
+    MessageAttachmentFilter MessageAttachment = MessageAttachmentFilter.All);
+
+public sealed record MessageAuthorOptionsRequest(
+    string? Q = null,
+    Guid? SelectedUserId = null,
+    int Limit = 20);
+
+public sealed record MessageAuthorOptionResponse(
+    Guid UserId,
+    string DisplayName);
+
+public sealed record MessageAuthorOptionsResponse(
+    IReadOnlyList<MessageAuthorOptionResponse> Items);
 
 public sealed record SearchResultItemResponse(
     SearchResultType Type,

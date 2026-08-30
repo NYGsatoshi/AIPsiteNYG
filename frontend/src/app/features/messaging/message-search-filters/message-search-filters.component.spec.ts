@@ -1,7 +1,8 @@
 import { provideHttpClient } from '@angular/common/http';
+import { Location } from '@angular/common';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { Router, provideRouter } from '@angular/router';
 
 import { MessageSearchFiltersComponent } from './message-search-filters.component';
 import { MessagingConversationListItem, MessagingInboxViewModel } from '../messaging.types';
@@ -11,6 +12,7 @@ const unreadMentionId = '22222222-2222-4222-8222-222222222222';
 const unreadOnlyId = '33333333-3333-4333-8333-333333333333';
 const mentionOnlyId = '44444444-4444-4444-8444-444444444444';
 const messageId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const authorId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const inboxAll: MessagingInboxViewModel = {
   view: 'All',
   counts: { all: 3, unread: 2, mentions: 2, later: 0 },
@@ -233,6 +235,179 @@ describe('MessageSearchFiltersComponent', () => {
     expect(error).toContain('temporarily unavailable');
     expect(error).not.toContain('private database stack');
   });
+
+  it('applies compound server filters, renders removable summaries, and keeps focus contained', async () => {
+    const root = fixture.nativeElement as HTMLElement;
+    click(root, '[data-testid="message-advanced-filters-open"]');
+    fixture.detectChanges();
+    await nextTask();
+
+    const authorInput = testElement(root, 'message-advanced-author') as HTMLInputElement;
+    expect(document.activeElement).toBe(authorInput);
+    setInput(authorInput, 'Authorized');
+    const authorRequest = httpMock.expectOne((candidate) => candidate.url === '/api/search/message-authors');
+    expect(authorRequest.request.params.get('q')).toBe('Authorized');
+    expect(authorRequest.request.params.get('limit')).toBe('20');
+    authorRequest.flush({
+      items: [
+        { userId: authorId, displayName: 'Authorized Sender' },
+        { userId: 'not-a-guid', displayName: 'Rejected Sender' }
+      ]
+    });
+    fixture.detectChanges();
+
+    const authorOption = testElement(root, 'message-author-option') as HTMLButtonElement;
+    authorOption.focus();
+    authorOption.click();
+    fixture.detectChanges();
+    await nextTask();
+    expect(document.activeElement).toBe(authorInput);
+    expect(root.textContent).not.toContain('Rejected Sender');
+
+    setInput(testElement(root, 'message-advanced-from-date') as HTMLInputElement, '2026-08-20');
+    setInput(testElement(root, 'message-advanced-to-date') as HTMLInputElement, '2026-08-30');
+    setSelect(testElement(root, 'message-advanced-read') as HTMLSelectElement, 'Unread');
+    setSelect(testElement(root, 'message-advanced-attachment') as HTMLSelectElement, 'With');
+
+    const drawer = testElement(root, 'message-advanced-filters-drawer');
+    const close = drawer.querySelector<HTMLButtonElement>('[aria-label="Close advanced filters"]')!;
+    const apply = testElement(root, 'message-advanced-apply') as HTMLButtonElement;
+    apply.focus();
+    apply.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(close);
+    close.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(apply);
+
+    drawer.querySelector('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    fixture.detectChanges();
+    const search = httpMock.expectOne((candidate) => candidate.url === '/api/search');
+    expect(search.request.params.has('q')).toBe(false);
+    expect(search.request.params.get('authorUserId')).toBe(authorId);
+    expect(search.request.params.get('fromDate')).toBe(new Date(2026, 7, 20, 0, 0, 0, 0).toISOString());
+    expect(search.request.params.get('toDateExclusive')).toBe(new Date(2026, 7, 31, 0, 0, 0, 0).toISOString());
+    expect(search.request.params.get('messageRead')).toBe('Unread');
+    expect(search.request.params.get('messageAttachment')).toBe('With');
+    search.flush({ items: [] });
+    fixture.detectChanges();
+    await nextTask();
+
+    expect(testElement(root, 'message-active-author-chip').textContent).toContain('Authorized Sender');
+    expect(testElement(root, 'message-active-from-date-chip').textContent).toContain('2026-08-20');
+    expect(testElement(root, 'message-active-to-date-chip').textContent).toContain('2026-08-30');
+    expect(testElement(root, 'message-active-read-chip').textContent).toContain('Unread');
+    expect(testElement(root, 'message-active-attachment-chip').textContent).toContain('With safe attachment');
+    expect(testElement(root, 'message-advanced-summary').textContent).toContain('5 advanced filters applied');
+
+    click(root, '[data-testid="message-active-author-chip"] button');
+    const withoutAuthor = httpMock.expectOne((candidate) => candidate.url === '/api/search');
+    expect(withoutAuthor.request.params.has('authorUserId')).toBe(false);
+    expect(withoutAuthor.request.params.get('messageRead')).toBe('Unread');
+    withoutAuthor.flush({ items: [] });
+    fixture.detectChanges();
+    expect(root.querySelector('[data-testid="message-active-author-chip"]')).toBeNull();
+  });
+
+  it('defers URL author identity until authorized resolution and removes an unavailable identity', async () => {
+    const router = TestBed.inject(Router);
+    const location = TestBed.inject(Location);
+    await router.navigateByUrl(`/?messageFrom=${authorId}&messageRead=Unread`);
+    fixture.detectChanges();
+
+    expect(rootText(fixture)).not.toContain(authorId);
+    expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="message-active-author-chip"]')).toBeNull();
+    const resolve = httpMock.expectOne((candidate) => candidate.url === '/api/search/message-authors');
+    expect(resolve.request.params.get('selectedUserId')).toBe(authorId);
+    resolve.flush({ items: [] });
+    fixture.detectChanges();
+
+    const search = httpMock.expectOne((candidate) => candidate.url === '/api/search');
+    expect(search.request.params.get('messageRead')).toBe('Unread');
+    expect(search.request.params.has('authorUserId')).toBe(false);
+    search.flush({ items: [] });
+    await waitForCondition(() => !location.path().includes('messageFrom'));
+    expect(location.path()).toContain('messageRead=Unread');
+  });
+
+  it('cancels held route-author hydration and searches even when the remaining filter is unchanged', async () => {
+    const router = TestBed.inject(Router);
+    const location = TestBed.inject(Location);
+    await router.navigateByUrl(`/?messageFrom=${authorId}&messageRead=Unread`);
+    fixture.detectChanges();
+
+    const heldResolve = httpMock.expectOne((candidate) => candidate.url === '/api/search/message-authors');
+    const root = fixture.nativeElement as HTMLElement;
+    expect(testElement(root, 'message-active-read-chip').textContent).toContain('Unread');
+
+    click(root, '[data-testid="message-advanced-filters-open"]');
+    fixture.detectChanges();
+    testElement(root, 'message-advanced-filters-drawer')
+      .querySelector('form')
+      ?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    fixture.detectChanges();
+
+    expect(heldResolve.cancelled).toBe(true);
+    expect(() => heldResolve.flush({ items: [{ userId: authorId, displayName: 'Stale Sender' }] }))
+      .toThrowError(/cancelled/i);
+    const replacementSearch = httpMock.expectOne((candidate) => candidate.url === '/api/search');
+    expect(replacementSearch.request.params.get('messageRead')).toBe('Unread');
+    expect(replacementSearch.request.params.has('authorUserId')).toBe(false);
+    replacementSearch.flush({ items: [] });
+    await waitForCondition(() =>
+      location.path().includes('messageRead=Unread') && !location.path().includes('messageFrom'));
+    fixture.detectChanges();
+
+    expect(location.path()).not.toContain('messageFrom');
+    expect(root.textContent).not.toContain('Stale Sender');
+    expect(root.querySelector('[data-testid="message-active-author-chip"]')).toBeNull();
+    expect(testElement(root, 'message-active-read-chip').textContent).toContain('Unread');
+  });
+
+  it('scrubs private free-text URL state through apply and browser history replay', async () => {
+    const router = TestBed.inject(Router);
+    const location = TestBed.inject(Location);
+    const secret = 'private-message-marker-367';
+    await router.navigateByUrl(`/?q=${secret}`);
+    await waitForCondition(() => !location.path().includes(secret));
+    fixture.detectChanges();
+
+    const root = fixture.nativeElement as HTMLElement;
+    expect(location.path()).not.toContain('q=');
+    expect((testElement(root, 'message-search-input') as HTMLInputElement).value).toBe('');
+    expect(root.textContent).not.toContain(secret);
+    expect(root.querySelector('[data-testid="message-active-search-chip"]')).toBeNull();
+
+    click(root, '[data-testid="message-advanced-filters-open"]');
+    fixture.detectChanges();
+    setSelect(testElement(root, 'message-advanced-read') as HTMLSelectElement, 'Unread');
+    testElement(root, 'message-advanced-filters-drawer')
+      .querySelector('form')
+      ?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    const initialSearch = httpMock.expectOne((candidate) => candidate.url === '/api/search');
+    expect(initialSearch.request.params.has('q')).toBe(false);
+    initialSearch.flush({ items: [] });
+    await waitForCondition(() => location.path().includes('messageRead=Unread'));
+    expect(location.path()).not.toContain(secret);
+
+    location.back();
+    await waitForCondition(() => !location.path().includes('messageRead'));
+    await router.navigateByUrl(location.path() || '/', { replaceUrl: true });
+    await waitForCondition(() => fixture.componentInstance.appliedAdvanced().read === 'All');
+    fixture.detectChanges();
+    expect(location.path()).not.toContain(secret);
+    expect(root.textContent).not.toContain(secret);
+
+    location.forward();
+    await waitForCondition(() => location.path().includes('messageRead=Unread'));
+    await router.navigateByUrl(location.path(), { replaceUrl: true });
+    await waitForCondition(() => fixture.componentInstance.appliedAdvanced().read === 'Unread');
+    fixture.detectChanges();
+    const replaySearch = httpMock.expectOne((candidate) => candidate.url === '/api/search');
+    expect(replaySearch.request.params.has('q')).toBe(false);
+    replaySearch.flush({ items: [] });
+    fixture.detectChanges();
+    expect(location.path()).not.toContain(secret);
+    expect(root.textContent).not.toContain(secret);
+  });
 });
 
 function submitSearch(root: HTMLElement, value: string): void {
@@ -244,6 +419,16 @@ function setSearchInput(root: HTMLElement, value: string): void {
   const input = testElement(root, 'message-search-input') as HTMLInputElement;
   input.value = value;
   input.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+function setInput(input: HTMLInputElement, value: string): void {
+  input.value = value;
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+function setSelect(select: HTMLSelectElement, value: string): void {
+  select.value = value;
+  select.dispatchEvent(new Event('change', { bubbles: true }));
 }
 
 function click(root: HTMLElement, selector: string): void {
@@ -264,4 +449,18 @@ function conversationRows(root: HTMLElement): HTMLElement[] {
 
 function nextTask(): Promise<void> {
   return new Promise<void>((resolve) => setTimeout(resolve));
+}
+
+function rootText(fixture: ComponentFixture<MessageSearchFiltersComponent>): string {
+  return (fixture.nativeElement as HTMLElement).textContent ?? '';
+}
+
+async function waitForCondition(condition: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    if (condition()) {
+      return;
+    }
+    await nextTask();
+  }
+  throw new Error('Timed out waiting for route state.');
 }

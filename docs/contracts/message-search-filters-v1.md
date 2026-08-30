@@ -15,8 +15,10 @@ These are deliberately two explicit scopes:
 - **Conversation filters** use the `unreadCount` and `hasMention` values from
   the existing authorized Conversation list response.
 
-Issue #367 owns compound advanced Message-result filters such as sender, date,
-read status, and attachment state. This contract does not imply those semantics.
+Issue #367's additive, fail-closed successor now defines compound advanced
+Message-result filters such as sender, date, read status, and safe attachment
+state. Those semantics are intentionally absent from this #359 base contract;
+see `docs/contracts/message-advanced-filters-v1.md`.
 
 ## Search request and projection
 
@@ -81,18 +83,20 @@ Change search and Clear all paths.
 Conditions exist only for the current rendered Messages view. This version
 does not store query text or result snippets in local/session storage or URLs.
 
-## Attachment exclusion
+## Superseded advanced-filter exclusions
 
-There is intentionally no `Has file` filter. Canonical Message attachment
-ownership and persistence are unresolved under the active BE-004 finding, and
-the current composer explicitly disables attachments. Adding an attachment
-filter now would invent semantics and could make incomplete or unauthorized
-metadata appear authoritative.
+This #359 version intentionally added no attachment, sender, date-range, read,
+or URL-replay contract. Issue #367 supersedes only those exclusions through
+`docs/contracts/message-advanced-filters-v1.md`. Its attachment facet is a
+fail-closed structural classification over clean, classified, scope-consistent
+pre-existing Message-owned file links; it exposes no file metadata and does
+not enable attachment upload. The current composer still disables attachment
+upload and the critical BE-004 persistence finding remains open.
 
 ## Non-goals
 
-- attachment, sender, date-range, or read-status Message-result filtering;
-- saved filters, URL replay, result highlighting, pagination, or infinite scroll;
+- saved filters, result highlighting, pagination, or infinite scroll;
+- storing free-text query or result content in URL or browser storage;
 - search-result totals beyond the validated rendered page;
 - changing Search, Conversation, attachment, tenant, or authorization contracts;
 - implementing any contract owned by Issues #340 or #357.

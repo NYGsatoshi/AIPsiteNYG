@@ -243,12 +243,31 @@ recursive ancestry boundary. Missing identity, inconsistent Workspace/Project/
 root scope, cycles, and ancestry beyond 32 Thread edges fail closed. Send,
 moderate, and Thread-create checks require that structural read boundary;
 creation cannot persist an immediately unreadable child, and protected fields
-are materialized only after that boundary. PostgreSQL Message Search composes
-the shared readable-ID relation over all matching Messages before deterministic
-`CreatedAt DESC, Id ASC` ordering and the final bound, rather than authorizing
-an arbitrary Conversation subset first. Delayed
+are materialized only after that boundary. PostgreSQL Message Search resolves
+the complete shared readable-ID relation and intersects it with all matching
+Messages before deterministic `CreatedAt DESC, Id ASC` ordering and the final
+bound, rather than authorizing an arbitrary Conversation subset first. Keeping
+the recursive authorization graph in its own query prevents optional Message
+predicates from changing that boundary or creating a pathological combined SQL
+plan. Delayed
 `Messaging.ConversationUnreadChanged.v1` delivery parses its Conversation
 identity and rechecks current Conversation/Project authorization.
+
+Issue #367's advanced Message facets remain inside that same boundary. Author
+options are derived only after current readable-Conversation filtering and
+return display name plus user ID without counts or content. Every candidate
+Message must match its Conversation Tenant and Workspace before text, author,
+date, cursor, attachment, total, or pagination evaluation. Read state accepts
+only an exact same-scope cursor Message, with a null-ID compatibility fallback;
+a non-null invalid or cross-scope cursor cannot fall back to its action time.
+The attachment facet recognizes only clean, classified, active, non-deleted,
+exact Message-owned Attachment/FileObject relationships. Unsafe, quarantined,
+legacy metadata-only, and cross-scope links affect only the Boolean `Without`
+classification and expose no filename, count, scan state, classification,
+storage path, or failure detail. Query model-binding errors use a fixed
+non-reflective envelope. Browser chips and URLs are presentation state:
+free-text and snippets are never stored there, and sender UUIDs are not shown
+or applied before server-authorized resolution.
 
 Issue #346's My Tasks saved filters are browser presentation state, not an
 authorization cache. A strict, versioned local record is keyed by the resolved

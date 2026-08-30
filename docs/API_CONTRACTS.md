@@ -330,6 +330,34 @@ No reminder field or endpoint exists. Adding a reminder requires a separate
 scheduler, delivery, timezone, retry, and cancellation contract; clients must
 not infer one from `savedAt`.
 
+## Issue #367 advanced Message filters
+
+`GET /api/search` accepts additive Message-only fields when `type=Message`:
+`authorUserId`, `fromDate`, exclusive `toDateExclusive`, `messageRead` (`All`,
+`Read`, or `Unread`), and `messageAttachment` (`All`, `With`, or `Without`). A
+text query is optional when any filter is active. `toDateExclusive` cannot be
+combined with legacy inclusive `toDate`, and invalid UUID, enum, or date query
+binding returns fixed `SearchRequestInvalid` HTTP 400 without reflecting input.
+
+`GET /api/search/message-authors` accepts either a trimmed `q` of 2 to 120
+characters with `limit` capped at 20, or `selectedUserId` with `limit=1` for
+validated route replay. It returns only `{ userId, displayName }` and no count,
+email, role, lifecycle, Conversation identity, or Message content. Missing,
+cross-Tenant, and unauthorized selected IDs all return the same empty success
+projection.
+
+All facets compose before ordering/limiting with the current user's recursive
+readable-Conversation relation and exact Message/Conversation Tenant and
+Workspace consistency. Read coverage uses an exact same-scope cursor Message
+and `(CreatedAt, Id)` ordering even when a legacy sequence is zero. A null
+cursor ID retains the established `LastReadAt` compatibility fallback; a
+non-null invalid or mismatched cursor fails closed. `With` means a clean,
+classified, active, non-deleted, exact Message-owned Attachment/FileObject
+relationship. `Without` is its negation; no file metadata or invalid-link
+detail is projected. This does not enable Message attachment upload or resolve
+BE-004. The full contract is in
+`docs/contracts/message-advanced-filters-v1.md`.
+
 ## Same-Conversation Message threads
 
 The canonical Message-thread routes are:

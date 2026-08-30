@@ -109,10 +109,10 @@ The audit did not modify authentication logic, database schema, application UI, 
     Search use one set-based recursive Thread ancestry boundary, reject missing,
     inconsistent, cyclic, and deeper-than-32 scope, and never persist a child
     beyond the readable limit;
-  - Message Search composes the shared readable-Conversation ID relation across
-    all matching Messages before `CreatedAt DESC, Id ASC` and the final result
-    limit; the former arbitrary first-100 Conversation authorization cutoff is
-    removed;
+  - Message Search resolves the complete shared readable-Conversation ID set,
+    then intersects it with all matching Messages before `CreatedAt DESC, Id ASC`
+    and the final result limit; the former arbitrary first-100 Conversation
+    authorization cutoff is removed;
   - My Tasks applies the same Project scope plus its existing active Workspace
     membership and task-relationship fences, removing the wider Adviser and
     `Project.OwnerUserId` shortcuts;
