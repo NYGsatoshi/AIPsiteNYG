@@ -1183,8 +1183,8 @@ test.describe('MVP0 real backend browser smoke', () => {
       await expect(sourceScope.getByTestId('task-execution-scope-origin')).toHaveText('Project default');
       await expect(sourceScope.getByTestId('task-execution-scope-web')).toHaveText('Disabled');
       await expect(sourceScope.getByTestId('task-execution-scope-files')).toHaveText('Disabled');
-      await expect(sourceScope.getByTestId('task-execution-runtime-unavailable'))
-        .toContainText('No Web request can be sent from this screen.');
+      await expect(sourceScope.getByTestId('task-execution-runtime-contract'))
+        .toContainText('Execution provider: First-party Project Files V1');
       await expect(sourceScope.getByRole('button', { name: 'Start', exact: true })).toHaveCount(0);
 
       await recordFetchJson(page, evidence, 'u22-journey-task-authoritative-detail', `/api/tasks/${createdTaskId}`, {

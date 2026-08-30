@@ -74,11 +74,24 @@ public sealed class TaskExecutionRunConfiguration : IEntityTypeConfiguration<Tas
 {
     public void Configure(EntityTypeBuilder<TaskExecutionRun> builder)
     {
-        builder.ToTable("task_execution_runs");
+        builder.ToTable("task_execution_runs", table =>
+            table.HasCheckConstraint(
+                "CK_task_execution_runs_runtime_contract",
+                "\"RuntimeProvider\" = 'FirstPartyProjectFilesRuntimeV1' AND \"RuntimeContractVersion\" = 1"));
         builder.ConfigureEntity();
 
         builder.Property(run => run.RequestedAtUtc).IsRequired();
+        builder.Property(run => run.QueuedAtUtc);
+        builder.Property(run => run.StartedAtUtc);
         builder.Property(run => run.Status).HasEnumStringConversion().IsRequired();
+        builder.Property(run => run.RuntimeProvider)
+            .HasEnumStringConversion()
+            .HasMaxLength(80)
+            .HasDefaultValue(TaskExecutionProvider.FirstPartyProjectFilesRuntimeV1)
+            .IsRequired();
+        builder.Property(run => run.RuntimeContractVersion)
+            .HasDefaultValue(TaskExecutionRun.RuntimeContractVersion1)
+            .IsRequired();
         builder.Property(run => run.FailureCode).HasMaxLength(100);
         builder.Property(run => run.VersionNo).IsConcurrencyToken().HasDefaultValue(1L);
         builder.Property(run => run.SnapshotSchemaVersion).IsRequired();

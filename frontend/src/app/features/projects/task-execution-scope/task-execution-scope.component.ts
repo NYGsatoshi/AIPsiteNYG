@@ -9,8 +9,8 @@ import { AIP_PROJECTS_MOCK } from '../projects.facade';
 
 type ScopeOrigin = 'ProjectDefault' | 'TaskOverride';
 type ScopeEditorMode = 'inherit' | 'override';
-type RunStatus = 'Prepared' | 'RuntimeUnavailable' | 'Waiting' | 'NeedsInput' | 'Failed' | 'Completed';
-type MajorState = 'Running' | 'Waiting' | 'NeedsInput' | 'Failed' | 'Completed';
+type RunStatus = 'Accepted' | 'Queued' | 'Running' | 'Succeeded' | 'Failed';
+type MajorState = 'Accepted' | 'Queued' | 'Running' | 'Succeeded' | 'Failed';
 
 interface SourcePolicy {
   readonly webEnabled: boolean;
@@ -284,17 +284,16 @@ export class TaskExecutionScopeComponent implements OnChanges, OnDestroy {
   }
 
   majorStateLabel(state: MajorState): string {
-    return state === 'NeedsInput' ? 'Needs input' : state;
+    return state;
   }
 
   runStatusLabel(status: RunStatus): string {
     switch (status) {
-      case 'RuntimeUnavailable': return 'Unavailable - no execution was started.';
-      case 'Prepared': return 'Execution request accepted by the configured runtime.';
-      case 'Waiting': return 'Execution is waiting.';
-      case 'NeedsInput': return 'Execution is waiting for input.';
+      case 'Accepted': return 'Execution request was durably accepted.';
+      case 'Queued': return 'Execution is queued for server materialization.';
+      case 'Running': return 'Execution is materializing and analyzing authorized Project files.';
+      case 'Succeeded': return 'Execution succeeded.';
       case 'Failed': return 'Execution failed.';
-      case 'Completed': return 'Execution completed.';
       default: return 'Execution state unavailable.';
     }
   }
@@ -587,7 +586,7 @@ function requiredOrigin(value: unknown, label: string): ScopeOrigin {
 }
 
 function requiredRunStatus(value: unknown): RunStatus {
-  if (value === 'Prepared' || value === 'RuntimeUnavailable' || value === 'Waiting' || value === 'NeedsInput' || value === 'Failed' || value === 'Completed') {
+  if (value === 'Accepted' || value === 'Queued' || value === 'Running' || value === 'Succeeded' || value === 'Failed') {
     return value;
   }
 
@@ -595,7 +594,7 @@ function requiredRunStatus(value: unknown): RunStatus {
 }
 
 function requiredMajorState(value: unknown): MajorState {
-  if (value === 'Running' || value === 'Waiting' || value === 'NeedsInput' || value === 'Failed' || value === 'Completed') {
+  if (value === 'Accepted' || value === 'Queued' || value === 'Running' || value === 'Succeeded' || value === 'Failed') {
     return value;
   }
 
@@ -604,13 +603,11 @@ function requiredMajorState(value: unknown): MajorState {
 
 function majorStateFromRunStatus(status: RunStatus): MajorState {
   switch (status) {
-    case 'Prepared': return 'Running';
-    case 'Waiting': return 'Waiting';
-    case 'NeedsInput': return 'NeedsInput';
-    case 'Completed': return 'Completed';
-    case 'RuntimeUnavailable':
-    case 'Failed':
-      return 'Failed';
+    case 'Accepted': return 'Accepted';
+    case 'Queued': return 'Queued';
+    case 'Running': return 'Running';
+    case 'Succeeded': return 'Succeeded';
+    case 'Failed': return 'Failed';
   }
 }
 

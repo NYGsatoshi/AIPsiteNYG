@@ -89,7 +89,10 @@ public sealed class DbAuditLogger(AppDbContext dbContext, IClock clock, ICurrent
                     "TaskExecutionScopeOverrideSet" or
                     "TaskExecutionScopeOverrideCleared" or
                     "TaskExecutionRunRequested" or
-                    "TaskExecutionRuntimeUnavailable")
+                    "TaskExecutionRunQueued" or
+                    "TaskExecutionRunStarted" or
+                    "TaskExecutionRunSucceeded" or
+                    "TaskExecutionRunFailed")
             {
                 throw;
             }

@@ -9,8 +9,9 @@ using AipPortal.Domain.Enums;
 namespace AipPortal.Application.Projects;
 
 /// <summary>
-/// Owns the server-authoritative source-policy foundation for Task execution.
-/// It never resolves sources, invokes a provider, or persists source content.
+/// Owns the server-authoritative source-policy and durable acceptance boundary
+/// for Task execution. It never resolves sources, invokes a provider, or
+/// persists source content; #462 dispatches an accepted run after commit.
 /// </summary>
 public sealed class TaskExecutionScopeService(
     IProjectRepository projects,
@@ -21,11 +22,9 @@ public sealed class TaskExecutionScopeService(
     IAuditLogger audit,
     IBusinessInvalidationPublisher invalidations,
     ITaskCommandUnitOfWork unitOfWork,
-    ICreateIdempotencyCoordinator idempotency,
-    ITaskExecutionRuntime runtime) : ITaskExecutionScopeService
+    ICreateIdempotencyCoordinator idempotency) : ITaskExecutionScopeService
 {
     private const string RunOperation = "TaskExecution.Run.v1";
-    private const string RuntimeUnavailableFailureCode = "TASK_EXECUTION_RUNTIME_UNAVAILABLE";
 
     public async Task<Result<ProjectExecutionScopeResponse>> GetProjectScopeAsync(
         Guid projectId,
@@ -255,15 +254,15 @@ public sealed class TaskExecutionScopeService(
                     run.SnapshotTaskOverrideVersion = snapshot.OverrideVersion;
                     run.SnapshotWebEnabled = snapshot.WebEnabled;
                     run.SnapshotProjectFilesEnabled = snapshot.ProjectFilesEnabled;
+                    run.RuntimeProvider = FirstPartyProjectFilesRuntimeV1.Provider;
+                    run.RuntimeContractVersion = FirstPartyProjectFilesRuntimeV1.ContractVersion;
+                    run.Status = TaskExecutionRunStatus.Accepted;
+                    run.FailureCode = null;
+                    run.QueuedAtUtc = null;
+                    run.StartedAtUtc = null;
+                    run.FinishedAtUtc = null;
 
                     await executionScopes.AddRunAsync(run, token);
-                    var runtimeResult = await runtime.StartAsync(
-                        new TaskExecutionSnapshotHandle(run.Id, run.TenantId, run.SnapshotSchemaVersion), token);
-                    run.Status = runtimeResult.Accepted
-                        ? TaskExecutionRunStatus.Prepared
-                        : TaskExecutionRunStatus.RuntimeUnavailable;
-                    run.FailureCode = runtimeResult.Accepted ? null : RuntimeUnavailableFailureCode;
-                    run.FinishedAtUtc = runtimeResult.Accepted ? null : clock.UtcNow;
 
                     AdvanceTaskVersion(task);
                     await audit.LogAsync(new AuditLogEntry(
@@ -274,18 +273,6 @@ public sealed class TaskExecutionScopeService(
                         WorkspaceId: task.WorkspaceId,
                         ProjectId: task.ProjectId,
                         Metadata: RunMetadata(run)), token);
-                    if (!runtimeResult.Accepted)
-                    {
-                        await audit.LogAsync(new AuditLogEntry(
-                            actor,
-                            "TaskExecutionRuntimeUnavailable",
-                            "TaskExecutionRun",
-                            run.Id,
-                            WorkspaceId: task.WorkspaceId,
-                            ProjectId: task.ProjectId,
-                            Metadata: new Dictionary<string, object?> { ["failureCode"] = run.FailureCode }), token);
-                    }
-
                     await invalidations.TaskChangedAsync(task, actor, "executionRunChanged", cancellationToken: token);
                     return ToRunResponse(run);
                 },
@@ -441,7 +428,11 @@ public sealed class TaskExecutionScopeService(
         run.SnapshotProjectScopeVersion,
         run.SnapshotTaskOverrideVersion,
         run.SnapshotWebEnabled,
-        run.SnapshotProjectFilesEnabled);
+        run.SnapshotProjectFilesEnabled,
+        run.RuntimeProvider,
+        run.RuntimeContractVersion,
+        run.QueuedAtUtc,
+        run.StartedAtUtc);
 
     private static EffectiveExecutionScope EffectivePolicy(
         ProjectExecutionScope? projectScope,
@@ -477,6 +468,8 @@ public sealed class TaskExecutionScopeService(
             ["taskOverrideVersion"] = run.SnapshotTaskOverrideVersion,
             ["webEnabled"] = run.SnapshotWebEnabled,
             ["projectFilesEnabled"] = run.SnapshotProjectFilesEnabled,
+            ["runtimeProvider"] = run.RuntimeProvider.ToString(),
+            ["runtimeContractVersion"] = run.RuntimeContractVersion,
             ["status"] = run.Status.ToString()
         };
 

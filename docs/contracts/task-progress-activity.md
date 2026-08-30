@@ -12,13 +12,17 @@ Issue: #369
 
 The stable user-facing state vocabulary is:
 
+- `Accepted`
+- `Queued`
 - `Running`
-- `Waiting`
-- `NeedsInput`
+- `Succeeded`
 - `Failed`
-- `Completed`
 
-`TaskExecutionRunStatus` may retain lower-level runtime lifecycle values for compatibility. The API projects them to one of the stable major states. In particular, the existing fail-closed `RuntimeUnavailable` outcome projects to `Failed`; the existing accepted `Prepared` outcome projects to `Running`.
+`TaskExecutionRunStatus` is the canonical lifecycle and the API projects it
+directly to the corresponding major state. The only V1 progression is
+`Accepted` -> `Queued` -> `Running` -> (`Succeeded` | `Failed`). Historical
+provider-none rows are migrated safely; the current contract has no
+`RuntimeUnavailable`, `Prepared`, `Waiting`, or `NeedsInput` state.
 
 ## Phase history
 

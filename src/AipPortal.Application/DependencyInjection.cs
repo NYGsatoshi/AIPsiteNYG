@@ -123,7 +123,6 @@ public static class DependencyInjection
         services.AddScoped<ITaskCommandService, TaskCommandService>();
         services.AddScoped<ITaskSubresourceService, TaskSubresourceService>();
         services.AddScoped<ITaskExecutionScopeService, TaskExecutionScopeService>();
-        services.AddScoped<ITaskExecutionRuntime, UnavailableTaskExecutionRuntime>();
         services.AddScoped<ITaskWorkspaceTimeZoneResolver, TaskWorkspaceTimeZoneResolver>();
         services.AddScoped<IEventService, EventService>();
         services.AddScoped<IFormService, FormService>();

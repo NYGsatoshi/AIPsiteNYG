@@ -8,7 +8,6 @@ using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
 using AipPortal.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace AipPortal.Tests.Projects;
 
@@ -16,6 +15,7 @@ public sealed class TaskExecutionScopeServiceTests
 {
     [Fact]
     [Trait("Scope", "Issue357")]
+    [Trait("Scope", "Issue461")]
     public async Task ProjectDefaultAndTaskOverrideDetermineTheNextRunWithoutMutatingItsRecordedPolicy()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -53,21 +53,19 @@ public sealed class TaskExecutionScopeServiceTests
 
         Assert.True(requested.IsSuccess, requested.Error);
         var recordedRun = requested.Value!;
-        Assert.Equal(TaskExecutionRunStatus.RuntimeUnavailable, recordedRun.Status);
-        Assert.Equal("TASK_EXECUTION_RUNTIME_UNAVAILABLE", recordedRun.FailureCode);
+        Assert.Equal(TaskExecutionRunStatus.Accepted, recordedRun.Status);
+        Assert.Equal(TaskExecutionMajorState.Accepted, recordedRun.MajorState);
+        Assert.Null(recordedRun.FailureCode);
+        Assert.Equal(TaskExecutionProvider.FirstPartyProjectFilesRuntimeV1, recordedRun.RuntimeProvider);
+        Assert.Equal(TaskExecutionRun.RuntimeContractVersion1, recordedRun.RuntimeContractVersion);
+        Assert.Null(recordedRun.QueuedAtUtc);
+        Assert.Null(recordedRun.StartedAtUtc);
+        Assert.Null(recordedRun.FinishedAtUtc);
         Assert.Equal(TaskExecutionScopeOrigin.TaskOverride, recordedRun.SnapshotScopeOrigin);
         Assert.Equal(2, recordedRun.SnapshotProjectScopeVersion);
         Assert.Equal(1, recordedRun.SnapshotTaskOverrideVersion);
         Assert.False(recordedRun.SnapshotWebEnabled);
         Assert.True(recordedRun.SnapshotProjectFilesEnabled);
-
-        var runtimeHandle = Assert.Single(fixture.Runtime.Handles);
-        Assert.Equal(recordedRun.Id, runtimeHandle.RunId);
-        Assert.Equal(fixture.Tenant.Id, runtimeHandle.TenantId);
-        Assert.Equal(TaskExecutionRun.SnapshotSchemaVersion1, runtimeHandle.SnapshotSchemaVersion);
-        Assert.Equal(
-            [nameof(TaskExecutionSnapshotHandle.RunId), nameof(TaskExecutionSnapshotHandle.SnapshotSchemaVersion), nameof(TaskExecutionSnapshotHandle.TenantId)],
-            typeof(TaskExecutionSnapshotHandle).GetProperties().Select(property => property.Name).OrderBy(name => name));
 
         var changedOverride = await fixture.Service.UpdateTaskOverrideAsync(
             fixture.TaskItem.Id,
@@ -129,11 +127,11 @@ public sealed class TaskExecutionScopeServiceTests
         Assert.Empty(await fixture.Db.IdempotencyRecords.ToListAsync());
         Assert.Empty(await fixture.Db.OutboxEvents.ToListAsync());
         Assert.Empty(fixture.Audit.Entries);
-        Assert.Empty(fixture.Runtime.Handles);
     }
 
     [Fact]
     [Trait("Scope", "Issue357")]
+    [Trait("Scope", "Issue461")]
     public async Task IdempotencyReplaysTheOriginalImmutableSnapshotWhenTheEffectivePolicyChanges()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -149,7 +147,11 @@ public sealed class TaskExecutionScopeServiceTests
         Assert.True(created.IsSuccess, created.Error);
         Assert.True(replayed.IsSuccess, replayed.Error);
         Assert.Equal(created.Value!.Id, replayed.Value!.Id);
-        Assert.Single(fixture.Runtime.Handles);
+        Assert.Equal(TaskExecutionRunStatus.Accepted, created.Value.Status);
+        Assert.Equal(TaskExecutionProvider.FirstPartyProjectFilesRuntimeV1, created.Value.RuntimeProvider);
+        Assert.Equal(TaskExecutionRun.RuntimeContractVersion1, created.Value.RuntimeContractVersion);
+        Assert.Equal(created.Value.RuntimeProvider, replayed.Value.RuntimeProvider);
+        Assert.Equal(created.Value.RuntimeContractVersion, replayed.Value.RuntimeContractVersion);
         Assert.Single(await fixture.Db.TaskExecutionRuns.ToListAsync());
         Assert.Single(await fixture.Db.IdempotencyRecords.ToListAsync());
 
@@ -167,7 +169,6 @@ public sealed class TaskExecutionScopeServiceTests
         Assert.Equal(2, replayedAfterScopeChange.Value.SnapshotProjectScopeVersion);
         Assert.True(replayedAfterScopeChange.Value.SnapshotWebEnabled);
         Assert.False(replayedAfterScopeChange.Value.SnapshotProjectFilesEnabled);
-        Assert.Single(fixture.Runtime.Handles);
         Assert.Single(await fixture.Db.TaskExecutionRuns.ToListAsync());
 
         var currentScope = await fixture.Service.GetTaskScopeAsync(fixture.TaskItem.Id);
@@ -227,7 +228,6 @@ public sealed class TaskExecutionScopeServiceTests
         Assert.Empty(await fixture.Db.ProjectExecutionScopes.ToListAsync());
         Assert.Empty(await fixture.Db.TaskExecutionScopeOverrides.ToListAsync());
         Assert.Empty(await fixture.Db.TaskExecutionRuns.ToListAsync());
-        Assert.Empty(fixture.Runtime.Handles);
 
         fixture.ReturnToPrimaryTenant();
         var stillOwned = await fixture.Db.ProjectExecutionScopes.SingleAsync();
@@ -236,18 +236,19 @@ public sealed class TaskExecutionScopeServiceTests
     }
 
     [Fact]
-    [Trait("Scope", "Issue357")]
-    public async Task ApplicationDefaultRuntimeIsDeterministicallyUnavailable()
+    [Trait("Scope", "Issue461")]
+    public void FirstPartyRuntimeContractDisablesWebAndRequiresProjectFiles()
     {
-        var services = new ServiceCollection();
-        services.AddApplication();
-        await using var provider = services.BuildServiceProvider();
+        var eligible = FirstPartyProjectFilesRuntimeV1.EvaluateScope(webEnabled: false, projectFilesEnabled: true);
+        var webRejected = FirstPartyProjectFilesRuntimeV1.EvaluateScope(webEnabled: true, projectFilesEnabled: true);
+        var noFilesRejected = FirstPartyProjectFilesRuntimeV1.EvaluateScope(webEnabled: false, projectFilesEnabled: false);
 
-        var runtime = provider.GetRequiredService<ITaskExecutionRuntime>();
-        var result = await runtime.StartAsync(
-            new TaskExecutionSnapshotHandle(Guid.NewGuid(), Guid.NewGuid(), TaskExecutionRun.SnapshotSchemaVersion1));
-
-        Assert.False(result.Accepted);
+        Assert.True(eligible.IsEligible);
+        Assert.Null(eligible.FailureCode);
+        Assert.False(webRejected.IsEligible);
+        Assert.Equal("TASK_EXECUTION_WEB_UNSUPPORTED", webRejected.FailureCode);
+        Assert.False(noFilesRejected.IsEligible);
+        Assert.Equal("TASK_EXECUTION_PROJECT_FILES_REQUIRED", noFilesRejected.FailureCode);
     }
 
     [Fact]
@@ -331,8 +332,7 @@ public sealed class TaskExecutionScopeServiceTests
             Project project,
             TaskItem taskItem,
             ControllableProjectAuthorization authorization,
-            RecordingAuditLogger audit,
-            RecordingUnavailableRuntime runtime)
+            RecordingAuditLogger audit)
         {
             Db = db;
             CurrentTenant = currentTenant;
@@ -343,7 +343,6 @@ public sealed class TaskExecutionScopeServiceTests
             TaskItem = taskItem;
             Authorization = authorization;
             Audit = audit;
-            Runtime = runtime;
 
             Service = CreateService(new EfUnitOfWork(db));
         }
@@ -357,7 +356,6 @@ public sealed class TaskExecutionScopeServiceTests
         public TaskItem TaskItem { get; }
         public ControllableProjectAuthorization Authorization { get; }
         public RecordingAuditLogger Audit { get; }
-        public RecordingUnavailableRuntime Runtime { get; }
         public TaskExecutionScopeService Service { get; }
 
         public TaskExecutionScopeService CreateService(
@@ -375,8 +373,7 @@ public sealed class TaskExecutionScopeServiceTests
                 Audit,
                 new BusinessInvalidationPublisher(outbox, CurrentTenant, clock),
                 unitOfWork,
-                idempotency ?? new EfCreateIdempotencyCoordinator(Db),
-                Runtime);
+                idempotency ?? new EfCreateIdempotencyCoordinator(Db));
         }
 
         public static async Task<Fixture> CreateAsync(bool canManage = true)
@@ -446,8 +443,7 @@ public sealed class TaskExecutionScopeServiceTests
                 project,
                 taskItem,
                 new ControllableProjectAuthorization { CanManage = canManage },
-                new RecordingAuditLogger(),
-                new RecordingUnavailableRuntime());
+                new RecordingAuditLogger());
         }
 
         public async Task SwitchToOtherTenantAsync()
@@ -506,19 +502,6 @@ public sealed class TaskExecutionScopeServiceTests
         {
             Entries.Add(entry);
             return Task.CompletedTask;
-        }
-    }
-
-    private sealed class RecordingUnavailableRuntime : ITaskExecutionRuntime
-    {
-        public List<TaskExecutionSnapshotHandle> Handles { get; } = [];
-
-        public Task<TaskExecutionRuntimeStartResult> StartAsync(
-            TaskExecutionSnapshotHandle snapshot,
-            CancellationToken cancellationToken = default)
-        {
-            Handles.Add(snapshot);
-            return Task.FromResult(TaskExecutionRuntimeStartResult.Unavailable());
         }
     }
 

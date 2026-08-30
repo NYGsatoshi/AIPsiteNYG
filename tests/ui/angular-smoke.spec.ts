@@ -1951,7 +1951,7 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
         overrideVersion: 5,
         canManage: true,
         latestRun: {
-          status: 'RuntimeUnavailable',
+          status: 'Accepted',
           snapshotScopeOrigin: 'ProjectDefault',
           snapshotWebEnabled: false,
           snapshotProjectFilesEnabled: true,
@@ -1980,17 +1980,18 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await expect(scope.getByTestId('task-execution-scope-files')).toHaveText('Disabled');
     await expect(scope.getByTestId('task-execution-scope-files-policy')).toHaveText('Exclude — not eligible under this Task scope');
     await expect(scope.getByTestId('task-execution-scope-future-only')).toContainText('future run requests only');
-    await expect(scope.getByTestId('task-execution-runtime-unavailable')).toContainText('No Web request can be sent from this screen.');
+    await expect(scope.getByTestId('task-execution-runtime-contract')).toContainText('Web execution is disabled');
     await expect(scope.getByTestId('task-execution-snapshot')).toContainText('Project default');
-    await expect(scope.getByTestId('task-execution-snapshot')).toContainText('Unavailable - no execution was started.');
+    await expect(scope.getByTestId('task-execution-snapshot')).toContainText('Execution request was durably accepted.');
     await expect(scope.getByRole('heading', { name: 'Source settings' })).toBeVisible();
 
     // This remains a policy-only UI. It deliberately has no source inventory,
-    // provider picker, URL input, execution action, or runtime request route.
+    // provider picker, URL input, execution action, or browser-originated
+    // runtime request from this screen.
     await expect(scope.getByRole('button', { name: /start|run|execute/i })).toHaveCount(0);
     await expect(scope.locator('a[href^="http"]')).toHaveCount(0);
     await expect(scope.locator('input[type="url"], input[type="text"], textarea, select')).toHaveCount(0);
-    await expect(scope.getByTestId('task-execution-runtime-unavailable')).toContainText('Execution provider: None');
+    await expect(scope.getByTestId('task-execution-runtime-contract')).toContainText('Execution provider: First-party Project Files V1');
 
     const projectWebPolicy = scope.getByLabel(/Allow Web as a future source/).first();
     await projectWebPolicy.check();
@@ -3200,7 +3201,7 @@ type TaskExecutionScopeApiProjectPolicy = {
 };
 
 type TaskExecutionScopeApiLatestRun = {
-  status: 'Prepared' | 'RuntimeUnavailable';
+  status: 'Accepted' | 'Queued' | 'Running' | 'Succeeded' | 'Failed';
   snapshotScopeOrigin: 'ProjectDefault' | 'TaskOverride';
   snapshotWebEnabled: boolean;
   snapshotProjectFilesEnabled: boolean;

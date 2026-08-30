@@ -12,7 +12,13 @@ The maintained Task detail source-scope panel consumes only the server-authorita
 
 The current release exposes two configurable source kinds: Web and authorized clean Project files. The compatibility state remains `Enabled` / `Disabled`, while the explicit source-policy semantics are displayed alongside it as `Allow` / `Exclude`. The panel also explains the distinct meanings of `Restrict` and `Prioritize` without inventing either richer rule. Specific Sites and Connected Apps are presented generically as unavailable under the current contract.
 
-The current execution provider is canonically `None`. A run request may persist its immutable source-policy snapshot, but the registered runtime performs no Web or Project-file I/O and returns `RuntimeUnavailable`. Scope changes are next-run changes only.
+Issue #461 supersedes the original provider-none completion record with the
+server-owned `FirstPartyProjectFilesRuntimeV1` contract. A run request persists
+its immutable source-policy snapshot plus provider/version in durable
+`Accepted` state. Web execution remains disabled and fails closed; the V1
+runtime performs no outbound Web I/O. This #357 record does not claim Project
+File materialization or a result: those post-commit server behaviors are owned
+by #462 and #463. Scope changes remain next-run changes only.
 
 ## Issue #357 acceptance mapping
 
@@ -29,7 +35,9 @@ The current execution provider is canonically `None`. A run request may persist 
 - `ProjectDefault` and `TaskOverride` remain visibly distinct.
 - Web and Project-file rows preserve `Enabled` / `Disabled` compatibility text and separately expose explicit `Allow` / `Exclude` policy semantics.
 - Specific Sites and Connected Apps are not silently omitted and are not inferred from unrelated integrations.
-- `Execution provider: None` is visible; the UI does not claim retrieval or execution.
+- `Execution provider: First-party Project Files V1` is visible; the UI
+  explains that Web is disabled, browser state is not execution authority, and
+  no materialization/result is claimed before the follow-on workstreams.
 - The most recent run snapshot displays source state at request time independently from the current next-run policy.
 - Existing responsive CSS collapses the summary and snapshot grids to one column at `max-width: 720px`; the PR #426 static 320px Task-detail smoke remains the regression surface.
 - Existing focus-visible rules cover editor links, buttons, checkboxes/radios, and status feedback.
