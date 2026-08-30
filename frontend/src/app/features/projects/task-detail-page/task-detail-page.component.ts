@@ -150,9 +150,13 @@ export class TaskDetailPageComponent implements OnDestroy {
 
   retry(): void { const taskId = this.taskId(); if (taskId) this.facade.retryTaskDetail(taskId); }
   retrySection(section: TaskDetailSection): void { const taskId = this.taskId(); if (taskId) this.facade.retrySection(taskId, section); }
-  loadActivity(event: Event): void {
+  /**
+   * Use the bubbling interaction path rather than relying on the native
+   * non-bubbling `toggle` event to reach Angular's component listener.
+   */
+  loadActivity(): void {
     const taskId = this.taskId();
-    if (taskId && (event.currentTarget as HTMLDetailsElement | null)?.open) this.facade.loadActivity(taskId);
+    if (taskId) this.facade.loadActivity(taskId);
   }
   loadMore(section: 'activity' | 'subtasks' | 'comments' | 'files'): void { const taskId = this.taskId(); if (!taskId) return; if (section === 'activity') this.facade.loadMoreActivity(taskId); else if (section === 'subtasks') this.facade.loadMoreSubtasks(taskId); else if (section === 'comments') this.facade.loadMoreComments(taskId); else this.facade.loadMoreFiles(taskId); }
   phaseStateLabel(category: TaskStageCategory | undefined, status: TaskStatus, isBlocked: boolean | undefined): string {
