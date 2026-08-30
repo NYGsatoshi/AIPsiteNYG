@@ -10,10 +10,12 @@ describe('AipThemeService', () => {
     document.documentElement.removeAttribute('data-aip-theme');
     document.documentElement.removeAttribute('data-aip-density');
     document.documentElement.style.removeProperty('color-scheme');
+    document.body.classList.remove('e-dark-mode');
     TestBed.configureTestingModule({});
   });
 
   afterEach(() => {
+    document.body.classList.remove('e-dark-mode');
     Object.defineProperty(window, 'matchMedia', { configurable: true, value: originalMatchMedia });
   });
 
@@ -24,17 +26,19 @@ describe('AipThemeService', () => {
     });
   }
 
-  it('uses dark as the default and exposes it on the root', () => {
+  it('uses dark as the default and exposes it on the root and vendor theme boundary', () => {
     const service = TestBed.inject(AipThemeService);
     expect(service.theme()).toBe('dark');
     expect(document.documentElement.dataset['aipTheme']).toBe('dark');
     expect(document.documentElement.style.colorScheme).toBe('dark');
+    expect(document.body.classList.contains('e-dark-mode')).toBe(true);
   });
 
   it('uses OS light preference before an explicit choice', () => {
     setMedia(true);
     const service = TestBed.inject(AipThemeService);
     expect(service.theme()).toBe('light');
+    expect(document.body.classList.contains('e-dark-mode')).toBe(false);
   });
 
   it('uses an explicit local preference over OS preference and ignores invalid values', () => {
@@ -59,7 +63,12 @@ describe('AipThemeService', () => {
     expect(localStorage.getItem('aipsite.ui.theme.v1')).toBe('dark');
     expect(document.documentElement.dataset['aipTheme']).toBe('dark');
     expect(document.documentElement.style.colorScheme).toBe('dark');
+    expect(document.body.classList.contains('e-dark-mode')).toBe(true);
     expect(service.density()).toBe('comfortable');
     expect(location.pathname).toBe(path);
+
+    service.toggleTheme();
+    expect(service.theme()).toBe('light');
+    expect(document.body.classList.contains('e-dark-mode')).toBe(false);
   });
 });

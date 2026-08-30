@@ -10,7 +10,7 @@
   border: 1px solid var(--aip-color-border-default, #dbe3ef);
   border-radius: 0.75rem;
   background: var(--aip-color-bg-elevated, #fff);
-  box-shadow: 0 0.25rem 1.25rem rgb(15 23 42 / 6%);
+  box-shadow: var(--aip-shadow-floating);
 }
 
 .continue-working__header,
@@ -93,7 +93,7 @@
   padding: 0.9rem;
   border: 1px solid var(--aip-color-border-default, #dbe3ef);
   border-radius: 0.65rem;
-  background: var(--aip-color-bg-subtle, #f8fafc);
+  background: var(--aip-color-bg-surface-subtle, #f8fafc);
 }
 
 .continue-working__type {
@@ -177,7 +177,7 @@
 }
 
 .continue-working__notice {
-  color: var(--aip-color-text-warning, #92400e);
+  color: var(--aip-color-warning, #92400e);
 }
 
 .continue-working__feedback {

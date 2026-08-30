@@ -49,7 +49,7 @@ import { Component, EventEmitter, Input, Output } from '@angular/core';
       font-size: 1.05rem;
       font-weight: 900;
     }
-    .aip-filter-chip__remove:hover { background: rgb(0 0 0 / 8%); }
+    .aip-filter-chip__remove:hover { background: var(--aip-color-bg-hover); }
     .aip-filter-chip__remove:focus-visible {
       outline: 3px solid var(--aip-color-focus, #2f6feb);
       outline-offset: 1px;
