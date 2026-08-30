@@ -1,4 +1,5 @@
 using AipPortal.Application.Common;
+using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Projects;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -8,12 +9,14 @@ namespace AipPortal.Web.Controllers;
 /// <summary>
 /// Server-authoritative Task execution-policy and durable acceptance boundary.
 /// It never accepts browser authority for sources and never starts a runtime
-/// before the accepted run has committed. The Project-files worker is composed
-/// by the subsequent materialization/result workstreams.
+/// before the accepted run has committed.
 /// </summary>
 [ApiController]
 [Authorize]
-public sealed class TaskExecutionController(ITaskExecutionScopeService executionScopes) : ControllerBase
+public sealed class TaskExecutionController(
+    ITaskExecutionScopeService executionScopes,
+    ITaskExecutionRuntime? runtime = null,
+    ICurrentTenant? currentTenant = null) : ControllerBase
 {
     [HttpGet("api/projects/{projectId:guid}/execution-scope")]
     public async Task<IActionResult> GetProjectScope(Guid projectId, CancellationToken cancellationToken) =>
@@ -53,9 +56,35 @@ public sealed class TaskExecutionController(ITaskExecutionScopeService execution
     {
         _ = request;
         var result = await executionScopes.RequestRunAsync(taskItemId, idempotencyKey, cancellationToken);
-        return result.IsSuccess
-            ? StatusCode(StatusCodes.Status201Created, result.Value)
-            : ToActionResult(result);
+        if (!result.IsSuccess || result.Value is not { } accepted)
+        {
+            return ToActionResult(result);
+        }
+
+        var response = accepted;
+        if (runtime is not null &&
+            currentTenant is { IsAvailable: true, IsPlatformScope: false } &&
+            currentTenant.TenantId != Guid.Empty)
+        {
+            // The acceptance/idempotency transaction has completed before this
+            // post-commit dispatch. A disconnected browser cannot revoke that
+            // durable request, so runtime completion is not tied to the HTTP
+            // request cancellation token.
+            await runtime.ExecuteAsync(new TaskExecutionRuntimeHandle(
+                accepted.Id,
+                currentTenant.TenantId,
+                accepted.RuntimeContractVersion), CancellationToken.None);
+
+            var refreshed = await executionScopes.GetTaskScopeAsync(taskItemId, CancellationToken.None);
+            if (refreshed.IsSuccess &&
+                refreshed.Value is { LatestRun: { } latest } &&
+                latest.Id == accepted.Id)
+            {
+                response = latest;
+            }
+        }
+
+        return StatusCode(StatusCodes.Status201Created, response);
     }
 
     private IActionResult ToActionResult<T>(Result<T> result)

@@ -3,6 +3,7 @@ using AipPortal.Infrastructure.Files;
 using AipPortal.Infrastructure.Audit;
 using AipPortal.Infrastructure.Persistence;
 using AipPortal.Infrastructure.Security;
+using AipPortal.Infrastructure.TaskExecution;
 using AipPortal.Application.Projects;
 using AipPortal.Application.Realtime;
 using AipPortal.Application.Notifications;
@@ -52,6 +53,7 @@ public static class DependencyInjection
         services.AddScoped<IDefaultConversationStore, DefaultConversationStore>();
         services.AddScoped<IProjectRepository, ProjectRepository>();
         services.AddScoped<ITaskExecutionScopeRepository, TaskExecutionScopeRepository>();
+        services.AddScoped<ITaskExecutionRuntime, FirstPartyProjectFilesTaskExecutionRuntime>();
         services.AddScoped<IProjectVisibilityService, ProjectVisibilityService>();
         services.AddScoped<IProjectActivationWorkflowStore, ProjectActivationWorkflowStore>();
         services.AddScoped<IProjectActivationUnitOfWork, ProjectActivationUnitOfWork>();
