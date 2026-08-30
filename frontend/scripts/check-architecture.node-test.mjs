@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { findAgGridEnterpriseImports, findDisallowedSignalrImports, findDisallowedSyncfusionImports } from './check-architecture.mjs';
+import {
+  findAgGridEnterpriseImports,
+  findDisallowedSignalrImports,
+  findDisallowedSyncfusionImports,
+  findLegacyThemeTokens
+} from './check-architecture.mjs';
 
 test('rejects direct Syncfusion imports from a feature path', () => {
   const offenders = findDisallowedSyncfusionImports([
@@ -56,5 +61,20 @@ test('rejects AG Grid Enterprise from every frontend boundary', () => {
   ]), [
     '/repo/frontend/src/app/features/projects/project-board.ts',
     '/repo/frontend/src/app/features/projects/project-grid.ts'
+  ]);
+});
+
+test('rejects legacy and undefined theme token namespaces from active components', () => {
+  const offenders = findLegacyThemeTokens([
+    { path: '/repo/frontend/src/app/shared/uploader.ts', source: 'background: var(--aip-surface-raised);' },
+    { path: '/repo/frontend/src/app/shared/card.scss', source: 'background: var(--aip-color-bg-subtle);' },
+    { path: '/repo/frontend/src/app/features/admin/audit.scss', source: 'color: var(--aip-color-text-on-action);' },
+    { path: '/repo/frontend/src/app/shared/good.scss', source: 'background: var(--aip-color-bg-surface-subtle); color: var(--aip-color-text-inverse);' }
+  ]);
+
+  assert.deepEqual(offenders, [
+    '/repo/frontend/src/app/shared/uploader.ts',
+    '/repo/frontend/src/app/shared/card.scss',
+    '/repo/frontend/src/app/features/admin/audit.scss'
   ]);
 });
