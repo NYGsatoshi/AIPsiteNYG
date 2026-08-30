@@ -27,8 +27,8 @@
     <app-task-editor [task]="vm.editorTask" [capabilities]="vm.capabilities" [state]="vm.detailState" [transitionNote]="vm.transitionNote" [mutationState]="mutationState()" [expectedVersion]="vm.detail?.taskVersion ?? ''" [conflictReloadState]="conflictReloadState()" (save)="saveTask($event)" (cancel)="resetMutationState()" (reloadRequested)="reloadTaskAfterConflict()" (dirtyChange)="taskEditorDirty.set($event)" />
     <app-task-dependencies-readonly [dependencies]="vm.dependencies" />
     @if (vm.detail; as detail) {
-      <details class="task-detail-page__section task-detail-page__activity" data-testid="task-activity-log" (toggle)="loadActivity($event)">
-        <summary><span class="task-detail-page__activity-heading" role="heading" aria-level="2">Activity log</span>@if (sectionState('activity')().status === 'loading') { <span>Loading…</span> } @else if (detail.activity.items.length || sectionState('activity')().status === 'ready' || sectionState('activity')().status === 'empty') { <span>{{ detail.activity.totalCount }} recorded</span> }</summary>
+      <details class="task-detail-page__section task-detail-page__activity" data-testid="task-activity-log">
+        <summary (click)="loadActivity()"><span class="task-detail-page__activity-heading" role="heading" aria-level="2">Activity log</span>@if (sectionState('activity')().status === 'loading') { <span>Loading…</span> } @else if (detail.activity.items.length || sectionState('activity')().status === 'ready' || sectionState('activity')().status === 'empty') { <span>{{ detail.activity.totalCount }} recorded</span> }</summary>
         <div class="task-detail-page__activity-content">
           <p class="task-detail-page__hint">Detailed Task-linked events are shown separately from current Progress. Status updates are emphasized; historical Workflow Stage changes are not synthesized.</p>
           @if (detail.activity.items.length) {
