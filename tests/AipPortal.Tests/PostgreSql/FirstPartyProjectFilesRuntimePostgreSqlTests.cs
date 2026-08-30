@@ -67,6 +67,26 @@ public sealed class FirstPartyProjectFilesRuntimePostgreSqlTests
                     "UPDATE task_execution_runs SET \"RuntimeProvider\" = 'OtherProvider' WHERE \"Id\" = @id;",
                     ("id", legacyRunId)));
 
+            var invalidRuntimeProvider = await Assert.ThrowsAsync<PostgresException>(() =>
+                InsertAcceptedRunWithRuntimeContractAsync(
+                    database,
+                    Guid.NewGuid(),
+                    graph,
+                    requestedAt.AddMinutes(1),
+                    runtimeProvider: "OtherProvider",
+                    runtimeContractVersion: 1));
+            Assert.Equal(PostgresErrorCodes.CheckViolation, invalidRuntimeProvider.SqlState);
+
+            var invalidRuntimeVersion = await Assert.ThrowsAsync<PostgresException>(() =>
+                InsertAcceptedRunWithRuntimeContractAsync(
+                    database,
+                    Guid.NewGuid(),
+                    graph,
+                    requestedAt.AddMinutes(1),
+                    runtimeProvider: "FirstPartyProjectFilesRuntimeV1",
+                    runtimeContractVersion: 2));
+            Assert.Equal(PostgresErrorCodes.CheckViolation, invalidRuntimeVersion.SqlState);
+
             var acceptedRunId = Guid.NewGuid();
             await InsertAcceptedRunAsync(database, acceptedRunId, graph, requestedAt.AddMinutes(1));
             await PostgreSqlMigrationTestDatabase.ExecuteAsync(
@@ -150,4 +170,36 @@ public sealed class FirstPartyProjectFilesRuntimePostgreSqlTests
             ("taskId", graph.TaskId),
             ("userId", graph.UserId),
             ("requestedAt", requestedAtUtc));
+
+    private static Task InsertAcceptedRunWithRuntimeContractAsync(
+        string database,
+        Guid runId,
+        TaskV1MigrationRawSqlSeed.Graph graph,
+        DateTimeOffset requestedAtUtc,
+        string runtimeProvider,
+        int runtimeContractVersion) =>
+        PostgreSqlMigrationTestDatabase.ExecuteAsync(database, """
+            INSERT INTO task_execution_runs (
+                "Id", "TenantId", "WorkspaceId", "ProjectId", "TaskItemId",
+                "RequestedByUserId", "RequestedAtUtc", "RuntimeProvider",
+                "RuntimeContractVersion", "Status", "VersionNo",
+                "SnapshotSchemaVersion", "SnapshotScopeOrigin",
+                "SnapshotProjectScopeVersion", "SnapshotTaskOverrideVersion",
+                "SnapshotWebEnabled", "SnapshotProjectFilesEnabled")
+            VALUES (
+                @id, @tenantId, @workspaceId, @projectId, @taskId,
+                @userId, @requestedAt, @runtimeProvider,
+                @runtimeContractVersion, 'Accepted', 1,
+                1, 'ProjectDefault',
+                1, NULL, FALSE, TRUE);
+            """,
+            ("id", runId),
+            ("tenantId", graph.TenantId),
+            ("workspaceId", graph.WorkspaceId),
+            ("projectId", graph.ProjectId),
+            ("taskId", graph.TaskId),
+            ("userId", graph.UserId),
+            ("requestedAt", requestedAtUtc),
+            ("runtimeProvider", runtimeProvider),
+            ("runtimeContractVersion", runtimeContractVersion));
 }

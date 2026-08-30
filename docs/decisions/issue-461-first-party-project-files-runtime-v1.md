@@ -88,6 +88,10 @@ not `RuntimeUnavailable`, and not evidence that file content was consumed.
 
 - Tenant, Workspace, Project, Task, file eligibility, and current authorization
   are always server-enforced.
+- PostgreSQL constrains every persisted run to
+  `FirstPartyProjectFilesRuntimeV1` at contract version `1`; raw inserts cannot
+  introduce an alternate provider or version, and updates cannot rewrite the
+  accepted identity.
 - The immutable accepted scope snapshot remains provenance, but later source
   materialization rechecks current authority and file safety.
 - Failures use safe public codes/messages and do not reveal inaccessible source

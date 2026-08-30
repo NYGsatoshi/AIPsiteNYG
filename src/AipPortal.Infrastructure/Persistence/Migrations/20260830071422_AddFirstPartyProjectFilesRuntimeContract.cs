@@ -77,6 +77,11 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                 table: "task_execution_runs",
                 sql: "\"Status\" IN ('Accepted', 'Queued', 'Running', 'Succeeded', 'Failed')");
 
+            migrationBuilder.AddCheckConstraint(
+                name: "CK_task_execution_runs_runtime_contract",
+                table: "task_execution_runs",
+                sql: "\"RuntimeProvider\" = 'FirstPartyProjectFilesRuntimeV1' AND \"RuntimeContractVersion\" = 1");
+
             // Entity configuration is not sufficient to prevent a raw SQL or
             // platform-scope update from rewriting provider identity or
             // skipping an immutable lifecycle transition. Keep the existing
@@ -133,6 +138,10 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
 
             migrationBuilder.DropCheckConstraint(
                 name: "CK_task_execution_runs_status",
+                table: "task_execution_runs");
+
+            migrationBuilder.DropCheckConstraint(
+                name: "CK_task_execution_runs_runtime_contract",
                 table: "task_execution_runs");
 
             migrationBuilder.Sql("""

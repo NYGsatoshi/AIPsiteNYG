@@ -4414,7 +4414,10 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("TenantId", "TaskItemId", "RequestedAtUtc");
 
-                    b.ToTable("task_execution_runs", (string)null);
+                    b.ToTable("task_execution_runs", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_task_execution_runs_runtime_contract", "\"RuntimeProvider\" = 'FirstPartyProjectFilesRuntimeV1' AND \"RuntimeContractVersion\" = 1");
+                        });
                 });
 
             modelBuilder.Entity("AipPortal.Domain.Entities.TaskExecutionScopeOverride", b =>

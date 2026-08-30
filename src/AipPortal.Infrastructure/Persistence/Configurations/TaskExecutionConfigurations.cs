@@ -74,7 +74,10 @@ public sealed class TaskExecutionRunConfiguration : IEntityTypeConfiguration<Tas
 {
     public void Configure(EntityTypeBuilder<TaskExecutionRun> builder)
     {
-        builder.ToTable("task_execution_runs");
+        builder.ToTable("task_execution_runs", table =>
+            table.HasCheckConstraint(
+                "CK_task_execution_runs_runtime_contract",
+                "\"RuntimeProvider\" = 'FirstPartyProjectFilesRuntimeV1' AND \"RuntimeContractVersion\" = 1"));
         builder.ConfigureEntity();
 
         builder.Property(run => run.RequestedAtUtc).IsRequired();
