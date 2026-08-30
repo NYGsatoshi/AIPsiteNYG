@@ -26,11 +26,11 @@ import {
 describe('SyncfusionGanttComponent adapter boundary', () => {
   it('loads lazy Gantt theme assets in official dependency order', () => {
     expect(SYNCFUSION_GANTT_THEME_ASSETS).toEqual([
-      'assets/vendor/syncfusion/base/material.css',
-      'assets/vendor/syncfusion/treegrid/material.css',
-      'assets/vendor/syncfusion/layouts/material.css',
-      'assets/vendor/syncfusion/popups/material.css',
-      'assets/vendor/syncfusion/gantt/material.css'
+      'assets/vendor/syncfusion/base/material3.css',
+      'assets/vendor/syncfusion/treegrid/material3.css',
+      'assets/vendor/syncfusion/layouts/material3.css',
+      'assets/vendor/syncfusion/popups/material3.css',
+      'assets/vendor/syncfusion/gantt/material3.css'
     ]);
   });
 
