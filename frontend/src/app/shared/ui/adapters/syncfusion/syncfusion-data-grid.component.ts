@@ -22,8 +22,6 @@ import {
   clampAppDataGridPageSize
 } from '../../../grid/app-data-grid/app-data-grid.types';
 
-export const SYNCFUSION_GRID_THEME_ASSET = 'assets/vendor/syncfusion/grids/material3.css';
-
 type SyncfusionGridEvent<TData> = {
   readonly rowData?: TData;
   readonly data?: TData | readonly TData[];
@@ -68,7 +66,6 @@ export class SyncfusionDataGridComponent<TData extends object> implements OnChan
   @Output() sortChanged = new EventEmitter<AppDataGridSortChange>();
   @Output() filterChanged = new EventEmitter<AppDataGridFilterChange>();
 
-  readonly themeAsset = SYNCFUSION_GRID_THEME_ASSET;
   pageSettings = this.createPageSettings();
   selectionSettings = this.createSelectionSettings();
 
