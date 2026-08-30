@@ -58,7 +58,7 @@ describe('AnnouncementsPageComponent issue #374 publication status', () => {
     expect(editor?.textContent).toContain('Asia/Tokyo');
   });
 
-  it('does not expose an unimplemented draft-save action and disables publication for a scheduled announcement', async () => {
+  it('disables durable-draft and publication actions for an existing scheduled announcement', async () => {
     const fixture = await renderAnnouncementsPage({
       ...ANNOUNCEMENT_PAGE_SCENARIOS.default,
       selectedAnnouncementId: 'mock-announcement-004',
@@ -70,10 +70,11 @@ describe('AnnouncementsPageComponent issue #374 publication status', () => {
     const publish = rootElement(fixture).querySelector<HTMLButtonElement>(
       '[data-testid="announcement-publish-action"]',
     );
+    const saveDraft = rootElement(fixture).querySelector<HTMLButtonElement>(
+      '[data-testid="announcement-save-draft-action"]',
+    );
 
-    expect(
-      rootElement(fixture).querySelector('[data-testid="announcement-save-draft-action"]'),
-    ).toBeNull();
+    expect(saveDraft?.disabled).toBe(true);
     expect(publish?.disabled).toBe(true);
   });
 
