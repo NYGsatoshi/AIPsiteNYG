@@ -100,9 +100,12 @@ export function formatGanttDateOnly(value: Date | null | undefined): AipGanttDat
       class="aip-syncfusion-gantt"
       [attr.aria-label]="contract.ariaLabel + ' timeline chart'"
       data-testid="aip-syncfusion-gantt">
-      @for (themeAsset of themeAssets; track themeAsset) {
-        <link rel="stylesheet" [attr.href]="themeAsset" />
-      }
+      <!-- Keep stylesheet URLs literal. Angular treats link href as a ResourceUrl security context. -->
+      <link rel="stylesheet" href="assets/vendor/syncfusion/base/material3.css" />
+      <link rel="stylesheet" href="assets/vendor/syncfusion/treegrid/material3.css" />
+      <link rel="stylesheet" href="assets/vendor/syncfusion/layouts/material3.css" />
+      <link rel="stylesheet" href="assets/vendor/syncfusion/popups/material3.css" />
+      <link rel="stylesheet" href="assets/vendor/syncfusion/gantt/material3.css" />
       <p class="aip-syncfusion-gantt__notice">
         Timeline pointer editing is optional. The complete keyboard and form workflow follows the chart.
       </p>
@@ -152,7 +155,6 @@ export class SyncfusionGanttComponent {
   @Output() readonly vendorFailed = new EventEmitter<void>();
 
   private interactionActive = false;
-  readonly themeAssets = SYNCFUSION_GANTT_THEME_ASSETS;
 
   readonly taskFields = {
     id: 'taskId',
