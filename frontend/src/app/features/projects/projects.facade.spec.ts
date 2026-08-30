@@ -342,7 +342,7 @@ describe('ProjectsFacade live API mutations', () => {
     });
 
     expect(inFlightActivity.cancelled).toBe(false);
-    expect(httpMock.match('/api/tasks/task-1/activity?page=1&pageSize=20')).toEqual([inFlightActivity]);
+    httpMock.expectNone('/api/tasks/task-1/activity?page=1&pageSize=20');
     inFlightActivity.flush({ items: [], page: 1, pageSize: 20, totalCount: 0, hasMore: false });
 
     expect(facade.getTaskDetail('project-1', 'task-1').task?.workflowStageName).toBe('Review');
