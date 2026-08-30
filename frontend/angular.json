@@ -33,33 +33,33 @@
                 "input": "public"
               },
               {
-                "glob": "material.css",
+                "glob": "material3.css",
                 "input": "node_modules/@syncfusion/ej2-base/styles",
                 "output": "assets/vendor/syncfusion/base"
               },
               {
-                "glob": "material.css",
+                "glob": "material3.css",
                 "input": "node_modules/@syncfusion/ej2-treegrid/styles",
                 "output": "assets/vendor/syncfusion/treegrid"
               },
               {
-                "glob": "material.css",
+                "glob": "material3.css",
                 "input": "node_modules/@syncfusion/ej2-layouts/styles",
                 "output": "assets/vendor/syncfusion/layouts"
               },
               {
-                "glob": "material.css",
+                "glob": "material3.css",
                 "input": "node_modules/@syncfusion/ej2-popups/styles",
                 "output": "assets/vendor/syncfusion/popups"
               },
               {
-                "glob": "material.css",
+                "glob": "material3.css",
                 "input": "node_modules/@syncfusion/ej2-gantt/styles",
                 "output": "assets/vendor/syncfusion/gantt"
               }
             ],
             "styles": [
-              "node_modules/@syncfusion/ej2-grids/styles/material.css",
+              "node_modules/@syncfusion/ej2-grids/styles/material3.css",
               "src/styles.scss"
             ]
           },
@@ -130,33 +130,33 @@
                 "input": "public"
               },
               {
-                "glob": "material.css",
+                "glob": "material3.css",
                 "input": "node_modules/@syncfusion/ej2-base/styles",
                 "output": "assets/vendor/syncfusion/base"
               },
               {
-                "glob": "material.css",
+                "glob": "material3.css",
                 "input": "node_modules/@syncfusion/ej2-treegrid/styles",
                 "output": "assets/vendor/syncfusion/treegrid"
               },
               {
-                "glob": "material.css",
+                "glob": "material3.css",
                 "input": "node_modules/@syncfusion/ej2-layouts/styles",
                 "output": "assets/vendor/syncfusion/layouts"
               },
               {
-                "glob": "material.css",
+                "glob": "material3.css",
                 "input": "node_modules/@syncfusion/ej2-popups/styles",
                 "output": "assets/vendor/syncfusion/popups"
               },
               {
-                "glob": "material.css",
+                "glob": "material3.css",
                 "input": "node_modules/@syncfusion/ej2-gantt/styles",
                 "output": "assets/vendor/syncfusion/gantt"
               }
             ],
             "styles": [
-              "node_modules/@syncfusion/ej2-grids/styles/material.css",
+              "node_modules/@syncfusion/ej2-grids/styles/material3.css",
               "src/styles.scss"
             ]
           }
