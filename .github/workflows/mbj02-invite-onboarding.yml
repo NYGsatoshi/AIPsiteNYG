@@ -80,6 +80,10 @@ jobs:
           bash -n scripts/ci/run-mbj02-invite-acceptance.sh
           node --check tests/ui/mbj02-invite-acceptance.mjs
 
+      - name: Prune unused Docker networks
+        shell: bash
+        run: docker network prune --force
+
       - name: Run MBJ-02 administrator invite onboarding acceptance
         if: github.event_name != 'pull_request' || github.event.pull_request.user.login != 'dependabot[bot]'
         env:
