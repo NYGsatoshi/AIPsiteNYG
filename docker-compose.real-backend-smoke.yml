@@ -71,6 +71,10 @@ services:
       Security__EnableHsts: "false"
       Security__EnableCsrfProtection: "true"
       Security__EnableRateLimiting: "false"
+      # Test-only cadence: the production worker remains durably coordinated
+      # through PostgreSQL, while this browser proof observes a due transition
+      # and a publish-time authorization revocation without minute-scale waits.
+      AnnouncementPublisher__PollSeconds: "1"
       # Test-only deterministic synthetic seed:
       # e2e-user@example.test, Browser Smoke Workspace, Browser smoke announcement,
       # Browser Smoke Project, and Browser smoke task.

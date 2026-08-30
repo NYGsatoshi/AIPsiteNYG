@@ -3317,7 +3317,7 @@ test.describe('MVP0 real backend browser smoke', () => {
     }
   });
 
-  test('Issue #378 confirms immediate publication against the real backend and rejects a revoked selected audience', async ({ page, browser }, testInfo) => {
+  test('Issue #378 queues durable immediate delivery, worker-publishes after reauthorization, and retains a revoked audience', async ({ page, browser }, testInfo) => {
     const evidence: SmokeEvidence = {
       baseURL: String(testInfo.project.use.baseURL ?? ''),
       email: smokeEmail,
@@ -3330,12 +3330,15 @@ test.describe('MVP0 real backend browser smoke', () => {
     const immediateBody = 'This synthetic announcement proves the confirmed immediate publication path.';
     const revokedWorkspaceName = `Issue 378 revoked audience ${randomUUID().slice(0, 8)}`;
     const revokedTitle = `Issue 378 revoked publication ${randomUUID().slice(0, 8)}`;
-    const revokedBody = 'This draft must remain editable when its selected audience loses authorization.';
+    const revokedBody = 'This due draft must not publish after its author loses audience authorization.';
     let temporaryWorkspaceId: string | null = null;
     let temporaryWorkspaceMembershipRevoked = false;
     let staleContext: Awaited<ReturnType<typeof browser.newContext>> | null = null;
     let stalePage: Page | null = null;
     let staleEvidence: SmokeEvidence | null = null;
+    let managerContext: Awaited<ReturnType<typeof browser.newContext>> | null = null;
+    let managerPage: Page | null = null;
+    let managerEvidence: SmokeEvidence | null = null;
 
     page.on('pageerror', (error) => evidence.pageErrors.push(error.message));
     page.on('console', (message) => { if (message.type() === 'error') evidence.consoleErrors.push(message.text()); });
@@ -3371,15 +3374,15 @@ test.describe('MVP0 real backend browser smoke', () => {
       await editor.getByTestId('announcement-editor-audience').selectOption(primaryAudienceKey);
       await editor.locator('#announcement-read-confirmation').check();
 
-      let immediatePublishRequestsBeforeConfirmation = 0;
-      const observeImmediatePublishBeforeConfirmation = (request: { method(): string; url(): string }) => {
+      let directBrowserAnnouncementPosts = 0;
+      const observeDirectBrowserAnnouncementPosts = (request: { method(): string; url(): string }) => {
         if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/announcements') {
-          immediatePublishRequestsBeforeConfirmation += 1;
+          directBrowserAnnouncementPosts += 1;
         }
       };
-      page.on('request', observeImmediatePublishBeforeConfirmation);
+      page.on('request', observeDirectBrowserAnnouncementPosts);
       await editor.getByTestId('announcement-publish-action').click();
-      const confirmationDialog = page.getByRole('dialog', { name: 'Confirm publication' });
+      const confirmationDialog = page.getByRole('dialog', { name: 'Confirm delivery' });
       await expect(confirmationDialog).toBeVisible();
       await expect(confirmationDialog).toHaveAttribute('aria-modal', 'true');
       await expect(confirmationDialog.getByTestId('announcement-confirmation-title')).toHaveText(immediateTitle);
@@ -3389,30 +3392,39 @@ test.describe('MVP0 real backend browser smoke', () => {
         .toContainText(String(primaryRecipientCount));
       await expect(confirmationDialog.getByTestId('announcement-confirmation-priority')).toHaveText('CRITICAL');
       await expect(confirmationDialog.getByTestId('announcement-confirmation-delivery')).toHaveText('Publish immediately');
-      expect(immediatePublishRequestsBeforeConfirmation, 'review opens before the real publication request').toBe(0);
-      page.off('request', observeImmediatePublishBeforeConfirmation);
+      expect(directBrowserAnnouncementPosts, 'review opens before any direct Announcement creation request').toBe(0);
 
-      const immediatePublicationResponse = waitForApiResponse(page, 'POST', '/api/announcements');
+      const immediateDraftCreateResponse = waitForApiResponse(page, 'POST', '/api/announcement-drafts');
+      const immediateDraftPublishResponse = waitForApiResponse(page, 'POST', /\/api\/announcement-drafts\/[0-9a-f-]+\/publish$/i);
       await confirmationDialog.getByRole('button', {
         name: new RegExp(`^Publish to ${primaryRecipientCount} recipients now$`)
       }).click();
-      const immediatePublication = await immediatePublicationResponse;
-      const immediateRequest = immediatePublication.request().postDataJSON() as Record<string, unknown>;
-      const immediateHeaders = await immediatePublication.request().allHeaders();
-      expect(immediatePublication.status(), 'confirmed immediate publication response').toBe(200);
-      expect(immediateHeaders['x-csrf-token'], 'confirmed immediate publication CSRF header').toBeTruthy();
-      expect(immediateRequest, 'confirmed immediate publication request').toEqual({
-        workspaceId: primaryWorkspaceId,
-        groupId: null,
-        channelId: null,
-        title: immediateTitle,
-        body: immediateBody,
-        priority: 2,
-        isPinned: false,
-        requiresReadConfirmation: true
+      const immediateDraftCreate = await immediateDraftCreateResponse;
+      const immediateCreateRequest = immediateDraftCreate.request().postDataJSON() as Record<string, unknown>;
+      const immediateCreateHeaders = await immediateDraftCreate.request().allHeaders();
+      expect(immediateDraftCreate.status(), 'immediate durable draft creation response').toBe(201);
+      expect(immediateCreateHeaders['x-csrf-token'], 'immediate durable draft creation CSRF header').toBeTruthy();
+      expect(immediateCreateHeaders['idempotency-key'], 'immediate durable draft creation idempotency header')
+        .toMatch(/^announcement-draft-create-/);
+      expect(immediateCreateRequest, 'immediate durable draft creation request').toEqual({
+        content: {
+          target: {
+            workspaceId: primaryWorkspaceId,
+            groupId: null,
+            channelId: null
+          },
+          title: immediateTitle,
+          body: immediateBody,
+          priority: 2,
+          isPinned: false,
+          requiresReadConfirmation: true,
+          expiresAt: null
+        }
       });
-      const immediateCreated = await recordOkJson(immediatePublication, evidence, 'issue-378-confirmed-immediate-publication', (body) =>
+      const immediateCreatedDraft = await recordOkJson(immediateDraftCreate, evidence, 'issue-378-immediate-draft-created', (body) =>
         hasString(body, 'id') &&
+        body.status === 'Draft' &&
+        body.version === 1 &&
         hasStringValue(body, 'title', immediateTitle) &&
         hasStringValue(body, 'body', immediateBody) &&
         body.priority === 2 &&
@@ -3421,10 +3433,61 @@ test.describe('MVP0 real backend browser smoke', () => {
         body.channelId === null &&
         body.requiresReadConfirmation === true
       ) as Record<string, unknown>;
-      const immediateAnnouncementId = String(immediateCreated.id);
-      expect(immediateAnnouncementId, 'confirmed immediate publication id').toMatch(/^[0-9a-f-]{36}$/i);
-      await expect(page.getByTestId('announcement-list-item').filter({ hasText: immediateTitle })).toBeVisible();
-      await recordFetchJson(page, evidence, 'issue-378-confirmed-publication-persists', `/api/announcements/${immediateAnnouncementId}`, {
+      const immediateDraftId = String(immediateCreatedDraft.id);
+      expect(immediateDraftId, 'accepted immediate durable draft id').toMatch(/^[0-9a-f-]{36}$/i);
+
+      const immediateDraftPublish = await immediateDraftPublishResponse;
+      const immediatePublishRequest = immediateDraftPublish.request().postDataJSON() as Record<string, unknown>;
+      const immediatePublishHeaders = await immediateDraftPublish.request().allHeaders();
+      expect(immediateDraftPublish.status(), 'accepted immediate durable schedule response').toBe(200);
+      expect(immediatePublishHeaders['x-csrf-token'], 'accepted immediate durable schedule CSRF header').toBeTruthy();
+      expect(immediatePublishHeaders['idempotency-key'], 'accepted immediate durable schedule idempotency header')
+        .toMatch(/^announcement-draft-transition-/);
+      expect(immediatePublishRequest, 'accepted immediate durable schedule request').toEqual({ expectedVersion: 1 });
+      await recordOkJson(immediateDraftPublish, evidence, 'issue-378-immediate-draft-queued', (body) =>
+        hasStringValue(body, 'id', immediateDraftId) &&
+        body.status === 'Scheduled' &&
+        body.version === 2 &&
+        hasString(body, 'scheduledForUtc') &&
+        hasStringValue(body, 'scheduleTimeZoneId', 'UTC') &&
+        body.publishedAnnouncementId === null
+      );
+      await expect(confirmationDialog).toHaveCount(0);
+      await expect(page.getByText(
+        'Publication queued. It will appear after the server reauthorizes the audience and publishes it.',
+        { exact: true }
+      )).toBeVisible();
+
+      let immediatePublishedDraft: Record<string, unknown> | null = null;
+      await expect.poll(async () => {
+        const response = await fetchJsonFromPage(page, `/api/announcement-drafts/${immediateDraftId}`);
+        if (response.status !== 200 || !response.body || typeof response.body !== 'object') {
+          return { status: `HTTP ${response.status}` };
+        }
+
+        immediatePublishedDraft = response.body as Record<string, unknown>;
+        return {
+          status: immediatePublishedDraft.status,
+          publishedAnnouncementId: immediatePublishedDraft.publishedAnnouncementId
+        };
+      }, {
+        message: 'the server-owned worker advances the durable immediate schedule to Published',
+        timeout: 15_000
+      }).toMatchObject({
+        status: 'Published',
+        publishedAnnouncementId: expect.stringMatching(/^[0-9a-f-]{36}$/i)
+      });
+      const immediateAnnouncementId = String(immediatePublishedDraft?.publishedAnnouncementId ?? '');
+      expect(immediateAnnouncementId, 'worker-created announcement id').toMatch(/^[0-9a-f-]{36}$/i);
+      await recordFetchJson(page, evidence, 'issue-378-worker-published-draft-persists', `/api/announcement-drafts/${immediateDraftId}`, {
+        validate: (body) =>
+          hasStringValue(body, 'id', immediateDraftId) &&
+          body.status === 'Published' &&
+          hasStringValue(body, 'publishedAnnouncementId', immediateAnnouncementId) &&
+          hasStringValue(body, 'title', immediateTitle) &&
+          hasStringValue(body, 'body', immediateBody)
+      });
+      await recordFetchJson(page, evidence, 'issue-378-worker-created-announcement-persists', `/api/announcements/${immediateAnnouncementId}`, {
         validate: (body) =>
           hasStringValue(body, 'id', immediateAnnouncementId) &&
           hasStringValue(body, 'title', immediateTitle) &&
@@ -3433,6 +3496,8 @@ test.describe('MVP0 real backend browser smoke', () => {
           body.workspaceId === primaryWorkspaceId &&
           body.requiresReadConfirmation === true
       });
+      page.off('request', observeDirectBrowserAnnouncementPosts);
+      expect(directBrowserAnnouncementPosts, 'the browser never creates an Announcement directly').toBe(0);
 
       // The revocation proof must model a stale browser without suppressing
       // the production fail-closed authorization invalidation on connected
@@ -3506,22 +3571,116 @@ test.describe('MVP0 real backend browser smoke', () => {
       expect(revokedAudience, 'newly created Workspace is initially a server-authorized audience').toBeTruthy();
       expect(revokedAudience!.workspaceId).toBe(temporaryWorkspaceId);
 
-      await stalePage.goto('/app/announcements');
-      await expect(stalePage.getByTestId('announcements-page')).toBeVisible();
-      await expect(stalePage.getByTestId('create-announcement-action')).toBeVisible();
-      await stalePage.getByTestId('create-announcement-action').click();
-      const staleEditor = stalePage.getByTestId('announcement-editor');
-      const staleConfirmationDialog = stalePage.getByRole('dialog', { name: 'Confirm publication' });
-      await expect(staleEditor).toBeVisible();
-      await staleEditor.getByTestId('announcement-editor-title').fill(revokedTitle);
-      await staleEditor.getByTestId('announcement-editor-body').fill(revokedBody);
-      await staleEditor.getByTestId('announcement-editor-audience').selectOption(revokedAudience!.key);
-      await staleEditor.getByTestId('announcement-publish-action').click();
-      await expect(staleConfirmationDialog).toBeVisible();
-      await expect(staleConfirmationDialog.getByTestId('announcement-confirmation-audience')).toHaveText(revokedWorkspaceName);
-      await expect(staleConfirmationDialog.getByTestId('announcement-confirmation-recipient-count'))
-        .toContainText(String(revokedAudience!.estimatedRecipientCount));
-      await expect(staleConfirmationDialog.getByTestId('announcement-confirmation-delivery')).toHaveText('Publish immediately');
+      // Keep a second, currently authorized administrator in the isolated
+      // Workspace. After the author loses access, this observer can prove
+      // that the due worker did not create an Announcement for the retained
+      // target. No browser mock or worker shortcut is involved.
+      managerContext = await browser.newContext({ baseURL: evidence.baseURL });
+      managerPage = await managerContext.newPage();
+      managerEvidence = {
+        baseURL: evidence.baseURL,
+        email: pr05ManagerEmail,
+        steps: [],
+        pageErrors: [],
+        consoleErrors: [],
+        failedApiResponses: []
+      };
+      managerPage.on('pageerror', (error) => managerEvidence!.pageErrors.push(error.message));
+      managerPage.on('console', (message) => {
+        if (message.type() === 'error') managerEvidence!.consoleErrors.push(message.text());
+      });
+      managerPage.on('response', (response) => recordFailedApiResponse(response, managerEvidence!));
+      await loginAndVerifySession(managerPage, managerEvidence, {
+        email: pr05ManagerEmail,
+        password: smokePassword
+      });
+      const managerUserId = managerEvidence.userId!;
+      expect(managerUserId, 'authorized reauthorization observer id').toMatch(/^[0-9a-f-]{36}$/i);
+
+      const addManager = await requestWithCsrf(
+        stalePage,
+        'POST',
+        `/api/workspaces/${temporaryWorkspaceId}/members`,
+        { userId: managerUserId, role: 1 }
+      );
+      staleEvidence.steps.push({
+        name: 'issue-378-add-authorized-revocation-observer',
+        method: 'POST',
+        path: `/api/workspaces/${temporaryWorkspaceId}/members`,
+        status: addManager.status
+      });
+      expect(addManager.status, addManager.text).toBe(200);
+      expect(addManager.csrfHeaderPresent, 'authorized observer add CSRF header').toBe(true);
+
+      const revokedDraftCreate = await requestWithCsrf(
+        stalePage,
+        'POST',
+        '/api/announcement-drafts',
+        {
+          content: {
+            target: {
+              workspaceId: temporaryWorkspaceId,
+              groupId: null,
+              channelId: null
+            },
+            title: revokedTitle,
+            body: revokedBody,
+            priority: 0,
+            isPinned: false,
+            requiresReadConfirmation: false,
+            expiresAt: null
+          }
+        },
+        { 'Idempotency-Key': `issue-378-revoked-create-${randomUUID()}` }
+      );
+      staleEvidence.steps.push({
+        name: 'issue-378-create-authorized-durable-revocation-draft',
+        method: 'POST',
+        path: '/api/announcement-drafts',
+        status: revokedDraftCreate.status
+      });
+      expect(revokedDraftCreate.status, revokedDraftCreate.text).toBe(201);
+      expect(revokedDraftCreate.csrfHeaderPresent, 'authorized revocation draft create CSRF header').toBe(true);
+      const revokedDraftCreatedBody = parseJson(revokedDraftCreate.text) as Record<string, unknown>;
+      const revokedDraftId = String(revokedDraftCreatedBody.id ?? '');
+      const revokedDraftVersion = Number(revokedDraftCreatedBody.version);
+      expect(revokedDraftId, 'authorized durable revocation draft id').toMatch(/^[0-9a-f-]{36}$/i);
+      expect(revokedDraftCreatedBody.status).toBe('Draft');
+      expect(revokedDraftVersion).toBe(1);
+
+      // Use a real near-future UTC schedule so the worker has a committed
+      // durable identity to claim after authorization is revoked. The
+      // datetime is intentionally unsuffixed: the API requires an IANA
+      // local wall-clock value and resolves it server-side.
+      const revokedDueLocalDateTime = new Date(Date.now() + 12_000).toISOString().replace('Z', '');
+      const revokedDraftSchedule = await requestWithCsrf(
+        stalePage,
+        'POST',
+        `/api/announcement-drafts/${revokedDraftId}/schedule`,
+        {
+          expectedVersion: revokedDraftVersion,
+          localDateTime: revokedDueLocalDateTime,
+          timeZoneId: 'UTC',
+          ambiguousTimeOffsetMinutes: null
+        },
+        { 'Idempotency-Key': `issue-378-revoked-schedule-${randomUUID()}` }
+      );
+      staleEvidence.steps.push({
+        name: 'issue-378-schedule-authorized-durable-revocation-draft',
+        method: 'POST',
+        path: `/api/announcement-drafts/${revokedDraftId}/schedule`,
+        status: revokedDraftSchedule.status
+      });
+      expect(revokedDraftSchedule.status, revokedDraftSchedule.text).toBe(200);
+      expect(revokedDraftSchedule.csrfHeaderPresent, 'authorized revocation draft schedule CSRF header').toBe(true);
+      const revokedDraftScheduledBody = parseJson(revokedDraftSchedule.text) as Record<string, unknown>;
+      expect(revokedDraftScheduledBody).toMatchObject({
+        id: revokedDraftId,
+        version: 2,
+        status: 'Scheduled',
+        scheduleTimeZoneId: 'UTC'
+      });
+      expect(typeof revokedDraftScheduledBody.scheduledForUtc, 'accepted revocation due UTC instant').toBe('string');
 
       const membershipRevocation = await requestWithCsrf(
         stalePage,
@@ -3529,7 +3688,7 @@ test.describe('MVP0 real backend browser smoke', () => {
         `/api/workspaces/${temporaryWorkspaceId}/members/${staleCurrentUserId}`
       );
       staleEvidence.steps.push({
-        name: 'issue-378-revoke-selected-workspace-audience',
+        name: 'issue-378-revoke-selected-workspace-audience-before-due-publication',
         method: 'DELETE',
         path: `/api/workspaces/${temporaryWorkspaceId}/members/${staleCurrentUserId}`,
         status: membershipRevocation.status
@@ -3538,68 +3697,100 @@ test.describe('MVP0 real backend browser smoke', () => {
       expect(membershipRevocation.csrfHeaderPresent, 'selected audience revocation CSRF header').toBe(true);
       temporaryWorkspaceMembershipRevoked = true;
 
-      const revokedPublicationResponse = waitForApiResponse(stalePage, 'POST', '/api/announcements');
-      await staleConfirmationDialog.getByRole('button', {
-        name: new RegExp(`^Publish to ${revokedAudience!.estimatedRecipientCount} recipients now$`)
-      }).click();
-      const revokedPublication = await revokedPublicationResponse;
-      const expectedRevokedAudienceFailure: SmokeFailedApiResponse = {
-        method: 'POST',
-        path: '/api/announcements',
+      const revokedDraftRead = await fetchFromPage(stalePage, `/api/announcement-drafts/${revokedDraftId}`);
+      staleEvidence.steps.push({
+        name: 'issue-378-revoked-author-draft-read-is-redacted',
+        method: 'GET',
+        path: `/api/announcement-drafts/${revokedDraftId}`,
+        status: revokedDraftRead.status,
+        bodyPreview: preview(revokedDraftRead.text)
+      });
+      expect(revokedDraftRead.status, revokedDraftRead.text).toBe(400);
+      expect(revokedDraftRead.text, 'revoked draft read must not disclose the selected Workspace or retained content')
+        .not.toContain(revokedWorkspaceName);
+      expect(revokedDraftRead.text, 'revoked draft read must not disclose the retained title').not.toContain(revokedTitle);
+
+      const revokedDueNotBefore = Date.now() + 13_000;
+      await expect.poll(async () => {
+        if (Date.now() < revokedDueNotBefore) {
+          return 'waiting-for-due-worker-reauthorization';
+        }
+
+        const response = await fetchJsonFromPage(managerPage!, '/api/announcements?page=1&pageSize=100');
+        if (response.status !== 200 || !isPagedResponse(response.body)) {
+          return `HTTP ${response.status}`;
+        }
+        return response.body.items.some((item) => hasStringValue(item, 'title', revokedTitle))
+          ? 'published-after-revocation'
+          : 'not-published-after-revocation';
+      }, {
+        message: 'the due worker reauthorizes the retained target and does not publish after its author is revoked',
+        timeout: 25_000
+      }).toBe('not-published-after-revocation');
+      await recordFetchJson(
+        managerPage!,
+        managerEvidence!,
+        'issue-378-manager-confirms-revoked-draft-produced-no-announcement',
+        '/api/announcements?page=1&pageSize=100',
+        {
+          validate: (body) =>
+            isPagedResponse(body) &&
+            !body.items.some((item) => hasStringValue(item, 'title', revokedTitle))
+        }
+      );
+
+      const expectedRevokedDraftReadFailure: SmokeFailedApiResponse = {
+        method: 'GET',
+        path: `/api/announcement-drafts/${revokedDraftId}`,
         status: 400
       };
-      const revokedPublicationBody = await recordFailureJson(
-        revokedPublication,
-        staleEvidence,
-        'issue-378-revoked-selected-audience-publication',
-        400,
-        (body) => hasStringValue(body, 'error', 'Announcement audience is not authorized.')
-      ) as Record<string, unknown>;
-      expect(JSON.stringify(revokedPublicationBody), 'revoked audience response must not disclose the selected Workspace')
-        .not.toContain(revokedWorkspaceName);
-      await expect(staleConfirmationDialog).toHaveCount(0);
-      await expect(staleEditor.getByTestId('announcement-editor-submission-error')).toContainText(
-        'The selected audience is no longer authorized.'
-      );
-      await expect(staleEditor.getByTestId('announcement-editor-title')).toHaveValue(revokedTitle);
-      await expect(staleEditor.getByTestId('announcement-editor-body')).toHaveValue(revokedBody);
-      await expect(staleEditor.getByTestId('announcement-editor-audience').locator('option', {
-        hasText: revokedWorkspaceName
-      })).toHaveCount(0);
 
-      expect(evidence.pageErrors, 'Issue #378 immediate publication browser page errors').toEqual([]);
+      expect(evidence.pageErrors, 'Issue #378 durable immediate browser page errors').toEqual([]);
       expectUnexpectedConsoleErrors(evidence);
       expectUnexpectedApiFailures(evidence);
-      expect(staleEvidence.pageErrors, 'Issue #378 stale-review browser page errors').toEqual([]);
-      expectOnlyExpectedSyntheticHubConsoleErrors(staleEvidence, [expectedRevokedAudienceFailure]);
-      expectUnexpectedApiFailures(staleEvidence, [expectedRevokedAudienceFailure]);
+      expect(staleEvidence.pageErrors, 'Issue #378 revoked-author browser page errors').toEqual([]);
+      expectOnlyExpectedSyntheticHubConsoleErrors(staleEvidence, [expectedRevokedDraftReadFailure]);
+      expectUnexpectedApiFailures(staleEvidence, [expectedRevokedDraftReadFailure]);
+      expect(managerEvidence!.pageErrors, 'Issue #378 reauthorization-observer browser page errors').toEqual([]);
+      expectUnexpectedConsoleErrors(managerEvidence!);
+      expectUnexpectedApiFailures(managerEvidence!);
     } finally {
-      // The success path deliberately revokes this user before confirming the
-      // selected-scope denial. If a preceding assertion fails, archive the
-      // still-owned disposable Workspace so later shared-fixture tests start
-      // with their intended Workspace set.
-      if (temporaryWorkspaceId && !temporaryWorkspaceMembershipRevoked && stalePage) {
-        try {
-          const cleanup = await requestWithCsrf(stalePage, 'POST', `/api/workspaces/${temporaryWorkspaceId}/archive`);
-          staleEvidence?.steps.push({
-            name: 'issue-378-failed-path-temporary-workspace-cleanup',
-            method: 'POST',
-            path: `/api/workspaces/${temporaryWorkspaceId}/archive`,
-            status: cleanup.status,
-          });
-        } catch {
-          staleEvidence?.steps.push({
-            name: 'issue-378-failed-path-temporary-workspace-cleanup',
-            method: 'POST',
-            path: `/api/workspaces/${temporaryWorkspaceId}/archive`,
-            status: 0,
-          });
+      // The temporary target must not affect later shared-fixture tests. Once
+      // the author is revoked, its still-authorized administrator performs
+      // the cleanup; otherwise the original author can safely archive it.
+      if (temporaryWorkspaceId) {
+        const cleanupPage = managerPage ?? (!temporaryWorkspaceMembershipRevoked ? stalePage : null);
+        const cleanupEvidence = managerEvidence ?? staleEvidence;
+        if (cleanupPage) {
+          try {
+            const cleanup = await requestWithCsrf(cleanupPage, 'POST', `/api/workspaces/${temporaryWorkspaceId}/archive`);
+            cleanupEvidence?.steps.push({
+              name: 'issue-378-temporary-revocation-workspace-cleanup',
+              method: 'POST',
+              path: `/api/workspaces/${temporaryWorkspaceId}/archive`,
+              status: cleanup.status,
+            });
+          } catch {
+            cleanupEvidence?.steps.push({
+              name: 'issue-378-temporary-revocation-workspace-cleanup',
+              method: 'POST',
+              path: `/api/workspaces/${temporaryWorkspaceId}/archive`,
+              status: 0,
+            });
+          }
         }
       }
       await staleContext?.close();
+      await managerContext?.close();
       if (staleEvidence) {
-        await testInfo.attach('issue-378-announcement-stale-review-real-backend-evidence.json', {
+        await testInfo.attach('issue-378-announcement-revoked-author-real-backend-evidence.json', {
           body: JSON.stringify(staleEvidence, null, 2),
+          contentType: 'application/json'
+        });
+      }
+      if (managerEvidence) {
+        await testInfo.attach('issue-378-announcement-reauthorization-observer-real-backend-evidence.json', {
+          body: JSON.stringify(managerEvidence, null, 2),
           contentType: 'application/json'
         });
       }
