@@ -40,6 +40,29 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  migrate:
+    image: mcr.microsoft.com/dotnet/sdk:10.0.302
+    working_dir: /src
+    restart: "no"
+    volumes:
+      - ./:/src
+      - aip_onprem_nuget:/root/.nuget/packages
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__DefaultConnection: Host=${DB_HOST:-db};Port=5432;Database=${DB_NAME:-aip_portal};Username=${DB_USER:-aip_portal};Password=${DB_PASSWORD:?set DB_PASSWORD}
+      NUGET_PACKAGES: /root/.nuget/packages
+      Tenancy__SeedOnStartup: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: >
+      bash -lc "mkdir -p /src/src/AipPortal.Web/wwwroot &&
+      dotnet tool restore &&
+      dotnet restore src/AipPortal.Web/AipPortal.Web.csproj /p:RestoreFallbackFolders= &&
+      dotnet ef database update --project src/AipPortal.Infrastructure --startup-project src/AipPortal.Web"
 
   postgres:
     image: postgres:18-alpine
@@ -63,6 +86,7 @@ volumes:
   aip_onprem_pgdata:
   aip_onprem_uploads:
   aip_onprem_data_protection:
+  aip_onprem_nuget:
 
 secrets:
   syncfusion_license:

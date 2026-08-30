@@ -69,7 +69,7 @@ Known blockers:
 - PostgreSQL-backed search isolation tests are enforced in CI through `POSTGRES_TEST_CONNECTION_STRING`.
 - Backup/restore drill has not been recorded for each target environment.
 - Full tenant restore is not implemented.
-- On-prem Compose does not apply migrations and reverse-proxy forwarded headers are not configured.
+- On-prem Compose now stages migrations before the app, but fresh-stack runtime evidence and the intended reverse-proxy topology are still required.
 
 OnPremSingleTenant is the safest controlled pilot mode after manual smoke and restore rehearsal.
 

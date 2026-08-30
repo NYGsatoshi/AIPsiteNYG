@@ -32,7 +32,7 @@ Project documentation uses these labels:
 | Object storage | Planned | Config names exist, but `UnsupportedObjectStorageService` is used |
 | Tenant metadata export | Partially implemented | ZIP metadata export exists; file bodies and restore do not |
 | Webhooks and API tokens | Foundation only | Management/validation code exists; no outbound delivery or request authentication middleware |
-| Docker Compose | Partially implemented | Local profile includes migrations; on-prem profile does not |
+| Docker Compose | Partially implemented | Root, local, and on-prem profiles use a controlled SDK migration service; the on-prem profile still requires an external TLS/reverse-proxy topology and fresh-stack runtime evidence |
 
 See [AI context](docs/AI_CONTEXT.md) for the full status matrix and [known issues](docs/KNOWN_ISSUES.md) before planning work.
 See [backend logic audit](docs/BACKEND_LOGIC_AUDIT.md) for controller, service, validation, error-handling, file, project, messaging, announcement, DI, and HTTP-status findings.
