@@ -740,9 +740,12 @@ DB_PASSWORD=validation_only docker compose -f docker-compose.onprem.yml -f docke
 CI also starts the on-prem PostgreSQL and one-shot `migrate` services under an
 isolated Compose project and requires the migration container to exit
 successfully. Its CI-only override uses Docker's built-in bridge and a local
-`db` link, so cancelled jobs do not consume another per-project subnet. It
-does not alter the production on-prem topology, build, or start the licensed
-production app image; the full TLS-proxy startup remains environment evidence.
+loopback connection, so cancelled jobs do not consume another per-project
+subnet. It does not alter the production on-prem topology, build, or start the
+licensed production app image; the full TLS-proxy startup remains environment
+evidence. That CI-only check uses a dummy database and does not start the app;
+the normal cleanup trap removes its scoped containers and volumes, while a
+force-cancelled runner can still leave those non-network resources behind.
 
 ## Coverage gaps
 

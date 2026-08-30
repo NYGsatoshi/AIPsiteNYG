@@ -39,11 +39,16 @@ migration service itself depends on healthy PostgreSQL and has restart policy
 
 The CI workflow repeats this migration-only clean-volume check with an
 isolated Compose project. Its CI-only override places the local containers on
-Docker's built-in bridge and provides the existing `db` hostname through a
-local link, avoiding a new per-project subnet on the self-hosted runner. It
-intentionally starts only PostgreSQL and `migrate`, so it does not require the
-production Angular build secret. The on-prem deployment command does not use
-that override.
+Docker's built-in bridge and makes `migrate` share PostgreSQL's network
+namespace, using loopback rather than a per-project network on the self-hosted
+runner. It intentionally starts only PostgreSQL and `migrate`, so it does not
+require the production Angular build secret. The on-prem deployment command
+does not use that override.
+
+The CI-only command starts no application container and uses a dummy database.
+Its normal cleanup trap removes project-scoped containers and volumes. A
+force-cancelled job can still leave those resources behind, but it no longer
+leaks a per-project Docker subnet.
 
 ## Remaining limits
 
