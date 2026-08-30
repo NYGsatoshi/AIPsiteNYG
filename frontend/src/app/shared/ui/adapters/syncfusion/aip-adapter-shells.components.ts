@@ -688,8 +688,7 @@ export class AipGanttComponent extends AipAdapterShellInput implements OnChanges
   get vendorEligible(): boolean {
     return this.presentation === 'desktop'
       && this.hasCanonicalProjection
-      && (this.scheduledTasks.length > 0 || this.canonicalMilestones.length > 0)
-      && ['ready', 'degraded', 'conflict', 'rollback'].includes(this.state);
+      && ['ready', 'empty', 'degraded', 'conflict', 'rollback'].includes(this.state);
   }
 
   get editorTitle(): string {

@@ -295,6 +295,7 @@ export class SyncfusionGanttComponent {
     const unique = new Map<string, AipGanttItem>();
     for (const item of [
       ...(this.contract.scheduledItems ?? []),
+      ...(this.contract.unscheduledItems ?? []),
       ...(this.contract.canonicalMilestones ?? [])
     ]) unique.set(item.taskId, item);
     return [...unique.values()];
