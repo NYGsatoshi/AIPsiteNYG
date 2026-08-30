@@ -7,7 +7,7 @@ const currentUserId = 'mock-user-a';
 const ownMessageId = 'own-message-343';
 const otherMessageId = 'other-message-343';
 
-test.describe('Issue #343 non-closing Message action subset', () => {
+test.describe('Issue #343 primary and overflow Message actions', () => {
   let apiState: MessageActionApiState;
 
   test.beforeEach(async ({ page }, testInfo) => {
@@ -19,15 +19,56 @@ test.describe('Issue #343 non-closing Message action subset', () => {
     );
   });
 
-  test('keeps Edit, Delete, and Report keyboard-operable through More without leaking generic failures', async ({ page }, testInfo) => {
+  test('keeps Reply and private Save primary, while Edit, Delete, and Report remain keyboard/touch-operable through More', async ({ page }, testInfo) => {
     await page.goto('/app/dm/action-dm-343');
 
     await expect(page.getByTestId('dm-page')).toBeVisible();
+    const ownReply = page.getByTestId(`open-message-thread-${ownMessageId}`);
+    const ownSaveForLater = page.getByTestId(`save-message-for-later-${ownMessageId}`);
     const ownMore = page.getByTestId(`message-more-actions-${ownMessageId}`);
-    await expect(ownMore).toBeVisible();
-    const ownMoreBox = await ownMore.boundingBox();
-    expect(ownMoreBox?.width).toBeGreaterThanOrEqual(44);
-    expect(ownMoreBox?.height).toBeGreaterThanOrEqual(44);
+    for (const action of [ownReply, ownSaveForLater, ownMore]) {
+      await expect(action).toBeVisible();
+      const box = await action.boundingBox();
+      expect(box?.width).toBeGreaterThanOrEqual(44);
+      expect(box?.height).toBeGreaterThanOrEqual(44);
+    }
+    await expect(ownReply).toHaveAccessibleName('Reply in thread for message from Mock User A');
+    await expect(ownSaveForLater).toHaveAccessibleName('Save message from Mock User A for later');
+    await expect(ownMore).toHaveAccessibleName('More actions for message from Mock User A');
+    await expect(page.locator(
+      `#message-${ownMessageId} [data-testid="message-action-overflow"] [data-testid="save-message-for-later-${ownMessageId}"]`
+    )).toHaveCount(0);
+    await expect(page.locator(`#message-${ownMessageId} .message__actions`)).toHaveJSProperty('childElementCount', 3);
+
+    const savePromise = page.waitForRequest(
+      (request) => request.method() === 'PUT' && request.url().endsWith(`/api/me/message-follow-ups/${ownMessageId}`)
+    );
+    await ownSaveForLater.focus();
+    if (testInfo.project.name === 'chromium-mobile') {
+      await ownSaveForLater.tap();
+    } else {
+      await ownSaveForLater.press('Enter');
+    }
+    const saveForLaterRequest = await savePromise;
+    expect(saveForLaterRequest.postDataJSON()).toEqual({});
+    expect(saveForLaterRequest.headers()['x-csrf-token']).toBe('csrf-message-actions');
+    await expect(page.getByTestId('message-action-status')).toContainText('Message saved for later.');
+    expect(apiState.saveRequests).toBe(1);
+
+    const openThreadPromise = page.waitForRequest(
+      (request) => request.method() === 'GET' && request.url().endsWith(`/api/messages/${ownMessageId}/thread`)
+    );
+    await ownReply.focus();
+    if (testInfo.project.name === 'chromium-mobile') {
+      await ownReply.tap();
+    } else {
+      await ownReply.press('Enter');
+    }
+    await openThreadPromise;
+    const thread = page.getByTestId('thread-preview');
+    await expect(thread).toBeVisible();
+    await thread.press('Escape');
+    await expect(ownReply).toBeFocused();
 
     await ownMore.focus();
     if (testInfo.project.name === 'chromium-mobile') {
@@ -133,11 +174,12 @@ test.describe('Issue #343 non-closing Message action subset', () => {
 
 interface MessageActionApiState {
   deleteRequests: number;
+  saveRequests: number;
 }
 
 async function installMessageActionApi(page: Page): Promise<MessageActionApiState> {
   let reportAttempts = 0;
-  const state: MessageActionApiState = { deleteRequests: 0 };
+  const state: MessageActionApiState = { deleteRequests: 0, saveRequests: 0 };
 
   await page.route('**/api/security/csrf-token', async (route) => {
     await route.fulfill({
@@ -147,10 +189,49 @@ async function installMessageActionApi(page: Page): Promise<MessageActionApiStat
     });
   });
 
+  await page.route('**/api/me/message-follow-ups/**', async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (request.method() === 'PUT' && url.pathname === `/api/me/message-follow-ups/${ownMessageId}`) {
+      state.saveRequests += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          messageId: ownMessageId,
+          isSaved: true,
+          savedAt: '2026-08-30T00:00:00Z'
+        })
+      });
+      return;
+    }
+    await route.fallback();
+  });
+
   await page.route('**/api/messages/**', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
+    const threadMatch = url.pathname.match(/^\/api\/messages\/([^/]+)\/thread$/);
     const messageMatch = url.pathname.match(/^\/api\/messages\/([^/]+)(\/report)?$/);
+    if (request.method() === 'GET' && threadMatch?.[1] === ownMessageId) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          rootMessage: messageDto(ownMessageId, 'An editable message from the current participant'),
+          replies: [],
+          summary: {
+            threadRootMessageId: ownMessageId,
+            replyCount: 0,
+            latestReplyAt: null,
+            participantDisplayNames: []
+          },
+          hasMore: false,
+          maximumReplies: 100
+        })
+      });
+      return;
+    }
     if (!messageMatch) {
       await route.fallback();
       return;

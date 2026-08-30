@@ -151,6 +151,12 @@
   color: var(--aip-color-danger, #b13a3a);
 }
 
+.message__action-button--primary {
+  border-color: var(--aip-color-action-primary);
+  background: var(--aip-color-bg-selected);
+  color: var(--aip-color-action-primary);
+}
+
 .message__edit-form {
   display: grid;
   gap: 8px;
