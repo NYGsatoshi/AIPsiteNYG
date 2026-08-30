@@ -51,11 +51,11 @@ interface SyncfusionActionEvent {
 
 const dateOnlyPattern = /^(\d{4})-(\d{2})-(\d{2})$/u;
 export const SYNCFUSION_GANTT_THEME_ASSETS = [
-  'assets/vendor/syncfusion/base/material.css',
-  'assets/vendor/syncfusion/treegrid/material.css',
-  'assets/vendor/syncfusion/layouts/material.css',
-  'assets/vendor/syncfusion/popups/material.css',
-  'assets/vendor/syncfusion/gantt/material.css'
+  'assets/vendor/syncfusion/base/material3.css',
+  'assets/vendor/syncfusion/treegrid/material3.css',
+  'assets/vendor/syncfusion/layouts/material3.css',
+  'assets/vendor/syncfusion/popups/material3.css',
+  'assets/vendor/syncfusion/gantt/material3.css'
 ] as const;
 
 /**
