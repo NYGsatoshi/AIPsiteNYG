@@ -125,6 +125,72 @@ WHERE "Id" = @firstPlanId;
         });
     }
 
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    public async Task AcceptedExecutionRunPlanSnapshotCannotBeSwappedAfterAcceptance()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+        await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(connectionString, async database =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+            var graph = await TaskV1MigrationRawSqlSeed.CreateGraphAsync(database, $"research-run-immutable-{Guid.NewGuid():N}");
+            var planId = Guid.NewGuid();
+            var firstRevisionId = Guid.NewGuid();
+            var secondRevisionId = Guid.NewGuid();
+            var runId = Guid.NewGuid();
+            var now = new DateTimeOffset(2026, 8, 30, 0, 0, 0, TimeSpan.Zero);
+
+            await InsertPlanAsync(database, graph, planId);
+            await InsertRevisionAsync(database, graph, planId, firstRevisionId, now, revisionNo: 1);
+            await InsertRevisionAsync(database, graph, planId, secondRevisionId, now, revisionNo: 2);
+            await InsertRunWithPlanSnapshotAsync(database, runId, graph, now, firstRevisionId, 1);
+
+            var idOnlySwap = await Assert.ThrowsAsync<PostgresException>(() =>
+                PostgreSqlMigrationTestDatabase.ExecuteAsync(database, """
+UPDATE task_execution_runs
+SET "SnapshotResearchPlanRevisionId" = @secondRevisionId
+WHERE "Id" = @runId;
+""", ("secondRevisionId", secondRevisionId), ("runId", runId)));
+            Assert.Equal("P0001", idOnlySwap.SqlState);
+            Assert.Contains("Task execution run snapshot is immutable", idOnlySwap.MessageText, StringComparison.Ordinal);
+
+            var revisionNumberOnlySwap = await Assert.ThrowsAsync<PostgresException>(() =>
+                PostgreSqlMigrationTestDatabase.ExecuteAsync(database, """
+UPDATE task_execution_runs
+SET "SnapshotResearchPlanRevisionNo" = 2
+WHERE "Id" = @runId;
+""", ("runId", runId)));
+            Assert.Equal("P0001", revisionNumberOnlySwap.SqlState);
+            Assert.Contains("Task execution run snapshot is immutable", revisionNumberOnlySwap.MessageText, StringComparison.Ordinal);
+
+            // This is a complete, valid same-Task revision identity. Only the
+            // accepted-run immutability trigger—not the composite FK—can stop it.
+            var validSameScopeSwap = await Assert.ThrowsAsync<PostgresException>(() =>
+                PostgreSqlMigrationTestDatabase.ExecuteAsync(database, """
+UPDATE task_execution_runs
+SET
+    "SnapshotResearchPlanRevisionId" = @secondRevisionId,
+    "SnapshotResearchPlanRevisionNo" = 2
+WHERE "Id" = @runId;
+""", ("secondRevisionId", secondRevisionId), ("runId", runId)));
+            Assert.Equal("P0001", validSameScopeSwap.SqlState);
+            Assert.Contains("Task execution run snapshot is immutable", validSameScopeSwap.MessageText, StringComparison.Ordinal);
+
+            Assert.Equal(
+                firstRevisionId,
+                await PostgreSqlMigrationTestDatabase.ScalarAsync<Guid>(
+                    database,
+                    "SELECT \"SnapshotResearchPlanRevisionId\" FROM task_execution_runs WHERE \"Id\" = @id;",
+                    ("id", runId)));
+            Assert.Equal(
+                1L,
+                await PostgreSqlMigrationTestDatabase.ScalarAsync<long>(
+                    database,
+                    "SELECT \"SnapshotResearchPlanRevisionNo\" FROM task_execution_runs WHERE \"Id\" = @id;",
+                    ("id", runId)));
+        });
+    }
+
     private static Task InsertDeferredFirstRevisionAsync(
         string database,
         TaskV1MigrationRawSqlSeed.Graph graph,
@@ -165,16 +231,17 @@ VALUES
         TaskV1MigrationRawSqlSeed.Graph graph,
         Guid planId,
         Guid revisionId,
-        DateTimeOffset now) =>
+        DateTimeOffset now,
+        long revisionNo = 1) =>
         PostgreSqlMigrationTestDatabase.ExecuteAsync(database, """
 INSERT INTO research_plan_revisions
     ("Id", "TenantId", "WorkspaceId", "ProjectId", "TaskItemId", "ResearchPlanId", "RevisionNo", "CreatedByUserId", "CreatedAtUtc")
 VALUES
-    (@revisionId, @tenantId, @workspaceId, @projectId, @taskId, @planId, 1, @userId, @now);
+    (@revisionId, @tenantId, @workspaceId, @projectId, @taskId, @planId, @revisionNo, @userId, @now);
 """,
             ("revisionId", revisionId), ("tenantId", graph.TenantId), ("workspaceId", graph.WorkspaceId),
             ("projectId", graph.ProjectId), ("taskId", graph.TaskId), ("planId", planId),
-            ("userId", graph.UserId), ("now", now));
+            ("revisionNo", revisionNo), ("userId", graph.UserId), ("now", now));
 
     private static Task InsertRunWithPlanSnapshotAsync(
         string database,

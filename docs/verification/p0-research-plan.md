@@ -67,7 +67,9 @@ cancellation, Diff/Impact, or Revert behavior.
 - `ResearchPlanPostgreSqlTests`: real PostgreSQL composite-FK regressions
   reject both a current-revision pointer from another plan and an execution
   run snapshot from another ownership scope; the latter also rejects an
-  incomplete or mismatched revision-id/number pair. They require
+  incomplete or mismatched revision-id/number pair. The accepted-run snapshot
+  guard separately rejects raw-SQL changes to either plan field, including a
+  complete valid same-Task revision swap. They require
   `POSTGRES_TEST_CONNECTION_STRING`.
 - `dotnet ef migrations has-pending-model-changes`: no pending model changes
   after `AddResearchPlanRevisions`,

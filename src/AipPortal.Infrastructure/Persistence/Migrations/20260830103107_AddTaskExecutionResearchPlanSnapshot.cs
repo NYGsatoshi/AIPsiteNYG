@@ -50,11 +50,102 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                 principalTable: "research_plan_revisions",
                 principalColumns: new[] { "Id", "TenantId", "WorkspaceId", "ProjectId", "TaskItemId", "RevisionNo" },
                 onDelete: ReferentialAction.Restrict);
+
+            // The original #357 guard freezes accepted-run snapshot fields.
+            // Recreate its column-specific trigger after adding the Research
+            // Plan fields so a raw SQL update cannot exchange an accepted run's
+            // valid same-scope revision for another revision.
+            migrationBuilder.Sql("""
+                DROP TRIGGER IF EXISTS task_execution_run_scope_and_snapshot_guard_trigger ON task_execution_runs;
+
+                CREATE OR REPLACE FUNCTION task_execution_run_scope_and_snapshot_guard() RETURNS trigger AS $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1
+                        FROM task_items AS task
+                        WHERE task."Id" = NEW."TaskItemId"
+                          AND task."ProjectId" = NEW."ProjectId"
+                          AND task."TenantId" = NEW."TenantId"
+                          AND task."WorkspaceId" = NEW."WorkspaceId") THEN
+                        RAISE EXCEPTION 'Task execution run tenant/workspace/project mismatch';
+                    END IF;
+
+                    IF TG_OP = 'UPDATE' AND (
+                        NEW."Id" IS DISTINCT FROM OLD."Id" OR
+                        NEW."TenantId" IS DISTINCT FROM OLD."TenantId" OR
+                        NEW."WorkspaceId" IS DISTINCT FROM OLD."WorkspaceId" OR
+                        NEW."ProjectId" IS DISTINCT FROM OLD."ProjectId" OR
+                        NEW."TaskItemId" IS DISTINCT FROM OLD."TaskItemId" OR
+                        NEW."RequestedByUserId" IS DISTINCT FROM OLD."RequestedByUserId" OR
+                        NEW."RequestedAtUtc" IS DISTINCT FROM OLD."RequestedAtUtc" OR
+                        NEW."SnapshotSchemaVersion" IS DISTINCT FROM OLD."SnapshotSchemaVersion" OR
+                        NEW."SnapshotScopeOrigin" IS DISTINCT FROM OLD."SnapshotScopeOrigin" OR
+                        NEW."SnapshotProjectScopeVersion" IS DISTINCT FROM OLD."SnapshotProjectScopeVersion" OR
+                        NEW."SnapshotTaskOverrideVersion" IS DISTINCT FROM OLD."SnapshotTaskOverrideVersion" OR
+                        NEW."SnapshotWebEnabled" IS DISTINCT FROM OLD."SnapshotWebEnabled" OR
+                        NEW."SnapshotProjectFilesEnabled" IS DISTINCT FROM OLD."SnapshotProjectFilesEnabled" OR
+                        NEW."SnapshotResearchPlanRevisionId" IS DISTINCT FROM OLD."SnapshotResearchPlanRevisionId" OR
+                        NEW."SnapshotResearchPlanRevisionNo" IS DISTINCT FROM OLD."SnapshotResearchPlanRevisionNo") THEN
+                        RAISE EXCEPTION 'Task execution run snapshot is immutable';
+                    END IF;
+                    RETURN NEW;
+                END;
+                $$ LANGUAGE plpgsql;
+
+                CREATE TRIGGER task_execution_run_scope_and_snapshot_guard_trigger
+                    BEFORE INSERT OR UPDATE OF "Id", "TenantId", "WorkspaceId", "ProjectId", "TaskItemId", "RequestedByUserId", "RequestedAtUtc", "SnapshotSchemaVersion", "SnapshotScopeOrigin", "SnapshotProjectScopeVersion", "SnapshotTaskOverrideVersion", "SnapshotWebEnabled", "SnapshotProjectFilesEnabled", "SnapshotResearchPlanRevisionId", "SnapshotResearchPlanRevisionNo"
+                    ON task_execution_runs
+                    FOR EACH ROW EXECUTE FUNCTION task_execution_run_scope_and_snapshot_guard();
+                """);
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            // Restore the #357 trigger shape before removing the additive
+            // snapshot columns. The #461 runtime identity and lifecycle guards
+            // are separate triggers and intentionally remain untouched.
+            migrationBuilder.Sql("""
+                DROP TRIGGER IF EXISTS task_execution_run_scope_and_snapshot_guard_trigger ON task_execution_runs;
+
+                CREATE OR REPLACE FUNCTION task_execution_run_scope_and_snapshot_guard() RETURNS trigger AS $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1
+                        FROM task_items AS task
+                        WHERE task."Id" = NEW."TaskItemId"
+                          AND task."ProjectId" = NEW."ProjectId"
+                          AND task."TenantId" = NEW."TenantId"
+                          AND task."WorkspaceId" = NEW."WorkspaceId") THEN
+                        RAISE EXCEPTION 'Task execution run tenant/workspace/project mismatch';
+                    END IF;
+
+                    IF TG_OP = 'UPDATE' AND (
+                        NEW."Id" IS DISTINCT FROM OLD."Id" OR
+                        NEW."TenantId" IS DISTINCT FROM OLD."TenantId" OR
+                        NEW."WorkspaceId" IS DISTINCT FROM OLD."WorkspaceId" OR
+                        NEW."ProjectId" IS DISTINCT FROM OLD."ProjectId" OR
+                        NEW."TaskItemId" IS DISTINCT FROM OLD."TaskItemId" OR
+                        NEW."RequestedByUserId" IS DISTINCT FROM OLD."RequestedByUserId" OR
+                        NEW."RequestedAtUtc" IS DISTINCT FROM OLD."RequestedAtUtc" OR
+                        NEW."SnapshotSchemaVersion" IS DISTINCT FROM OLD."SnapshotSchemaVersion" OR
+                        NEW."SnapshotScopeOrigin" IS DISTINCT FROM OLD."SnapshotScopeOrigin" OR
+                        NEW."SnapshotProjectScopeVersion" IS DISTINCT FROM OLD."SnapshotProjectScopeVersion" OR
+                        NEW."SnapshotTaskOverrideVersion" IS DISTINCT FROM OLD."SnapshotTaskOverrideVersion" OR
+                        NEW."SnapshotWebEnabled" IS DISTINCT FROM OLD."SnapshotWebEnabled" OR
+                        NEW."SnapshotProjectFilesEnabled" IS DISTINCT FROM OLD."SnapshotProjectFilesEnabled") THEN
+                        RAISE EXCEPTION 'Task execution run snapshot is immutable';
+                    END IF;
+                    RETURN NEW;
+                END;
+                $$ LANGUAGE plpgsql;
+
+                CREATE TRIGGER task_execution_run_scope_and_snapshot_guard_trigger
+                    BEFORE INSERT OR UPDATE OF "Id", "TenantId", "WorkspaceId", "ProjectId", "TaskItemId", "RequestedByUserId", "RequestedAtUtc", "SnapshotSchemaVersion", "SnapshotScopeOrigin", "SnapshotProjectScopeVersion", "SnapshotTaskOverrideVersion", "SnapshotWebEnabled", "SnapshotProjectFilesEnabled"
+                    ON task_execution_runs
+                    FOR EACH ROW EXECUTE FUNCTION task_execution_run_scope_and_snapshot_guard();
+                """);
+
             migrationBuilder.DropForeignKey(
                 name: "FK_task_execution_runs_plan_snapshot_revision",
                 table: "task_execution_runs");
