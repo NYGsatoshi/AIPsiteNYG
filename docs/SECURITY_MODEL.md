@@ -53,6 +53,26 @@ The static frontend fetch helper automatically obtains and sends the token.
 
 CSRF tests use a real Kestrel HTTP listener with EF InMemory.
 
+### On-prem reverse-proxy boundary
+
+The supported on-prem public route terminates TLS at an operator-provided
+external proxy and reaches a loopback/private Compose origin. The app does not
+own public certificates and PostgreSQL has no host-published port. The normal
+on-prem Compose app mapping is loopback-only.
+
+`ReverseProxy:TrustForwardedHeaders` is an explicit operator opt-in. When it
+is enabled, startup requires an explicit `ReverseProxy:TrustedProxies` IP list
+or `ReverseProxy:TrustedNetworks` CIDR list. ASP.NET Core retains its loopback
+defaults; the application adds only those declared boundaries and never clears
+the allowlists. It accepts one symmetric `X-Forwarded-For`,
+`X-Forwarded-Proto`, and `X-Forwarded-Host` hop. DNS names are rejected so a
+runtime DNS change cannot broaden trusted proxy authority.
+
+This is fail-closed: no configured boundary means startup failure, and a peer
+outside a configured boundary cannot change scheme, host, or client IP by
+supplying forwarded headers. An operator must not set proxy mode for an origin
+that is directly reachable from untrusted clients.
+
 ## Authorization
 
 Controllers provide coarse `[Authorize]` checks. Resource authorization is generally implemented in application services.
@@ -767,6 +787,7 @@ Production validation requires:
 - HTTPS and HSTS;
 - setup mode off;
 - object-storage secret when an object provider is selected.
+- an explicit trusted proxy IP/CIDR when forwarded-header trust is enabled.
 
 This validation is heuristic and does not replace a secret manager, credential rotation, TLS configuration, or deployment review.
 
@@ -812,7 +833,8 @@ Needs verification:
 3. Inert feature/platform settings can create false confidence.
 4. Object storage and scanning are not implemented.
 5. API token authentication is not implemented.
-6. Reverse-proxy forwarded-header handling is absent.
+6. Target-host reverse-proxy deployment evidence remains required; the
+   configuration and in-process Kestrel trust boundary are implemented.
 7. Target-environment restore and tenant-isolation evidence is missing.
 
 Track details in `docs/KNOWN_ISSUES.md`.

@@ -73,6 +73,7 @@ public sealed class AuthSecurityHttpTests
             trustForwardedHeaders: true);
 
         using var request = new HttpRequestMessage(HttpMethod.Get, "/api/security/csrf-token");
+        request.Headers.TryAddWithoutValidation("X-Forwarded-For", "198.51.100.42");
         request.Headers.TryAddWithoutValidation("X-Forwarded-Proto", "https");
         request.Headers.TryAddWithoutValidation("X-Forwarded-Host", "portal.example.com");
 
@@ -254,6 +255,7 @@ public sealed class AuthSecurityHttpTests
                 ["Security:MaxFailedLoginAttempts"] = "5",
                 ["Security:LoginLockoutDurationMinutes"] = "15",
                 [ForwardedHeadersConfiguration.TrustForwardedHeadersKey] = trustForwardedHeaders.ToString(),
+                ["ReverseProxy:TrustedProxies:0"] = "127.0.0.1",
                 ["FileStorage:Provider"] = "LocalFileSystem",
                 ["FileStorage:RootPath"] = Path.Combine(Path.GetTempPath(), "aip-auth-security-tests", Guid.NewGuid().ToString("N")),
                 ["FileStorage:MaxFileSizeBytes"] = "10485760",
@@ -275,7 +277,8 @@ public sealed class AuthSecurityHttpTests
                 .AddWebServices(builder.Configuration);
             if (ForwardedHeadersConfiguration.ShouldTrustForwardedHeaders(builder.Configuration))
             {
-                builder.Services.Configure<ForwardedHeadersOptions>(ForwardedHeadersConfiguration.Configure);
+                builder.Services.Configure<ForwardedHeadersOptions>(options =>
+                    ForwardedHeadersConfiguration.Configure(options, builder.Configuration));
             }
             builder.Services.AddControllers().AddApplicationPart(typeof(AuthController).Assembly);
             builder.Services
