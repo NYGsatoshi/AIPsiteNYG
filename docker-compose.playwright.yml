@@ -6,6 +6,11 @@ services:
       context: .
       dockerfile: Dockerfile.playwright
     working_dir: /work
+    # This runner is a single container: Playwright and its static Angular server
+    # share the same network namespace and do not need a Compose project network.
+    # Reusing Docker's built-in bridge avoids consuming a fresh subnet on every
+    # self-hosted CI run, which otherwise leaks pool entries when a run is cancelled.
+    network_mode: bridge
     environment:
       CI: "true"
       PLAYWRIGHT_SKIP_BUILD: "1"
