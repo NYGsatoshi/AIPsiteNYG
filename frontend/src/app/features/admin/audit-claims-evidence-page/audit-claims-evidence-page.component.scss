@@ -192,6 +192,12 @@
   border-color: var(--aip-color-action-primary);
 }
 
+// The selected row uses the subtle surface token. Its compact labels must use
+// the higher-contrast secondary token rather than the normal muted token.
+.claim-row--selected .claim-row__label {
+  color: var(--aip-color-text-secondary);
+}
+
 .claim-row__cell {
   display: grid;
   gap: 0.25rem;
