@@ -1,3 +1,4 @@
+using System.Data;
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Files;
 using AipPortal.Application.Projects;
@@ -5,6 +6,7 @@ using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
 using AipPortal.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 
 namespace AipPortal.Infrastructure.TaskExecution;
 
@@ -68,9 +70,7 @@ public sealed class FirstPartyProjectFilesTaskExecutionRuntime(
             return;
         }
 
-        var hasMaterialization = await dbContext.Set<TaskExecutionMaterializedSource>()
-            .AsNoTracking()
-            .AnyAsync(source => source.TaskExecutionRunId == run.Id, cancellationToken);
+        var hasMaterialization = await HasMaterializationAsync(run.Id, cancellationToken);
         if (run.Status == TaskExecutionRunStatus.Running)
         {
             if (!hasMaterialization)
@@ -140,8 +140,7 @@ public sealed class FirstPartyProjectFilesTaskExecutionRuntime(
         // this boundary persists metadata-only provenance and leaves the run
         // Running until that durable result transaction completes.
         ValidateRuntimeBatch(outcome.Batch);
-        await dbContext.Set<TaskExecutionMaterializedSource>()
-            .AddRangeAsync(outcome.Provenance, cancellationToken);
+        await PersistProvenanceAsync(outcome.Provenance, cancellationToken);
         await audit.LogAsync(new AuditLogEntry(
             run.RequestedByUserId,
             "TaskExecutionSourcesMaterialized",
@@ -369,6 +368,72 @@ public sealed class FirstPartyProjectFilesTaskExecutionRuntime(
 
         return await dbContext.Set<TaskExecutionRun>()
             .SingleOrDefaultAsync(run => run.Id == runId, cancellationToken);
+    }
+
+    private async Task<bool> HasMaterializationAsync(
+        Guid runId,
+        CancellationToken cancellationToken)
+    {
+        var connection = dbContext.Database.GetDbConnection();
+        if (connection.State != ConnectionState.Open)
+        {
+            await connection.OpenAsync(cancellationToken);
+        }
+
+        await using var command = connection.CreateCommand();
+        command.Transaction = dbContext.Database.CurrentTransaction?.GetDbTransaction();
+        command.CommandText = """
+            SELECT EXISTS (
+                SELECT 1
+                FROM task_execution_materialized_sources
+                WHERE "TaskExecutionRunId" = @runId
+            );
+            """;
+        var parameter = command.CreateParameter();
+        parameter.ParameterName = "runId";
+        parameter.DbType = DbType.Guid;
+        parameter.Value = runId;
+        command.Parameters.Add(parameter);
+        return await command.ExecuteScalarAsync(cancellationToken) is true;
+    }
+
+    private async Task PersistProvenanceAsync(
+        IReadOnlyList<TaskExecutionMaterializedSource> provenance,
+        CancellationToken cancellationToken)
+    {
+        foreach (var source in provenance)
+        {
+            await dbContext.Database.ExecuteSqlInterpolatedAsync($"""
+                INSERT INTO task_execution_materialized_sources (
+                    "Id",
+                    "TenantId",
+                    "WorkspaceId",
+                    "ProjectId",
+                    "TaskItemId",
+                    "TaskExecutionRunId",
+                    "FileObjectId",
+                    "AttachmentId",
+                    "SchemaVersion",
+                    "ContentSha256",
+                    "MediaType",
+                    "MaterializedByteCount",
+                    "MaterializedAtUtc")
+                VALUES (
+                    {source.Id},
+                    {source.TenantId},
+                    {source.WorkspaceId},
+                    {source.ProjectId},
+                    {source.TaskItemId},
+                    {source.TaskExecutionRunId},
+                    {source.FileObjectId},
+                    {source.AttachmentId},
+                    {source.SchemaVersion},
+                    {source.ContentSha256},
+                    {source.MediaType},
+                    {source.MaterializedByteCount},
+                    {source.MaterializedAtUtc});
+                """, cancellationToken);
+        }
     }
 
     private async Task FailAfterUnexpectedErrorAsync(
