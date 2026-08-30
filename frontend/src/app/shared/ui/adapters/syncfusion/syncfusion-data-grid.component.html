@@ -1,4 +1,5 @@
 <section class="aip-syncfusion-grid" [attr.aria-label]="ariaLabel" data-testid="app-data-grid" data-grid-implementation="syncfusion">
+  <link rel="stylesheet" [attr.href]="themeAsset" />
   @if (loading) {
     <p class="aip-syncfusion-grid__state" role="status" aria-live="polite" data-testid="app-data-grid-loading">Loading {{ ariaLabel }}.</p>
   } @else if (permissionDenied) {
