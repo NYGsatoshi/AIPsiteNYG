@@ -6,6 +6,7 @@ import { normalizeApiError } from '../../../core/api/api-error.adapter';
 import { RealtimeFacade } from '../../../core/realtime/realtime.facade';
 import { DurableRealtimeEvent } from '../../../core/realtime/realtime.models';
 import { AIP_PROJECTS_MOCK } from '../projects.facade';
+import { TaskExecutionResultComponent } from '../task-execution-result/task-execution-result.component';
 
 type ScopeOrigin = 'ProjectDefault' | 'TaskOverride';
 type ScopeEditorMode = 'inherit' | 'override';
@@ -59,6 +60,7 @@ let componentSequence = 0;
 @Component({
   selector: 'app-task-execution-scope',
   standalone: true,
+  imports: [TaskExecutionResultComponent],
   templateUrl: './task-execution-scope.component.html',
   styleUrl: './task-execution-scope.component.scss',
 })

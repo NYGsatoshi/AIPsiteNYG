@@ -1,0 +1,13 @@
+:host { display: block; min-width: 0; }
+.task-execution-result { display: grid; gap: var(--aip-space-3); min-width: 0; padding: var(--aip-space-3); border: 1px solid var(--aip-color-border-default); border-radius: var(--aip-radius-md); background: var(--aip-color-bg-surface-subtle); color: var(--aip-color-text-primary); }
+.task-execution-result header, .task-execution-result h3, .task-execution-result h4, .task-execution-result p { margin: 0; }
+.task-execution-result__eyebrow { color: var(--aip-color-text-secondary); font-size: .78rem; font-weight: 800; text-transform: uppercase; }
+.task-execution-result__status { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--aip-space-2); padding: var(--aip-space-3); border: 1px solid var(--aip-color-info); border-inline-start-width: 4px; border-radius: var(--aip-radius-md); background: var(--aip-color-bg-selected); }
+.task-execution-result__status span { color: var(--aip-color-text-secondary); }
+.task-execution-result__report { display: grid; gap: var(--aip-space-2); min-width: 0; }
+.task-execution-result__report pre { max-width: 100%; margin: 0; padding: var(--aip-space-3); overflow-x: auto; white-space: pre-wrap; overflow-wrap: anywhere; border: 1px solid var(--aip-color-border-default); border-radius: var(--aip-radius-md); background: var(--aip-color-bg-surface); font: inherit; }
+.task-execution-result__hash { overflow-wrap: anywhere; color: var(--aip-color-text-secondary); }
+.task-execution-result__failure { display: grid; gap: var(--aip-space-2); padding: var(--aip-space-3); border: 1px solid var(--aip-color-danger); border-radius: var(--aip-radius-md); background: var(--aip-color-danger-subtle); color: var(--aip-color-danger); }
+.task-execution-result__pending { color: var(--aip-color-text-secondary); }
+.task-execution-result button { min-height: var(--aip-touch-target); padding: 0 var(--aip-space-3); border: 1px solid var(--aip-color-border-strong); border-radius: var(--aip-radius-md); background: var(--aip-color-bg-control); font-weight: 700; }
+.task-execution-result button:focus-visible { outline: var(--aip-focus-outline); outline-offset: var(--aip-focus-offset); }
