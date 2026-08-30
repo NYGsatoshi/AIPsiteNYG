@@ -468,16 +468,32 @@ describe('Messaging MVP0 backend wiring', () => {
     expect(root.querySelector('[data-testid="message-action-status"]')?.textContent).toContain('Message deleted.');
   });
 
-  it('saves a visible message for follow-up through the shared More action without changing read state', async () => {
+  it('keeps Reply, private Save, and More as direct actions and saves without changing read state', async () => {
     const httpMock = await configureHttpTest([ChannelMessagingPageComponent]);
     const fixture = TestBed.createComponent(ChannelMessagingPageComponent);
     flushConversationOpen(httpMock);
     fixture.detectChanges();
 
     const root = fixture.nativeElement as HTMLElement;
-    root.querySelector<HTMLButtonElement>('[data-testid="message-more-actions-message-a"]')!.click();
-    fixture.detectChanges();
-    root.querySelector<HTMLButtonElement>('[data-testid="save-message-for-later-message-a"]')!.click();
+    const actionGroup = root.querySelector<HTMLElement>('#message-message-a .message__actions')!;
+    const reply = root.querySelector<HTMLButtonElement>('[data-testid="open-message-thread-message-a"]')!;
+    const save = root.querySelector<HTMLButtonElement>('[data-testid="save-message-for-later-message-a"]')!;
+    const more = root.querySelector<HTMLButtonElement>('[data-testid="message-more-actions-message-a"]')!;
+
+    expect(reply.getAttribute('aria-label')).toBe('Reply in thread for message from Other User');
+    expect(save.getAttribute('aria-label')).toBe('Save message from Other User for later');
+    expect(more.getAttribute('aria-label')).toBe('More actions for message from Other User');
+    expect(save.closest('.message__overflow')).toBeNull();
+    expect(actionGroup.querySelector('[data-testid="message-action-overflow"]')).toBeNull();
+    expect([...actionGroup.querySelectorAll(':scope > button, :scope > .message__overflow > button')]
+      .map((button) => button.getAttribute('data-testid')))
+      .toEqual([
+        'open-message-thread-message-a',
+        'save-message-for-later-message-a',
+        'message-more-actions-message-a'
+      ]);
+
+    save.click();
 
     const saveRequest = httpMock.expectOne('/api/me/message-follow-ups/message-a');
     expect(saveRequest.request.method).toBe('PUT');

@@ -59,93 +59,95 @@ import { MessagingMessageActionState, MessagingMessageViewModel } from '../messa
         } @else {
           <p class="message__body" data-testid="message-body">{{ message.body }}</p>
         }
-
-        @if (canShowActions) {
-          <div class="message__actions" role="group" [attr.aria-label]="'Actions for message from ' + message.authorLabel">
-            <div class="message__overflow">
-              <button
-                type="button"
-                class="message__action-button message__more-button"
-                [attr.id]="moreButtonId"
-                [attr.data-testid]="'message-more-actions-' + message.id"
-                [attr.aria-label]="'More actions for message from ' + message.authorLabel"
-                [attr.aria-expanded]="overflowOpen"
-                [attr.aria-controls]="overflowPanelId"
-                [disabled]="isBusy || hasActiveAction"
-                (click)="toggleOverflow()"
-              >
-                <svg lucideEllipsis aria-hidden="true"></svg>
-                <span>More</span>
-              </button>
-              @if (overflowOpen && !hasActiveAction) {
-                <div class="message__overflow-panel" [attr.id]="overflowPanelId" data-testid="message-action-overflow">
-                  @if (canEditMessage) {
-                    <button
-                      type="button"
-                      class="message__action-button"
-                      [attr.id]="editButtonId"
-                      [attr.data-testid]="'edit-message-' + message.id"
-                      [attr.aria-label]="'Edit message from ' + message.authorLabel"
-                      (click)="openEdit()"
-                    >
-                      <svg lucidePencil aria-hidden="true"></svg>
-                      <span>Edit</span>
-                    </button>
-                  }
-                  @if (message.isOwnMessage) {
-                    <button
-                      type="button"
-                      class="message__action-button message__action-button--danger"
-                      [attr.data-testid]="'delete-message-' + message.id"
-                      [attr.aria-label]="'Delete message from ' + message.authorLabel"
-                      (click)="openDelete()"
-                    >
-                      <svg lucideTrash2 aria-hidden="true"></svg>
-                      <span>Delete</span>
-                    </button>
-                  }
-                  <button
-                    type="button"
-                    class="message__action-button"
-                    [attr.data-testid]="'save-message-for-later-' + message.id"
-                    [attr.aria-label]="'Save message from ' + message.authorLabel + ' for later'"
-                    (click)="saveForLater()"
-                  >
-                    <svg lucideBookmarkPlus aria-hidden="true"></svg>
-                    <span>Save for later</span>
-                  </button>
-                  <button
-                    type="button"
-                    class="message__action-button"
-                    [attr.data-testid]="'report-message-' + message.id"
-                    [attr.aria-label]="'Report message from ' + message.authorLabel"
-                    (click)="openReport()"
-                  >
-                    <svg lucideFlag aria-hidden="true"></svg>
-                    <span>Report</span>
-                  </button>
-                </div>
-              }
-            </div>
-          </div>
-        }
       } @else {
         <p class="message__tombstone" data-testid="message-tombstone">Message deleted</p>
       }
 
-      @if (canShowThreadEntry) {
-        <button
-          type="button"
-          class="message__thread-entry"
-          [attr.id]="threadButtonId"
-          [attr.data-testid]="'open-message-thread-' + message.id"
-          [attr.aria-label]="threadEntryAriaLabel"
-          (click)="openThread.emit({ messageId: message.id, triggerElementId: threadButtonId })"
-        >
-          <svg lucideMessageSquare aria-hidden="true"></svg>
-          <span aria-hidden="true">&#x21B3;</span>
-          <span>{{ threadEntryLabel }}</span>
-        </button>
+      @if (canShowActions || canShowThreadEntry) {
+          <div class="message__actions" role="group" [attr.aria-label]="'Actions for message from ' + message.authorLabel">
+            @if (canShowThreadEntry) {
+              <button
+                type="button"
+                class="message__thread-entry"
+                [attr.id]="threadButtonId"
+                [attr.data-testid]="'open-message-thread-' + message.id"
+                [attr.aria-label]="threadEntryAriaLabel"
+                (click)="openThread.emit({ messageId: message.id, triggerElementId: threadButtonId })"
+              >
+                <svg lucideMessageSquare aria-hidden="true"></svg>
+                <span aria-hidden="true">&#x21B3;</span>
+                <span>{{ threadEntryLabel }}</span>
+              </button>
+            }
+            @if (canShowActions) {
+              <button
+                type="button"
+                class="message__action-button message__action-button--primary"
+                [attr.data-testid]="'save-message-for-later-' + message.id"
+                [attr.aria-label]="'Save message from ' + message.authorLabel + ' for later'"
+                [disabled]="isBusy || hasActiveAction"
+                (click)="saveForLater()"
+              >
+                <svg lucideBookmarkPlus aria-hidden="true"></svg>
+                <span>Save for later</span>
+              </button>
+              <div class="message__overflow">
+                <button
+                  type="button"
+                  class="message__action-button message__more-button"
+                  [attr.id]="moreButtonId"
+                  [attr.data-testid]="'message-more-actions-' + message.id"
+                  [attr.aria-label]="'More actions for message from ' + message.authorLabel"
+                  [attr.aria-expanded]="overflowOpen"
+                  [attr.aria-controls]="overflowPanelId"
+                  [disabled]="isBusy || hasActiveAction"
+                  (click)="toggleOverflow()"
+                >
+                  <svg lucideEllipsis aria-hidden="true"></svg>
+                  <span>More</span>
+                </button>
+                @if (overflowOpen && !hasActiveAction) {
+                  <div class="message__overflow-panel" [attr.id]="overflowPanelId" data-testid="message-action-overflow">
+                    @if (canEditMessage) {
+                      <button
+                        type="button"
+                        class="message__action-button"
+                        [attr.id]="editButtonId"
+                        [attr.data-testid]="'edit-message-' + message.id"
+                        [attr.aria-label]="'Edit message from ' + message.authorLabel"
+                        (click)="openEdit()"
+                      >
+                        <svg lucidePencil aria-hidden="true"></svg>
+                        <span>Edit</span>
+                      </button>
+                    }
+                    @if (message.isOwnMessage) {
+                      <button
+                        type="button"
+                        class="message__action-button message__action-button--danger"
+                        [attr.data-testid]="'delete-message-' + message.id"
+                        [attr.aria-label]="'Delete message from ' + message.authorLabel"
+                        (click)="openDelete()"
+                      >
+                        <svg lucideTrash2 aria-hidden="true"></svg>
+                        <span>Delete</span>
+                      </button>
+                    }
+                    <button
+                      type="button"
+                      class="message__action-button"
+                      [attr.data-testid]="'report-message-' + message.id"
+                      [attr.aria-label]="'Report message from ' + message.authorLabel"
+                      (click)="openReport()"
+                    >
+                      <svg lucideFlag aria-hidden="true"></svg>
+                      <span>Report</span>
+                    </button>
+                  </div>
+                }
+              </div>
+            }
+          </div>
       }
 
       @if (message.readState?.ownReadLabel) {

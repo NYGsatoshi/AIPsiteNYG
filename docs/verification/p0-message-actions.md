@@ -1,52 +1,48 @@
-# P0 Message Actions: Safe Issue #343 Subset
+# P0 Message Actions: Issue #343
 
-Status: implementation candidate; explicitly non-closing for Issue #343.
+Status: implemented through the existing Message, canonical thread, and
+participant-private saved Message contracts.
 
-## Implemented current-source slice
+## Current-source action contract
 
-- Existing `PATCH /api/messages/{messageId}` is available for an own confirmed
-  message while the existing conversation projection permits posting. The
-  request is exactly `{ "body": string }`; the returned `MessageResponse`
-  reconciles the current row and renders its existing `editedAt` marker.
-- Existing `DELETE /api/messages/{messageId}` is available as an own-message
-  usability affordance after an accessible destructive confirmation. An
-  ordinary deleted zero-reply row is removed after authorized thread
-  revalidation. Issue #362 separately retains a bodyless deleted root when it
-  has durable replies so its canonical thread remains discoverable.
-- Existing `POST /api/messages/{messageId}/report` is available for a visible
-  confirmed row. The client sends the deliberately generic `{ "reasonCode":
-  "reported" }` request and accurately says only that the current service
-  records the request; it does not claim a case, evidence package, or case
-  status.
-- Controls are plain keyboard-operable buttons in a More overflow (not an ARIA
-  menu), use visible labels plus Lucide icons, have 44-pixel minimum targets,
-  and include focus recovery for edit completion, cancel, delete, and realtime
-  removal when that row is the active action target. Pending, failed, and
-  deleted rows do not expose mutations.
-- Server authorization remains authoritative. There are no `canEdit` or
-  `canDelete` API projection fields. The UI does not infer moderator authority;
-  generic 400/403/404 failures use one non-disclosing recovery message and
-  never render backend error text.
+- A visible confirmed Message presents `Reply`, `Save for later`, and `More`
+  as direct, labelled buttons. They remain reachable without hover and retain
+  44-pixel minimum targets on narrow/touch layouts.
+- `Reply` opens the existing exact authorized same-Conversation thread surface.
+  It does not create a new reply, invent a quoted-reply model, or bypass the
+  thread read/post boundary.
+- `Save for later` writes the existing participant-private Message follow-up
+  through `PUT /api/me/message-follow-ups/{messageId}`. It is independent from
+  read state and Conversation-level `Later`; no other participant can infer or
+  manage the marker.
+- `More` is a plain keyboard-operable disclosure, not an ARIA menu. It keeps
+  lower-frequency `Edit`, `Delete`, and `Report` actions separate from the
+  primary row actions. `Delete` remains behind an accessible destructive
+  confirmation.
+- Existing `PATCH /api/messages/{messageId}` is available only for an own
+  confirmed Message while the current conversation projection permits posting.
+  Existing `POST /api/messages/{messageId}/report` sends the deliberately
+  generic `{ "reasonCode": "reported" }` request and does not claim a case or
+  evidence workflow.
+- Server authorization remains authoritative. The UI does not infer moderator
+  capability; generic denial responses use one non-disclosing recovery message
+  and never render raw backend error text.
 
-## Deliberate non-goals and missing contracts
+## Deliberate boundaries
 
-This candidate does **not** close Issue #343. It does not provide Reply,
-Save/bookmark, React/reactions, Copy, a moderator capability projection, a new
-message endpoint, or an altered authentication contract. The current source
-also lacks canonical version-token edit preconditions/history, the 24-hour
-sender-delete rule, general zero-reply tombstone retention on list reload, quoted replies,
-emoji reactions, and report evidence scope/case workflow. The external
-messaging product contract must be completed through separately authorized
-backend and product work before those behavior claims can be made.
+Issue #343 does not add React/reactions, Copy, a moderator capability
+projection, a new Message endpoint, version-token edit preconditions/history,
+the 24-hour sender-delete rule, general zero-reply tombstone retention, quoted
+replies, emoji reactions, or a report evidence/case workflow. Those are
+separate product/API contracts.
 
 ## Verification boundary
 
-Focused Angular tests exercise the exact PATCH/DELETE/Report DTOs, generic
-error redaction/retry, confirmation-before-delete, row removal, and edited
-marker. Static Playwright exercises both desktop and 320-pixel projects with
-CSRF headers, keyboard and touch activation, pointer target/overflow checks,
-focus recovery, a generic HTTP 400 sentinel, and no raw error leak. Those mocks
-do not establish real backend integration. The existing mandatory MVP0
-real-backend browser flow has been extended with report, edit, reload, delete,
-and list-exclusion checks; it remains an unexecuted exact-head integration
-gate for this candidate.
+Focused Angular tests assert direct Reply/Save/More order and accessible names,
+the private Save request and unchanged read state, exact PATCH/DELETE/Report
+DTOs, generic error redaction/retry, confirmation-before-delete, and row
+removal. Static Playwright exercises desktop keyboard and 320-pixel touch
+activation for the primary actions and More, 44-pixel controls, focus return,
+overflow separation, CSRF headers, and no raw error leak. Browser mocks verify
+the UI contract only; the existing authorized thread and follow-up backend
+tests remain the persistence and authorization evidence.
