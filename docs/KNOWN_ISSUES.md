@@ -378,10 +378,10 @@ Status after the MVP-A P0 Angular migration: obsolete as active frontend defects
 
 ### KI-006: Reverse-proxy HTTPS behavior still requires deployment-specific verification
 
-- Status: partially implemented.
-- Evidence: `Program.cs` now has opt-in forwarded-header handling behind `ReverseProxy:TrustForwardedHeaders`, and focused tests cover `GET /api/security/csrf-token` with forwarded HTTPS. Compose still does not bundle a TLS proxy, and the current trust model assumes the app is reachable only behind that proxy or tunnel.
-- Impact: environment-specific mistakes can still cause redirect loops, incorrect scheme detection, or incorrect host-based tenant resolution.
-- Suggested issue: **Add deployment-specific proxy examples plus explicit trusted proxy/network allowlists**.
+- Status: configuration boundary implemented; target-host verification pending.
+- Evidence: `Program.cs` enables forwarded headers only after an operator opts in and supplies explicit IP/CIDR trust boundaries; it retains loopback defaults rather than trusting all peers. `docker-compose.onprem.yml` binds the origin to loopback by default and fails startup when proxy mode lacks a boundary. Focused Kestrel coverage verifies secure CSRF-cookie issuance through a trusted forwarded HTTPS request.
+- Remaining impact: an operator can still misstate the trusted proxy peer or public DNS/TLS route, so the exact target topology must be verified through `/health/ready` and authenticated browser traffic.
+- Tracking issue: **#467 — Decide and verify the on-prem TLS/reverse-proxy topology**.
 
 ## Medium priority
 

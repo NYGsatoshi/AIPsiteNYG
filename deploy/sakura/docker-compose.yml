@@ -26,6 +26,9 @@ services:
       Security__RequireHttps: ${SECURITY_REQUIRE_HTTPS:-true}
       Security__EnableHsts: ${SECURITY_ENABLE_HSTS:-true}
       ReverseProxy__TrustForwardedHeaders: "true"
+      # Caddy is the only HTTP peer on the private Compose network. Operators
+      # may narrow this further by assigning a fixed internal subnet.
+      ReverseProxy__TrustedNetworks__0: ${REVERSE_PROXY_TRUSTED_NETWORKS:-172.16.0.0/12}
       Platform__PlatformAdminSetupMode: ${PLATFORM_ADMIN_SETUP_MODE:-false}
       LocalAdmin__SeedOnStartup: ${LOCAL_ADMIN_SEED_ON_STARTUP:-true}
       LocalAdmin__Email: ${LOCAL_ADMIN_EMAIL:-admin@example.com}
