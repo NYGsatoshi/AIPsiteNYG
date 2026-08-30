@@ -51,6 +51,7 @@ public static class DependencyInjection
         services.AddScoped<IProjectActivationWorkflowStore, UnavailableProjectActivationWorkflowStore>();
         services.AddScoped<IProjectActivationUnitOfWork, UnavailableProjectActivationUnitOfWork>();
         services.AddScoped<IArtifactEvidenceRepository, UnavailableArtifactEvidenceRepository>();
+        services.AddScoped<IAnnouncementDraftRepository, UnavailableAnnouncementDraftRepository>();
         services.AddScoped<ICapabilityGrantEvaluator, CapabilityGrantEvaluator>();
         services.AddScoped<ICapabilityGrantService, CapabilityGrantService>();
         services.AddScoped<IAuditAuthorizationService, AuditAuthorizationService>();

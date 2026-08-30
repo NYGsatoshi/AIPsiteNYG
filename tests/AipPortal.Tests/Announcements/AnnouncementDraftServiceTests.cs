@@ -1,3 +1,4 @@
+using AipPortal.Application;
 using AipPortal.Application.Announcements;
 using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
@@ -7,12 +8,32 @@ using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
 using AipPortal.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace AipPortal.Tests.Announcements;
 
 [Trait("Scope", "Issue378")]
 public sealed class AnnouncementDraftServiceTests
 {
+    [Fact]
+    public async Task ApplicationOnlyCompositionProvidesFailClosedDraftPersistence()
+    {
+        using var provider = new ServiceCollection()
+            .AddApplication()
+            .BuildServiceProvider();
+        using var scope = provider.CreateScope();
+        var drafts = scope.ServiceProvider.GetRequiredService<IAnnouncementDraftRepository>();
+
+        Assert.Null(await drafts.GetAsync(Guid.NewGuid()));
+        Assert.Empty(await drafts.ClaimDueAsync(
+            "announcement-test-worker",
+            DateTimeOffset.UtcNow,
+            1,
+            TimeSpan.FromMinutes(1)));
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            drafts.AddAsync(new AnnouncementDraft()));
+    }
+
     [Fact]
     public async Task ImmediatePublishIsIdempotentlyQueuedThenWorkerPublishesOneDurableAnnouncement()
     {
