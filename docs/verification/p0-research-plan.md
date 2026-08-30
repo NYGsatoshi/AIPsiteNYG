@@ -46,10 +46,15 @@ plan-and-first-revision cycle to be committed atomically.
 ## Execution relationship
 
 The Task-detail Research Plan summary is the current persisted plan used for
-execution-start review. After the first-party execution contract is merged, the
-execution-run contract captures its exact revision when an execution request is
-accepted; this remains a single extension of the canonical Task execution
-snapshot rather than a second snapshot mechanism.
+execution-start review. Snapshot schema version 2 captures its exact revision
+identifier and positive revision number inside the idempotent execution-run
+acceptance transaction; this remains a single extension of the canonical Task
+execution snapshot rather than a second snapshot mechanism. A composite
+foreign key binds its revision identifier, revision number, and ownership scope
+to one revision row. It prevents a raw persistence caller from referencing a
+revision from another Tenant, Workspace, Project, or Task, or claiming a
+different positive revision number for a valid revision. Existing
+schema-version-1 runs remain valid with null plan provenance.
 Research Plans do not define provider behavior, source materialization,
 cancellation, Diff/Impact, or Revert behavior.
 
@@ -59,9 +64,12 @@ cancellation, Diff/Impact, or Revert behavior.
   stale-version rejection, authorization redaction, and direct-EF immutability.
 - `task-research-plan.component.spec.ts`: authorized display, non-drag
   keyboard/touch move controls, atomic save body, and conflict reload.
-- `ResearchPlanPostgreSqlTests`: a real PostgreSQL composite-FK regression
-  rejects a current-revision pointer from another plan. It requires
+- `ResearchPlanPostgreSqlTests`: real PostgreSQL composite-FK regressions
+  reject both a current-revision pointer from another plan and an execution
+  run snapshot from another ownership scope; the latter also rejects an
+  incomplete or mismatched revision-id/number pair. They require
   `POSTGRES_TEST_CONNECTION_STRING`.
 - `dotnet ef migrations has-pending-model-changes`: no pending model changes
-  after `AddResearchPlanRevisions` and
-  `AddResearchPlanCurrentRevisionConstraint`.
+  after `AddResearchPlanRevisions`,
+  `AddResearchPlanCurrentRevisionConstraint`, and
+  `AddTaskExecutionResearchPlanSnapshot`.

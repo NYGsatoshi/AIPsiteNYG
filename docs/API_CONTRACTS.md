@@ -758,12 +758,18 @@ empty `{}` body and a required `Idempotency-Key`; the key represents the same
 Task request even if a later policy edit changes the current effective policy.
 The accepted row retains its original immutable policy snapshot plus the
 server-owned `FirstPartyProjectFilesRuntimeV1` provider identity and runtime
-contract version. A successful POST returns 201 only to mean that a logical run
+contract version. Snapshot schema version 2 additionally retains the optional
+same-Task `ResearchPlanRevision` identifier and positive revision number that
+were current inside the accepted idempotent creation stage. PostgreSQL binds
+that identifier, number, and Tenant/Workspace/Project/Task scope to one
+revision row. It stores no copy
+of plan content. A successful POST returns 201 only to mean that a logical run
 was durably accepted; its initial status is `Accepted`, not execution success.
-Replaying the same key returns the same logical run.
+Replaying the same key returns the same logical run and plan revision.
 
 Responses expose only effective/origin/version booleans, a safe latest-run
-policy snapshot/provider/version/lifecycle projection, and
+policy snapshot/provider/version/lifecycle projection, the optional authorized
+plan revision reference/number, and
 `changesApplyTo: "nextRun"`. They never expose a URL, host, source/file
 identifier or name, count, raw content, credential, provider configuration,
 prompt, or output. Version/idempotency conflicts use safe 409 responses. The
@@ -794,9 +800,12 @@ response. A stale aggregate version returns 409 `RESEARCH_PLAN_STALE_VERSION`.
 
 The response returns the current immutable revision and safe Task-scoped fields
 only. It returns no historical raw sources, storage details, credentials,
-provider configuration, or execution outcome. The later Task execution request
-captures this exact current revision in its existing immutable run snapshot;
-the Research Plan introduces no separate execution snapshot system.
+provider configuration, or execution outcome. The execution request captures
+this exact current revision in snapshot schema version 2 inside its existing
+immutable run snapshot; its identifier and number are one database-enforced
+scoped provenance identity. The Research Plan introduces no separate execution
+snapshot system. Both plan revision fields are null when the Task has no saved
+plan. Existing version-1 runs remain readable with null plan provenance.
 
 ## TASK-V1-PR07-B hard deadline mutation
 

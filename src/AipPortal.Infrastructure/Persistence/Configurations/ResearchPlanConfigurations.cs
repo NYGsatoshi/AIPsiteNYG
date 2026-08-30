@@ -63,6 +63,19 @@ public sealed class ResearchPlanRevisionConfiguration : IEntityTypeConfiguration
         builder.Property(revision => revision.CreatedAtUtc).IsRequired();
 
         builder.HasAlternateKey(revision => new { revision.Id, revision.ResearchPlanId });
+        // Execution provenance carries both the opaque revision identity and
+        // its human-readable revision number. Keep them bound to one scoped
+        // revision at the database boundary rather than trusting a duplicate
+        // positive-number claim on the run.
+        builder.HasAlternateKey(revision => new
+        {
+            revision.Id,
+            revision.TenantId,
+            revision.WorkspaceId,
+            revision.ProjectId,
+            revision.TaskItemId,
+            revision.RevisionNo
+        }).HasName("AK_research_plan_revisions_execution_snapshot_identity");
         builder.HasIndex(revision => new { revision.ResearchPlanId, revision.RevisionNo }).IsUnique();
         builder.HasIndex(revision => new
         {

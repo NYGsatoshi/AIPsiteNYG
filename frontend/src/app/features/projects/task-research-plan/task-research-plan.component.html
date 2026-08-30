@@ -16,7 +16,7 @@
       <h3 id="task-research-plan-review-heading">Start and review summary</h3>
       @if (current.currentRevision; as revision) {
         <p data-testid="task-research-plan-revision">Current saved revision {{ revision.number }} &middot; {{ revision.steps.length }} {{ revision.steps.length === 1 ? 'step' : 'steps' }}</p>
-        <p>This is the current persisted plan used for execution-start review. The accepted-run revision snapshot is attached with the first-party execution contract.</p>
+        <p>This is the current persisted plan used for execution-start review. When a run is accepted, the server records this exact immutable revision rather than a browser-provided plan.</p>
       } @else {
         <p>No Research Plan has been saved yet. Add steps to create the first revision.</p>
       }

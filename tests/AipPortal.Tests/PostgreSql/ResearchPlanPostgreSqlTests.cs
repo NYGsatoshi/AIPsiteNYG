@@ -75,6 +75,56 @@ WHERE "Id" = @firstPlanId;
         });
     }
 
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    public async Task ExecutionRunPlanSnapshotRequiresACompleteSameScopeRevisionReference()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+        await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(connectionString, async database =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+            var first = await TaskV1MigrationRawSqlSeed.CreateGraphAsync(database, $"research-run-a-{Guid.NewGuid():N}");
+            var second = await TaskV1MigrationRawSqlSeed.CreateGraphAsync(database, $"research-run-b-{Guid.NewGuid():N}");
+            var firstPlanId = Guid.NewGuid();
+            var secondPlanId = Guid.NewGuid();
+            var firstRevisionId = Guid.NewGuid();
+            var secondRevisionId = Guid.NewGuid();
+            var now = new DateTimeOffset(2026, 8, 30, 0, 0, 0, TimeSpan.Zero);
+
+            await InsertPlanAsync(database, first, firstPlanId);
+            await InsertPlanAsync(database, second, secondPlanId);
+            await InsertRevisionAsync(database, first, firstPlanId, firstRevisionId, now);
+            await InsertRevisionAsync(database, second, secondPlanId, secondRevisionId, now);
+
+            var validRunId = Guid.NewGuid();
+            await InsertRunWithPlanSnapshotAsync(database, validRunId, first, now, firstRevisionId, 1);
+            Assert.Equal(
+                firstRevisionId,
+                await PostgreSqlMigrationTestDatabase.ScalarAsync<Guid>(
+                    database,
+                    "SELECT \"SnapshotResearchPlanRevisionId\" FROM task_execution_runs WHERE \"Id\" = @id;",
+                    ("id", validRunId)));
+            Assert.Equal(
+                1L,
+                await PostgreSqlMigrationTestDatabase.ScalarAsync<long>(
+                    database,
+                    "SELECT \"SnapshotResearchPlanRevisionNo\" FROM task_execution_runs WHERE \"Id\" = @id;",
+                    ("id", validRunId)));
+
+            var incompleteSnapshot = await Assert.ThrowsAsync<PostgresException>(() =>
+                InsertRunWithPlanSnapshotAsync(database, Guid.NewGuid(), first, now, null, 1));
+            Assert.Equal(PostgresErrorCodes.CheckViolation, incompleteSnapshot.SqlState);
+
+            var crossScopeSnapshot = await Assert.ThrowsAsync<PostgresException>(() =>
+                InsertRunWithPlanSnapshotAsync(database, Guid.NewGuid(), first, now, secondRevisionId, 1));
+            Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, crossScopeSnapshot.SqlState);
+
+            var mismatchedRevisionNumber = await Assert.ThrowsAsync<PostgresException>(() =>
+                InsertRunWithPlanSnapshotAsync(database, Guid.NewGuid(), first, now, firstRevisionId, 2));
+            Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, mismatchedRevisionNumber.SqlState);
+        });
+    }
+
     private static Task InsertDeferredFirstRevisionAsync(
         string database,
         TaskV1MigrationRawSqlSeed.Graph graph,
@@ -125,4 +175,36 @@ VALUES
             ("revisionId", revisionId), ("tenantId", graph.TenantId), ("workspaceId", graph.WorkspaceId),
             ("projectId", graph.ProjectId), ("taskId", graph.TaskId), ("planId", planId),
             ("userId", graph.UserId), ("now", now));
+
+    private static Task InsertRunWithPlanSnapshotAsync(
+        string database,
+        Guid runId,
+        TaskV1MigrationRawSqlSeed.Graph graph,
+        DateTimeOffset requestedAtUtc,
+        Guid? revisionId,
+        long? revisionNo) =>
+        PostgreSqlMigrationTestDatabase.ExecuteAsync(database, """
+INSERT INTO task_execution_runs (
+    "Id", "TenantId", "WorkspaceId", "ProjectId", "TaskItemId",
+    "RequestedByUserId", "RequestedAtUtc", "Status", "VersionNo",
+    "SnapshotSchemaVersion", "SnapshotScopeOrigin",
+    "SnapshotProjectScopeVersion", "SnapshotTaskOverrideVersion",
+    "SnapshotWebEnabled", "SnapshotProjectFilesEnabled",
+    "SnapshotResearchPlanRevisionId", "SnapshotResearchPlanRevisionNo")
+VALUES (
+    @id, @tenantId, @workspaceId, @projectId, @taskId,
+    @userId, @requestedAt, 'Accepted', 1,
+    2, 'ProjectDefault',
+    1, NULL, FALSE, TRUE,
+    @revisionId, @revisionNo);
+""",
+            ("id", runId),
+            ("tenantId", graph.TenantId),
+            ("workspaceId", graph.WorkspaceId),
+            ("projectId", graph.ProjectId),
+            ("taskId", graph.TaskId),
+            ("userId", graph.UserId),
+            ("requestedAt", requestedAtUtc),
+            ("revisionId", revisionId),
+            ("revisionNo", revisionNo));
 }

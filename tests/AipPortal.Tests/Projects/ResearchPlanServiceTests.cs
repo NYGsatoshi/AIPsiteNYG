@@ -103,7 +103,7 @@ public sealed class ResearchPlanServiceTests
         Assert.Equal("RESEARCH_PLAN_STALE_VERSION", stale.ErrorDetail!.Code);
 
         var revision = await fixture.Db.ResearchPlanRevisions.SingleAsync();
-        revision.RevisionNo = 99;
+        revision.CreatedAtUtc = revision.CreatedAtUtc.AddMinutes(1);
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Db.SaveChangesAsync());
         Assert.Contains("immutable", exception.Message, StringComparison.OrdinalIgnoreCase);
         fixture.Db.ChangeTracker.Clear();

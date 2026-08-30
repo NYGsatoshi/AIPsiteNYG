@@ -15,6 +15,17 @@ public sealed class ResearchPlanRepository(AppDbContext dbContext) : IResearchPl
         dbContext.ResearchPlans
             .SingleOrDefaultAsync(plan => plan.TaskItemId == taskItemId, cancellationToken);
 
+    public Task<ResearchPlanExecutionSnapshot?> GetCurrentExecutionSnapshotForTaskAsync(
+        Guid taskItemId,
+        CancellationToken cancellationToken = default) =>
+        dbContext.ResearchPlans
+            .AsNoTracking()
+            .Where(plan => plan.TaskItemId == taskItemId && plan.CurrentRevisionId != null)
+            .Select(plan => new ResearchPlanExecutionSnapshot(
+                plan.CurrentRevisionId!.Value,
+                plan.CurrentRevision!.RevisionNo))
+            .SingleOrDefaultAsync(cancellationToken);
+
     public Task<ResearchPlanRevision?> GetRevisionAsync(
         Guid researchPlanId,
         Guid revisionId,

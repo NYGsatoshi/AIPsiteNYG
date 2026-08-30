@@ -11,6 +11,26 @@ public sealed class AppDbContext(
     DbContextOptions<AppDbContext> options,
     ICurrentTenant currentTenant) : DbContext(options)
 {
+    private static readonly HashSet<string> ImmutableTaskExecutionRunSnapshotProperties = new(StringComparer.Ordinal)
+    {
+        nameof(TaskExecutionRun.TenantId),
+        nameof(TaskExecutionRun.WorkspaceId),
+        nameof(TaskExecutionRun.ProjectId),
+        nameof(TaskExecutionRun.TaskItemId),
+        nameof(TaskExecutionRun.RequestedByUserId),
+        nameof(TaskExecutionRun.RequestedAtUtc),
+        nameof(TaskExecutionRun.RuntimeProvider),
+        nameof(TaskExecutionRun.RuntimeContractVersion),
+        nameof(TaskExecutionRun.SnapshotSchemaVersion),
+        nameof(TaskExecutionRun.SnapshotScopeOrigin),
+        nameof(TaskExecutionRun.SnapshotProjectScopeVersion),
+        nameof(TaskExecutionRun.SnapshotTaskOverrideVersion),
+        nameof(TaskExecutionRun.SnapshotWebEnabled),
+        nameof(TaskExecutionRun.SnapshotProjectFilesEnabled),
+        nameof(TaskExecutionRun.SnapshotResearchPlanRevisionId),
+        nameof(TaskExecutionRun.SnapshotResearchPlanRevisionNo)
+    };
+
     internal Guid? ActiveTenantId =>
         currentTenant.IsAvailable && !currentTenant.IsPlatformScope
             ? currentTenant.TenantId
@@ -107,6 +127,7 @@ public sealed class AppDbContext(
         CancellationToken cancellationToken = default)
     {
         EnsureProjectExecutionScopeDefaults();
+        EnsureTaskExecutionRunSnapshotImmutability();
         EnsureResearchPlanSnapshotImmutability();
         StampAuditableEntities();
         var hasNormalTenantWrite = ApplyTenantRules();
@@ -142,6 +163,7 @@ public sealed class AppDbContext(
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
         EnsureProjectExecutionScopeDefaults();
+        EnsureTaskExecutionRunSnapshotImmutability();
         EnsureResearchPlanSnapshotImmutability();
         StampAuditableEntities();
         var hasNormalTenantWrite = ApplyTenantRules();
@@ -517,6 +539,24 @@ public sealed class AppDbContext(
         {
             throw new InvalidOperationException(
                 "Research Plans are historical Task records and cannot be deleted.");
+        }
+    }
+
+    /// <summary>
+    /// Lifecycle fields on an accepted run may change as server work proceeds,
+    /// but its server-owned provenance and source/plan snapshots are fixed at
+    /// acceptance. This keeps a later dispatcher or worker from rewriting the
+    /// execution-start authority.
+    /// </summary>
+    private void EnsureTaskExecutionRunSnapshotImmutability()
+    {
+        if (ChangeTracker.Entries<TaskExecutionRun>()
+            .Where(entry => entry.State == EntityState.Modified)
+            .Any(entry => entry.Properties.Any(property =>
+                property.IsModified && ImmutableTaskExecutionRunSnapshotProperties.Contains(property.Metadata.Name))))
+        {
+            throw new InvalidOperationException(
+                "Task execution run snapshots are immutable after acceptance.");
         }
     }
 
