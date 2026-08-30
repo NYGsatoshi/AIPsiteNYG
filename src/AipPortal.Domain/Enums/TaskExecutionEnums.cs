@@ -12,29 +12,58 @@ public enum TaskExecutionScopeOrigin
 }
 
 /// <summary>
-/// Durable lifecycle of a persisted execution request. Values 0 and 1 preserve
-/// the foundation contract; subsequent values are runtime-owned states and are
-/// never inferred from Workflow Stage, Activity text, or progress percentage.
+/// The server-owned implementation selected for a Task execution run. It is
+/// deliberately not browser-selectable and has no provider credentials.
 /// </summary>
-public enum TaskExecutionRunStatus
+public enum TaskExecutionProvider
 {
-    Prepared = 0,
-    RuntimeUnavailable = 1,
-    Waiting = 2,
-    NeedsInput = 3,
-    Failed = 4,
-    Completed = 5
+    FirstPartyProjectFilesRuntimeV1 = 0
 }
 
 /// <summary>
-/// Stable user-facing execution state required by Task Progress. This is a
-/// projection of TaskExecutionRunStatus, not a second mutable lifecycle.
+/// Durable lifecycle of a persisted execution request. It is independent from
+/// Task workflow, activity, progress, and browser state.
+/// </summary>
+public enum TaskExecutionRunStatus
+{
+    Accepted = 0,
+    Queued = 1,
+    Running = 2,
+    Succeeded = 3,
+    Failed = 4
+}
+
+/// <summary>
+/// Stable user-facing execution state. This is a projection of
+/// <see cref="TaskExecutionRunStatus"/>, not a second mutable lifecycle.
 /// </summary>
 public enum TaskExecutionMajorState
 {
-    Running = 0,
-    Waiting = 1,
-    NeedsInput = 2,
-    Failed = 3,
-    Completed = 4
+    Accepted = 0,
+    Queued = 1,
+    Running = 2,
+    Succeeded = 3,
+    Failed = 4
+}
+
+/// <summary>
+/// The only permitted V1 progression. A materialization refusal is recorded
+/// after the server worker has entered <see cref="TaskExecutionRunStatus.Running"/>,
+/// so it reaches the same safe terminal failure boundary as an execution
+/// failure without inventing a second lifecycle.
+/// </summary>
+public static class TaskExecutionRunLifecycle
+{
+    public static bool IsTerminal(TaskExecutionRunStatus status) =>
+        status is TaskExecutionRunStatus.Succeeded or TaskExecutionRunStatus.Failed;
+
+    public static bool CanTransition(TaskExecutionRunStatus from, TaskExecutionRunStatus to) =>
+        (from, to) switch
+        {
+            (TaskExecutionRunStatus.Accepted, TaskExecutionRunStatus.Queued) => true,
+            (TaskExecutionRunStatus.Queued, TaskExecutionRunStatus.Running) => true,
+            (TaskExecutionRunStatus.Running, TaskExecutionRunStatus.Succeeded) => true,
+            (TaskExecutionRunStatus.Running, TaskExecutionRunStatus.Failed) => true,
+            _ => false
+        };
 }

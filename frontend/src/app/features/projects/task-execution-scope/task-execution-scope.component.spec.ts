@@ -64,7 +64,7 @@ describe('TaskExecutionScopeComponent', () => {
     TestBed.resetTestingModule();
   });
 
-  it('renders only the authorized effective policy and the fail-closed runtime notice', () => {
+  it('renders only the authorized effective policy and the first-party runtime contract notice', () => {
     const requests = expectScopeReads(http);
     expect(requests.project.request.withCredentials).toBe(true);
     expect(requests.task.request.withCredentials).toBe(true);
@@ -76,7 +76,7 @@ describe('TaskExecutionScopeComponent', () => {
     expect(native.querySelector('[data-testid="task-execution-scope-web"]')?.textContent).toContain('Disabled');
     expect(native.querySelector('[data-testid="task-execution-scope-files"]')?.textContent).toContain('Disabled');
     expect(native.querySelector('[data-testid="task-execution-scope-future-only"]')?.textContent).toContain('future run requests only');
-    expect(native.querySelector('[data-testid="task-execution-runtime-unavailable"]')?.textContent).toContain('No execution runtime is configured');
+    expect(native.querySelector('[data-testid="task-execution-runtime-contract"]')?.textContent).toContain('Execution provider: First-party Project Files V1');
     expect(native.querySelectorAll('button').length).toBe(1);
     expect(native.querySelector('[data-testid="task-context-summary-count"]')?.textContent).toContain('0 of 2 source kinds allowed');
     expect(native.textContent).not.toContain('Start execution');
@@ -140,10 +140,10 @@ describe('TaskExecutionScopeComponent', () => {
     expect(component.scope()?.task.effectivePolicy).toEqual({ webEnabled: true, projectFilesEnabled: true });
   });
 
-  it('renders a locked legacy policy-only snapshot and derives its major state only from durable run status', () => {
+  it('renders a locked policy snapshot and derives its major state only from durable run status', () => {
     flushScope(expectScopeReads(http), {
       latestRun: {
-        status: 'RuntimeUnavailable',
+        status: 'Failed',
         snapshotScopeOrigin: 'TaskOverride',
         snapshotWebEnabled: true,
         snapshotProjectFilesEnabled: false,
@@ -154,15 +154,15 @@ describe('TaskExecutionScopeComponent', () => {
     const native = fixture.nativeElement as HTMLElement;
     expect(native.querySelector('[data-testid="task-execution-snapshot"]')?.textContent).toContain('Task override');
     expect(native.querySelector('[data-testid="task-execution-major-state"]')?.textContent).toContain('Failed');
-    expect(native.querySelector('[data-testid="task-execution-snapshot"]')?.textContent).toContain('Unavailable - no execution was started.');
+    expect(native.querySelector('[data-testid="task-execution-snapshot"]')?.textContent).toContain('Execution failed.');
     expect(native.textContent).not.toContain('Start execution');
   });
 
-  it('renders Needs input from the server major-state contract in an atomic polite status region', () => {
+  it('renders Queued from the server major-state contract in an atomic polite status region', () => {
     flushScope(expectScopeReads(http), {
       latestRun: {
-        status: 'NeedsInput',
-        majorState: 'NeedsInput',
+        status: 'Queued',
+        majorState: 'Queued',
         snapshotScopeOrigin: 'ProjectDefault',
         snapshotWebEnabled: false,
         snapshotProjectFilesEnabled: true,
@@ -175,8 +175,8 @@ describe('TaskExecutionScopeComponent', () => {
     expect(status?.getAttribute('role')).toBe('status');
     expect(status?.getAttribute('aria-live')).toBe('polite');
     expect(status?.getAttribute('aria-atomic')).toBe('true');
-    expect(native.querySelector('[data-testid="task-execution-major-state"]')?.textContent).toContain('Needs input');
-    expect(native.querySelector('[data-testid="task-execution-snapshot"]')?.textContent).toContain('Execution is waiting for input.');
+    expect(native.querySelector('[data-testid="task-execution-major-state"]')?.textContent).toContain('Queued');
+    expect(native.querySelector('[data-testid="task-execution-snapshot"]')?.textContent).toContain('Execution is queued for server materialization.');
   });
 
   it('saves a complete Task override instead of merging it with the Project default', () => {

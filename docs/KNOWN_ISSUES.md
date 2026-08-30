@@ -483,10 +483,11 @@ Status after the MVP-A P0 Angular migration: obsolete as active frontend defects
 - SSO/MFA.
 - Realtime messaging/notifications.
 - Background jobs and scheduled reminders.
-- Task automation, outbound Web retrieval, source materialization, and
-  execution-provider contracts. Issue #357 supplies only a policy/snapshot
-  foundation and intentionally does not close this work pending canonical-spec
-  promotion and an approved provider/egress security contract.
+- Task automation, server Project File materialization, durable Task results,
+  and the contest end-to-end execution path. Issue #461 fixes the provider to
+  the no-Web `FirstPartyProjectFilesRuntimeV1` contract; #462 and #463 own
+  materialization and durable result implementation respectively. Outbound Web
+  retrieval remains out of scope and disabled.
 - Full billing/payment integration.
 - Advanced Gantt/resource planning.
 - Full free-form docking/radial UI.

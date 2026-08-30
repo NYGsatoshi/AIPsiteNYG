@@ -6,9 +6,10 @@ using Microsoft.AspNetCore.Mvc;
 namespace AipPortal.Web.Controllers;
 
 /// <summary>
-/// Server-authoritative Task execution-policy boundary. The foundation exposes
-/// configuration and immutable run-policy records only; it cannot execute Web
-/// retrieval or materialize source content.
+/// Server-authoritative Task execution-policy and durable acceptance boundary.
+/// It never accepts browser authority for sources and never starts a runtime
+/// before the accepted run has committed. The Project-files worker is composed
+/// by the subsequent materialization/result workstreams.
 /// </summary>
 [ApiController]
 [Authorize]

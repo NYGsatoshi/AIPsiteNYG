@@ -730,10 +730,10 @@ immediately. Historical Workflow Stage transitions are not available in the
 current ActivityLog contract and are not synthesized from current state or
 generic Activity rows.
 
-## Issue #357 Task execution source-scope foundation
+## Issues #357 / #461 Task execution source scope and runtime contract
 
 The foundation is a server-authorized policy and immutable next-run snapshot
-boundary. It exposes no source inventory or execution capability:
+boundary. It exposes no source inventory or browser execution capability:
 
 - `GET /api/projects/{projectId}/execution-scope`
 - `PUT /api/projects/{projectId}/execution-scope`
@@ -756,18 +756,25 @@ Clearing an override sends `{ "expectedVersion": 1 }`; `0` is the creation or
 already-inherit token when no Task override exists. A run request sends an
 empty `{}` body and a required `Idempotency-Key`; the key represents the same
 Task request even if a later policy edit changes the current effective policy.
-The accepted row retains its original immutable policy snapshot. A successful
-foundation POST returns 201 only to mean that the policy record was stored; its
-current status is `RuntimeUnavailable`, not execution success.
+The accepted row retains its original immutable policy snapshot plus the
+server-owned `FirstPartyProjectFilesRuntimeV1` provider identity and runtime
+contract version. A successful POST returns 201 only to mean that a logical run
+was durably accepted; its initial status is `Accepted`, not execution success.
+Replaying the same key returns the same logical run.
 
 Responses expose only effective/origin/version booleans, a safe latest-run
-policy snapshot, and `changesApplyTo: "nextRun"`. They never expose a URL,
-host, source/file identifier or name, count, raw content, credential, provider
-configuration, prompt, or output. Version/idempotency conflicts use safe 409
-responses; application-level unavailable persistence/replay states use 503.
-The browser sends CSRF protection for unsafe cookie-authenticated methods.
-There is no outbound-Web, source-materialization, provider, worker, or runtime
-configuration contract in this issue.
+policy snapshot/provider/version/lifecycle projection, and
+`changesApplyTo: "nextRun"`. They never expose a URL, host, source/file
+identifier or name, count, raw content, credential, provider configuration,
+prompt, or output. Version/idempotency conflicts use safe 409 responses. The
+browser sends CSRF protection for unsafe cookie-authenticated methods.
+
+The selected V1 runtime disables all Web/network execution and fails closed if
+the immutable scope requires Web input. It accepts no browser source list,
+file ID, path, object key, filename, content, credential, or provider setting.
+Issue #462 owns post-commit server materialization of authorized clean Project
+Files; Issue #463 owns durable result storage and retrieval. The `Accepted`
+state alone is not evidence that any input was consumed or a result exists.
 
 ## TASK-V1-PR07-B hard deadline mutation
 
