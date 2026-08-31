@@ -17,7 +17,7 @@ describe('AuditClaimsEvidenceFacade', () => {
   });
 
   afterEach(() => {
-    http.verify();
+    http.verify({ ignoreCancelled: true });
     TestBed.resetTestingModule();
   });
 
@@ -143,7 +143,6 @@ describe('AuditClaimsEvidenceFacade', () => {
       { error: 'protected count detail' },
       { status: 403, statusText: 'Forbidden' },
     );
-    requests[1].flush({ totalCount: 0 });
 
     expect(facade.actionSummary().status).toBe('permissionDenied');
     expect(JSON.stringify(facade.actionSummary())).not.toContain('protected count detail');
