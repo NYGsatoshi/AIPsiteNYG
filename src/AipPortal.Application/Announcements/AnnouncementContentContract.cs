@@ -14,19 +14,20 @@ public sealed record AnnouncementActionLink(string Label, string Url);
 /// <summary>
 /// The presentation content decoded from the backwards-compatible persisted
 /// string. PersistedBody is the canonical value written to the existing Body
-/// column; API responses expose Body, Cta, and Attachment separately.
+/// column; API responses expose Body, CTA, and an authorized Attachment
+/// projection separately.
 /// </summary>
 public sealed record AnnouncementDecodedContent(
     string Body,
     AnnouncementActionLink? Cta,
-    AnnouncementActionLink? Attachment,
+    Guid? AttachmentId,
     string PersistedBody,
     bool IsEnvelope);
 
 /// <summary>
-/// Versioned compatibility codec for CTA and one linked attachment. Existing
-/// plain-text Announcement rows remain valid. No storage key, signed URL,
-/// capability, or file-download grant is placed in this envelope.
+/// Versioned compatibility codec for a CTA and one canonical Attachment ID.
+/// Existing plain-text Announcement rows remain valid. No storage key, signed
+/// URL, capability, or file-download grant is placed in this envelope.
 /// </summary>
 public static class AnnouncementContentContract
 {
@@ -49,10 +50,10 @@ public static class AnnouncementContentContract
     public static AnnouncementDecodedContent PrepareForPersistence(
         string? body,
         AnnouncementActionLink? cta = null,
-        AnnouncementActionLink? attachment = null)
+        Guid? attachmentId = null)
     {
         var suppliedBody = body ?? string.Empty;
-        if (cta is null && attachment is null)
+        if (cta is null && !attachmentId.HasValue)
         {
             var existing = Decode(suppliedBody);
             if (existing.IsEnvelope)
@@ -68,27 +69,27 @@ public static class AnnouncementContentContract
         }
 
         var normalizedCta = NormalizeLink(cta, "CTA");
-        var normalizedAttachment = NormalizeLink(attachment, "Attachment");
-        var persisted = normalizedCta is null && normalizedAttachment is null
+        var normalizedAttachmentId = NormalizeAttachmentId(attachmentId);
+        var persisted = normalizedCta is null && !normalizedAttachmentId.HasValue
             ? normalizedBody
-            : EncodeEnvelope(normalizedBody, normalizedCta, normalizedAttachment);
+            : EncodeEnvelope(normalizedBody, normalizedCta, normalizedAttachmentId);
 
         if (persisted.Length > MaximumPersistedLength)
         {
-            throw new JsonException($"Announcement content must be {MaximumPersistedLength} characters or fewer after link metadata is encoded.");
+            throw new JsonException($"Announcement content must be {MaximumPersistedLength} characters or fewer after action metadata is encoded.");
         }
 
         return new AnnouncementDecodedContent(
             normalizedBody,
             normalizedCta,
-            normalizedAttachment,
+            normalizedAttachmentId,
             persisted,
-            normalizedCta is not null || normalizedAttachment is not null);
+            normalizedCta is not null || normalizedAttachmentId.HasValue);
     }
 
     /// <summary>
     /// Decodes a stored value without throwing. Unknown, malformed, or future
-    /// envelopes fail closed to plain text with no actionable links.
+    /// envelopes fail closed to plain text with no actionable content.
     /// </summary>
     public static AnnouncementDecodedContent Decode(string? persistedBody)
     {
@@ -115,19 +116,19 @@ public static class AnnouncementContentContract
             }
 
             var cta = NormalizeLink(envelope.Cta, "CTA");
-            var attachment = NormalizeLink(envelope.Attachment, "Attachment");
-            if (cta is null && attachment is null)
+            var attachmentId = NormalizeAttachmentId(envelope.AttachmentId);
+            if (cta is null && !attachmentId.HasValue)
             {
                 return Plain(persisted);
             }
 
-            var canonical = EncodeEnvelope(body, cta, attachment);
+            var canonical = EncodeEnvelope(body, cta, attachmentId);
             if (canonical.Length > MaximumPersistedLength)
             {
                 return Plain(persisted);
             }
 
-            return new AnnouncementDecodedContent(body, cta, attachment, canonical, true);
+            return new AnnouncementDecodedContent(body, cta, attachmentId, canonical, true);
         }
         catch (JsonException)
         {
@@ -210,12 +211,26 @@ public static class AnnouncementContentContract
         return new AnnouncementActionLink(label, url);
     }
 
+    private static Guid? NormalizeAttachmentId(Guid? attachmentId)
+    {
+        if (!attachmentId.HasValue)
+        {
+            return null;
+        }
+        if (attachmentId.Value == Guid.Empty)
+        {
+            throw new JsonException("Attachment ID must be a non-empty UUID.");
+        }
+
+        return attachmentId.Value;
+    }
+
     private static string EncodeEnvelope(
         string body,
         AnnouncementActionLink? cta,
-        AnnouncementActionLink? attachment) =>
+        Guid? attachmentId) =>
         EnvelopePrefix + JsonSerializer.Serialize(
-            new AnnouncementContentEnvelope(1, body, cta, attachment),
+            new AnnouncementContentEnvelope(1, body, cta, attachmentId),
             JsonOptions);
 
     private static AnnouncementDecodedContent Plain(string body) =>
@@ -225,5 +240,5 @@ public static class AnnouncementContentContract
         int Version,
         string Body,
         AnnouncementActionLink? Cta,
-        AnnouncementActionLink? Attachment);
+        Guid? AttachmentId);
 }
