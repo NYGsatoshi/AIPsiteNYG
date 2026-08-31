@@ -97,7 +97,39 @@ public sealed class WorkspaceDashboardQuery(
                         member.TenantId == workspace.TenantId &&
                         member.GroupId == group.Id &&
                         member.UserId == userId &&
-                        (member.Role == GroupRole.Owner || member.Role == GroupRole.Admin)))))
+                        (member.Role == GroupRole.Owner || member.Role == GroupRole.Admin))),
+                dbContext.ProjectMembers
+                    .Where(projectMember =>
+                        dbContext.Users.Any(user =>
+                            user.Id == projectMember.UserId &&
+                            user.Status == UserStatus.Active &&
+                            user.DeletedAt == null) &&
+                        dbContext.Projects.Any(project =>
+                            project.Id == projectMember.ProjectId &&
+                            project.WorkspaceId == workspace.Id &&
+                            project.DeletedAt == null &&
+                            project.Status != ProjectStatus.Archived) &&
+                        !dbContext.WorkspaceMembers.Any(workspaceMember =>
+                            workspaceMember.WorkspaceId == workspace.Id &&
+                            workspaceMember.UserId == projectMember.UserId &&
+                            workspaceMember.Status == MembershipStatus.Active))
+                    .Select(projectMember => projectMember.UserId)
+                    .Distinct()
+                    .Count(),
+                dbContext.WorkspaceMembers
+                    .Where(member =>
+                        member.WorkspaceId == workspace.Id &&
+                        member.Status == MembershipStatus.Active)
+                    .OrderBy(member => member.JoinedAt)
+                    .ThenBy(member => member.UserId)
+                    .Select(member => new WorkspaceMemberPreviewResponse(
+                        member.UserId,
+                        dbContext.Users
+                            .Where(user => user.Id == member.UserId)
+                            .Select(user => user.DisplayName)
+                            .FirstOrDefault() ?? "Member"))
+                    .Take(3)
+                    .ToList()))
             .ToListAsync(cancellationToken);
 
         if (rows.Count == 0)
@@ -188,6 +220,8 @@ public sealed class WorkspaceDashboardQuery(
             row.HasActiveTenantMembership && row.CurrentUserRole.HasValue;
         var hasWorkspaceGovernanceAuthority =
             row.CurrentUserRole is WorkspaceRole.Owner or WorkspaceRole.Admin;
+        var canManageSharing = row.HasSystemAdminAccess || hasWorkspaceGovernanceAuthority;
+        var canInspectSharing = canManageSharing;
         var canCreateProject =
             hasActiveWorkspaceMembership &&
             (hasWorkspaceGovernanceAuthority || row.HasDelegatedProjectCreate);
@@ -226,7 +260,12 @@ public sealed class WorkspaceDashboardQuery(
             runningProjectCount + needsReviewProjectCount,
             runningProjectCount,
             needsReviewProjectCount,
-            canOpenProjectCreate);
+            canOpenProjectCreate,
+            row.ExternalShareCount > 0,
+            canInspectSharing ? row.ExternalShareCount : null,
+            canInspectSharing,
+            canManageSharing,
+            row.MemberPreview);
     }
 
     private sealed record WorkspaceDashboardRow(
@@ -241,7 +280,9 @@ public sealed class WorkspaceDashboardQuery(
         bool HasSystemAdminAccess,
         bool HasActiveTenantMembership,
         bool HasDelegatedProjectCreate,
-        bool HasManagedActiveGroup);
+        bool HasManagedActiveGroup,
+        int ExternalShareCount,
+        IReadOnlyList<WorkspaceMemberPreviewResponse> MemberPreview);
 
     private sealed record WorkspaceCount(Guid WorkspaceId, int Count);
 

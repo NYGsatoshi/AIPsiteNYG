@@ -23,6 +23,11 @@ export interface AppShellViewModel {
   readonly runningProjectCount: number | null;
   readonly needsReviewProjectCount: number | null;
   readonly canOpenWorkspaceMembers: boolean;
+  readonly hasExternalShares: boolean;
+  readonly externalShareCount: number | null;
+  readonly memberPreview: readonly { readonly id: string; readonly displayName: string }[];
+  readonly canInspectWorkspaceSharing: boolean;
+  readonly canManageWorkspaceSharing: boolean;
   readonly navigationItems: readonly NavigationItem[];
   readonly primaryNavigationItems: readonly NavigationItem[];
   readonly pinnedNavigationItems: readonly NavigationItem[];
@@ -123,6 +128,13 @@ export class AppShellFacade {
       needsReviewProjectCount: selectedWorkspaceCard?.needsReviewProjectCount ?? null,
       canOpenWorkspaceMembers:
         selectedWorkspaceCard?.capabilities.includes('openMembers') ?? false,
+      hasExternalShares: selectedWorkspaceCard?.hasExternalShares ?? false,
+      externalShareCount: selectedWorkspaceCard?.externalShareCount ?? null,
+      memberPreview: selectedWorkspaceCard?.memberPreview ?? [],
+      canInspectWorkspaceSharing:
+        selectedWorkspaceCard?.capabilities.includes('inspectSharing') ?? false,
+      canManageWorkspaceSharing:
+        selectedWorkspaceCard?.capabilities.includes('manageSharing') ?? false,
       navigationItems,
       primaryNavigationItems: sections.primaryItems,
       pinnedNavigationItems: sections.pinnedItems,

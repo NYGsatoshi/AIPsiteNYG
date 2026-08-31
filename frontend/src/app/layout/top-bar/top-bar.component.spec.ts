@@ -22,6 +22,14 @@ describe('TopBarComponent', () => {
     fixture.componentRef.setInput('runningProjectCount', 2);
     fixture.componentRef.setInput('needsReviewProjectCount', 1);
     fixture.componentRef.setInput('canOpenWorkspaceMembers', true);
+    fixture.componentRef.setInput('hasExternalShares', true);
+    fixture.componentRef.setInput('externalShareCount', 2);
+    fixture.componentRef.setInput('memberPreview', [
+      { id: 'member-a', displayName: 'Alice' },
+      { id: 'member-b', displayName: 'Bob' }
+    ]);
+    fixture.componentRef.setInput('canInspectWorkspaceSharing', true);
+    fixture.componentRef.setInput('canManageWorkspaceSharing', true);
     fixture.detectChanges();
     return fixture;
   }
@@ -29,6 +37,29 @@ describe('TopBarComponent', () => {
   afterEach(() => {
     window.localStorage.removeItem('aip.locale');
     TestBed.resetTestingModule();
+  });
+
+  it('keeps External sharing textual and exposes a Workspace-scoped sharing action', async () => {
+    const fixture = await createComponent();
+    const element = fixture.nativeElement as HTMLElement;
+
+    expect(element.querySelector('[data-testid="workspace-member-preview"]')?.textContent).toContain('AL');
+    expect(element.querySelector('[data-testid="workspace-external-badge"]')?.textContent).toContain('External');
+    expect(element.querySelector('[data-testid="workspace-external-badge"]')?.textContent).toContain('2');
+    expect(element.querySelector('[data-testid="workspace-sharing-action"]')?.textContent).toContain('ワークスペース共有を管理');
+    expect(element.querySelector('[data-testid="workspace-sharing-action"]')?.getAttribute('href')).toBe('/workspaces/workspace-a/members');
+  });
+
+  it('does not offer sharing inspection or mutation when the server capabilities are absent', async () => {
+    const fixture = await createComponent();
+    fixture.componentRef.setInput('canInspectWorkspaceSharing', false);
+    fixture.componentRef.setInput('canManageWorkspaceSharing', false);
+    fixture.componentRef.setInput('externalShareCount', null);
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.querySelector('[data-testid="workspace-external-badge"]')?.textContent?.trim()).toBe('External');
+    expect(element.querySelector('[data-testid="workspace-sharing-action"]')).toBeNull();
   });
 
   it('separates Workspace context/actions from global actions and exposes textual Research state', async () => {

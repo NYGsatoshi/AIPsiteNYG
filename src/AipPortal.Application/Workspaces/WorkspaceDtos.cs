@@ -40,7 +40,14 @@ public sealed record WorkspaceDashboardListItemResponse(
     int InProgressProjectCount,
     int RunningProjectCount,
     int NeedsReviewProjectCount,
-    bool CanOpenProjectCreate = false);
+    bool CanOpenProjectCreate = false,
+    bool HasExternalShares = false,
+    int? ExternalShareCount = null,
+    bool CanInspectSharing = false,
+    bool CanManageSharing = false,
+    IReadOnlyList<WorkspaceMemberPreviewResponse>? MemberPreview = null);
+
+public sealed record WorkspaceMemberPreviewResponse(Guid UserId, string DisplayName);
 
 public sealed record WorkspaceDetailResponse(
     Guid Id,

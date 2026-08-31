@@ -119,6 +119,34 @@ describe('Workspace dashboard API mapper', () => {
     ]);
   });
 
+  it('maps the server-owned External aggregate without inventing protected details', () => {
+    const manager = mapWorkspaceDashboardItem(dashboardItem({
+      hasExternalShares: true,
+      externalShareCount: 2,
+      canInspectSharing: true,
+      canManageSharing: true,
+      memberPreview: [
+        { userId: 'member-1', displayName: 'Alice' },
+        { userId: 'member-2', displayName: 'Bob' },
+      ],
+    }));
+    const ordinaryViewer = mapWorkspaceDashboardItem(dashboardItem({
+      hasExternalShares: true,
+      externalShareCount: null,
+    }));
+
+    expect(manager.hasExternalShares).toBe(true);
+    expect(manager.externalShareCount).toBe(2);
+    expect(manager.memberPreview).toEqual([
+      { id: 'member-1', displayName: 'Alice' },
+      { id: 'member-2', displayName: 'Bob' },
+    ]);
+    expect(manager.capabilities).toEqual(expect.arrayContaining(['inspectSharing', 'manageSharing']));
+    expect(ordinaryViewer.hasExternalShares).toBe(true);
+    expect(ordinaryViewer.externalShareCount).toBeNull();
+    expect(ordinaryViewer.capabilities).not.toContain('manageSharing');
+  });
+
   it('fails Quick Create mutation affordances closed when capability fields are absent', () => {
     const card = mapWorkspaceDashboardItem(
       dashboardItem({ canOpenProjectCreate: undefined, canCreateProject: undefined, canAddFiles: undefined }),
