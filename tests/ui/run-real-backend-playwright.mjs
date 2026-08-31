@@ -12,7 +12,13 @@ const focusedGrep = process.env.AIP_REAL_BACKEND_SMOKE_GREP?.trim();
 const playwrightArgs = [
   ...(userArgs.length > 0
     ? userArgs
-    : ['tests/ui/real-backend-smoke.spec.ts', '--project=chromium-desktop', '--retries=0', '--workers=1']),
+    : [
+      'tests/ui/task-execution-golden-path.spec.ts',
+      'tests/ui/real-backend-smoke.spec.ts',
+      '--project=chromium-desktop',
+      '--retries=0',
+      '--workers=1'
+    ]),
   ...(focusedGrep ? ['--grep', focusedGrep] : [])
 ];
 
