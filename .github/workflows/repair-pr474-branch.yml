@@ -28,6 +28,8 @@ jobs:
 
       - name: Merge current main and reconcile concurrent EF snapshots
         shell: bash
+        env:
+          ConnectionStrings__DefaultConnection: Host=127.0.0.1;Port=5432;Database=aipsite_design;Username=postgres;Password=postgres
         run: |
           set -Eeuo pipefail
           git config user.name "OpenAI CI Automation"
