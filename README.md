@@ -168,6 +168,7 @@ See [testing](docs/TESTING.md) for exact interpretation.
 - [Coding rules](docs/CODING_RULES.md)
 - [API conventions](docs/API_CONTRACTS.md)
 - [Operations](docs/OPERATIONS.md)
+- [Reproducible synthetic demo dataset](docs/demo-dataset.md)
 - [Roadmap](docs/ROADMAP.md)
 - [Archive index](docs/archive/README.md)
 
