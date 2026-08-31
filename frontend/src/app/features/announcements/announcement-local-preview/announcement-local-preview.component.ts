@@ -1,4 +1,4 @@
-import { Component, ElementRef, Input, ViewChild } from '@angular/core';
+import { Component, ElementRef, Input, signal, ViewChild } from '@angular/core';
 
 import { AnnouncementPriorityBadgeComponent } from '../announcement-priority-badge/announcement-priority-badge.component';
 import { AnnouncementLocalPreview } from '../announcements.types';
@@ -6,7 +6,8 @@ import { AnnouncementLocalPreview } from '../announcements.types';
 /**
  * A deliberately inert local rendering of the current Announcement form.
  * It has no identifier, outputs, router dependency, or HTTP dependency, so it
- * cannot publish, deliver, mark a recipient read, or create analytics data.
+ * cannot publish, deliver, navigate a CTA, mark a recipient read, or create
+ * analytics data.
  */
 @Component({
   selector: 'app-announcement-local-preview',
@@ -20,7 +21,13 @@ export class AnnouncementLocalPreviewComponent {
 
   @ViewChild('heading') private heading?: ElementRef<HTMLElement>;
 
+  readonly viewport = signal<'desktop' | 'mobile'>('desktop');
+
   focusHeading(): void {
     this.heading?.nativeElement.focus();
+  }
+
+  setViewport(viewport: 'desktop' | 'mobile'): void {
+    this.viewport.set(viewport);
   }
 }

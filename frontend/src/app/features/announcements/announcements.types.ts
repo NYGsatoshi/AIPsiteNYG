@@ -45,6 +45,12 @@ export interface AnnouncementAudienceOption {
   readonly channelId?: string;
 }
 
+/** A recipient-visible action. URLs are revalidated by both API and mapper. */
+export interface AnnouncementActionLink {
+  readonly label: string;
+  readonly url: string;
+}
+
 export interface AnnouncementEditorSubmission {
   /** Durable server draft identity; absent until the first successful save. */
   readonly draftId?: string;
@@ -58,6 +64,8 @@ export interface AnnouncementEditorSubmission {
   readonly priority: AnnouncementPriority;
   readonly audience: AnnouncementAudienceOption;
   readonly requiresReadConfirmation: boolean;
+  readonly cta?: AnnouncementActionLink;
+  readonly attachment?: AnnouncementActionLink;
   readonly deliveryMode?: AnnouncementDeliveryMode;
   /** A local wall-clock value without a UTC offset. The server resolves it. */
   readonly scheduledLocalDateTime?: string;
@@ -77,6 +85,8 @@ export interface AnnouncementLocalPreview {
   readonly priority: AnnouncementPriority;
   readonly audience: AnnouncementAudienceOption;
   readonly requiresReadConfirmation: boolean;
+  readonly cta?: AnnouncementActionLink;
+  readonly attachment?: AnnouncementActionLink;
 }
 
 export type AnnouncementCapability = 'readAnnouncement' | 'createAnnouncement' | 'editAnnouncement';
@@ -104,9 +114,8 @@ export interface AnnouncementReadStateViewModel {
   readonly markReadError?: string;
 }
 
-export interface AnnouncementAttachmentViewModel {
-  readonly mode: 'disabled';
-  readonly label: string;
+export interface AnnouncementAttachmentViewModel extends AnnouncementActionLink {
+  readonly mode: 'linked';
 }
 
 export interface AnnouncementViewModel {
@@ -128,6 +137,7 @@ export interface AnnouncementViewModel {
   readonly readState: AnnouncementReadStateViewModel;
   readonly capabilities: readonly AnnouncementCapability[];
   readonly notificationTarget: 'announcementDetail';
+  readonly cta?: AnnouncementActionLink;
   readonly attachment?: AnnouncementAttachmentViewModel;
 }
 
@@ -143,6 +153,8 @@ export interface AnnouncementEditorDraft {
   readonly audienceKey: string;
   readonly availableAudiences: readonly AnnouncementAudienceOption[];
   readonly requiresReadConfirmation: boolean;
+  readonly cta?: AnnouncementActionLink;
+  readonly attachment?: AnnouncementActionLink;
   readonly deliveryMode?: AnnouncementDeliveryMode;
   readonly scheduledLocalDateTime?: string;
   readonly timeZoneId?: string;
