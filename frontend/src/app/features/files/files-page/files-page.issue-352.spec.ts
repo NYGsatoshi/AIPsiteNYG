@@ -29,6 +29,9 @@ const backendFile = (fileObjectId: string, originalFileName: string, contentType
   createdAt: '2026-08-29T00:00:00Z',
   updatedAt: '2026-08-29T00:00:00Z',
   canDelete: true,
+  accessState: 'Workspace',
+  canManageSharing: true,
+  sharingVersion: 1,
 });
 
 const renderLiveFilesPage = async (
@@ -175,7 +178,7 @@ describe('FilesPageComponent issue #352', () => {
       expect(research.getAttribute('href')).toContain(`/workspaces/${WORKSPACE_ID}/research/new?`);
       expect(research.getAttribute('href')).toContain(`sourceFileObjectId=${IMAGE_ID}`);
       expect(research.getAttribute('href')).toContain('sourceFileName=photo.png');
-      expect(host.querySelector('[data-testid="files-preview-share"]')).not.toBeNull();
+      expect(host.querySelector('[data-testid="files-preview-manage-sharing"]')).not.toBeNull();
       expect(host.querySelector('[data-testid="files-preview-more"]')).not.toBeNull();
 
       component.copyPreviewCitation();
@@ -259,6 +262,132 @@ describe('FilesPageComponent issue #352', () => {
       .toContain('blocked by file scan state');
     http.expectNone(`/api/files/${IMAGE_ID}/download-grants`);
   });
+
+  it('uses the server sharing projection for preview and reconciles a revoked external grant in the list and preview', async () => {
+    const { fixture, http } = await renderLiveFilesPage([
+      backendFile(IMAGE_ID, 'brief.png', 'image/png'),
+    ]);
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const component = fixture.componentInstance;
+    const closePreview = vi.spyOn(component, 'closePreview');
+    const closeSharingDialog = vi.spyOn(component, 'closeSharingDialog');
+    const file = component.page().recentFiles[0];
+    if (!file) {
+      throw new Error('Expected a listed file.');
+    }
+
+    component.openPreview(file);
+    flushPreview(http, IMAGE_ID, 'grant-preview', new Blob(['image'], { type: 'image/png' }));
+    fixture.detectChanges();
+
+    const host = fixture.nativeElement as HTMLElement;
+    const manage = host.querySelector('[data-testid="files-preview-manage-sharing"]') as HTMLButtonElement;
+    manage.focus();
+    manage.click();
+    fixture.detectChanges();
+
+    const sharing = http.expectOne(`/api/files/${IMAGE_ID}/sharing`);
+    expect(sharing.request.method).toBe('GET');
+    expect(component.sharingDialogOpen()).toBe(true);
+    expect(closePreview).not.toHaveBeenCalled();
+    expect(closeSharingDialog).not.toHaveBeenCalled();
+    sharing.flush({
+      fileObjectId: IMAGE_ID,
+      sharingPolicy: 'Private',
+      accessState: 'External',
+      externalRecipientCount: 1,
+      canManageSharing: true,
+      canInspectSharing: true,
+      sharingVersion: 2,
+      recipients: [{
+        grantId: 'grant-external-1',
+        displayName: 'External project member',
+        accessKind: 'ExternalProjectMember',
+      }],
+      availableRecipients: [{
+        userId: 'external-user-2',
+        displayName: 'Second external member',
+        accessKind: 'ExternalProjectMember',
+      }],
+    });
+    fixture.detectChanges();
+
+    expect(closePreview).not.toHaveBeenCalled();
+    expect(closeSharingDialog).not.toHaveBeenCalled();
+    expect(component.sharingDialogOpen()).toBe(true);
+    expect(component.sharingError()).toBe('');
+    expect(component.sharingDetail()).not.toBeNull();
+    expect(host.querySelector('[data-testid="files-sharing-dialog-content"]')).not.toBeNull();
+    expect(host.textContent).toContain('External · 1 people');
+    const recipient = host.querySelector('[data-testid="files-sharing-recipient-select"]') as HTMLSelectElement;
+    recipient.value = 'external-user-2';
+    recipient.dispatchEvent(new Event('change'));
+    fixture.detectChanges();
+
+    (host.querySelector('[data-testid="files-sharing-grant"]') as HTMLButtonElement).click();
+    const grant = http.expectOne(`/api/files/${IMAGE_ID}/sharing/recipients`);
+    expect(grant.request.method).toBe('POST');
+    expect(grant.request.body).toEqual({ recipientUserId: 'external-user-2', expectedSharingVersion: 2 });
+    grant.flush({
+      fileObjectId: IMAGE_ID,
+      sharingPolicy: 'Private',
+      accessState: 'External',
+      externalRecipientCount: 2,
+      canManageSharing: true,
+      canInspectSharing: true,
+      sharingVersion: 3,
+      recipients: [
+        { grantId: 'grant-external-1', displayName: 'External project member', accessKind: 'ExternalProjectMember' },
+        { grantId: 'grant-external-2', displayName: 'Second external member', accessKind: 'ExternalProjectMember' },
+      ],
+      availableRecipients: [],
+    });
+    fixture.detectChanges();
+    expect(host.textContent).toContain('External · 2 people');
+    expect(component.page().recentFiles[0]?.sharing.externalRecipientCount).toBe(2);
+
+    (host.querySelector('[data-testid="files-sharing-revoke"]') as HTMLButtonElement).click();
+    const revoke = http.expectOne((request) =>
+      request.url === `/api/files/${IMAGE_ID}/sharing/recipients/grant-external-1` && request.method === 'DELETE');
+    expect(revoke.request.method).toBe('DELETE');
+    expect(revoke.request.params.get('expectedSharingVersion')).toBe('3');
+    revoke.flush({
+      fileObjectId: IMAGE_ID,
+      sharingPolicy: 'Private',
+      accessState: 'Private',
+      canManageSharing: true,
+      canInspectSharing: true,
+      sharingVersion: 4,
+      recipients: [],
+      availableRecipients: [],
+    });
+    fixture.detectChanges();
+
+    expect(host.querySelector('[data-testid="files-preview-access-state"]')?.textContent).toContain('Private');
+    expect(component.page().recentFiles[0]?.sharing.accessState).toBe('private');
+    expect(component.page().recentFiles[0]?.sharing.externalRecipientCount).toBeUndefined();
+  }, 15_000);
+
+  it('does not render the sharing control or request protected sharing data without the server capability', async () => {
+    const { fixture, http } = await renderLiveFilesPage([
+      { ...backendFile(IMAGE_ID, 'private.png', 'image/png'), canManageSharing: false },
+    ]);
+    const component = fixture.componentInstance;
+    const file = component.page().recentFiles[0];
+    if (!file) {
+      throw new Error('Expected a listed file.');
+    }
+
+    component.openPreview(file);
+    flushPreview(http, IMAGE_ID, 'grant-private-preview', new Blob(['image'], { type: 'image/png' }));
+    fixture.detectChanges();
+
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.querySelector('[data-testid="files-preview-manage-sharing"]')).toBeNull();
+    component.openSharingDialog();
+    http.expectNone(`/api/files/${IMAGE_ID}/sharing`);
+  }, 15_000);
 
   it('uses a focus-trapped overlay at 320px and returns focus without clearing selection', async () => {
     const originalWidth = window.innerWidth;

@@ -1,4 +1,5 @@
 using AipPortal.Domain.Entities;
+using AipPortal.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -73,6 +74,11 @@ public sealed class FileObjectConfiguration : IEntityTypeConfiguration<FileObjec
         builder.Property(file => file.ContentType).HasMaxLength(160).IsRequired();
         builder.Property(file => file.HashSha256).HasMaxLength(64);
         builder.Property(file => file.Classification).HasConversion<string>().HasMaxLength(40);
+        builder.Property(file => file.SharingPolicy)
+            .HasEnumStringConversion()
+            .HasDefaultValue(FileSharingPolicy.Private)
+            .IsRequired();
+        builder.Property(file => file.SharingVersion).IsConcurrencyToken().HasDefaultValue(1L).IsRequired();
         builder.Property(file => file.Status).HasEnumStringConversion().IsRequired();
         builder.Property(file => file.DeleteReason).HasMaxLength(500);
 
@@ -82,6 +88,7 @@ public sealed class FileObjectConfiguration : IEntityTypeConfiguration<FileObjec
         builder.HasIndex(file => file.UploadedByUserId);
         builder.HasIndex(file => file.Status);
         builder.HasIndex(file => file.Classification);
+        builder.HasIndex(file => new { file.TenantId, file.WorkspaceId, file.SharingPolicy });
         builder.HasIndex(file => file.StorageKey).IsUnique();
         builder.HasIndex(file => new { file.TenantId, file.Status, file.CreatedAt });
 
@@ -107,6 +114,55 @@ public sealed class FileObjectConfiguration : IEntityTypeConfiguration<FileObjec
             .HasOne(file => file.UploadedByUser)
             .WithMany()
             .HasForeignKey(file => file.UploadedByUserId)
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+public sealed class FileAccessGrantConfiguration : IEntityTypeConfiguration<FileAccessGrant>
+{
+    public void Configure(EntityTypeBuilder<FileAccessGrant> builder)
+    {
+        builder.ToTable("file_access_grants");
+        builder.ConfigureAuditableEntity();
+
+        builder.Property(grant => grant.RecipientKind).HasEnumStringConversion().IsRequired();
+        builder.Property(grant => grant.RevokedAt);
+        builder.Property(grant => grant.RevokedByUserId);
+
+        builder.HasIndex(grant => new { grant.TenantId, grant.FileObjectId, grant.RecipientUserId })
+            .HasFilter("\"RevokedAt\" IS NULL")
+            .IsUnique();
+        builder.HasIndex(grant => new { grant.TenantId, grant.WorkspaceId, grant.FileObjectId, grant.RevokedAt });
+        builder.HasIndex(grant => new { grant.TenantId, grant.RecipientUserId, grant.RevokedAt });
+
+        builder
+            .HasOne(grant => grant.FileObject)
+            .WithMany()
+            .HasForeignKey(grant => grant.FileObjectId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder
+            .HasOne(grant => grant.Workspace)
+            .WithMany()
+            .HasForeignKey(grant => grant.WorkspaceId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder
+            .HasOne(grant => grant.RecipientUser)
+            .WithMany()
+            .HasForeignKey(grant => grant.RecipientUserId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder
+            .HasOne(grant => grant.GrantedByUser)
+            .WithMany()
+            .HasForeignKey(grant => grant.GrantedByUserId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder
+            .HasOne(grant => grant.RevokedByUser)
+            .WithMany()
+            .HasForeignKey(grant => grant.RevokedByUserId)
             .OnDelete(DeleteBehavior.Restrict);
     }
 }

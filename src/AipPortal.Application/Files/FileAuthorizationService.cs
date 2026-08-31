@@ -13,7 +13,8 @@ public sealed class FileAuthorizationService(
     IProjectAuthorizationService projects,
     IConversationAuthorizationService conversations,
     IChannelAuthorizationService channels,
-    IWorkspaceAuthorizationService workspaces) : IFileAuthorizationService
+    IWorkspaceAuthorizationService workspaces,
+    IFileAccessGrantRepository? accessGrants = null) : IFileAuthorizationService
 {
     public async Task<bool> CanUploadAttachment(Guid userId, AttachmentOwnerType ownerType, Guid ownerId, CancellationToken cancellationToken = default)
     {
@@ -74,6 +75,38 @@ public sealed class FileAuthorizationService(
         if (owner.ChannelId.HasValue)
         {
             return await channels.CanViewChannel(userId, owner.ChannelId.Value, cancellationToken);
+        }
+
+        if (attachment.OwnerType == AttachmentOwnerType.Workspace &&
+            attachment.OwnerId == attachment.WorkspaceId &&
+            attachment.FileObject is { } file &&
+            file.WorkspaceId == owner.WorkspaceId)
+        {
+            // An effective explicit grant is re-evaluated against the current
+            // recipient membership boundary by the repository. It is the only
+            // path by which a Project-scoped external user can read a direct
+            // Workspace attachment.
+            if (accessGrants is not null &&
+                await accessGrants.HasEffectiveGrantAsync(file.Id, userId, cancellationToken))
+            {
+                return true;
+            }
+
+            if (!await workspaces.CanViewWorkspace(userId, owner.WorkspaceId, cancellationToken))
+            {
+                return false;
+            }
+
+            if (file.SharingPolicy == FileSharingPolicy.Workspace ||
+                attachment.UploadedByUserId == userId ||
+                attachment.OwnerUserId == userId)
+            {
+                return true;
+            }
+
+            // Workspace managers can inspect and repair a File's sharing
+            // policy, but that governance path remains server-authorized.
+            return await workspaces.CanManageWorkspace(userId, owner.WorkspaceId, cancellationToken);
         }
 
         return await workspaces.CanViewWorkspace(userId, owner.WorkspaceId, cancellationToken);

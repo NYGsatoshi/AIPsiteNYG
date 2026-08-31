@@ -85,7 +85,11 @@ public sealed record SearchResultItemResponse(
     long? SizeBytes = null,
     string? Status = null,
     string? ScanStatus = null,
-    DateTimeOffset? UpdatedAt = null);
+    DateTimeOffset? UpdatedAt = null,
+    string? AccessState = null,
+    int? ExternalRecipientCount = null,
+    bool CanManageSharing = false,
+    long? SharingVersion = null);
 
 public sealed record SearchResponse(
     string? Query,

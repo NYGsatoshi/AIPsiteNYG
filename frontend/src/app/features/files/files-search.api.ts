@@ -22,6 +22,10 @@ interface FileSearchItemDto {
   readonly status?: unknown;
   readonly scanStatus?: unknown;
   readonly updatedAt?: unknown;
+  readonly accessState?: unknown;
+  readonly externalRecipientCount?: unknown;
+  readonly canManageSharing?: unknown;
+  readonly sharingVersion?: unknown;
 }
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
@@ -179,6 +183,10 @@ function mapFileSearchItem(
     uploadedByDisplayName: nonEmptyString(item.authorDisplayName),
     createdAt,
     updatedAt,
+    accessState: item.accessState,
+    externalRecipientCount: item.externalRecipientCount,
+    canManageSharing: item.canManageSharing,
+    sharingVersion: item.sharingVersion,
     // Search is a read surface. A mutation capability must come from the
     // canonical inventory projection, never be inferred from a result row.
     canDelete: false,

@@ -4,6 +4,22 @@ export type FileScanStatus = 'pending' | 'allowed' | 'blocked' | 'unavailable';
 
 export type FileDownloadPolicy = 'available' | 'denied' | 'adminOverrideRequired';
 
+/**
+ * A conservative rendering of the server-owned File sharing projection. The
+ * UI must never infer any of these values from ownership, paths, or cached
+ * workspace members.
+ */
+export type FileAccessState = 'private' | 'workspace' | 'external' | 'unavailable';
+
+export interface FileSharingViewModel {
+  readonly accessState: FileAccessState;
+  /** Only supplied by the server to a current sharing manager. */
+  readonly externalRecipientCount?: number;
+  readonly canManageSharing: boolean;
+  /** Required by server-side optimistic concurrency for sharing mutations. */
+  readonly sharingVersion?: number;
+}
+
 export type FileCapability = 'download' | 'requestQuotaException' | 'adminOverrideBlockedDownload';
 
 export type FileUploadState =
@@ -73,6 +89,7 @@ export interface FileViewModel {
   readonly capabilities: readonly FileCapability[];
   /** Server-projected capability. Missing or malformed values must map to false. */
   readonly canDelete: boolean;
+  readonly sharing: FileSharingViewModel;
   readonly downloadState?: FileDownloadState;
   readonly downloadMessage?: string;
   readonly safeStatusLabel?: string;

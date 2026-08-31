@@ -1,6 +1,6 @@
 import { HttpClient, HttpEventType, HttpResponse } from '@angular/common/http';
 import { Injectable, InjectionToken, inject, signal } from '@angular/core';
-import { catchError, concatMap, finalize, from, map, of, Subscription, toArray } from 'rxjs';
+import { catchError, concatMap, finalize, from, map, Observable, of, Subscription, toArray } from 'rxjs';
 
 import { normalizeApiError } from '../../core/api/api-error.adapter';
 import { I18nService, TranslationKey } from '../../core/i18n/i18n.service';
@@ -13,6 +13,8 @@ import {
   FileDownloadGrantDto,
   FileDisplayLocalizer,
   FileListItemDto,
+  FileSharingDetailViewModel,
+  mapFileSharingResponse,
   mapFileListItem,
   PagedResponseDto,
   safeFileNameFromHeader,
@@ -556,6 +558,86 @@ export class FilesFacade {
     if (item) { this.uploadFile(item.file); }
   }
 
+  /** Reads the manager-only sharing inspection projection for one File. */
+  getFileSharing(fileObjectId: string): Observable<FileSharingDetailViewModel> {
+    return this.http.get<unknown>(`/api/files/${encodeURIComponent(fileObjectId)}/sharing`, {
+      withCredentials: true,
+    }).pipe(map((response) => this.requireSharingDetail(response)));
+  }
+
+  updateFileSharingPolicy(
+    fileObjectId: string,
+    shareWithWorkspace: boolean,
+    expectedSharingVersion: number,
+  ): Observable<FileSharingDetailViewModel> {
+    return this.http.put<unknown>(`/api/files/${encodeURIComponent(fileObjectId)}/sharing`, {
+      shareWithWorkspace,
+      expectedSharingVersion,
+    }, { withCredentials: true }).pipe(map((response) => this.requireSharingDetail(response)));
+  }
+
+  grantFileSharingRecipient(
+    fileObjectId: string,
+    recipientUserId: string,
+    expectedSharingVersion: number,
+  ): Observable<FileSharingDetailViewModel> {
+    return this.http.post<unknown>(`/api/files/${encodeURIComponent(fileObjectId)}/sharing/recipients`, {
+      recipientUserId,
+      expectedSharingVersion,
+    }, { withCredentials: true }).pipe(map((response) => this.requireSharingDetail(response)));
+  }
+
+  revokeFileSharingRecipient(
+    fileObjectId: string,
+    grantId: string,
+    expectedSharingVersion: number,
+  ): Observable<FileSharingDetailViewModel> {
+    return this.http.delete<unknown>(
+      `/api/files/${encodeURIComponent(fileObjectId)}/sharing/recipients/${encodeURIComponent(grantId)}`,
+      {
+        params: { expectedSharingVersion },
+        withCredentials: true,
+      },
+    ).pipe(map((response) => this.requireSharingDetail(response)));
+  }
+
+  /**
+   * Applies a successful server mutation to every visible Files projection
+   * without manufacturing a state client-side. The page still receives the
+   * regular realtime refresh for all other viewers.
+   */
+  reconcileFileSharing(detail: FileSharingDetailViewModel): void {
+    const replace = (files: readonly FileViewModel[]): readonly FileViewModel[] => {
+      let changed = false;
+      const next = files.map((file) => {
+        if (file.canonicalFileId !== detail.fileObjectId) {
+          return file;
+        }
+        changed = true;
+        return { ...file, sharing: detail.sharing };
+      });
+      return changed ? next : files;
+    };
+
+    this.pageState.update((page) => {
+      const recentFiles = replace(page.recentFiles);
+      const pickerFiles = replace(page.pickerFiles);
+      return recentFiles === page.recentFiles && pickerFiles === page.pickerFiles
+        ? page
+        : { ...page, recentFiles, pickerFiles };
+    });
+    this.searchState.update((search) => {
+      // Do not manufacture a new idle search snapshot. FilesPageComponent
+      // treats a replaced search snapshot as a server-authoritative reset,
+      // so an unnecessary write here would close the active Preview/dialog.
+      if (search.status === 'idle') {
+        return search;
+      }
+      const files = replace(search.files);
+      return files === search.files ? search : { ...search, files };
+    });
+  }
+
   downloadFile(fileObjectId: string): void {
     if (!fileObjectId || this.mockPage) {
       return;
@@ -998,6 +1080,14 @@ export class FilesFacade {
       files: search.files.map((file) =>
         file.canonicalFileId === fileObjectId ? { ...file, ...patch } : file),
     }));
+  }
+
+  private requireSharingDetail(response: unknown): FileSharingDetailViewModel {
+    const detail = mapFileSharingResponse(response);
+    if (!detail) {
+      throw new Error('Invalid File sharing response.');
+    }
+    return detail;
   }
 
   private handleRealtimeEvent(event: DurableRealtimeEvent): void {

@@ -77,6 +77,16 @@ public sealed class FileObject : AuditableEntity, ITenantEntity
     public long SizeBytes { get; set; }
     public string? HashSha256 { get; set; }
     public DataClassification? Classification { get; set; }
+    /// <summary>
+    /// Controls the baseline audience for direct Workspace attachments. This
+    /// is intentionally separate from data classification.
+    /// </summary>
+    public FileSharingPolicy SharingPolicy { get; set; } = FileSharingPolicy.Private;
+    /// <summary>
+    /// Incremented for each sharing mutation and used as an optimistic
+    /// concurrency token by the File-sharing commands.
+    /// </summary>
+    public long SharingVersion { get; set; } = 1;
     public FileObjectStatus Status { get; set; } = FileObjectStatus.Active;
     public DateTimeOffset? DeletedAt { get; private set; }
     public Guid? DeletedByUserId { get; set; }
@@ -94,6 +104,29 @@ public sealed class FileObject : AuditableEntity, ITenantEntity
         DeletedByUserId = deletedByUserId;
         DeleteReason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
     }
+}
+
+/// <summary>
+/// An explicit, audited FileObject-level access grant. The recipient must
+/// remain an active same-Tenant Workspace member or a Project-scoped external
+/// user in the recorded Workspace; revoked and stale grants fail closed.
+/// </summary>
+public sealed class FileAccessGrant : AuditableEntity, ITenantEntity
+{
+    public Guid TenantId { get; set; }
+    public Guid WorkspaceId { get; set; }
+    public Guid FileObjectId { get; set; }
+    public Guid RecipientUserId { get; set; }
+    public FileAccessGrantRecipientKind RecipientKind { get; set; }
+    public Guid GrantedByUserId { get; set; }
+    public DateTimeOffset? RevokedAt { get; set; }
+    public Guid? RevokedByUserId { get; set; }
+
+    public Workspace? Workspace { get; set; }
+    public FileObject? FileObject { get; set; }
+    public User? RecipientUser { get; set; }
+    public User? GrantedByUser { get; set; }
+    public User? RevokedByUser { get; set; }
 }
 
 public sealed class FileDownloadGrant : AuditableEntity, ITenantEntity

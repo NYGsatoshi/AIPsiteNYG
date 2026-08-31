@@ -977,6 +977,23 @@ public sealed class HttpTenantIsolationTests
             Assert.DoesNotContain(privateName, document.RootElement.GetRawText(), StringComparison.Ordinal);
         }
 
+        // New direct Workspace uploads are intentionally Private. This
+        // deletion-capability regression needs a visible shared file, so make
+        // the owner-authorized policy transition explicit rather than relying
+        // on the old implicit Workspace default.
+        using (var shareWithWorkspace = await app.SendAsync(
+                   data.TenantBOwner,
+                   data.TenantB.Slug,
+                   $"/api/files/{fileObjectId:D}/sharing",
+                   HttpMethod.Put,
+                   System.Net.Http.Json.JsonContent.Create(new { shareWithWorkspace = true, expectedSharingVersion = 1 })))
+        using (var document = JsonDocument.Parse(await shareWithWorkspace.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.OK, shareWithWorkspace.StatusCode);
+            Assert.Equal("Workspace", document.RootElement.GetProperty("accessState").GetString());
+            Assert.Equal(2, document.RootElement.GetProperty("sharingVersion").GetInt64());
+        }
+
         using (var otherContributorList = await app.SendAsync(
                    data.CrossTenantUser,
                    data.TenantB.Slug,
@@ -1111,6 +1128,157 @@ public sealed class HttpTenantIsolationTests
             data.TenantB.Slug,
             $"/api/files/{fileObjectId:D}");
         Assert.Equal(HttpStatusCode.BadRequest, deletedRead.StatusCode);
+    }
+
+    [Fact]
+    [Trait("Scope", "Issue360")]
+    public async Task PrivateWorkspaceSharingReauthorizesApiReadsAndDoesNotLeakProtectedSharingMetadata()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+        var privateName = $"sharing-private-{Guid.NewGuid():N}.txt";
+        Guid fileObjectId;
+        Guid grantId;
+
+        using (var upload = new MultipartFormDataContent
+               {
+                   { new StringContent(AttachmentOwnerType.Workspace.ToString()), "OwnerType" },
+                   { new StringContent(data.WorkspaceB.Id.ToString("D")), "OwnerId" },
+               })
+        {
+            var file = new ByteArrayContent("sharing boundary"u8.ToArray());
+            file.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("text/plain");
+            upload.Add(file, "File", privateName);
+            using var response = await app.SendAsync(
+                data.TenantBOwner,
+                data.TenantB.Slug,
+                "/api/files",
+                HttpMethod.Post,
+                upload);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            fileObjectId = document.RootElement.GetProperty("fileObjectId").GetGuid();
+        }
+
+        using (var list = await app.SendAsync(
+                   data.TenantBMember,
+                   data.TenantB.Slug,
+                   $"/api/files?workspaceId={data.WorkspaceB.Id:D}&page=1&pageSize=20"))
+        using (var document = JsonDocument.Parse(await list.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.OK, list.StatusCode);
+            Assert.DoesNotContain(
+                document.RootElement.GetProperty("items").EnumerateArray(),
+                item => item.GetProperty("fileObjectId").GetGuid() == fileObjectId);
+            Assert.DoesNotContain(privateName, document.RootElement.GetRawText(), StringComparison.Ordinal);
+        }
+
+        using (var deniedRead = await app.SendAsync(
+                   data.TenantBMember,
+                   data.TenantB.Slug,
+                   $"/api/files/{fileObjectId:D}/sharing"))
+        {
+            var body = await deniedRead.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.BadRequest, deniedRead.StatusCode);
+            Assert.DoesNotContain(privateName, body, StringComparison.Ordinal);
+            Assert.DoesNotContain("externalRecipientCount", body, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("recipients", body, StringComparison.OrdinalIgnoreCase);
+        }
+
+        using (var deniedMutation = await app.SendAsync(
+                   data.TenantBMember,
+                   data.TenantB.Slug,
+                   $"/api/files/{fileObjectId:D}/sharing",
+                   HttpMethod.Put,
+                   System.Net.Http.Json.JsonContent.Create(new { shareWithWorkspace = true, expectedSharingVersion = 1 })))
+        {
+            var body = await deniedMutation.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.BadRequest, deniedMutation.StatusCode);
+            Assert.DoesNotContain(privateName, body, StringComparison.Ordinal);
+            Assert.DoesNotContain("recipients", body, StringComparison.OrdinalIgnoreCase);
+        }
+
+        using (var ownerProjection = await app.SendAsync(
+                   data.TenantBOwner,
+                   data.TenantB.Slug,
+                   $"/api/files/{fileObjectId:D}/sharing"))
+        using (var document = JsonDocument.Parse(await ownerProjection.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.OK, ownerProjection.StatusCode);
+            Assert.Equal("Private", document.RootElement.GetProperty("accessState").GetString());
+            Assert.True(document.RootElement.GetProperty("canManageSharing").GetBoolean());
+            Assert.True(document.RootElement.GetProperty("canInspectSharing").GetBoolean());
+        }
+
+        using (var grant = await app.SendAsync(
+                   data.TenantBOwner,
+                   data.TenantB.Slug,
+                   $"/api/files/{fileObjectId:D}/sharing/recipients",
+                   HttpMethod.Post,
+                   System.Net.Http.Json.JsonContent.Create(new { recipientUserId = data.TenantBMember.Id, expectedSharingVersion = 1 })))
+        using (var document = JsonDocument.Parse(await grant.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.OK, grant.StatusCode);
+            Assert.Equal("Private", document.RootElement.GetProperty("accessState").GetString());
+            Assert.Equal(2, document.RootElement.GetProperty("sharingVersion").GetInt64());
+            grantId = Assert.Single(document.RootElement.GetProperty("recipients").EnumerateArray())
+                .GetProperty("grantId").GetGuid();
+        }
+
+        using (var grantedList = await app.SendAsync(
+                   data.TenantBMember,
+                   data.TenantB.Slug,
+                   $"/api/files?workspaceId={data.WorkspaceB.Id:D}&page=1&pageSize=20"))
+        using (var document = JsonDocument.Parse(await grantedList.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.OK, grantedList.StatusCode);
+            var item = Assert.Single(
+                document.RootElement.GetProperty("items").EnumerateArray(),
+                value => value.GetProperty("fileObjectId").GetGuid() == fileObjectId);
+            Assert.Equal("Private", item.GetProperty("accessState").GetString());
+            Assert.False(item.GetProperty("canManageSharing").GetBoolean());
+            Assert.True(
+                !item.TryGetProperty("externalRecipientCount", out var count) ||
+                count.ValueKind == JsonValueKind.Null);
+        }
+
+        using (var readerProjection = await app.SendAsync(
+                   data.TenantBMember,
+                   data.TenantB.Slug,
+                   $"/api/files/{fileObjectId:D}/sharing"))
+        using (var document = JsonDocument.Parse(await readerProjection.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.OK, readerProjection.StatusCode);
+            Assert.Equal("Private", document.RootElement.GetProperty("accessState").GetString());
+            Assert.False(document.RootElement.GetProperty("canManageSharing").GetBoolean());
+            Assert.False(document.RootElement.GetProperty("canInspectSharing").GetBoolean());
+            Assert.Empty(document.RootElement.GetProperty("recipients").EnumerateArray());
+            Assert.Empty(document.RootElement.GetProperty("availableRecipients").EnumerateArray());
+            Assert.True(
+                !document.RootElement.TryGetProperty("externalRecipientCount", out var count) ||
+                count.ValueKind == JsonValueKind.Null);
+        }
+
+        using (var revoke = await app.SendAsync(
+                   data.TenantBOwner,
+                   data.TenantB.Slug,
+                   $"/api/files/{fileObjectId:D}/sharing/recipients/{grantId:D}?expectedSharingVersion=2",
+                   HttpMethod.Delete))
+        using (var document = JsonDocument.Parse(await revoke.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.OK, revoke.StatusCode);
+            Assert.Equal("Private", document.RootElement.GetProperty("accessState").GetString());
+            Assert.Equal(3, document.RootElement.GetProperty("sharingVersion").GetInt64());
+        }
+
+        using var postRevokeRead = await app.SendAsync(
+            data.TenantBMember,
+            data.TenantB.Slug,
+            $"/api/files/{fileObjectId:D}/sharing");
+        var postRevokeBody = await postRevokeRead.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.BadRequest, postRevokeRead.StatusCode);
+        Assert.DoesNotContain(privateName, postRevokeBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("recipients", postRevokeBody, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -4839,6 +5007,7 @@ public sealed class HttpTenantIsolationTests
             services.AddScoped<IEventRepository, EventRepository>();
             services.AddScoped<IFormRepository, FormRepository>();
             services.AddScoped<IFileRepository, FileRepository>();
+            services.AddScoped<AipPortal.Application.Files.IFileAccessGrantRepository, FileAccessGrantRepository>();
             services.AddScoped<IFileDownloadGrantRepository, FileDownloadGrantRepository>();
             services.AddScoped<AipPortal.Application.Files.IFileSelectionSnapshotService, FileSelectionSnapshotService>();
             services.AddScoped<IStudentRecordExportGrantRepository, StudentRecordExportGrantRepository>();

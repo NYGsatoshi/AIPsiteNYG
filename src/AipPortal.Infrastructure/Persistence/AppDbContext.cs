@@ -109,6 +109,7 @@ public sealed class AppDbContext(
     public DbSet<Comment> Comments => Set<Comment>();
     public DbSet<Feedback> Feedback => Set<Feedback>();
     public DbSet<FileObject> FileObjects => Set<FileObject>();
+    public DbSet<FileAccessGrant> FileAccessGrants => Set<FileAccessGrant>();
     public DbSet<Attachment> Attachments => Set<Attachment>();
     public DbSet<FileDownloadGrant> FileDownloadGrants => Set<FileDownloadGrant>();
     public DbSet<FileSelectionSnapshot> FileSelectionSnapshots => Set<FileSelectionSnapshot>();

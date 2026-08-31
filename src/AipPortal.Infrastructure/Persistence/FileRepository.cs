@@ -19,6 +19,40 @@ public sealed class FileRepository(AppDbContext dbContext) : IFileRepository
         int pageSize,
         CancellationToken cancellationToken = default)
     {
+        return await ListWorkspaceFileObjectsCoreAsync(
+            workspaceId,
+            null,
+            canManageSharing: true,
+            page,
+            pageSize,
+            cancellationToken);
+    }
+
+    public async Task<PagedResponse<Attachment>> ListAccessibleWorkspaceFileObjectsAsync(
+        Guid workspaceId,
+        Guid userId,
+        bool canManageSharing,
+        int page,
+        int pageSize,
+        CancellationToken cancellationToken = default)
+    {
+        return await ListWorkspaceFileObjectsCoreAsync(
+            workspaceId,
+            userId,
+            canManageSharing,
+            page,
+            pageSize,
+            cancellationToken);
+    }
+
+    private async Task<PagedResponse<Attachment>> ListWorkspaceFileObjectsCoreAsync(
+        Guid workspaceId,
+        Guid? userId,
+        bool canManageSharing,
+        int page,
+        int pageSize,
+        CancellationToken cancellationToken)
+    {
         var query = dbContext.Attachments
             .AsNoTracking()
             .Include(attachment => attachment.FileObject)
@@ -33,6 +67,25 @@ public sealed class FileRepository(AppDbContext dbContext) : IFileRepository
                 !attachment.FileObject.DeletedAt.HasValue &&
                 attachment.FileObject.Status != FileObjectStatus.Deleted);
 
+        // This is the metadata-discovery boundary for the Files inventory.
+        // Never return a Private File merely because the caller can see the
+        // Workspace: explicit grants and direct-file ownership are evaluated
+        // in the query, not reconstructed by the browser.
+        if (!canManageSharing && userId.HasValue)
+        {
+            var currentUserId = userId.Value;
+            var effectiveGrantFileObjectIds = EffectiveGrants()
+                .Where(grant =>
+                    grant.WorkspaceId == workspaceId &&
+                    grant.RecipientUserId == currentUserId)
+                .Select(grant => grant.FileObjectId);
+            query = query.Where(attachment =>
+                attachment.FileObject!.SharingPolicy == FileSharingPolicy.Workspace ||
+                attachment.UploadedByUserId == currentUserId ||
+                attachment.OwnerUserId == currentUserId ||
+                effectiveGrantFileObjectIds.Contains(attachment.FileObjectId));
+        }
+
         var total = await query.CountAsync(cancellationToken);
         var items = await query
             .OrderByDescending(attachment => attachment.FileObject!.CreatedAt)
@@ -42,6 +95,59 @@ public sealed class FileRepository(AppDbContext dbContext) : IFileRepository
             .ToListAsync(cancellationToken);
 
         return new PagedResponse<Attachment>(items, page, pageSize, total);
+    }
+
+    private IQueryable<FileAccessGrant> EffectiveGrants()
+    {
+        return dbContext.FileAccessGrants.Where(grant =>
+            grant.RevokedAt == null &&
+            dbContext.FileObjects.Any(file =>
+                   file.Id == grant.FileObjectId &&
+                   file.TenantId == grant.TenantId &&
+                   file.WorkspaceId == grant.WorkspaceId &&
+                   file.DeletedAt == null &&
+                   file.Status != FileObjectStatus.Deleted) &&
+            dbContext.Attachments.Any(attachment =>
+                   attachment.FileObjectId == grant.FileObjectId &&
+                   attachment.WorkspaceId == grant.WorkspaceId &&
+                   attachment.OwnerType == AttachmentOwnerType.Workspace &&
+                   attachment.OwnerId == grant.WorkspaceId &&
+                   attachment.DeletedAt == null) &&
+            dbContext.Workspaces.Any(workspace =>
+                   workspace.Id == grant.WorkspaceId &&
+                   workspace.TenantId == grant.TenantId &&
+                   workspace.DeletedAt == null &&
+                   workspace.Status == WorkspaceStatus.Active) &&
+            dbContext.TenantUsers.Any(tenantUser =>
+                   tenantUser.TenantId == grant.TenantId &&
+                   tenantUser.UserId == grant.RecipientUserId &&
+                   tenantUser.Status == TenantUserStatus.Active) &&
+            dbContext.Users.Any(user =>
+                   user.Id == grant.RecipientUserId &&
+                   user.Status == UserStatus.Active &&
+                   user.DeletedAt == null) &&
+             ((grant.RecipientKind == FileAccessGrantRecipientKind.WorkspaceMember &&
+                 dbContext.WorkspaceMembers.Any(member =>
+                     member.TenantId == grant.TenantId &&
+                     member.WorkspaceId == grant.WorkspaceId &&
+                     member.UserId == grant.RecipientUserId &&
+                     member.Status == MembershipStatus.Active)) ||
+                (grant.RecipientKind == FileAccessGrantRecipientKind.ExternalProjectMember &&
+                 !dbContext.WorkspaceMembers.Any(member =>
+                     member.TenantId == grant.TenantId &&
+                     member.WorkspaceId == grant.WorkspaceId &&
+                     member.UserId == grant.RecipientUserId &&
+                     member.Status == MembershipStatus.Active) &&
+                 dbContext.ProjectMembers.Any(member =>
+                     member.TenantId == grant.TenantId &&
+                     member.UserId == grant.RecipientUserId &&
+                     dbContext.Projects.Any(project =>
+                         project.Id == member.ProjectId &&
+                         project.TenantId == grant.TenantId &&
+                         project.WorkspaceId == grant.WorkspaceId &&
+                         project.DeletedAt == null &&
+                         project.Status != ProjectStatus.Archived &&
+                         project.Status != ProjectStatus.Deleted)))));
     }
 
     public async Task AddFileObjectAsync(FileObject fileObject, CancellationToken cancellationToken = default)

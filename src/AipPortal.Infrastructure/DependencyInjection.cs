@@ -9,6 +9,7 @@ using AipPortal.Application.Realtime;
 using AipPortal.Application.Notifications;
 using AipPortal.Application.Workspaces;
 using AipPortal.Application.Announcements;
+using AipPortal.Application.Files;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -69,6 +70,7 @@ public static class DependencyInjection
         services.AddScoped<IStudentRecordExportGrantRepository, StudentRecordExportGrantRepository>();
         services.AddScoped<IFormRepository, FormRepository>();
         services.AddScoped<IFileRepository, FileRepository>();
+        services.AddScoped<IFileAccessGrantRepository, FileAccessGrantRepository>();
         services.AddScoped<IFileDownloadGrantRepository, FileDownloadGrantRepository>();
         services.AddScoped<AipPortal.Application.Files.IFileSelectionSnapshotService, FileSelectionSnapshotService>();
         services.AddScoped<ITenantPlanRepository, TenantPlanRepository>();

@@ -304,6 +304,9 @@
             <div>
               <p>{{ i18n.translate('files.preview.inspector') }}</p>
               <h2 id="files-preview-title">{{ file.originalFileName }}</h2>
+              <p class="files-page__access-badge" data-testid="files-preview-access-state">
+                {{ fileSharingLabel(file) }}
+              </p>
             </div>
             <button
               type="button"
@@ -385,12 +388,13 @@
                   [attr.tabindex]="researchHandoffHref() ? 0 : -1"
                   data-testid="files-preview-research"
                 >{{ i18n.translate('files.preview.addToResearch') }}</a>
-                <button
-                  type="button"
-                  [disabled]="!previewCanShare()"
-                  (click)="sharePreview()"
-                  data-testid="files-preview-share"
-                >{{ i18n.translate('files.preview.share') }}</button>
+                @if (previewCanManageSharing()) {
+                  <button
+                    type="button"
+                    (click)="openSharingDialog()"
+                    data-testid="files-preview-manage-sharing"
+                  >{{ i18n.translate('files.sharing.manage') }}</button>
+                }
                 <details>
                   <summary class="files-page__preview-action" [attr.aria-label]="i18n.translate('files.preview.moreActions')" data-testid="files-preview-more">…</summary>
                   <button
@@ -531,4 +535,97 @@
   (closed)="closeDeleteDialog()"
 >
   <p>{{ i18n.translate('files.delete.note') }}</p>
+</app-aip-dialog>
+
+<app-aip-dialog
+  [open]="sharingDialogOpen()"
+  [title]="i18n.translate('files.sharing.dialogTitle')"
+  [description]="sharingDialogFile() ? i18n.translate('files.sharing.dialogDescription', { name: sharingDialogFile()!.originalFileName }) : null"
+  [confirmLabel]="i18n.translate('files.sharing.done')"
+  [cancelLabel]="i18n.translate('common.cancel')"
+  [busy]="sharingBusy()"
+  [confirmDisabled]="false"
+  size="wide"
+  focusReturnFallbackId="files-preview-pane"
+  (confirm)="closeSharingDialog()"
+  (cancel)="closeSharingDialog()"
+  (closed)="closeSharingDialog()"
+>
+  @if (sharingError()) {
+    <p class="files-page__sharing-error" role="alert" data-testid="files-sharing-error">{{ sharingError() }}</p>
+  }
+  @if (sharingDetail(); as detail) {
+    <section class="files-page__sharing" [attr.aria-busy]="sharingBusy()" data-testid="files-sharing-dialog-content">
+      <p class="files-page__sharing-state" role="status" aria-live="polite">
+        {{ i18n.translate('files.sharing.currentState', { state: fileSharingLabel(sharingDialogFile()!) }) }}
+      </p>
+      @if (detail.canInspectSharing && detail.sharing.canManageSharing) {
+        <label class="files-page__sharing-policy">
+          <input
+            type="checkbox"
+            [checked]="detail.shareWithWorkspace"
+            [disabled]="!sharingDialogCanEdit()"
+            (change)="updateSharingWorkspace($any($event.target).checked)"
+            data-testid="files-sharing-workspace-toggle"
+          />
+          <span>{{ i18n.translate('files.sharing.workspaceToggle') }}</span>
+        </label>
+        <p>{{ i18n.translate('files.sharing.workspaceToggleHelp') }}</p>
+
+        <section class="files-page__sharing-section" aria-labelledby="files-sharing-recipients-title">
+          <h3 id="files-sharing-recipients-title">{{ i18n.translate('files.sharing.recipients') }}</h3>
+          @if (detail.recipients.length === 0) {
+            <p>{{ i18n.translate('files.sharing.noRecipients') }}</p>
+          } @else {
+            <ul class="files-page__sharing-recipient-list" data-testid="files-sharing-recipients">
+              @for (recipient of detail.recipients; track recipient.grantId) {
+                <li>
+                  <span>{{ recipient.displayName }} — {{ recipient.accessKind === 'externalProjectMember' ? i18n.translate('files.sharing.externalRecipient') : i18n.translate('files.sharing.workspaceRecipient') }}</span>
+                  <button
+                    type="button"
+                    [disabled]="!sharingDialogCanEdit()"
+                    (click)="revokeSharingRecipient(recipient.grantId)"
+                    data-testid="files-sharing-revoke"
+                  >{{ i18n.translate('files.sharing.revoke') }}</button>
+                </li>
+              }
+            </ul>
+          }
+        </section>
+
+        <section class="files-page__sharing-section" aria-labelledby="files-sharing-add-title">
+          <h3 id="files-sharing-add-title">{{ i18n.translate('files.sharing.addRecipient') }}</h3>
+          <div class="files-page__sharing-add-controls">
+            <label>
+              <span>{{ i18n.translate('files.sharing.recipientLabel') }}</span>
+              <select
+                [value]="sharingSelectedRecipientId()"
+                [disabled]="!sharingDialogCanEdit()"
+                (change)="updateSharingRecipient($event)"
+                data-testid="files-sharing-recipient-select"
+              >
+                <option value="">{{ i18n.translate('files.sharing.selectRecipient') }}</option>
+                @for (candidate of detail.availableRecipients; track candidate.userId) {
+                  <option [value]="candidate.userId">
+                    {{ candidate.displayName }} — {{ candidate.accessKind === 'externalProjectMember' ? i18n.translate('files.sharing.externalRecipient') : i18n.translate('files.sharing.workspaceRecipient') }}
+                  </option>
+                }
+              </select>
+            </label>
+            <button
+              type="button"
+              [disabled]="!sharingDialogCanEdit() || !sharingSelectedRecipientId()"
+              (click)="grantSharingRecipient()"
+              data-testid="files-sharing-grant"
+            >{{ i18n.translate('files.sharing.grant') }}</button>
+          </div>
+          <p>{{ i18n.translate('files.sharing.recipientHelp') }}</p>
+        </section>
+      } @else {
+        <p role="alert">{{ i18n.translate('files.sharing.permissionChanged') }}</p>
+      }
+    </section>
+  } @else if (!sharingBusy() && !sharingError()) {
+    <p role="status">{{ i18n.translate('files.sharing.loadFailed') }}</p>
+  }
 </app-aip-dialog>
