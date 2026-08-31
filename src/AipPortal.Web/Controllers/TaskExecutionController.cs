@@ -1,4 +1,5 @@
 using AipPortal.Application.Common;
+using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Projects;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -6,14 +7,17 @@ using Microsoft.AspNetCore.Mvc;
 namespace AipPortal.Web.Controllers;
 
 /// <summary>
-/// Server-authoritative Task execution-policy and durable acceptance boundary.
-/// It never accepts browser authority for sources and never starts a runtime
-/// before the accepted run has committed. The Project-files worker is composed
-/// by the subsequent materialization/result workstreams.
+/// Server-authoritative Task execution-policy, durable acceptance, and normal
+/// result-read boundary. It never accepts browser authority for sources and
+/// never starts a runtime before the accepted run has committed.
 /// </summary>
 [ApiController]
 [Authorize]
-public sealed class TaskExecutionController(ITaskExecutionScopeService executionScopes) : ControllerBase
+public sealed class TaskExecutionController(
+    ITaskExecutionScopeService executionScopes,
+    ITaskExecutionRuntime? runtime = null,
+    ICurrentTenant? currentTenant = null,
+    ITaskExecutionResultService? executionResults = null) : ControllerBase
 {
     [HttpGet("api/projects/{projectId:guid}/execution-scope")]
     public async Task<IActionResult> GetProjectScope(Guid projectId, CancellationToken cancellationToken) =>
@@ -44,6 +48,23 @@ public sealed class TaskExecutionController(ITaskExecutionScopeService execution
         CancellationToken cancellationToken) =>
         ToActionResult(await executionScopes.ClearTaskOverrideAsync(taskItemId, request, cancellationToken));
 
+    [HttpGet("api/tasks/{taskItemId:guid}/execution-result")]
+    public async Task<IActionResult> GetLatestResult(
+        Guid taskItemId,
+        CancellationToken cancellationToken) =>
+        executionResults is null
+            ? ResultUnavailable()
+            : ToActionResult(await executionResults.GetLatestAsync(taskItemId, cancellationToken));
+
+    [HttpGet("api/tasks/{taskItemId:guid}/execution-runs/{runId:guid}/result")]
+    public async Task<IActionResult> GetResult(
+        Guid taskItemId,
+        Guid runId,
+        CancellationToken cancellationToken) =>
+        executionResults is null
+            ? ResultUnavailable()
+            : ToActionResult(await executionResults.GetAsync(taskItemId, runId, cancellationToken));
+
     [HttpPost("api/tasks/{taskItemId:guid}/execution-runs")]
     public async Task<IActionResult> RequestRun(
         Guid taskItemId,
@@ -53,10 +74,37 @@ public sealed class TaskExecutionController(ITaskExecutionScopeService execution
     {
         _ = request;
         var result = await executionScopes.RequestRunAsync(taskItemId, idempotencyKey, cancellationToken);
-        return result.IsSuccess
-            ? StatusCode(StatusCodes.Status201Created, result.Value)
-            : ToActionResult(result);
+        if (!result.IsSuccess || result.Value is not { } accepted)
+        {
+            return ToActionResult(result);
+        }
+
+        var response = accepted;
+        if (runtime is not null &&
+            currentTenant is { IsAvailable: true, IsPlatformScope: false } &&
+            currentTenant.TenantId != Guid.Empty)
+        {
+            await runtime.ExecuteAsync(new TaskExecutionRuntimeHandle(
+                accepted.Id,
+                currentTenant.TenantId,
+                accepted.RuntimeContractVersion), CancellationToken.None);
+
+            var refreshed = await executionScopes.GetTaskScopeAsync(taskItemId, CancellationToken.None);
+            if (refreshed.IsSuccess &&
+                refreshed.Value is { LatestRun: { } latest } &&
+                latest.Id == accepted.Id)
+            {
+                response = latest;
+            }
+        }
+
+        return StatusCode(StatusCodes.Status201Created, response);
     }
+
+    private IActionResult ResultUnavailable() =>
+        ToActionResult(Result<TaskExecutionResultResponse>.Failure(new ApplicationErrorDetail(
+            "TASK_EXECUTION_RESULT_UNAVAILABLE",
+            "The execution result is temporarily unavailable.")));
 
     private IActionResult ToActionResult<T>(Result<T> result)
     {
@@ -68,9 +116,11 @@ public sealed class TaskExecutionController(ITaskExecutionScopeService execution
         var message = detail?.Message ?? "The execution scope request could not be completed.";
         var status = code switch
         {
-            "TASK_EXECUTION_NOT_FOUND" => StatusCodes.Status404NotFound,
+            "TASK_EXECUTION_NOT_FOUND" or "TASK_EXECUTION_RESULT_NOT_FOUND" => StatusCodes.Status404NotFound,
             "TASK_EXECUTION_STALE_VERSION" or "TASK_EXECUTION_IDEMPOTENCY_CONFLICT" => StatusCodes.Status409Conflict,
-            "TASK_EXECUTION_PERSISTENCE_UNAVAILABLE" or "TASK_EXECUTION_REPLAY_UNAVAILABLE" => StatusCodes.Status503ServiceUnavailable,
+            "TASK_EXECUTION_PERSISTENCE_UNAVAILABLE" or
+            "TASK_EXECUTION_REPLAY_UNAVAILABLE" or
+            "TASK_EXECUTION_RESULT_UNAVAILABLE" => StatusCodes.Status503ServiceUnavailable,
             _ => StatusCodes.Status400BadRequest
         };
 
@@ -83,7 +133,7 @@ public sealed class TaskExecutionController(ITaskExecutionScopeService execution
                 message,
                 target = detail?.Target,
                 details = Array.Empty<object>(),
-                redactionApplied = code == "TASK_EXECUTION_NOT_FOUND"
+                redactionApplied = code is "TASK_EXECUTION_NOT_FOUND" or "TASK_EXECUTION_RESULT_NOT_FOUND"
             }
         });
     }

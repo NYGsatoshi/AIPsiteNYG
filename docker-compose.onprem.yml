@@ -20,19 +20,24 @@ services:
       Security__CookieSecurePolicy: Always
       Security__RequireHttps: "true"
       Security__EnableHsts: "true"
+      # The supported production topology is an operator-provided TLS proxy
+      # terminating outside this Compose project and reaching this loopback-only
+      # origin. Proxy mode is fail-closed until a trusted source IP/CIDR is set.
       ReverseProxy__TrustForwardedHeaders: ${REVERSE_PROXY_TRUST_FORWARDED_HEADERS:-false}
+      ReverseProxy__TrustedProxies__0: ${REVERSE_PROXY_TRUSTED_PROXIES:-}
+      ReverseProxy__TrustedNetworks__0: ${REVERSE_PROXY_TRUSTED_NETWORKS:-}
       Platform__PlatformAdminSetupMode: "false"
       AIP_SEED_ADMIN_ENABLED: ${AIP_SEED_ADMIN_ENABLED:-false}
       AIP_SEED_ADMIN_EMAIL: ${AIP_SEED_ADMIN_EMAIL:-admin@example.local}
       AIP_SEED_ADMIN_USERNAME: ${AIP_SEED_ADMIN_USERNAME:-admin}
       AIP_SEED_ADMIN_PASSWORD: ${AIP_SEED_ADMIN_PASSWORD:-}
     ports:
-      - "${AIP_PORTAL_PORT:-8080}:8080"
+      - "${AIP_PORTAL_BIND_ADDRESS:-127.0.0.1}:${AIP_PORTAL_PORT:-8080}:8080"
     volumes:
       - aip_onprem_uploads:/app/storage/uploads
       - aip_onprem_data_protection:/app/data/protection-keys
     healthcheck:
-      test: ["CMD-SHELL", "curl --fail --silent --show-error http://localhost:8080/health/ready >/dev/null"]
+      test: ["CMD-SHELL", "curl --fail --silent --show-error -H 'X-Forwarded-For: 127.0.0.1' -H 'X-Forwarded-Proto: https' -H 'X-Forwarded-Host: localhost' http://localhost:8080/health/ready >/dev/null"]
       interval: 10s
       timeout: 5s
       retries: 12

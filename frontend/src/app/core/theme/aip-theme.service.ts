@@ -51,6 +51,12 @@ export class AipThemeService {
     root.dataset['aipTheme'] = theme;
     root.dataset['aipDensity'] = this.densityValue();
     root.style.colorScheme = theme;
+
+    // Syncfusion's modern Material theme switches its CSS-variable palette
+    // from this body class. Keep it driven by the same application theme so
+    // vendor overlays, pagers, tooltips, and nested controls cannot remain in
+    // the opposite color scheme.
+    this.document.body?.classList.toggle('e-dark-mode', theme === 'dark');
   }
 
   private readStoredTheme(): AipTheme | null {

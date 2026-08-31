@@ -369,6 +369,7 @@ jobs:
           docker compose -f docker-compose.onprem.yml config --quiet
           docker compose -f docker-compose.onprem.yml -f docker-compose.onprem.ci.yml config --quiet
           docker compose -p deploy -f deploy/sakura/docker-compose.yml config --quiet
+          bash scripts/ci/verify-onprem-proxy-topology.sh
 
       - name: Verify on-prem Compose migration service
         env:

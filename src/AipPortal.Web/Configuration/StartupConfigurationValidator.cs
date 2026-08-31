@@ -138,6 +138,11 @@ public sealed class StartupConfigurationValidator(
             }
         }
 
+        foreach (var error in ForwardedHeadersConfiguration.GetConfigurationErrors(configuration))
+        {
+            errors.Add(error);
+        }
+
         if (isProduction)
         {
             if (security.CookieSecurePolicy != CookieSecurePolicy.Always)

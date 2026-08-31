@@ -51,11 +51,11 @@ interface SyncfusionActionEvent {
 
 const dateOnlyPattern = /^(\d{4})-(\d{2})-(\d{2})$/u;
 export const SYNCFUSION_GANTT_THEME_ASSETS = [
-  'assets/vendor/syncfusion/base/material.css',
-  'assets/vendor/syncfusion/treegrid/material.css',
-  'assets/vendor/syncfusion/layouts/material.css',
-  'assets/vendor/syncfusion/popups/material.css',
-  'assets/vendor/syncfusion/gantt/material.css'
+  'assets/vendor/syncfusion/base/material3.css',
+  'assets/vendor/syncfusion/treegrid/material3.css',
+  'assets/vendor/syncfusion/layouts/material3.css',
+  'assets/vendor/syncfusion/popups/material3.css',
+  'assets/vendor/syncfusion/gantt/material3.css'
 ] as const;
 
 /**
@@ -100,9 +100,6 @@ export function formatGanttDateOnly(value: Date | null | undefined): AipGanttDat
       class="aip-syncfusion-gantt"
       [attr.aria-label]="contract.ariaLabel + ' timeline chart'"
       data-testid="aip-syncfusion-gantt">
-      @for (themeAsset of themeAssets; track themeAsset) {
-        <link rel="stylesheet" [attr.href]="themeAsset" />
-      }
       <p class="aip-syncfusion-gantt__notice">
         Timeline pointer editing is optional. The complete keyboard and form workflow follows the chart.
       </p>
@@ -152,7 +149,6 @@ export class SyncfusionGanttComponent {
   @Output() readonly vendorFailed = new EventEmitter<void>();
 
   private interactionActive = false;
-  readonly themeAssets = SYNCFUSION_GANTT_THEME_ASSETS;
 
   readonly taskFields = {
     id: 'taskId',

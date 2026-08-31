@@ -61,15 +61,17 @@ export interface AipFileUploaderItem {
   `,
   styles: [`
     :host { display: block; }
-    .aip-uploader { border: 1px dashed var(--aip-border-strong, #687282); border-radius: 0.75rem; padding: 1rem; background: var(--aip-surface-raised, #171b22); color: var(--aip-text-primary, #f4f7fb); }
+    .aip-uploader { border: 1px dashed var(--aip-color-border-strong); border-radius: 0.75rem; padding: 1rem; background: var(--aip-color-bg-elevated); color: var(--aip-color-text-primary); }
     .aip-uploader--disabled { opacity: 0.65; }
     .aip-uploader__input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
     .aip-uploader__prompt { display: grid; justify-items: start; gap: 0.5rem; }
-    .aip-uploader__prompt span, .aip-uploader__queue span, .aip-uploader__queue small { color: var(--aip-text-secondary, #b8c0cc); }
-    button { min-height: 2.5rem; border: 1px solid var(--aip-border-strong, #687282); border-radius: 0.5rem; padding: 0.5rem 0.9rem; background: var(--aip-surface-interactive, #242b35); color: inherit; cursor: pointer; }
+    .aip-uploader__prompt span, .aip-uploader__queue span, .aip-uploader__queue small { color: var(--aip-color-text-secondary); }
+    button { min-height: 2.5rem; border: 1px solid var(--aip-color-border-strong); border-radius: 0.5rem; padding: 0.5rem 0.9rem; background: var(--aip-color-bg-surface-subtle); color: var(--aip-color-text-primary); cursor: pointer; }
+    button:hover:not(:disabled) { background: var(--aip-color-bg-hover); }
+    button:focus-visible { outline: var(--aip-focus-outline); outline-offset: var(--aip-focus-offset); }
     button:disabled { cursor: not-allowed; opacity: 0.55; }
     .aip-uploader__queue { display: grid; gap: 0.5rem; margin: 1rem 0 0; padding: 0; list-style: none; }
-    .aip-uploader__queue li { display: flex; align-items: center; justify-content: space-between; gap: 1rem; border-top: 1px solid var(--aip-border-subtle, #48505e); padding-top: 0.75rem; }
+    .aip-uploader__queue li { display: flex; align-items: center; justify-content: space-between; gap: 1rem; border-top: 1px solid var(--aip-color-border-default); padding-top: 0.75rem; }
     .aip-uploader__queue li > div { display: grid; gap: 0.2rem; min-width: 0; }
     .aip-uploader__queue strong, .aip-uploader__queue span, .aip-uploader__queue small { overflow-wrap: anywhere; }
   `]
