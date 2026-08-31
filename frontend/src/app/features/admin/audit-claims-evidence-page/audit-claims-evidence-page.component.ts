@@ -3,12 +3,18 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import { distinctUntilChanged, map } from 'rxjs';
 
+import { AipFilterChipComponent } from '../../../shared/ui/aip-filter-chip/aip-filter-chip.component';
 import { AuditClaimsEvidenceFacade } from './audit-claims-evidence.facade';
-import { AuditClaimViewModel, AuditEvidenceSourceKind } from './audit-claims-evidence.types';
+import {
+  AuditClaimSupportFilter,
+  AuditClaimViewModel,
+  AuditEvidenceSourceKind,
+} from './audit-claims-evidence.types';
 
 @Component({
   selector: 'app-audit-claims-evidence-page',
   standalone: true,
+  imports: [AipFilterChipComponent],
   templateUrl: './audit-claims-evidence-page.component.html',
   styleUrl: './audit-claims-evidence-page.component.scss',
 })
@@ -23,16 +29,38 @@ export class AuditClaimsEvidencePageComponent {
     ),
     { initialValue: this.route.snapshot.queryParamMap.get('artifactVersion') },
   );
+  private readonly routeClaimSupport = toSignal(
+    this.route.queryParamMap.pipe(
+      map((params) => normalizeClaimSupport(params.get('support'))),
+      distinctUntilChanged(),
+    ),
+    { initialValue: normalizeClaimSupport(this.route.snapshot.queryParamMap.get('support')) },
+  );
 
   readonly vm = this.facade.viewModel;
+  readonly actionSummary = this.facade.actionSummary;
   readonly versionInput = signal(this.route.snapshot.queryParamMap.get('artifactVersion') ?? '');
   readonly inputError = signal<string | null>(null);
   readonly selectedClaimId = signal<string | null>(null);
   readonly selectedEvidenceId = signal<string | null>(null);
+  readonly claimSupportFilter = signal<AuditClaimSupportFilter>(
+    normalizeClaimSupport(this.route.snapshot.queryParamMap.get('support')),
+  );
+
+  readonly visibleClaims = computed(() => {
+    const claims = this.vm().claims;
+    return this.claimSupportFilter() === 'Unverified'
+      ? claims.filter((claim) => claim.supportStatus === 'Unverified')
+      : claims;
+  });
+
+  readonly unverifiedClaimCount = computed(() =>
+    this.vm().claims.filter((claim) => claim.supportStatus === 'Unverified').length,
+  );
 
   readonly selectedClaim = computed(() => {
     const claimId = this.selectedClaimId();
-    return this.vm().claims.find((claim) => claim.id === claimId) ?? null;
+    return this.visibleClaims().find((claim) => claim.id === claimId) ?? null;
   });
 
   readonly selectedEvidence = computed(() => {
@@ -45,20 +73,36 @@ export class AuditClaimsEvidencePageComponent {
   });
 
   constructor() {
+    this.facade.loadActionSummary();
+
     effect(() => {
       const versionId = this.routeVersionId();
       untracked(() => this.loadFromRoute(versionId));
     });
 
     effect(() => {
+      const support = this.routeClaimSupport();
+      untracked(() => {
+        this.claimSupportFilter.set(support);
+        this.selectedClaimId.set(null);
+        this.selectedEvidenceId.set(null);
+      });
+    });
+
+    effect(() => {
       const page = this.vm();
-      if (page.status !== 'ready' || page.claims.length === 0) {
+      const claims = this.visibleClaims();
+      if (page.status !== 'ready' || claims.length === 0) {
+        untracked(() => {
+          this.selectedClaimId.set(null);
+          this.selectedEvidenceId.set(null);
+        });
         return;
       }
 
       untracked(() => {
-        const current = page.claims.find((claim) => claim.id === this.selectedClaimId());
-        this.selectClaim(current ?? page.claims[0]);
+        const current = claims.find((claim) => claim.id === this.selectedClaimId());
+        this.selectClaim(current ?? claims[0]);
       });
     });
   }
@@ -90,7 +134,48 @@ export class AuditClaimsEvidencePageComponent {
     });
   }
 
+  activateUnverifiedClaims(): void {
+    if (this.vm().status !== 'ready') {
+      return;
+    }
+
+    this.claimSupportFilter.set('Unverified');
+    this.selectedClaimId.set(null);
+    this.selectedEvidenceId.set(null);
+    void this.updateClaimFilter('Unverified');
+  }
+
+  clearClaimFilter(): void {
+    this.claimSupportFilter.set('');
+    this.selectedClaimId.set(null);
+    this.selectedEvidenceId.set(null);
+    void this.updateClaimFilter('');
+  }
+
+  openWarningEvents(): void {
+    if (this.actionSummary().status !== 'ready') {
+      return;
+    }
+
+    void this.router.navigate(['/admin/audit'], {
+      queryParams: { severity: 'warning' },
+    });
+  }
+
+  openErrorEvents(): void {
+    if (this.actionSummary().status !== 'ready') {
+      return;
+    }
+
+    void this.router.navigate(['/admin/audit'], {
+      queryParams: { status: 'failed' },
+    });
+  }
+
   selectClaim(claim: AuditClaimViewModel): void {
+    if (!this.visibleClaims().some((candidate) => candidate.id === claim.id)) {
+      return;
+    }
     this.selectedClaimId.set(claim.id);
     this.selectedEvidenceId.set(claim.evidence[0]?.id ?? null);
   }
@@ -108,6 +193,14 @@ export class AuditClaimsEvidencePageComponent {
       case 'ArtifactVersion': return 'Artifact version';
       default: return 'Source';
     }
+  }
+
+  private async updateClaimFilter(filter: AuditClaimSupportFilter): Promise<void> {
+    await this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { support: filter || null },
+      queryParamsHandling: 'merge',
+    });
   }
 
   private loadFromRoute(versionId: string | null): void {
@@ -130,6 +223,10 @@ export class AuditClaimsEvidencePageComponent {
     this.inputError.set(null);
     this.facade.load(versionId);
   }
+}
+
+function normalizeClaimSupport(value: string | null): AuditClaimSupportFilter {
+  return value === 'Unverified' ? 'Unverified' : '';
 }
 
 function isGuid(value: string): boolean {

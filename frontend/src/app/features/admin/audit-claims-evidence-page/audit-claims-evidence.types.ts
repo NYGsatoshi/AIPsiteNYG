@@ -7,14 +7,29 @@ export type AuditClaimsEvidenceStatus =
   | 'permissionDenied'
   | 'error';
 
+export type AuditActionSummaryStatus =
+  | 'idle'
+  | 'loading'
+  | 'ready'
+  | 'permissionDenied'
+  | 'error';
+
 export type AuditClaimSupportStatus =
   | 'Unverified'
   | 'Supported'
   | 'Contradicted'
   | 'Insufficient'
   | 'Unsupported';
+export type AuditClaimSupportFilter = '' | 'Unverified';
 export type AuditClaimReviewStatus = 'Unreviewed' | 'Reviewed';
 export type AuditEvidenceSourceKind = 'WebSnapshot' | 'FileAttachment' | 'ArtifactVersion' | 'Source';
+
+export interface AuditActionSummaryViewModel {
+  readonly status: AuditActionSummaryStatus;
+  readonly warningCount: number | null;
+  readonly errorCount: number | null;
+  readonly message?: string;
+}
 
 export interface AuditEvidenceViewModel {
   readonly id: string;

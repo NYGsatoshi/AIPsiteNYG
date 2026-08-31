@@ -26,6 +26,7 @@ import { AnnouncementLocalPreviewComponent } from '../announcement-local-preview
 import { AnnouncementPublicationStatusComponent } from '../announcement-publication-status/announcement-publication-status.component';
 import {
   ANNOUNCEMENT_PRIORITY_LABELS,
+  AnnouncementActionLink,
   AnnouncementAudienceOption,
   AnnouncementEditorDraft,
   AnnouncementEditorSubmission,
@@ -34,6 +35,7 @@ import {
   AnnouncementPriority,
   AnnouncementPublicationState,
 } from '../announcements.types';
+import { isSafeAnnouncementUrl } from '../announcements.api';
 import { AipDialogComponent } from '../../../shared/ui/aip-dialog/aip-dialog.component';
 
 @Component({
@@ -54,6 +56,10 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
   @ViewChild('priorityInput') private priorityInput?: ElementRef<HTMLSelectElement>;
   @ViewChild('audienceInput') private audienceInput?: ElementRef<HTMLSelectElement>;
   @ViewChild('scheduleInput') private scheduleInput?: ElementRef<HTMLInputElement>;
+  @ViewChild('ctaLabelInput') private ctaLabelInput?: ElementRef<HTMLInputElement>;
+  @ViewChild('ctaUrlInput') private ctaUrlInput?: ElementRef<HTMLInputElement>;
+  @ViewChild('attachmentLabelInput') private attachmentLabelInput?: ElementRef<HTMLInputElement>;
+  @ViewChild('attachmentUrlInput') private attachmentUrlInput?: ElementRef<HTMLInputElement>;
   @ViewChild(AnnouncementLocalPreviewComponent)
   private previewComponent?: AnnouncementLocalPreviewComponent;
 
@@ -71,9 +77,15 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
   readonly publicationReviewOpen = signal(false);
   readonly publicationConfirming = signal(false);
   readonly publicationReview = signal<AnnouncementEditorSubmission | null>(null);
+  readonly ctaLabel = signal('');
+  readonly ctaUrl = signal('');
+  readonly attachmentLabel = signal('');
+  readonly attachmentUrl = signal('');
   private readonly previewRevision = signal(0);
+  private readonly touchedLinkFields = new Set<AnnouncementEditorLinkField>();
   private submissionAttempted = false;
   private formInitialized = false;
+  private contentLinksDirty = false;
   private formChanges?: Subscription;
   private deliveryModeChanges?: Subscription;
 
@@ -116,12 +128,16 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
     }
 
     const value = this.form.getRawValue();
+    const cta = this.optionalLink('cta');
+    const attachment = this.optionalLink('attachment');
     return {
       title: value.title.trim(),
       body: value.body.trim(),
       priority: value.priority,
       audience,
       requiresReadConfirmation: value.requiresReadConfirmation,
+      ...(cta ? { cta } : {}),
+      ...(attachment ? { attachment } : {}),
     };
   });
 
@@ -142,12 +158,19 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
       return [];
     }
 
-    return announcementEditorFields
-      .map((field) => {
+    const formErrors: AnnouncementEditorFieldError[] = announcementEditorFormFields.flatMap(
+      (field) => {
         const message = this.fieldError(field);
-        return message ? { field, message } : null;
-      })
-      .filter((error): error is AnnouncementEditorFieldError => error !== null);
+        return message ? [{ field, message }] : [];
+      },
+    );
+    const linkErrors: AnnouncementEditorFieldError[] = announcementEditorLinkFields.flatMap(
+      (field) => {
+        const message = this.linkFieldError(field);
+        return message ? [{ field, message }] : [];
+      },
+    );
+    return [...formErrors, ...linkErrors];
   }
 
   ngOnInit(): void {
@@ -185,10 +208,12 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
     this.syncEditability();
     const currentAudienceKey = this.form.controls.audienceKey.value;
     const preferredAudienceKey =
-      this.formInitialized && this.form.dirty ? currentAudienceKey : this.draft.audienceKey;
+      this.formInitialized && (this.form.dirty || this.contentLinksDirty)
+        ? currentAudienceKey
+        : this.draft.audienceKey;
     const authorizedAudienceKey = this.authorizedAudienceKey(preferredAudienceKey);
 
-    if (this.formInitialized && this.form.dirty) {
+    if (this.formInitialized && (this.form.dirty || this.contentLinksDirty)) {
       if (currentAudienceKey !== authorizedAudienceKey) {
         this.form.controls.audienceKey.setValue(authorizedAudienceKey, { emitEvent: false });
         this.previewRevision.update((revision) => revision + 1);
@@ -215,8 +240,14 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
       },
       { emitEvent: false },
     );
+    this.ctaLabel.set(this.draft.cta?.label ?? '');
+    this.ctaUrl.set(this.draft.cta?.url ?? '');
+    this.attachmentLabel.set(this.draft.attachment?.label ?? '');
+    this.attachmentUrl.set(this.draft.attachment?.url ?? '');
     this.submissionAttempted = false;
     this.formInitialized = true;
+    this.contentLinksDirty = false;
+    this.touchedLinkFields.clear();
     this.updateScheduleValidators();
     this.previewRevision.update((revision) => revision + 1);
 
@@ -236,7 +267,7 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
       : `${audience.displayName} — ${audience.recipientCount.toLocaleString('ja-JP')}名`;
   }
 
-  fieldError(field: AnnouncementEditorField): string | null {
+  fieldError(field: AnnouncementEditorFormField): string | null {
     const control = this.form.controls[field];
     if (!control.invalid || !control.touched) {
       return null;
@@ -271,9 +302,49 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
     return '配信対象を選択してください。権限のある対象のみ公開できます。';
   }
 
-  fieldDescribedBy(field: AnnouncementEditorField, helpId: string): string {
+  linkFieldError(field: AnnouncementEditorLinkField): string | null {
+    if (!this.submissionAttempted && !this.touchedLinkFields.has(field)) {
+      return null;
+    }
+
+    const isCta = field.startsWith('cta');
+    const isLabel = field.endsWith('Label');
+    const label = (isCta ? this.ctaLabel() : this.attachmentLabel()).trim();
+    const url = (isCta ? this.ctaUrl() : this.attachmentUrl()).trim();
+    const subject = isCta ? 'CTA' : 'リンク添付';
+
+    if (isLabel) {
+      if (url && !label) {
+        return `${subject}の表示名を入力してください。`;
+      }
+      if (label.length > announcementLinkLabelMaximumLength) {
+        return `${subject}の表示名は${announcementLinkLabelMaximumLength}文字以内で入力してください。`;
+      }
+      return null;
+    }
+
+    if (label && !url) {
+      return `${subject}のURLを入力してください。`;
+    }
+    if (url.length > announcementLinkUrlMaximumLength) {
+      return `${subject}のURLは${announcementLinkUrlMaximumLength.toLocaleString('ja-JP')}文字以内で入力してください。`;
+    }
+    if (url && !isSafeAnnouncementUrl(url)) {
+      return `${subject}のURLには / から始まるアプリ内パス、または安全なHTTPS URLを指定してください。`;
+    }
+    return null;
+  }
+
+  fieldDescribedBy(field: AnnouncementEditorFormField, helpId: string): string {
     const errorId = this.fieldError(field)
       ? `announcement-${announcementEditorFieldDomId(field)}-error`
+      : null;
+    return [helpId, errorId].filter((id): id is string => id !== null).join(' ');
+  }
+
+  linkFieldDescribedBy(field: AnnouncementEditorLinkField, helpId: string): string {
+    const errorId = this.linkFieldError(field)
+      ? `announcement-${announcementLinkFieldDomId(field)}-error`
       : null;
     return [helpId, errorId].filter((id): id is string => id !== null).join(' ');
   }
@@ -281,6 +352,30 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
   focusField(field: AnnouncementEditorField, event: Event): void {
     event.preventDefault();
     this.focusControl(field);
+  }
+
+  touchContentLink(field: AnnouncementEditorLinkField): void {
+    this.touchedLinkFields.add(field);
+  }
+
+  updateContentLink(field: AnnouncementEditorLinkField, event: Event): void {
+    const value = (event.target as HTMLInputElement).value;
+    switch (field) {
+      case 'ctaLabel':
+        this.ctaLabel.set(value);
+        break;
+      case 'ctaUrl':
+        this.ctaUrl.set(value);
+        break;
+      case 'attachmentLabel':
+        this.attachmentLabel.set(value);
+        break;
+      case 'attachmentUrl':
+        this.attachmentUrl.set(value);
+        break;
+    }
+    this.contentLinksDirty = true;
+    this.emitDraftChange();
   }
 
   openPreview(): void {
@@ -313,8 +408,9 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
   publish(): void {
     this.submissionAttempted = true;
     this.form.markAllAsTouched();
+    this.markContentLinksTouched();
     const audience = this.selectedAudience();
-    if (!this.canPublish || this.form.invalid || audience === null) {
+    if (!this.canPublish || this.form.invalid || !this.contentLinksAreValid() || audience === null) {
       this.focusFirstInvalidControl(audience === null ? 'audienceKey' : undefined);
       return;
     }
@@ -330,9 +426,8 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
 
   saveDraft(): void {
     this.submissionAttempted = true;
-    this.form.controls.title.markAsTouched();
-    this.form.controls.body.markAsTouched();
-    this.form.controls.audienceKey.markAsTouched();
+    this.form.markAllAsTouched();
+    this.markContentLinksTouched();
     const submission = this.createSubmission(false);
     if (submission === null || !this.canSaveDraft || this.publishing) {
       return;
@@ -398,6 +493,8 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
   private emitDraftChange(): void {
     this.previewRevision.update((revision) => revision + 1);
     const value = this.form.getRawValue();
+    const cta = this.optionalLink('cta');
+    const attachment = this.optionalLink('attachment');
     this.draftChanged.emit({
       id: this.draft.id,
       version: this.draft.version,
@@ -409,6 +506,8 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
       audienceKey: value.audienceKey,
       availableAudiences: this.availableAudiences(),
       requiresReadConfirmation: value.requiresReadConfirmation,
+      ...(cta ? { cta } : {}),
+      ...(attachment ? { attachment } : {}),
       deliveryMode: value.deliveryMode,
       scheduledLocalDateTime: value.scheduledLocalDateTime,
       timeZoneId: value.timeZoneId,
@@ -419,8 +518,13 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
   }
 
   private focusFirstInvalidControl(fallback?: AnnouncementEditorField): void {
-    const invalidField =
-      announcementEditorFields.find((field) => this.form.controls[field].invalid) ?? fallback;
+    const invalidFormField = announcementEditorFormFields.find(
+      (field) => this.form.controls[field].invalid,
+    );
+    const invalidLinkField = announcementEditorLinkFields.find(
+      (field) => this.linkFieldError(field) !== null,
+    );
+    const invalidField = invalidFormField ?? invalidLinkField ?? fallback;
     if (!invalidField) {
       return;
     }
@@ -445,6 +549,18 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
       case 'scheduledLocalDateTime':
         this.scheduleInput?.nativeElement.focus();
         break;
+      case 'ctaLabel':
+        this.ctaLabelInput?.nativeElement.focus();
+        break;
+      case 'ctaUrl':
+        this.ctaUrlInput?.nativeElement.focus();
+        break;
+      case 'attachmentLabel':
+        this.attachmentLabelInput?.nativeElement.focus();
+        break;
+      case 'attachmentUrl':
+        this.attachmentUrlInput?.nativeElement.focus();
+        break;
     }
   }
 
@@ -453,8 +569,8 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
     const value = this.form.getRawValue();
     const title = value.title.trim();
     const body = value.body.trim();
-    if (!title || !body || audience === null) {
-      this.focusFirstInvalidControl(!title ? 'title' : !body ? 'body' : 'audienceKey');
+    if (!title || !body || audience === null || !this.contentLinksAreValid()) {
+      this.focusFirstInvalidControl(!title ? 'title' : !body ? 'body' : audience === null ? 'audienceKey' : undefined);
       return null;
     }
 
@@ -468,6 +584,8 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
       return null;
     }
 
+    const cta = this.optionalLink('cta');
+    const attachment = this.optionalLink('attachment');
     return {
       ...(this.draft.id ? { draftId: this.draft.id } : {}),
       ...(this.draft.version !== undefined ? { draftVersion: this.draft.version } : {}),
@@ -482,11 +600,55 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
       priority: value.priority,
       audience,
       requiresReadConfirmation: value.requiresReadConfirmation,
+      ...(cta ? { cta } : {}),
+      ...(attachment ? { attachment } : {}),
       deliveryMode,
       ...(deliveryMode === 'scheduled'
         ? { scheduledLocalDateTime, timeZoneId }
         : {}),
     };
+  }
+
+  private optionalLink(kind: 'cta' | 'attachment'): AnnouncementActionLink | null {
+    const label = (kind === 'cta' ? this.ctaLabel() : this.attachmentLabel()).trim();
+    const url = (kind === 'cta' ? this.ctaUrl() : this.attachmentUrl()).trim();
+    if (!label && !url) {
+      return null;
+    }
+    if (
+      !label ||
+      label.length > announcementLinkLabelMaximumLength ||
+      !url ||
+      url.length > announcementLinkUrlMaximumLength ||
+      !isSafeAnnouncementUrl(url)
+    ) {
+      return null;
+    }
+    return { label, url };
+  }
+
+  private contentLinksAreValid(): boolean {
+    return this.linkPairIsValid(this.ctaLabel(), this.ctaUrl()) &&
+      this.linkPairIsValid(this.attachmentLabel(), this.attachmentUrl());
+  }
+
+  private linkPairIsValid(rawLabel: string, rawUrl: string): boolean {
+    const label = rawLabel.trim();
+    const url = rawUrl.trim();
+    if (!label && !url) {
+      return true;
+    }
+    return Boolean(
+      label &&
+      label.length <= announcementLinkLabelMaximumLength &&
+      url &&
+      url.length <= announcementLinkUrlMaximumLength &&
+      isSafeAnnouncementUrl(url),
+    );
+  }
+
+  private markContentLinksTouched(): void {
+    announcementEditorLinkFields.forEach((field) => this.touchedLinkFields.add(field));
   }
 
   private updateScheduleValidators(): void {
@@ -513,26 +675,45 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
   }
 }
 
-type AnnouncementEditorField = 'title' | 'body' | 'priority' | 'audienceKey' | 'scheduledLocalDateTime';
+type AnnouncementEditorFormField = 'title' | 'body' | 'priority' | 'audienceKey' | 'scheduledLocalDateTime';
+type AnnouncementEditorLinkField = 'ctaLabel' | 'ctaUrl' | 'attachmentLabel' | 'attachmentUrl';
+type AnnouncementEditorField = AnnouncementEditorFormField | AnnouncementEditorLinkField;
 
 interface AnnouncementEditorFieldError {
   readonly field: AnnouncementEditorField;
   readonly message: string;
 }
 
-const announcementEditorFields: readonly AnnouncementEditorField[] = [
+const announcementEditorFormFields: readonly AnnouncementEditorFormField[] = [
   'title',
   'body',
   'priority',
   'audienceKey',
   'scheduledLocalDateTime',
 ];
+const announcementEditorLinkFields: readonly AnnouncementEditorLinkField[] = [
+  'ctaLabel',
+  'ctaUrl',
+  'attachmentLabel',
+  'attachmentUrl',
+];
 
 const announcementTitleMaximumLength = 200;
 const announcementBodyMaximumLength = 20_000;
+const announcementLinkLabelMaximumLength = 120;
+const announcementLinkUrlMaximumLength = 2_048;
 
-const announcementEditorFieldDomId = (field: AnnouncementEditorField): string =>
+const announcementEditorFieldDomId = (field: AnnouncementEditorFormField): string =>
   field === 'audienceKey' ? 'audience' : field === 'scheduledLocalDateTime' ? 'schedule-local-time' : field;
+
+const announcementLinkFieldDomId = (field: AnnouncementEditorLinkField): string =>
+  field === 'ctaLabel'
+    ? 'cta-label'
+    : field === 'ctaUrl'
+      ? 'cta-url'
+      : field === 'attachmentLabel'
+        ? 'attachment-label'
+        : 'attachment-url';
 
 const nonWhitespaceValidator: ValidatorFn = (
   control: AbstractControl<string>,
