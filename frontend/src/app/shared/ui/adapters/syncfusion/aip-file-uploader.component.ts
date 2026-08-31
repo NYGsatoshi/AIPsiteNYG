@@ -60,8 +60,8 @@ export interface AipFileUploaderItem {
     </section>
   `,
   styles: [`
-    :host { display: block; }
-    .aip-uploader { border: 1px dashed var(--aip-color-border-strong); border-radius: 0.75rem; padding: 1rem; background: var(--aip-color-bg-elevated); color: var(--aip-color-text-primary); }
+    :host { display: block; min-width: 0; container-type: inline-size; }
+    .aip-uploader { min-width: 0; border: 1px dashed var(--aip-color-border-strong); border-radius: 0.75rem; padding: 1rem; background: var(--aip-color-bg-elevated); color: var(--aip-color-text-primary); }
     .aip-uploader--disabled { opacity: 0.65; }
     .aip-uploader__input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
     .aip-uploader__prompt { display: grid; justify-items: start; gap: 0.5rem; }
@@ -71,9 +71,10 @@ export interface AipFileUploaderItem {
     button:focus-visible { outline: var(--aip-focus-outline); outline-offset: var(--aip-focus-offset); }
     button:disabled { cursor: not-allowed; opacity: 0.55; }
     .aip-uploader__queue { display: grid; gap: 0.5rem; margin: 1rem 0 0; padding: 0; list-style: none; }
-    .aip-uploader__queue li { display: flex; align-items: center; justify-content: space-between; gap: 1rem; border-top: 1px solid var(--aip-color-border-default); padding-top: 0.75rem; }
-    .aip-uploader__queue li > div { display: grid; gap: 0.2rem; min-width: 0; }
+    .aip-uploader__queue li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem; min-width: 0; border-top: 1px solid var(--aip-color-border-default); padding-top: 0.75rem; }
+    .aip-uploader__queue li > div { display: grid; flex: 1 1 12rem; gap: 0.2rem; min-width: 0; }
     .aip-uploader__queue strong, .aip-uploader__queue span, .aip-uploader__queue small { overflow-wrap: anywhere; }
+    @container (max-width: 26rem) { .aip-uploader__queue li > button { width: 100%; } }
   `]
 })
 export class AipFileUploaderComponent {

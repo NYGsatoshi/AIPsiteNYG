@@ -1,6 +1,7 @@
 :host {
   display: block;
   min-width: 0;
+  container-type: inline-size;
 }
 
 .file-row {
@@ -141,7 +142,7 @@ button:disabled {
 
 .file-row__preview-trigger:focus-visible,
 .file-row__actions button:focus-visible {
-  outline: 3px solid var(--aip-color-focus, #2f6feb);
+  outline: 3px solid var(--aip-color-focus);
   outline-offset: 2px;
 }
 
@@ -177,7 +178,7 @@ button:disabled {
   font: inherit;
 }
 
-@media (max-width: 720px) {
+@container (max-width: 32rem) {
   .file-row {
     grid-template-columns: minmax(0, 1fr);
   }
