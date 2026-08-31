@@ -238,26 +238,37 @@ public sealed class TaskExecutionResultPostgreSqlTests
         await using var context = new AppDbContext(options, currentTenant);
 
         var fileHash = new string('a', 64);
-        var fileObject = new FileObject
-        {
-            TenantId = graph.TenantId,
-            WorkspaceId = graph.WorkspaceId,
-            ProjectId = graph.ProjectId,
-            UploadedByUserId = graph.UserId,
-            OriginalFileName = "migration-source.txt",
-            StorageKey = $"migration/{suffix}/source.txt",
-            ContentType = "text/plain",
-            SizeBytes = 17,
-            HashSha256 = fileHash,
-            Status = FileObjectStatus.Active
-        };
-        context.FileObjects.Add(fileObject);
-        await context.SaveChangesAsync();
+        var fileObjectId = Guid.NewGuid();
+        var storageKey = $"migration/{suffix}/source.txt";
+        var createdAt = new DateTimeOffset(2026, 8, 30, 22, 0, 0, TimeSpan.Zero);
+
+        // This helper intentionally seeds a schema pinned before the result
+        // migration. Keep the file insert raw so later FileObject columns do
+        // not make this historical migration test depend on the current EF
+        // model (for example, SharingPolicy and SharingVersion).
+        await PostgreSqlMigrationTestDatabase.ExecuteAsync(database, """
+            INSERT INTO file_objects (
+                "Id", "TenantId", "WorkspaceId", "ProjectId", "UploadedByUserId",
+                "OriginalFileName", "StorageKey", "ContentType", "SizeBytes",
+                "HashSha256", "Status", "CreatedAt")
+            VALUES (
+                @id, @tenantId, @workspaceId, @projectId, @userId,
+                'migration-source.txt', @storageKey, 'text/plain', 17,
+                @hash, 'Active', @createdAt);
+            """,
+            ("id", fileObjectId),
+            ("tenantId", graph.TenantId),
+            ("workspaceId", graph.WorkspaceId),
+            ("projectId", graph.ProjectId),
+            ("userId", graph.UserId),
+            ("storageKey", storageKey),
+            ("hash", fileHash),
+            ("createdAt", createdAt));
 
         var attachment = new Attachment
         {
             TenantId = graph.TenantId,
-            FileObjectId = fileObject.Id,
+            FileObjectId = fileObjectId,
             WorkspaceId = graph.WorkspaceId,
             OwnerType = AttachmentOwnerType.TaskItem,
             OwnerId = graph.TaskId,
@@ -270,13 +281,13 @@ public sealed class TaskExecutionResultPostgreSqlTests
             Extension = ".txt",
             SizeBytes = 17,
             StorageProvider = "LocalFileSystem",
-            StorageKey = fileObject.StorageKey,
+            StorageKey = storageKey,
             ScanStatus = FileScanStatus.Clean
         };
         context.Attachments.Add(attachment);
         await context.SaveChangesAsync();
 
-        var requestedAt = new DateTimeOffset(2026, 8, 30, 22, 0, 0, TimeSpan.Zero);
+        var requestedAt = createdAt;
         var run = new TaskExecutionRun
         {
             TenantId = graph.TenantId,
@@ -318,7 +329,7 @@ public sealed class TaskExecutionResultPostgreSqlTests
             ("projectId", graph.ProjectId),
             ("taskId", graph.TaskId),
             ("runId", run.Id),
-            ("fileObjectId", fileObject.Id),
+            ("fileObjectId", fileObjectId),
             ("attachmentId", attachment.Id),
             ("hash", fileHash),
             ("materializedAt", run.StartedAtUtc!.Value.AddMilliseconds(1)));
