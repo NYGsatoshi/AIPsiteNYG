@@ -57,6 +57,10 @@
   font-weight: 800;
 }
 
+.message__time {
+  color: var(--aip-color-text-secondary);
+}
+
 .message__role {
   border: 0;
   border-radius: 4px;
