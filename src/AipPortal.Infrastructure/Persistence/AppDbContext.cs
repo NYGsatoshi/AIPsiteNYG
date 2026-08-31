@@ -11,6 +11,26 @@ public sealed class AppDbContext(
     DbContextOptions<AppDbContext> options,
     ICurrentTenant currentTenant) : DbContext(options)
 {
+    private static readonly HashSet<string> ImmutableTaskExecutionRunSnapshotProperties = new(StringComparer.Ordinal)
+    {
+        nameof(TaskExecutionRun.TenantId),
+        nameof(TaskExecutionRun.WorkspaceId),
+        nameof(TaskExecutionRun.ProjectId),
+        nameof(TaskExecutionRun.TaskItemId),
+        nameof(TaskExecutionRun.RequestedByUserId),
+        nameof(TaskExecutionRun.RequestedAtUtc),
+        nameof(TaskExecutionRun.RuntimeProvider),
+        nameof(TaskExecutionRun.RuntimeContractVersion),
+        nameof(TaskExecutionRun.SnapshotSchemaVersion),
+        nameof(TaskExecutionRun.SnapshotScopeOrigin),
+        nameof(TaskExecutionRun.SnapshotProjectScopeVersion),
+        nameof(TaskExecutionRun.SnapshotTaskOverrideVersion),
+        nameof(TaskExecutionRun.SnapshotWebEnabled),
+        nameof(TaskExecutionRun.SnapshotProjectFilesEnabled),
+        nameof(TaskExecutionRun.SnapshotResearchPlanRevisionId),
+        nameof(TaskExecutionRun.SnapshotResearchPlanRevisionNo)
+    };
+
     internal Guid? ActiveTenantId =>
         currentTenant.IsAvailable && !currentTenant.IsPlatformScope
             ? currentTenant.TenantId
@@ -66,6 +86,9 @@ public sealed class AppDbContext(
     public DbSet<TaskItem> TaskItems => Set<TaskItem>();
     public DbSet<TaskExecutionScopeOverride> TaskExecutionScopeOverrides => Set<TaskExecutionScopeOverride>();
     public DbSet<TaskExecutionRun> TaskExecutionRuns => Set<TaskExecutionRun>();
+    public DbSet<ResearchPlan> ResearchPlans => Set<ResearchPlan>();
+    public DbSet<ResearchPlanRevision> ResearchPlanRevisions => Set<ResearchPlanRevision>();
+    public DbSet<ResearchPlanStep> ResearchPlanSteps => Set<ResearchPlanStep>();
     public DbSet<TaskWorkflowDefinition> TaskWorkflowDefinitions => Set<TaskWorkflowDefinition>();
     public DbSet<TaskWorkflowStage> TaskWorkflowStages => Set<TaskWorkflowStage>();
     public DbSet<WorkItemCollaborator> WorkItemCollaborators => Set<WorkItemCollaborator>();
@@ -105,6 +128,8 @@ public sealed class AppDbContext(
         CancellationToken cancellationToken = default)
     {
         EnsureProjectExecutionScopeDefaults();
+        EnsureTaskExecutionRunSnapshotImmutability();
+        EnsureResearchPlanSnapshotImmutability();
         StampAuditableEntities();
         var hasNormalTenantWrite = ApplyTenantRules();
         EnsureLegacyUnclassifiedOperationalTaskWorkflowCompatibility();
@@ -139,6 +164,8 @@ public sealed class AppDbContext(
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
         EnsureProjectExecutionScopeDefaults();
+        EnsureTaskExecutionRunSnapshotImmutability();
+        EnsureResearchPlanSnapshotImmutability();
         StampAuditableEntities();
         var hasNormalTenantWrite = ApplyTenantRules();
         EnsureLegacyUnclassifiedOperationalTaskWorkflowCompatibility();
@@ -484,6 +511,53 @@ public sealed class AppDbContext(
                 throw new InvalidOperationException(
                     "Project execution scopes require a creator or owner as their updater.");
             }
+        }
+    }
+
+    /// <summary>
+    /// Research Plan revisions are historical snapshots. Plan edits append a
+    /// new revision and move the aggregate pointer; they never alter or remove
+    /// a prior revision or step in the normal persistence path.
+    /// </summary>
+    private void EnsureResearchPlanSnapshotImmutability()
+    {
+        if (ChangeTracker.Entries<ResearchPlanRevision>()
+            .Any(entry => entry.State is EntityState.Modified or EntityState.Deleted))
+        {
+            throw new InvalidOperationException(
+                "Research Plan revisions are immutable and cannot be changed or deleted.");
+        }
+
+        if (ChangeTracker.Entries<ResearchPlanStep>()
+            .Any(entry => entry.State is EntityState.Modified or EntityState.Deleted))
+        {
+            throw new InvalidOperationException(
+                "Research Plan steps are immutable and cannot be changed or deleted.");
+        }
+
+        if (ChangeTracker.Entries<ResearchPlan>()
+            .Any(entry => entry.State == EntityState.Deleted))
+        {
+            throw new InvalidOperationException(
+                "Research Plans are historical Task records and cannot be deleted.");
+        }
+    }
+
+    /// <summary>
+    /// Lifecycle fields on an accepted run may change as server work proceeds,
+    /// but its server-owned provenance and source/plan snapshots are fixed at
+    /// acceptance. This keeps a later dispatcher or worker from rewriting the
+    /// execution-start authority.
+    /// </summary>
+    private void EnsureTaskExecutionRunSnapshotImmutability()
+    {
+        if (ChangeTracker.Entries<TaskExecutionRun>()
+            .Where(entry => entry.State == EntityState.Modified)
+            .Any(entry => entry.Properties.Any(property =>
+                property.IsModified && ImmutableTaskExecutionRunSnapshotProperties.Contains(property.Metadata.Name))))
+        {
+            throw new InvalidOperationException(
+                "Task execution run snapshots are immutable after acceptance.");
         }
     }
 

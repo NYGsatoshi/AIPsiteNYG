@@ -49,6 +49,12 @@ public sealed class TaskExecutionScopeOverride : AuditableEntity, ITenantEntity
 public sealed class TaskExecutionRun : Entity, ITenantEntity
 {
     public const int SnapshotSchemaVersion1 = 1;
+    public const int SnapshotSchemaVersion2 = 2;
+    /// <summary>
+    /// The newest immutable run snapshot shape. Version 2 adds the optional
+    /// Task Research Plan revision reference while preserving V1 runs.
+    /// </summary>
+    public const int CurrentSnapshotSchemaVersion = SnapshotSchemaVersion2;
     public const int RuntimeContractVersion1 = 1;
 
     public Guid TenantId { get; set; }
@@ -67,14 +73,23 @@ public sealed class TaskExecutionRun : Entity, ITenantEntity
     public string? FailureCode { get; set; }
     public long VersionNo { get; set; } = 1;
 
-    public int SnapshotSchemaVersion { get; set; } = SnapshotSchemaVersion1;
+    public int SnapshotSchemaVersion { get; set; } = CurrentSnapshotSchemaVersion;
     public TaskExecutionScopeOrigin SnapshotScopeOrigin { get; set; }
     public long SnapshotProjectScopeVersion { get; set; }
     public long? SnapshotTaskOverrideVersion { get; set; }
     public bool SnapshotWebEnabled { get; set; }
     public bool SnapshotProjectFilesEnabled { get; set; }
+    /// <summary>
+    /// Optional immutable reference to the exact Task-owned Research Plan
+    /// revision that was current when this run was accepted. The revision's
+    /// append-only content is the execution-start plan; no plan body is
+    /// duplicated onto the run.
+    /// </summary>
+    public Guid? SnapshotResearchPlanRevisionId { get; set; }
+    public long? SnapshotResearchPlanRevisionNo { get; set; }
 
     public Project? Project { get; set; }
     public TaskItem? TaskItem { get; set; }
     public User? RequestedByUser { get; set; }
+    public ResearchPlanRevision? SnapshotResearchPlanRevision { get; set; }
 }

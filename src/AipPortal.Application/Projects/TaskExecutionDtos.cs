@@ -60,7 +60,9 @@ public sealed record TaskExecutionRunResponse(
     [property: JsonConverter(typeof(JsonStringEnumConverter))] TaskExecutionProvider RuntimeProvider = TaskExecutionProvider.FirstPartyProjectFilesRuntimeV1,
     int RuntimeContractVersion = TaskExecutionRun.RuntimeContractVersion1,
     DateTimeOffset? QueuedAtUtc = null,
-    DateTimeOffset? StartedAtUtc = null)
+    DateTimeOffset? StartedAtUtc = null,
+    Guid? SnapshotResearchPlanRevisionId = null,
+    long? SnapshotResearchPlanRevisionNo = null)
 {
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public TaskExecutionMajorState MajorState => Status switch

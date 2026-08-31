@@ -58,6 +58,7 @@ public sealed class TaskExecutionScopeServiceTests
         Assert.Null(recordedRun.FailureCode);
         Assert.Equal(TaskExecutionProvider.FirstPartyProjectFilesRuntimeV1, recordedRun.RuntimeProvider);
         Assert.Equal(TaskExecutionRun.RuntimeContractVersion1, recordedRun.RuntimeContractVersion);
+        Assert.Equal(TaskExecutionRun.CurrentSnapshotSchemaVersion, recordedRun.SnapshotSchemaVersion);
         Assert.Null(recordedRun.QueuedAtUtc);
         Assert.Null(recordedRun.StartedAtUtc);
         Assert.Null(recordedRun.FinishedAtUtc);
@@ -66,6 +67,8 @@ public sealed class TaskExecutionScopeServiceTests
         Assert.Equal(1, recordedRun.SnapshotTaskOverrideVersion);
         Assert.False(recordedRun.SnapshotWebEnabled);
         Assert.True(recordedRun.SnapshotProjectFilesEnabled);
+        Assert.Null(recordedRun.SnapshotResearchPlanRevisionId);
+        Assert.Null(recordedRun.SnapshotResearchPlanRevisionNo);
 
         var changedOverride = await fixture.Service.UpdateTaskOverrideAsync(
             fixture.TaskItem.Id,
@@ -85,6 +88,8 @@ public sealed class TaskExecutionScopeServiceTests
         Assert.Equal(1, persisted.SnapshotTaskOverrideVersion);
         Assert.False(persisted.SnapshotWebEnabled);
         Assert.True(persisted.SnapshotProjectFilesEnabled);
+        Assert.Null(persisted.SnapshotResearchPlanRevisionId);
+        Assert.Null(persisted.SnapshotResearchPlanRevisionNo);
 
         var staleProjectDefault = await fixture.Service.UpdateProjectScopeAsync(
             fixture.Project.Id,
@@ -199,6 +204,58 @@ public sealed class TaskExecutionScopeServiceTests
         Assert.Equal(2, requested.Value.SnapshotProjectScopeVersion);
         Assert.True(requested.Value.SnapshotWebEnabled);
         Assert.True(requested.Value.SnapshotProjectFilesEnabled);
+    }
+
+    [Fact]
+    [Trait("Scope", "Issue364")]
+    [Trait("Scope", "Issue461")]
+    public async Task AcceptedRunSnapshotsTheCurrentResearchPlanRevisionAndIdempotencyReplaysIt()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var firstRevision = await fixture.SaveResearchPlanRevisionAsync("Collect approved evidence");
+
+        var accepted = await fixture.Service.RequestRunAsync(fixture.TaskItem.Id, "plan-snapshot-run-0001");
+
+        Assert.True(accepted.IsSuccess, accepted.Error);
+        Assert.Equal(TaskExecutionRun.CurrentSnapshotSchemaVersion, accepted.Value!.SnapshotSchemaVersion);
+        Assert.Equal(firstRevision.Id, accepted.Value.SnapshotResearchPlanRevisionId);
+        Assert.Equal(firstRevision.RevisionNo, accepted.Value.SnapshotResearchPlanRevisionNo);
+
+        var secondRevision = await fixture.SaveResearchPlanRevisionAsync("Review approved evidence");
+        Assert.NotEqual(firstRevision.Id, secondRevision.Id);
+
+        var replayed = await fixture.Service.RequestRunAsync(fixture.TaskItem.Id, "plan-snapshot-run-0001");
+
+        Assert.True(replayed.IsSuccess, replayed.Error);
+        Assert.Equal(accepted.Value.Id, replayed.Value!.Id);
+        Assert.Equal(firstRevision.Id, replayed.Value.SnapshotResearchPlanRevisionId);
+        Assert.Equal(firstRevision.RevisionNo, replayed.Value.SnapshotResearchPlanRevisionNo);
+
+        var persisted = await fixture.Db.TaskExecutionRuns
+            .AsNoTracking()
+            .SingleAsync(run => run.Id == accepted.Value.Id);
+        Assert.Equal(firstRevision.Id, persisted.SnapshotResearchPlanRevisionId);
+        Assert.Equal(firstRevision.RevisionNo, persisted.SnapshotResearchPlanRevisionNo);
+        Assert.Single(await fixture.Db.TaskExecutionRuns.ToListAsync());
+    }
+
+    [Fact]
+    [Trait("Scope", "Issue364")]
+    public async Task DirectEfMutationOfTheAcceptedResearchPlanSnapshotFailsClosed()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var revision = await fixture.SaveResearchPlanRevisionAsync("Immutable run plan");
+        var accepted = await fixture.Service.RequestRunAsync(fixture.TaskItem.Id, "plan-snapshot-immutable-0001");
+        Assert.True(accepted.IsSuccess, accepted.Error);
+
+        var run = await fixture.Db.TaskExecutionRuns.SingleAsync();
+        run.SnapshotResearchPlanRevisionId = revision.Id;
+        run.SnapshotResearchPlanRevisionNo = revision.RevisionNo + 1;
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Db.SaveChangesAsync());
+
+        Assert.Contains("snapshots are immutable", exception.Message, StringComparison.OrdinalIgnoreCase);
+        fixture.Db.ChangeTracker.Clear();
     }
 
     [Fact]
@@ -368,6 +425,7 @@ public sealed class TaskExecutionScopeServiceTests
                 new ProjectRepository(Db),
                 Authorization,
                 new TaskExecutionScopeRepository(Db),
+                new ResearchPlanRepository(Db),
                 new TestCurrentUser(Actor.Id),
                 clock,
                 Audit,
@@ -444,6 +502,60 @@ public sealed class TaskExecutionScopeServiceTests
                 taskItem,
                 new ControllableProjectAuthorization { CanManage = canManage },
                 new RecordingAuditLogger());
+        }
+
+        public async Task<ResearchPlanRevision> SaveResearchPlanRevisionAsync(string title)
+        {
+            var plan = await Db.ResearchPlans.SingleOrDefaultAsync(researchPlan => researchPlan.TaskItemId == TaskItem.Id);
+            if (plan is null)
+            {
+                plan = new ResearchPlan
+                {
+                    TenantId = Tenant.Id,
+                    WorkspaceId = Workspace.Id,
+                    ProjectId = Project.Id,
+                    TaskItemId = TaskItem.Id,
+                    VersionNo = 1
+                };
+                Db.ResearchPlans.Add(plan);
+            }
+
+            var revisionNo = (await Db.ResearchPlanRevisions
+                .Where(revision => revision.ResearchPlanId == plan.Id)
+                .Select(revision => (long?)revision.RevisionNo)
+                .MaxAsync()) is { } latest
+                    ? latest + 1
+                    : 1;
+            var revision = new ResearchPlanRevision
+            {
+                TenantId = Tenant.Id,
+                WorkspaceId = Workspace.Id,
+                ProjectId = Project.Id,
+                TaskItemId = TaskItem.Id,
+                ResearchPlanId = plan.Id,
+                RevisionNo = revisionNo,
+                CreatedByUserId = Actor.Id,
+                CreatedAtUtc = new DateTimeOffset(2026, 8, 30, 0, 0, 0, TimeSpan.Zero)
+            };
+            plan.CurrentRevisionId = revision.Id;
+            plan.VersionNo = revisionNo;
+            Db.ResearchPlanRevisions.Add(revision);
+            Db.ResearchPlanSteps.Add(new ResearchPlanStep
+            {
+                TenantId = Tenant.Id,
+                WorkspaceId = Workspace.Id,
+                ProjectId = Project.Id,
+                TaskItemId = TaskItem.Id,
+                ResearchPlanId = plan.Id,
+                ResearchPlanRevisionId = revision.Id,
+                SortOrder = 1,
+                Title = title,
+                Objective = "Execution-start plan provenance test.",
+                ScopeSummary = "Project Files",
+                Status = ResearchPlanStepStatus.Ready
+            });
+            await Db.SaveChangesAsync();
+            return revision;
         }
 
         public async Task SwitchToOtherTenantAsync()

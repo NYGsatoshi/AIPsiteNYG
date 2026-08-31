@@ -565,11 +565,17 @@ Task run request, not a source-material or execution-output record:
 - `TenantId`, `WorkspaceId`, `ProjectId`, `TaskItemId`, `RequestedByUserId`
 - `RequestedAtUtc`, mutable lifecycle `FinishedAtUtc`/`Status`/safe failure
   code, and `VersionNo`
-- immutable snapshot schema, scope origin, Project/Task-override versions, and
-  the two source-policy booleans.
+- immutable snapshot schema, scope origin, Project/Task-override versions, the
+  two source-policy booleans, canonical runtime provider/version, and the
+  optional exact `ResearchPlanRevision` reference/positive revision number
+  current at acceptance; PostgreSQL binds that reference, number, and ownership
+  scope to the same revision row.
 
 No persisted snapshot contains URLs, source identifiers, file metadata or
-bytes, credentials, provider data, prompt content, or an execution result.
+bytes, credentials, provider data, prompt content, duplicated plan content, or
+an execution result. The optional plan reference/number is constrained to the
+same Tenant, Workspace, Project, and Task and the referenced revision is
+append-only, so later plan edits cannot alter a recorded execution-start plan.
 
 ### TaskDependency
 

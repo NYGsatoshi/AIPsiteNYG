@@ -3,6 +3,7 @@ using System;
 using AipPortal.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace AipPortal.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260830103107_AddTaskExecutionResearchPlanSnapshot")]
+    partial class AddTaskExecutionResearchPlanSnapshot
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -265,129 +268,6 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                     b.HasIndex("WorkspaceId");
 
                     b.ToTable("announcements", (string)null);
-                });
-
-            modelBuilder.Entity("AipPortal.Domain.Entities.AnnouncementDraft", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("AuthorUserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Body")
-                        .IsRequired()
-                        .HasMaxLength(20000)
-                        .HasColumnType("character varying(20000)");
-
-                    b.Property<Guid?>("ChannelId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTimeOffset?>("ExpiresAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid?>("GroupId")
-                        .HasColumnType("uuid");
-
-                    b.Property<bool>("IsPinned")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("LastPublicationFailureCode")
-                        .HasMaxLength(80)
-                        .HasColumnType("character varying(80)");
-
-                    b.Property<DateTimeOffset?>("NextPublicationAttemptAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Priority")
-                        .IsRequired()
-                        .HasMaxLength(40)
-                        .HasColumnType("character varying(40)");
-
-                    b.Property<int>("PublicationAttemptCount")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTimeOffset?>("PublicationClaimExpiresAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("PublicationClaimOwner")
-                        .HasMaxLength(160)
-                        .HasColumnType("character varying(160)");
-
-                    b.Property<Guid?>("PublicationClaimToken")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid?>("PublishedAnnouncementId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset?>("PublishedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<bool>("RequiresReadConfirmation")
-                        .HasColumnType("boolean");
-
-                    b.Property<DateTime?>("ScheduleLocalDateTime")
-                        .HasColumnType("timestamp without time zone");
-
-                    b.Property<string>("ScheduleTimeZoneId")
-                        .HasMaxLength(80)
-                        .HasColumnType("character varying(80)");
-
-                    b.Property<int?>("ScheduleUtcOffsetMinutes")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTimeOffset?>("ScheduledForUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(40)
-                        .HasColumnType("character varying(40)");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Title")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<long>("VersionNo")
-                        .IsConcurrencyToken()
-                        .HasColumnType("bigint");
-
-                    b.Property<Guid?>("WorkspaceId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("AuthorUserId");
-
-                    b.HasIndex("ChannelId");
-
-                    b.HasIndex("CreatedAt");
-
-                    b.HasIndex("GroupId");
-
-                    b.HasIndex("PublishedAnnouncementId")
-                        .IsUnique();
-
-                    b.HasIndex("TenantId");
-
-                    b.HasIndex("WorkspaceId");
-
-                    b.HasIndex("TenantId", "AuthorUserId", "Status", "UpdatedAt");
-
-                    b.HasIndex("TenantId", "Status", "ScheduledForUtc", "NextPublicationAttemptAtUtc", "PublicationClaimExpiresAtUtc");
-
-                    b.ToTable("announcement_drafts", (string)null);
                 });
 
             modelBuilder.Entity("AipPortal.Domain.Entities.AnnouncementRead", b =>
@@ -6001,45 +5881,6 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                     b.Navigation("Channel");
 
                     b.Navigation("Group");
-
-                    b.Navigation("Workspace");
-                });
-
-            modelBuilder.Entity("AipPortal.Domain.Entities.AnnouncementDraft", b =>
-                {
-                    b.HasOne("AipPortal.Domain.Entities.User", "AuthorUser")
-                        .WithMany()
-                        .HasForeignKey("AuthorUserId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("AipPortal.Domain.Entities.Channel", "Channel")
-                        .WithMany()
-                        .HasForeignKey("ChannelId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("AipPortal.Domain.Entities.Group", "Group")
-                        .WithMany()
-                        .HasForeignKey("GroupId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("AipPortal.Domain.Entities.Announcement", "PublishedAnnouncement")
-                        .WithMany()
-                        .HasForeignKey("PublishedAnnouncementId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("AipPortal.Domain.Entities.Workspace", "Workspace")
-                        .WithMany()
-                        .HasForeignKey("WorkspaceId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.Navigation("AuthorUser");
-
-                    b.Navigation("Channel");
-
-                    b.Navigation("Group");
-
-                    b.Navigation("PublishedAnnouncement");
 
                     b.Navigation("Workspace");
                 });

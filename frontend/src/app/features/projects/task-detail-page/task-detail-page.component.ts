@@ -12,6 +12,7 @@ import { TASK_LABEL_DESCRIPTION_MAX_LENGTH, TASK_LABEL_NAME_MAX_LENGTH, TaskActi
 import { TaskDependenciesReadonlyComponent } from '../task-dependencies-readonly/task-dependencies-readonly.component';
 import { TaskEditorComponent } from '../task-editor/task-editor.component';
 import { TaskExecutionScopeComponent } from '../task-execution-scope/task-execution-scope.component';
+import { TaskResearchPlanComponent } from '../task-research-plan/task-research-plan.component';
 import { TaskStatusBadgeComponent } from '../task-status-badge/task-status-badge.component';
 import { AppMentionInputComponent } from '../../../shared/mention-input/app-mention-input.component';
 import { FilesFacade } from '../../files/files.facade';
@@ -30,6 +31,7 @@ import { AttachmentPickerDialogComponent } from '../../files/attachment-picker-d
     TaskDependenciesReadonlyComponent,
     TaskEditorComponent,
     TaskExecutionScopeComponent,
+    TaskResearchPlanComponent,
     TaskStatusBadgeComponent,
     AppMentionInputComponent,
     AttachmentPickerDialogComponent
@@ -89,11 +91,13 @@ export class TaskDetailPageComponent implements OnDestroy {
   readonly fileDownloadMessage = signal('');
   readonly subtaskTitle = signal('');
   readonly taskEditorDirty = signal(false);
+  readonly researchPlanDirty = signal(false);
   readonly labelNameMaxLength = TASK_LABEL_NAME_MAX_LENGTH;
   readonly labelDescriptionMaxLength = TASK_LABEL_DESCRIPTION_MAX_LENGTH;
   /** One local source of truth for realtime protection; focus alone never makes this true. */
   readonly detailEditing = computed(() =>
     this.taskEditorDirty() ||
+    this.researchPlanDirty() ||
     this.subtaskTitle().trim().length > 0 ||
     this.checklistText().trim().length > 0 ||
     (this.editingChecklistId() !== null && this.editingChecklistText().trim() !== this.originalChecklistText().trim()) ||
@@ -215,7 +219,7 @@ export class TaskDetailPageComponent implements OnDestroy {
   retryPickerFiles(): void { this.files.retryPickerFiles(); }
 
   private resetLocalTaskDraftState(): void {
-    this.subtaskTitle.set(''); this.checklistText.set(''); this.editingChecklistId.set(null); this.editingChecklistText.set(''); this.originalChecklistText.set(''); this.taskEditorDirty.set(false);
+    this.subtaskTitle.set(''); this.checklistText.set(''); this.editingChecklistId.set(null); this.editingChecklistText.set(''); this.originalChecklistText.set(''); this.taskEditorDirty.set(false); this.researchPlanDirty.set(false);
     this.commentBody.set(''); this.commentImportant.set(false); this.cancelEditComment();
     this.selectedLabelId.set(''); this.newLabelName.set(''); this.cancelEditLabel(); this.selectedAttachmentId.set(''); this.fileDownloadMessage.set('');
     this.files.cancelAttachmentDownloads(); this.files.clearPickerFiles(); this.facade.setDetailEditing(false);
