@@ -86,6 +86,14 @@
         Execution provider: First-party Project Files V1. Web execution is disabled: a run that requires Web input fails closed rather than fetching it. The V1 contract requires a server worker to materialize only currently authorized, clean Project files after durable acceptance; this policy screen never sends a Web request, provider credential, source identifier, or file content.
       </p>
 
+      @if (current.task.effectivePolicy.projectFilesEnabled) {
+        <app-task-execution-result
+          [taskId]="taskId"
+          [allowExecutionStart]="true"
+          [loadExistingResult]="current.task.latestRun?.status === 'Succeeded'"
+        ></app-task-execution-result>
+      }
+
       @if (current.task.latestRun; as latestRun) {
         <section class="task-execution-scope__snapshot" aria-labelledby="task-execution-snapshot-heading" data-testid="task-execution-snapshot">
           <h3 id="task-execution-snapshot-heading">Most recent execution</h3>
@@ -100,7 +108,7 @@
             <div><dt>Runtime detail</dt><dd>{{ runStatusLabel(latestRun.status) }}</dd></div>
           </dl>
         </section>
-        @if (latestRun.status === 'Succeeded') {
+        @if (latestRun.status === 'Succeeded' && !current.task.effectivePolicy.projectFilesEnabled) {
           <app-task-execution-result [taskId]="taskId"></app-task-execution-result>
         }
       }
