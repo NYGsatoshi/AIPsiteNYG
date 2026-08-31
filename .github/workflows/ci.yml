@@ -502,9 +502,6 @@ jobs:
 
   frontend-test:
     runs-on: self-hosted
-    needs:
-      - build-test
-      - security-scan
     timeout-minutes: 120
 
     steps:
