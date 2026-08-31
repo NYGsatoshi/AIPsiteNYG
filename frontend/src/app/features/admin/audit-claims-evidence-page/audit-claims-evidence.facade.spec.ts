@@ -17,7 +17,7 @@ describe('AuditClaimsEvidenceFacade', () => {
   });
 
   afterEach(() => {
-    http.verify();
+    http.verify({ ignoreCancelled: true });
     TestBed.resetTestingModule();
   });
 
@@ -94,6 +94,58 @@ describe('AuditClaimsEvidenceFacade', () => {
       supportStatus: 'Unsupported',
       supportLabel: 'Unsupported',
     }));
+  });
+
+  it('loads Warning and Error totals from separate server-authorized Audit queries', () => {
+    facade.loadActionSummary();
+
+    const requests = http.match((candidate) => candidate.url === '/api/admin/audit-grid');
+    expect(requests).toHaveLength(2);
+    const warning = requests.find((request) => request.request.params.get('severity') === 'warning');
+    const error = requests.find((request) => request.request.params.get('result') === 'failed');
+    expect(warning).toBeDefined();
+    expect(error).toBeDefined();
+    expect(warning?.request.params.get('page')).toBe('1');
+    expect(warning?.request.params.get('pageSize')).toBe('1');
+    expect(error?.request.params.get('page')).toBe('1');
+    expect(error?.request.params.get('pageSize')).toBe('1');
+    expect(warning?.request.withCredentials).toBe(true);
+    expect(error?.request.withCredentials).toBe(true);
+
+    warning?.flush({ items: [], page: 1, pageSize: 1, totalCount: 7 });
+    error?.flush({ items: [], page: 1, pageSize: 1, totalCount: 3 });
+
+    expect(facade.actionSummary()).toEqual({
+      status: 'ready',
+      warningCount: 7,
+      errorCount: 3,
+    });
+  });
+
+  it('fails closed instead of rendering guessed zeroes for malformed summary counts', () => {
+    facade.loadActionSummary();
+    const requests = http.match((candidate) => candidate.url === '/api/admin/audit-grid');
+    requests.find((request) => request.request.params.has('severity'))?.flush({ totalCount: 'hidden' });
+    requests.find((request) => request.request.params.has('result'))?.flush({ totalCount: 2 });
+
+    expect(facade.actionSummary()).toEqual(expect.objectContaining({
+      status: 'error',
+      warningCount: null,
+      errorCount: null,
+    }));
+    expect(JSON.stringify(facade.actionSummary())).not.toContain('hidden');
+  });
+
+  it('maps summary permission denial without exposing the response body', () => {
+    facade.loadActionSummary();
+    const requests = http.match((candidate) => candidate.url === '/api/admin/audit-grid');
+    requests[0].flush(
+      { error: 'protected count detail' },
+      { status: 403, statusText: 'Forbidden' },
+    );
+
+    expect(facade.actionSummary().status).toBe('permissionDenied');
+    expect(JSON.stringify(facade.actionSummary())).not.toContain('protected count detail');
   });
 
   it('fails closed for unknown wire classifications instead of rendering server text', () => {

@@ -1,7 +1,9 @@
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { inject, Injectable, signal } from '@angular/core';
+import { forkJoin } from 'rxjs';
 
 import {
+  AuditActionSummaryViewModel,
   AuditClaimReviewStatus,
   AuditClaimSupportStatus,
   AuditClaimViewModel,
@@ -39,6 +41,10 @@ interface AuditEvidenceDto {
   readonly sourceEventAuditId?: string | null;
 }
 
+interface PagedResponseDto {
+  readonly totalCount?: unknown;
+}
+
 const supportLabels: Record<AuditClaimSupportStatus, string> = {
   Unverified: 'Support not verified',
   Supported: 'Supported',
@@ -51,13 +57,71 @@ const supportLabels: Record<AuditClaimSupportStatus, string> = {
 export class AuditClaimsEvidenceFacade {
   private readonly http = inject(HttpClient);
   private readonly state = signal<AuditClaimsEvidenceViewModel>(emptyState('idle'));
+  private readonly summaryState = signal<AuditActionSummaryViewModel>(emptySummary('idle'));
   private requestVersion = 0;
+  private summaryRequestVersion = 0;
 
   readonly viewModel = this.state.asReadonly();
+  readonly actionSummary = this.summaryState.asReadonly();
 
   clear(): void {
     this.requestVersion += 1;
     this.state.set(emptyState('idle'));
+  }
+
+  loadActionSummary(): void {
+    const requestVersion = ++this.summaryRequestVersion;
+    this.summaryState.set(emptySummary('loading'));
+
+    const commonParams = new HttpParams()
+      .set('page', '1')
+      .set('pageSize', '1');
+
+    forkJoin({
+      warning: this.http.get<PagedResponseDto>('/api/admin/audit-grid', {
+        params: commonParams.set('severity', 'warning'),
+        withCredentials: true,
+      }),
+      error: this.http.get<PagedResponseDto>('/api/admin/audit-grid', {
+        params: commonParams.set('result', 'failed'),
+        withCredentials: true,
+      }),
+    }).subscribe({
+      next: ({ warning, error }) => {
+        if (requestVersion !== this.summaryRequestVersion) {
+          return;
+        }
+
+        const warningCount = toAuthorizedCount(warning.totalCount);
+        const errorCount = toAuthorizedCount(error.totalCount);
+        if (warningCount === null || errorCount === null) {
+          this.summaryState.set({
+            ...emptySummary('error'),
+            message: 'Actionable Audit counts could not be verified.',
+          });
+          return;
+        }
+
+        this.summaryState.set({
+          status: 'ready',
+          warningCount,
+          errorCount,
+        });
+      },
+      error: (error: { status?: number }) => {
+        if (requestVersion !== this.summaryRequestVersion) {
+          return;
+        }
+
+        const permissionDenied = error.status === 401 || error.status === 403;
+        this.summaryState.set({
+          ...emptySummary(permissionDenied ? 'permissionDenied' : 'error'),
+          message: permissionDenied
+            ? 'Audit permission is required to load actionable event counts.'
+            : 'Actionable Audit counts could not be loaded.',
+        });
+      },
+    });
   }
 
   load(artifactVersionId: string): void {
@@ -142,6 +206,14 @@ function emptyState(status: AuditClaimsEvidenceViewModel['status']): AuditClaims
   };
 }
 
+function emptySummary(status: AuditActionSummaryViewModel['status']): AuditActionSummaryViewModel {
+  return {
+    status,
+    warningCount: null,
+    errorCount: null,
+  };
+}
+
 function toClaimViewModel(dto: AuditClaimEvidenceDto): AuditClaimViewModel {
   const supportStatus = toSupportStatus(dto.supportStatus);
   return {
@@ -190,4 +262,10 @@ function toSourceKind(value: unknown): AuditEvidenceSourceKind {
 
 function safeOrdinal(value: number): number {
   return Number.isInteger(value) && value > 0 ? value : 1;
+}
+
+function toAuthorizedCount(value: unknown): number | null {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0
+    ? value
+    : null;
 }

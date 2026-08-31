@@ -9,7 +9,8 @@
 
 .claims-page__header,
 .claims-page__version,
-.comparison__header {
+.comparison__header,
+.claims-page__summary-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -19,7 +20,8 @@
 .claims-page__header h1,
 .claims-page__version h2,
 .comparison__header h2,
-.comparison__pane h3 {
+.comparison__pane h3,
+.claims-page__summary-header h2 {
   margin: 0.25rem 0 0;
 }
 
@@ -27,7 +29,10 @@
 .claims-page__version p,
 .claims-page__status,
 .claims-page__notice p,
-.comparison__pane p {
+.comparison__pane p,
+.claims-page__summary-header p,
+.claims-page__summary-note,
+.claims-page__summary-status {
   margin: 0;
 }
 
@@ -68,7 +73,8 @@
 .claims-page__notice,
 .claims-page__version,
 .claims-page__loader,
-.claims-page__comparison {
+.claims-page__comparison,
+.claims-page__summary {
   border: 1px solid var(--aip-color-border-default);
   border-radius: var(--aip-radius-lg);
   background: var(--aip-color-bg-surface);
@@ -125,7 +131,8 @@
 .claim-row--button:focus-visible,
 .evidence-tabs button:focus-visible,
 .claims-page__views a:focus-visible,
-.evidence-trace a:focus-visible {
+.evidence-trace a:focus-visible,
+.summary-card:focus-visible {
   outline: var(--aip-focus-outline);
   outline-offset: var(--aip-focus-offset);
 }
@@ -233,7 +240,8 @@
   border-width: 2px;
 }
 
-.claims-page__comparison {
+.claims-page__comparison,
+.claims-page__summary {
   display: grid;
   gap: 1rem;
 }
@@ -328,8 +336,73 @@
   color: var(--aip-color-text-muted);
 }
 
-.comparison__empty {
+.comparison__empty,
+.claims-page__summary-header > p,
+.claims-page__summary-note,
+.claims-page__summary-status,
+.summary-card__description,
+.claims-page__applied-filter > span {
   color: var(--aip-color-text-secondary);
+}
+
+.claims-page__summary-header > p {
+  max-width: 34rem;
+  text-align: right;
+}
+
+.claims-page__summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.summary-card {
+  display: grid;
+  gap: 0.45rem;
+  border: 1px solid var(--aip-color-border-default);
+  border-radius: var(--aip-radius-md);
+  background: var(--aip-color-bg-surface-subtle);
+  color: var(--aip-color-text-primary);
+  font: inherit;
+  padding: 1rem;
+  text-align: left;
+}
+
+.summary-card:hover:not(:disabled),
+.summary-card[aria-pressed='true'] {
+  border-color: var(--aip-color-action-primary);
+  background: var(--aip-color-bg-selected);
+}
+
+.summary-card:disabled {
+  opacity: 0.72;
+}
+
+.summary-card__count {
+  font-size: 2rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.summary-card__title,
+.summary-card__action,
+.claims-page__applied-filter > span {
+  font-weight: 700;
+}
+
+.summary-card__action {
+  color: var(--aip-color-action-primary);
+}
+
+.claims-page__applied-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
+  border: 1px solid var(--aip-color-border-default);
+  border-radius: var(--aip-radius-md);
+  background: var(--aip-color-bg-surface-subtle);
+  padding: 0.75rem;
 }
 
 @media (max-width: 860px) {
@@ -339,14 +412,20 @@
 
   .claims-page__header,
   .claims-page__version,
-  .comparison__header {
+  .comparison__header,
+  .claims-page__summary-header {
     display: grid;
   }
 
   .claims-page__version-id,
-  .comparison__states {
+  .comparison__states,
+  .claims-page__summary-header > p {
     text-align: left;
     justify-content: flex-start;
+  }
+
+  .claims-page__summary-grid {
+    grid-template-columns: 1fr;
   }
 
   .claim-row--header {
@@ -378,7 +457,8 @@
   }
 
   .claims-page__loader button,
-  .evidence-tabs button {
+  .evidence-tabs button,
+  .summary-card {
     min-height: var(--aip-touch-target);
   }
 
