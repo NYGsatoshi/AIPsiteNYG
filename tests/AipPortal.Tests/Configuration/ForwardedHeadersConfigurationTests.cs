@@ -73,6 +73,24 @@ public sealed class ForwardedHeadersConfigurationTests
     }
 
     [Fact]
+    public void ConfigureCanDisableHeaderSymmetryWithoutWeakeningProxyBoundary()
+    {
+        var configuration = CreateConfiguration(
+            (ForwardedHeadersConfiguration.TrustForwardedHeadersKey, "true"),
+            (ForwardedHeadersConfiguration.RequireHeaderSymmetryKey, "false"),
+            ($"{ForwardedHeadersConfiguration.TrustedProxiesKey}:0", "192.0.2.10"));
+        var options = new ForwardedHeadersOptions();
+
+        ForwardedHeadersConfiguration.Configure(options, configuration);
+
+        Assert.Empty(ForwardedHeadersConfiguration.GetConfigurationErrors(configuration));
+        Assert.False(options.RequireHeaderSymmetry);
+        Assert.Equal(1, options.ForwardLimit);
+        Assert.Contains(IPAddress.Parse("192.0.2.10"), options.KnownProxies);
+        Assert.DoesNotContain(IPAddress.Any, options.KnownProxies);
+    }
+
+    [Fact]
     public void DisabledForwardedHeadersDoNotRequireAProxyBoundary()
     {
         var configuration = CreateConfiguration(

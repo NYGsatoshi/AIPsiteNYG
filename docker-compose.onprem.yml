@@ -24,6 +24,7 @@ services:
       # terminating outside this Compose project and reaching this loopback-only
       # origin. Proxy mode is fail-closed until a trusted source IP/CIDR is set.
       ReverseProxy__TrustForwardedHeaders: ${REVERSE_PROXY_TRUST_FORWARDED_HEADERS:-false}
+      ReverseProxy__RequireHeaderSymmetry: ${REVERSE_PROXY_REQUIRE_HEADER_SYMMETRY:-true}
       ReverseProxy__TrustedProxies__0: ${REVERSE_PROXY_TRUSTED_PROXIES:-}
       ReverseProxy__TrustedNetworks__0: ${REVERSE_PROXY_TRUSTED_NETWORKS:-}
       Platform__PlatformAdminSetupMode: "false"
