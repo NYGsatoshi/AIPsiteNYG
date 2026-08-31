@@ -1,0 +1,146 @@
+name: Repair PR 474 branch
+
+on:
+  push:
+    branches:
+      - feat/378-durable-publication
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout full feature history
+        uses: actions/checkout@v7
+        with:
+          ref: feat/378-durable-publication
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up .NET from repository global.json
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Merge current main and reconcile concurrent EF snapshots
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git config user.name "OpenAI CI Automation"
+          git config user.email "ci-automation@users.noreply.github.com"
+          git fetch origin main
+
+          set +e
+          git merge --no-commit --no-ff origin/main
+          merge_status=$?
+          set -e
+
+          if (( merge_status != 0 )); then
+            mapfile -t conflicts < <(git diff --name-only --diff-filter=U)
+            printf 'Conflicted paths:\n%s\n' "${conflicts[*]:-none}"
+            for path in "${conflicts[@]}"; do
+              case "$path" in
+                src/AipPortal.Infrastructure/Persistence/Migrations/AppDbContextModelSnapshot.cs)
+                  # main contains the later Research Plan snapshot. Use it as the
+                  # baseline, then generate a no-op reconciliation migration whose
+                  # designer/snapshot contains the union model.
+                  git checkout --theirs -- "$path"
+                  git add "$path"
+                  ;;
+                *)
+                  echo "Unexpected conflict requiring product-aware resolution: $path" >&2
+                  exit 1
+                  ;;
+              esac
+            done
+          fi
+
+          if git diff --name-only --diff-filter=U | grep -q .; then
+            echo "Unresolved merge conflicts remain." >&2
+            git diff --name-only --diff-filter=U >&2
+            exit 1
+          fi
+
+          git commit -m "merge(main): synchronize durable announcement workflow"
+
+          dotnet restore AipPortal.slnx
+          dotnet tool restore
+          dotnet build AipPortal.slnx --no-restore -v:minimal
+
+          if ! dotnet ef migrations has-pending-model-changes \
+            --project src/AipPortal.Infrastructure \
+            --startup-project src/AipPortal.Web \
+            --no-build; then
+            migration_name="ReconcileAnnouncementDraftWorkflowAfterResearchPlan"
+            dotnet ef migrations add "$migration_name" \
+              --project src/AipPortal.Infrastructure \
+              --startup-project src/AipPortal.Web \
+              --no-build
+
+            migration_file="$(find src/AipPortal.Infrastructure/Persistence/Migrations \
+              -maxdepth 1 -type f -name "*_${migration_name}.cs" ! -name "*.Designer.cs" \
+              -printf '%T@ %p\n' | sort -nr | head -n1 | cut -d' ' -f2-)"
+            test -n "$migration_file"
+
+            python3 - "$migration_file" <<'PY'
+          from pathlib import Path
+          import sys
+
+          path = Path(sys.argv[1])
+          text = path.read_text(encoding="utf-8")
+
+          def replace_body(source: str, method: str, comment: str) -> str:
+              marker = f"protected override void {method}(MigrationBuilder migrationBuilder)"
+              start = source.index(marker)
+              opening = source.index("{", start)
+              depth = 0
+              closing = None
+              for index in range(opening, len(source)):
+                  char = source[index]
+                  if char == "{":
+                      depth += 1
+                  elif char == "}":
+                      depth -= 1
+                      if depth == 0:
+                          closing = index
+                          break
+              if closing is None:
+                  raise RuntimeError(f"Could not locate closing brace for {method}")
+              body = "{\n            // " + comment + "\n        }"
+              return source[:opening] + body + source[closing + 1:]
+
+          text = replace_body(
+              text,
+              "Up",
+              "Schema operations already exist in the earlier concurrent migrations; this migration only reconciles the canonical EF target model.",
+          )
+          text = replace_body(
+              text,
+              "Down",
+              "No schema operations were introduced by this reconciliation migration.",
+          )
+          path.write_text(text, encoding="utf-8")
+          PY
+
+            git add src/AipPortal.Infrastructure/Persistence/Migrations
+            git commit -m "chore(ef): reconcile concurrent announcement and research-plan snapshots"
+
+            dotnet build AipPortal.slnx --no-restore -v:minimal
+            dotnet ef migrations has-pending-model-changes \
+              --project src/AipPortal.Infrastructure \
+              --startup-project src/AipPortal.Web \
+              --no-build
+          fi
+
+          dotnet test tests/AipPortal.Tests/AipPortal.Tests.csproj \
+            --no-build \
+            --filter "FullyQualifiedName~AnnouncementDraftServiceTests|FullyQualifiedName~AnnouncementDraftWorkflowPostgreSqlTests" \
+            -v:minimal
+
+          git rm .github/workflows/repair-pr474-branch.yml
+          git commit -m "chore(ci): remove one-shot PR 474 branch repair"
+          git push origin HEAD:feat/378-durable-publication
