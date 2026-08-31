@@ -1,5 +1,6 @@
 using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
+using AipPortal.Application.Files;
 using AipPortal.Domain.Enums;
 
 namespace AipPortal.Application.Announcements;
