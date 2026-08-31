@@ -15,14 +15,42 @@ public sealed record AnnouncementDraftTargetRequest(
     Guid? ChannelId);
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed record AnnouncementDraftContentRequest(
-    AnnouncementDraftTargetRequest Target,
-    string Title,
-    string Body,
-    AnnouncementPriority Priority = AnnouncementPriority.Normal,
-    bool IsPinned = false,
-    bool RequiresReadConfirmation = false,
-    DateTimeOffset? ExpiresAt = null);
+public sealed record AnnouncementDraftContentRequest
+{
+    [JsonConstructor]
+    public AnnouncementDraftContentRequest(
+        AnnouncementDraftTargetRequest Target,
+        string Title,
+        string Body,
+        AnnouncementPriority Priority = AnnouncementPriority.Normal,
+        bool IsPinned = false,
+        bool RequiresReadConfirmation = false,
+        DateTimeOffset? ExpiresAt = null,
+        AnnouncementActionLink? Cta = null,
+        AnnouncementActionLink? Attachment = null)
+    {
+        var content = AnnouncementContentContract.PrepareForPersistence(Body, Cta, Attachment);
+        this.Target = Target;
+        this.Title = Title;
+        this.Body = content.PersistedBody;
+        this.Priority = Priority;
+        this.IsPinned = IsPinned;
+        this.RequiresReadConfirmation = RequiresReadConfirmation;
+        this.ExpiresAt = ExpiresAt;
+        this.Cta = content.Cta;
+        this.Attachment = content.Attachment;
+    }
+
+    public AnnouncementDraftTargetRequest Target { get; init; }
+    public string Title { get; init; }
+    public string Body { get; init; }
+    public AnnouncementPriority Priority { get; init; }
+    public bool IsPinned { get; init; }
+    public bool RequiresReadConfirmation { get; init; }
+    public DateTimeOffset? ExpiresAt { get; init; }
+    public AnnouncementActionLink? Cta { get; init; }
+    public AnnouncementActionLink? Attachment { get; init; }
+}
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record CreateAnnouncementDraftRequest(AnnouncementDraftContentRequest Content);
@@ -48,28 +76,82 @@ public sealed record ScheduleAnnouncementDraftRequest(
     string TimeZoneId,
     int? AmbiguousTimeOffsetMinutes = null);
 
-public sealed record AnnouncementDraftResponse(
-    Guid Id,
-    long Version,
-    [property: JsonConverter(typeof(JsonStringEnumConverter))] AnnouncementDraftStatus Status,
-    Guid? WorkspaceId,
-    Guid? GroupId,
-    Guid? ChannelId,
-    string Title,
-    string Body,
-    AnnouncementPriority Priority,
-    bool IsPinned,
-    bool RequiresReadConfirmation,
-    DateTimeOffset? ExpiresAt,
-    DateTimeOffset? ScheduledForUtc,
-    string? ScheduleTimeZoneId,
-    DateTime? ScheduleLocalDateTime,
-    int? ScheduleUtcOffsetMinutes,
-    Guid? PublishedAnnouncementId,
-    DateTimeOffset? PublishedAtUtc,
-    string? LastPublicationFailureCode,
-    DateTimeOffset CreatedAtUtc,
-    DateTimeOffset? UpdatedAtUtc);
+public sealed record AnnouncementDraftResponse
+{
+    public AnnouncementDraftResponse(
+        Guid Id,
+        long Version,
+        AnnouncementDraftStatus Status,
+        Guid? WorkspaceId,
+        Guid? GroupId,
+        Guid? ChannelId,
+        string Title,
+        string Body,
+        AnnouncementPriority Priority,
+        bool IsPinned,
+        bool RequiresReadConfirmation,
+        DateTimeOffset? ExpiresAt,
+        DateTimeOffset? ScheduledForUtc,
+        string? ScheduleTimeZoneId,
+        DateTime? ScheduleLocalDateTime,
+        int? ScheduleUtcOffsetMinutes,
+        Guid? PublishedAnnouncementId,
+        DateTimeOffset? PublishedAtUtc,
+        string? LastPublicationFailureCode,
+        DateTimeOffset CreatedAtUtc,
+        DateTimeOffset? UpdatedAtUtc)
+    {
+        var content = AnnouncementContentContract.Decode(Body);
+        this.Id = Id;
+        this.Version = Version;
+        this.Status = Status;
+        this.WorkspaceId = WorkspaceId;
+        this.GroupId = GroupId;
+        this.ChannelId = ChannelId;
+        this.Title = Title;
+        this.Body = content.Body;
+        this.Priority = Priority;
+        this.IsPinned = IsPinned;
+        this.RequiresReadConfirmation = RequiresReadConfirmation;
+        this.ExpiresAt = ExpiresAt;
+        this.ScheduledForUtc = ScheduledForUtc;
+        this.ScheduleTimeZoneId = ScheduleTimeZoneId;
+        this.ScheduleLocalDateTime = ScheduleLocalDateTime;
+        this.ScheduleUtcOffsetMinutes = ScheduleUtcOffsetMinutes;
+        this.PublishedAnnouncementId = PublishedAnnouncementId;
+        this.PublishedAtUtc = PublishedAtUtc;
+        this.LastPublicationFailureCode = LastPublicationFailureCode;
+        this.CreatedAtUtc = CreatedAtUtc;
+        this.UpdatedAtUtc = UpdatedAtUtc;
+        Cta = content.Cta;
+        Attachment = content.Attachment;
+    }
+
+    public Guid Id { get; init; }
+    public long Version { get; init; }
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public AnnouncementDraftStatus Status { get; init; }
+    public Guid? WorkspaceId { get; init; }
+    public Guid? GroupId { get; init; }
+    public Guid? ChannelId { get; init; }
+    public string Title { get; init; }
+    public string Body { get; init; }
+    public AnnouncementPriority Priority { get; init; }
+    public bool IsPinned { get; init; }
+    public bool RequiresReadConfirmation { get; init; }
+    public DateTimeOffset? ExpiresAt { get; init; }
+    public DateTimeOffset? ScheduledForUtc { get; init; }
+    public string? ScheduleTimeZoneId { get; init; }
+    public DateTime? ScheduleLocalDateTime { get; init; }
+    public int? ScheduleUtcOffsetMinutes { get; init; }
+    public Guid? PublishedAnnouncementId { get; init; }
+    public DateTimeOffset? PublishedAtUtc { get; init; }
+    public string? LastPublicationFailureCode { get; init; }
+    public DateTimeOffset CreatedAtUtc { get; init; }
+    public DateTimeOffset? UpdatedAtUtc { get; init; }
+    public AnnouncementActionLink? Cta { get; init; }
+    public AnnouncementActionLink? Attachment { get; init; }
+}
 
 public sealed record AnnouncementDraftListItemResponse(
     Guid Id,
