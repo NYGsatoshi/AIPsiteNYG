@@ -1,4 +1,6 @@
 import {
+  AnnouncementActionLink,
+  AnnouncementAttachmentViewModel,
   AnnouncementAudienceOption,
   AnnouncementAudienceScope,
   AnnouncementEditorDraft,
@@ -9,6 +11,11 @@ import {
 
 export interface PagedResponseDto<T> {
   readonly items?: readonly T[];
+}
+
+export interface AnnouncementActionLinkDto {
+  readonly label?: unknown;
+  readonly url?: unknown;
 }
 
 export interface AnnouncementListItemDto {
@@ -28,6 +35,8 @@ export interface AnnouncementListItemDto {
 export interface AnnouncementDetailDto extends AnnouncementListItemDto {
   readonly body?: unknown;
   readonly updatedAt?: unknown;
+  readonly cta?: AnnouncementActionLinkDto | null;
+  readonly attachment?: AnnouncementActionLinkDto | null;
 }
 
 export interface AnnouncementAudienceOptionDto {
@@ -49,6 +58,8 @@ export interface CreateAnnouncementRequestDto {
   readonly priority: number;
   readonly isPinned: boolean;
   readonly requiresReadConfirmation: boolean;
+  readonly cta: AnnouncementActionLinkDto | null;
+  readonly attachment: AnnouncementActionLinkDto | null;
 }
 
 export interface AnnouncementDraftResponseDto {
@@ -63,6 +74,8 @@ export interface AnnouncementDraftResponseDto {
   readonly priority?: unknown;
   readonly isPinned?: unknown;
   readonly requiresReadConfirmation?: unknown;
+  readonly cta?: AnnouncementActionLinkDto | null;
+  readonly attachment?: AnnouncementActionLinkDto | null;
   readonly scheduledForUtc?: unknown;
   readonly scheduleTimeZoneId?: unknown;
   readonly scheduleLocalDateTime?: unknown;
@@ -82,6 +95,8 @@ export interface AnnouncementDraftContentRequestDto {
   readonly isPinned: boolean;
   readonly requiresReadConfirmation: boolean;
   readonly expiresAt: null;
+  readonly cta: AnnouncementActionLinkDto | null;
+  readonly attachment: AnnouncementActionLinkDto | null;
 }
 
 export interface CreateAnnouncementDraftRequestDto {
@@ -113,9 +128,15 @@ export function mapAnnouncementListItem(dto: AnnouncementListItemDto): Announcem
 }
 
 export function mapAnnouncementDetail(dto: AnnouncementDetailDto): AnnouncementViewModel {
+  const cta = mapActionLink(dto.cta);
+  const attachment = mapActionLink(dto.attachment);
   return toAnnouncement(dto, {
     body: stringValue(dto.body) ?? '',
     detailState: 'loaded',
+    ...(cta ? { cta } : {}),
+    ...(attachment
+      ? { attachment: { ...attachment, mode: 'linked' as const } satisfies AnnouncementAttachmentViewModel }
+      : {}),
   });
 }
 
@@ -149,6 +170,8 @@ export function toCreateAnnouncementRequest(submission: AnnouncementEditorSubmis
     priority: priorityNumber(submission.priority),
     isPinned: false,
     requiresReadConfirmation: submission.requiresReadConfirmation,
+    cta: toActionLinkDto(submission.cta),
+    attachment: toActionLinkDto(submission.attachment),
   };
 }
 
@@ -218,6 +241,8 @@ export function mapAnnouncementDraft(
       nullableString(candidate.channelId) === nullableString(dto.channelId),
   );
 
+  const cta = mapActionLink(dto.cta);
+  const attachment = mapActionLink(dto.attachment);
   const timeZoneId = stringValue(dto.scheduleTimeZoneId);
   const scheduledLocalDateTime = localDateTimeValue(dto.scheduleLocalDateTime);
   return {
@@ -231,6 +256,8 @@ export function mapAnnouncementDraft(
     audienceKey: audience?.key ?? '',
     availableAudiences: audiences,
     requiresReadConfirmation: dto.requiresReadConfirmation === true,
+    ...(cta ? { cta } : {}),
+    ...(attachment ? { attachment } : {}),
     deliveryMode: status === 'scheduled' ? 'scheduled' : 'now',
     scheduledLocalDateTime,
     timeZoneId,
@@ -307,7 +334,10 @@ export function markAnnouncementReadFailed(
 
 function toAnnouncement(
   dto: AnnouncementListItemDto,
-  detail: Pick<AnnouncementViewModel, 'body' | 'detailState' | 'detailMessage'>,
+  detail: Pick<
+    AnnouncementViewModel,
+    'body' | 'detailState' | 'detailMessage' | 'cta' | 'attachment'
+  >,
 ): AnnouncementViewModel {
   const id = stringValue(dto.id) ?? '';
   const isRead = dto.isRead === true;
@@ -332,10 +362,8 @@ function toAnnouncement(
     },
     capabilities: ['readAnnouncement'],
     notificationTarget: 'announcementDetail',
-    attachment: {
-      mode: 'disabled',
-      label: '添付ファイルはMVP0では利用できません。',
-    },
+    ...(detail.cta ? { cta: detail.cta } : {}),
+    ...(detail.attachment ? { attachment: detail.attachment } : {}),
   };
 }
 
@@ -360,6 +388,11 @@ function audienceScope(value: unknown): AnnouncementAudienceScope | null {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function trimmedStringValue(value: unknown): string | undefined {
+  const raw = typeof value === 'string' ? value.trim() : '';
+  return raw.length > 0 ? raw : undefined;
 }
 
 function nonNegativeInteger(value: unknown): number | undefined {
@@ -408,7 +441,62 @@ function toAnnouncementDraftContentRequest(
     isPinned: false,
     requiresReadConfirmation: submission.requiresReadConfirmation,
     expiresAt: null,
+    cta: toActionLinkDto(submission.cta),
+    attachment: toActionLinkDto(submission.attachment),
   };
+}
+
+function mapActionLink(value: AnnouncementActionLinkDto | null | undefined): AnnouncementActionLink | undefined {
+  const label = trimmedStringValue(value?.label);
+  const url = trimmedStringValue(value?.url);
+  if (!label || label.length > 120 || !url || !isSafeAnnouncementUrl(url)) {
+    return undefined;
+  }
+
+  return { label, url };
+}
+
+function toActionLinkDto(value: AnnouncementActionLink | undefined): AnnouncementActionLinkDto | null {
+  if (!value) {
+    return null;
+  }
+
+  return {
+    label: value.label.trim(),
+    url: value.url.trim(),
+  };
+}
+
+export function isSafeAnnouncementUrl(rawUrl: string): boolean {
+  const value = rawUrl.trim();
+  if (
+    value.length === 0 ||
+    value.length > 2_048 ||
+    /[\u0000-\u001f\u007f\\\s]/u.test(value)
+  ) {
+    return false;
+  }
+
+  if (value.startsWith('/')) {
+    if (value.startsWith('//')) {
+      return false;
+    }
+
+    try {
+      return !decodeURIComponent(value)
+        .split('/')
+        .some((segment) => segment === '..');
+    } catch {
+      return false;
+    }
+  }
+
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && url.hostname.length > 0 && !url.username && !url.password;
+  } catch {
+    return false;
+  }
 }
 
 function announcementDraftStatus(value: unknown): AnnouncementEditorDraft['publicationState'] | null {
