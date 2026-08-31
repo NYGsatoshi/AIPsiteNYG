@@ -19,7 +19,135 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    name: CI change routing
+    runs-on: self-hosted
+    timeout-minutes: 5
+    outputs:
+      backend: ${{ steps.classify.outputs.backend }}
+      frontend: ${{ steps.classify.outputs.frontend }}
+      security: ${{ steps.classify.outputs.security }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Classify changed files
+        id: classify
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+
+          zero_sha="0000000000000000000000000000000000000000"
+          base_sha="${BASE_SHA:-}"
+          head_sha="${HEAD_SHA:-$GITHUB_SHA}"
+
+          route_all() {
+            {
+              echo "backend=true"
+              echo "frontend=true"
+              echo "security=true"
+            } >> "$GITHUB_OUTPUT"
+            echo "Unable to establish a safe diff base; all CI lanes are enabled." >> "$GITHUB_STEP_SUMMARY"
+          }
+
+          if [[ -z "$base_sha" || "$base_sha" == "$zero_sha" ]] || \
+             ! git cat-file -e "${base_sha}^{commit}" 2>/dev/null || \
+             ! git cat-file -e "${head_sha}^{commit}" 2>/dev/null; then
+            route_all
+            exit 0
+          fi
+
+          changed_file_list="$RUNNER_TEMP/ci-changed-files.txt"
+          git diff --name-only "$base_sha" "$head_sha" > "$changed_file_list"
+
+          backend=false
+          frontend=false
+          security=false
+
+          while IFS= read -r path; do
+            [[ -n "$path" ]] || continue
+
+            case "$path" in
+              .github/workflows/ci.yml|AipPortal.slnx|global.json|NuGet.config|Directory.Build.*|Directory.Packages.*|.config/*|src/*|tests/AipPortal.Tests/*|scripts/ci/configure-persistent-caches.sh|scripts/ci/verify-trx-results.sh|scripts/ci/task-pr07b-required-tests.txt|scripts/ci/task-pr07c-required-tests.txt|scripts/ci/task-pr07d-required-tests.txt)
+                backend=true
+                ;;
+            esac
+
+            case "$path" in
+              .github/workflows/ci.yml|frontend/*|tests/ui/*|package.json|package-lock.json|.npmrc|Dockerfile.playwright|docker-compose.playwright.yml|docker-compose.real-backend-smoke.yml|playwright.config.*|scripts/ci/configure-persistent-caches.sh|scripts/ci/npm-ci-retry.sh)
+                frontend=true
+                ;;
+            esac
+
+            case "$path" in
+              .github/workflows/ci.yml|.dockerignore|.env|.env.*|.env.example|AipPortal.slnx|global.json|NuGet.config|Directory.Build.*|Directory.Packages.*|.config/*|Dockerfile|Dockerfile.*|docker-compose*.yml|deploy/*|package.json|package-lock.json|frontend/package.json|frontend/package-lock.json|src/*.csproj|tests/AipPortal.Tests/*.csproj|src/AipPortal.Infrastructure/Migrations/*|scripts/ci/*|*/syncfusion-license.txt|syncfusion-license.txt)
+                security=true
+                ;;
+            esac
+          done < "$changed_file_list"
+
+          {
+            echo "backend=$backend"
+            echo "frontend=$frontend"
+            echo "security=$security"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### CI routing"
+            echo "- backend: $backend"
+            echo "- frontend: $frontend"
+            echo "- heavy security: $security"
+            echo
+            echo "Changed files:"
+            sed 's/^/- `/' "$changed_file_list" | sed 's/$/`/'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  secret-scan:
+    name: Secret scan
+    runs-on: self-hosted
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Scan repository secrets with Gitleaks
+        shell: bash
+        run: |
+          set +e
+          docker run --rm \
+            -v "$PWD:/repo" \
+            zricethezav/gitleaks:v8.24.3 \
+            detect --no-git --source /repo --redact --verbose \
+            --report-format json --report-path /repo/gitleaks-report.json
+          status=$?
+          set -e
+          [[ -f gitleaks-report.json ]] || printf '[]\n' > gitleaks-report.json
+          cat gitleaks-report.json
+          exit "$status"
+
+      - name: Upload Gitleaks secret scan report
+        if: failure()
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: gitleaks-secret-scan-report
+          path: gitleaks-report.json
+          if-no-files-found: error
+
   build-test:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     runs-on: [self-hosted, aipsite-ci, general]
     timeout-minutes: 90
 
@@ -110,9 +238,7 @@ jobs:
           exit "$restore_status"
 
       - name: Upload build restore log
-        if: always()
-        # Evidence upload must not hide the actual restore/build result when
-        # GitHub Actions storage is temporarily unavailable or exhausted.
+        if: failure()
         continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
@@ -158,7 +284,7 @@ jobs:
             --label "Full backend"
 
       - name: Upload backend test results
-        if: always()
+        if: failure()
         continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
@@ -215,6 +341,8 @@ jobs:
           fi
 
   security-scan:
+    needs: changes
+    if: needs.changes.outputs.security == 'true'
     runs-on: self-hosted
     timeout-minutes: 90
     permissions:
@@ -250,30 +378,6 @@ jobs:
           printf 'Vulnerable package scan did not run.\n' > dotnet-vulnerable-packages.txt
           printf 'Deprecated package scan did not run.\n' > dotnet-deprecated-packages.txt
           printf 'Trivy image scan did not run.\n' > trivy-image-report.txt
-
-      - name: Scan repository secrets with Gitleaks
-        shell: bash
-        run: |
-          set +e
-          docker run --rm \
-            -v "$PWD:/repo" \
-            zricethezav/gitleaks:v8.24.3 \
-            detect --no-git --source /repo --redact --verbose \
-            --report-format json --report-path /repo/gitleaks-report.json
-          status=$?
-          set -e
-          [[ -f gitleaks-report.json ]] || printf '[]\n' > gitleaks-report.json
-          cat gitleaks-report.json
-          exit "$status"
-
-      - name: Upload Gitleaks secret scan report
-        if: always()
-        continue-on-error: true
-        uses: actions/upload-artifact@v7
-        with:
-          name: gitleaks-secret-scan-report
-          path: gitleaks-report.json
-          if-no-files-found: error
 
       - name: Configure persistent .NET caches
         shell: bash
@@ -316,7 +420,7 @@ jobs:
           exit "$restore_status"
 
       - name: Upload security restore log
-        if: always()
+        if: failure()
         continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
@@ -348,7 +452,7 @@ jobs:
           exit "$status"
 
       - name: Upload .NET dependency scan reports
-        if: always()
+        if: failure()
         continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
@@ -474,7 +578,7 @@ jobs:
           exit "$status"
 
       - name: Upload Trivy image scan report
-        if: always()
+        if: failure()
         continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
@@ -509,6 +613,8 @@ jobs:
             sh -c "chown -R ${uid}:${gid} /workspace"
 
   frontend-test:
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     runs-on: self-hosted
     timeout-minutes: 120
 
