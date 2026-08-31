@@ -80,6 +80,9 @@ jobs:
 
       - name: Upload Playwright artifacts
         if: always()
+        # The P0 acceptance result remains required when optional diagnostic
+        # artifact retention is blocked by GitHub Actions storage limits.
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: real-backend-p0-acceptance-artifacts

@@ -105,6 +105,9 @@ jobs:
 
       - name: Upload MBJ-03 evidence
         if: always()
+        # The acceptance command itself remains authoritative when diagnostic
+        # retention is blocked by the GitHub Actions artifact-storage quota.
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: mbj03-session-lifecycle-evidence
