@@ -96,8 +96,6 @@ describe('announcement API adapters', () => {
       priority: 2,
       isPinned: false,
       requiresReadConfirmation: true,
-      cta: null,
-      attachment: null,
     });
   });
 
