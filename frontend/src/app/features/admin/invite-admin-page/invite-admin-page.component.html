@@ -17,7 +17,7 @@
     <app-empty-state title="No workspace available" message="Create or seed a workspace before issuing invites." />
   } @else {
     <button type="button" class="admin-invites__refresh" (click)="createDialogOpen.set(true)" data-testid="invite-admin-open-create">Create invite</button>
-    <app-aip-dialog [open]="createDialogOpen()" title="Create invite" description="The link is shown only on the authorized creation response." confirmLabel="Create invite" [busy]="submitting()" (confirm)="createInvite()" (cancel)="createDialogOpen.set(false)" (closed)="createDialogOpen.set(false)">
+    <app-aip-dialog [open]="createDialogOpen()" size="wide" title="Create invite" description="The link is shown only on the authorized creation response." confirmLabel="Create invite" [busy]="submitting()" (confirm)="createInvite()" (cancel)="createDialogOpen.set(false)" (closed)="createDialogOpen.set(false)">
     <form class="admin-invites__form" aria-label="Create invite">
       <label>
         Workspace
