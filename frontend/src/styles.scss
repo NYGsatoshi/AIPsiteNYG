@@ -121,3 +121,36 @@ strong {
 .files-page__search-controls select,
 .files-page__search-submit,
 .files-page__search-clear { min-width: 0; min-height: 40px; }
+
+/* Shared action hierarchy for dense application workflows. Feature pages opt in
+   explicitly so primary, secondary, quiet, and destructive actions stay clear. */
+.aip-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--aip-space-2);
+  min-height: var(--aip-button-height);
+  min-width: 0;
+  padding: var(--aip-space-2) var(--aip-space-3);
+  border: 1px solid transparent;
+  border-radius: var(--aip-radius-md);
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color var(--aip-motion-duration-fast), border-color var(--aip-motion-duration-fast), color var(--aip-motion-duration-fast), transform var(--aip-motion-duration-fast);
+}
+.aip-button--primary { border-color: var(--aip-color-action-primary); background: var(--aip-color-action-primary); color: var(--aip-color-text-inverse); }
+.aip-button--secondary { border-color: var(--aip-color-border-strong); background: var(--aip-color-bg-control); color: var(--aip-color-text-primary); }
+.aip-button--quiet { border-color: transparent; background: transparent; color: var(--aip-color-action-primary); }
+.aip-button--danger { border-color: var(--aip-color-danger); background: var(--aip-color-danger-subtle); color: var(--aip-color-danger); }
+.aip-button:hover:not(:disabled) { border-color: var(--aip-color-action-primary); background: var(--aip-color-bg-selected); color: var(--aip-color-text-primary); }
+.aip-button:active:not(:disabled) { transform: translateY(1px); }
+.aip-button:disabled, .aip-button[aria-disabled='true'] { cursor: not-allowed; opacity: .58; }
+.aip-action-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--aip-space-2); }
+@media (max-width: 40rem) {
+  .aip-action-toolbar { display: grid; grid-template-columns: minmax(0, 1fr); width: 100%; }
+  .aip-action-toolbar > .aip-button { width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) { .aip-button { transition: none; } }

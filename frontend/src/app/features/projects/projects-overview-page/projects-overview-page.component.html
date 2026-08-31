@@ -6,12 +6,13 @@
       <p>{{ vm.subtitle }}</p>
       <h1>{{ vm.title }}</h1>
     </div>
-    <div class="projects-page__header-actions">
+    <div class="projects-page__header-actions aip-action-toolbar">
       @if (createState().status === 'committedPendingNavigation') {
         <button
           id="projects-resume-created-project"
           type="button"
           data-testid="projects-resume-created-project"
+          class="aip-button aip-button--primary"
           (click)="resumeCreatedProject()"
         >
           Resume opening created Project
@@ -21,12 +22,13 @@
           id="projects-create-project"
           type="button"
           data-testid="projects-create-project"
+          class="aip-button aip-button--primary"
           (click)="openCreateDialog()"
         >
           Create Project
         </button>
       }
-      <a routerLink="/tasks">My tasks</a>
+      <a class="aip-button aip-button--secondary" routerLink="/tasks">My tasks</a>
     </div>
   </header>
 
@@ -51,12 +53,14 @@
       } @else {
         <p role="alert">{{ vm.message ?? 'Projects could not be loaded. Try again.' }}</p>
       }
-      <button type="button" data-testid="projects-retry" (click)="retry()">Retry</button>
+      <button type="button" class="aip-button aip-button--secondary" data-testid="projects-retry" (click)="retry()">Retry</button>
     </section>
   } @else if (vm.status === 'empty' || vm.projects.length === 0) {
     <app-empty-state
-      title="No projects"
-      message="No authorized project records were returned by the API."
+      title="No projects yet"
+      message="Create a Project to organize Tasks, schedules, and shared work in this Workspace."
+      [actionLabel]="createWorkspace() ? 'Create Project' : ''"
+      (action)="openCreateDialog()"
     />
   } @else if (designSystemV04Enabled()) {
     <app-project-summary-panel [projects]="vm.projects" />

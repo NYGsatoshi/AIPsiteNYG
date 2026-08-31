@@ -28,40 +28,6 @@
   gap: 0.65rem;
 }
 
-.projects-page__header a,
-.projects-page__header button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 2.75rem;
-  padding: 0 0.75rem;
-  border: 1px solid var(--aip-color-border-strong);
-  border-radius: 0.5rem;
-  background: var(--aip-color-bg-elevated);
-  color: var(--aip-color-action-primary);
-  text-decoration: none;
-  font-weight: 700;
-}
-
-.projects-page__header button {
-  border-color: var(--aip-color-action-primary);
-  background: var(--aip-color-action-primary);
-  color: var(--aip-color-text-inverse);
-  cursor: pointer;
-  font: inherit;
-  font-weight: 700;
-}
-
-.projects-page__header a:hover,
-.projects-page__header button:hover {
-  background: var(--aip-color-bg-selected);
-}
-
-.projects-page__header a:focus-visible,
-.projects-page__header button:focus-visible {
-  outline: 3px solid var(--aip-color-focus, #79a9ff);
-  outline-offset: 2px;
-}
 
 @media (max-width: 720px) {
   .projects-page {

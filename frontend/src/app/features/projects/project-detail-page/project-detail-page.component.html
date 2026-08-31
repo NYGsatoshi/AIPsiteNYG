@@ -5,13 +5,25 @@
   @else if (vm.status === 'error') { <app-error-banner [error]="{ code: 'ProjectLoad', message: vm.message ?? 'Project could not be loaded.', details: [], localErrorId: 'project-detail' }" title="Project could not be loaded" /> }
   @else if (!vm.project) { <app-empty-state title="Project not found" message="No authorized project record was returned." /> }
   @else {
-    <header><p>{{ vm.project.statusLabel }}</p><h1>{{ vm.project.name }}</h1><p>{{ vm.project.startDate || 'No start date' }} – {{ vm.project.dueDate || 'No due date' }}</p></header>
-    @if (vm.project.isOperational && vm.project.canCreateTask) {
-      <button type="button" class="project-detail-page__create-task" data-testid="project-create-task" (click)="openCreateTask()">New Task</button>
-    }
+    <nav class="project-detail-page__breadcrumb" aria-label="Project hierarchy">
+      <a routerLink="/projects">Projects</a><span aria-hidden="true">/</span><span aria-current="page">{{ vm.project.name }}</span>
+    </nav>
+    <header class="project-detail-page__header">
+      <div class="project-detail-page__heading">
+        <p class="project-detail-page__eyebrow">{{ vm.project.statusLabel }}</p>
+        <h1>{{ vm.project.name }}</h1>
+        @if (vm.project.description) { <p class="project-detail-page__description">{{ vm.project.description }}</p> }
+        <p class="project-detail-page__dates">{{ vm.project.startDate || 'No start date' }} – {{ vm.project.dueDate || 'No due date' }}</p>
+      </div>
+      @if (vm.project.isOperational && vm.project.canCreateTask) {
+        <div class="aip-action-toolbar">
+          <button type="button" class="aip-button aip-button--primary project-detail-page__create-task" data-testid="project-create-task" (click)="openCreateTask()">Create Task</button>
+        </div>
+      }
+    </header>
     <nav class="project-detail-page__tabs" aria-label="Project views" role="tablist">
       @for (item of tabs(); track item.id) {
-        <button type="button" role="tab" [attr.aria-selected]="tab() === item.id" (click)="tab.set(item.id)">{{ item.label }}</button>
+        <button type="button" class="aip-button aip-button--quiet" role="tab" [attr.aria-selected]="tab() === item.id" (click)="tab.set(item.id)">{{ item.label }}</button>
       }
     </nav>
     @if (tab() === 'overview') {
@@ -48,7 +60,7 @@
             @if (canActivate() || activationBusy()) {
               <button
                 type="button"
-                class="project-detail-page__activate"
+                class="aip-button aip-button--primary project-detail-page__activate"
                 data-testid="activate-project"
                 [disabled]="activationBusy()"
                 (click)="activateProject()">
