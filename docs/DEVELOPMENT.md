@@ -224,6 +224,11 @@ For a manual run against an already-started backend, set
 `node tests/ui/run-real-backend-playwright.mjs`. Local `dotnet run` normally
 uses port 5098; the Compose app uses port 8080.
 
+The separate post-deployment public HTTPS gate is documented in
+`docs/verification/p0-public-https-golden-path.md`. It requires a protected,
+dedicated synthetic fixture and never substitutes a direct Kestrel or localhost
+run for the real TLS/proxy route.
+
 See `docs/TESTING.md`.
 
 ## Adding a feature

@@ -9,6 +9,14 @@
 @import 'ag-grid-community/styles/ag-grid.css';
 @import 'ag-grid-community/styles/ag-theme-quartz.css';
 
+.files-page__grid.files-page__grid--browser {
+  grid-template-columns: auto minmax(0, 1.45fr) minmax(280px, 0.75fr);
+}
+
+@media (max-width: 860px) {
+  .files-page__grid.files-page__grid--browser { grid-template-columns: minmax(0, 1fr); }
+}
+
 :root[data-aip-theme='dark'] {
   color-scheme: dark;
 }

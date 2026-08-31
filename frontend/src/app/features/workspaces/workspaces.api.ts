@@ -29,6 +29,11 @@ export interface WorkspaceDashboardListItemDto {
   readonly inProgressProjectCount?: unknown;
   readonly runningProjectCount?: unknown;
   readonly needsReviewProjectCount?: unknown;
+  readonly hasExternalShares?: unknown;
+  readonly externalShareCount?: unknown;
+  readonly canInspectSharing?: unknown;
+  readonly canManageSharing?: unknown;
+  readonly memberPreview?: unknown;
 }
 
 export interface WorkspaceCapabilitiesDto {
@@ -166,6 +171,7 @@ export function mapWorkspaceDashboardItem(
   const unreadConversationCount = nonNegativeInteger(workspace.unreadConversationCount);
   const runningProjectCount = nonNegativeInteger(workspace.runningProjectCount);
   const needsReviewProjectCount = nonNegativeInteger(workspace.needsReviewProjectCount);
+  const canInspectSharing = workspace.canInspectSharing === true;
   const activeProjectCount =
     nonNegativeInteger(workspace.inProgressProjectCount) ??
     (runningProjectCount !== null && needsReviewProjectCount !== null
@@ -184,6 +190,11 @@ export function mapWorkspaceDashboardItem(
     activeProjectCount,
     runningProjectCount,
     needsReviewProjectCount,
+    hasExternalShares: workspace.hasExternalShares === true,
+    externalShareCount: canInspectSharing
+      ? nonNegativeInteger(workspace.externalShareCount)
+      : null,
+    memberPreview: memberPreview(workspace.memberPreview),
     lastUpdatedLabel,
     availability: {
       unreadAnnouncements: unreadAnnouncementCount !== null,
@@ -219,7 +230,29 @@ function actionCapabilities(
   if (workspace.canAddFiles === true) {
     capabilities.push('addFiles');
   }
+  if (workspace.canInspectSharing === true) {
+    capabilities.push('inspectSharing');
+  }
+  if (workspace.canManageSharing === true) {
+    capabilities.push('manageSharing');
+  }
   return capabilities;
+}
+
+function memberPreview(value: unknown): readonly { readonly id: string; readonly displayName: string }[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.slice(0, 3).flatMap((item) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      return [];
+    }
+    const record = item as Record<string, unknown>;
+    const id = stringValue(record['userId']);
+    const displayName = stringValue(record['displayName']);
+    return id && displayName ? [{ id, displayName }] : [];
+  });
 }
 
 function membershipRole(value: unknown): WorkspaceMembershipRole | null {

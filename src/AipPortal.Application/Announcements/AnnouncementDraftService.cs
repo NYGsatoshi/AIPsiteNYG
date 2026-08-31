@@ -20,6 +20,7 @@ public sealed class AnnouncementDraftService(
     IAnnouncementDraftRepository drafts,
     IAnnouncementRepository announcements,
     IAnnouncementAudienceService audiences,
+    IAnnouncementScheduleTimeZoneResolver scheduleTimeZones,
     ICreateIdempotencyCoordinator idempotency,
     ICurrentUser currentUser,
     ICurrentTenant currentTenant,
@@ -277,6 +278,18 @@ public sealed class AnnouncementDraftService(
             async (draft, actorUserId, token) =>
             {
                 var accepted = resolution.Value!;
+                var authoritativeZone = await scheduleTimeZones.ResolveAsync(
+                    currentTenant.TenantId,
+                    draft.WorkspaceId,
+                    token);
+                if (!string.Equals(
+                    authoritativeZone.Id,
+                    accepted.TimeZoneId,
+                    StringComparison.Ordinal))
+                {
+                    throw new AnnouncementTransitionValidationException(
+                        "The organizational time zone changed. Review the displayed schedule and try again.");
+                }
                 if (accepted.DueAtUtc <= clock.UtcNow)
                 {
                     throw new AnnouncementTransitionValidationException(

@@ -71,13 +71,35 @@ import { WorkspaceSearchComponent } from '../workspace-search/workspace-search.c
         @if (logoutError) {
           <span class="top-bar__status top-bar__status--error" data-testid="logout-error">{{ logoutError }}</span>
         }
-        @if (workspace && canOpenWorkspaceMembers) {
+        @if (workspace) {
           <nav class="top-bar__action-group" [attr.aria-label]="i18n.translate('topBar.workspaceActions')">
-            <a
-              class="top-bar__action"
-              data-testid="workspace-members-action"
-              [routerLink]="['/workspaces', workspace.id, 'members']"
-            >{{ i18n.translate('topBar.members') }}</a>
+            @if (memberPreview.length > 0) {
+              <div class="top-bar__avatar-stack" data-testid="workspace-member-preview" [attr.aria-label]="i18n.translate('topBar.memberPreview')">
+                @for (member of memberPreview; track member.id) {
+                  <span class="top-bar__avatar" [attr.title]="member.displayName" [attr.aria-label]="member.displayName">{{ initials(member.displayName) }}</span>
+                }
+              </div>
+            }
+            @if (hasExternalShares) {
+              <span class="top-bar__external-badge" data-testid="workspace-external-badge">
+                {{ i18n.translate('topBar.external') }}
+                @if (externalShareCount !== null) { ({{ externalShareCount }}) }
+              </span>
+            }
+            @if (canOpenWorkspaceMembers) {
+              <a
+                class="top-bar__action"
+                data-testid="workspace-members-action"
+                [routerLink]="['/workspaces', workspace.id, 'members']"
+              >{{ i18n.translate('topBar.members') }}</a>
+            }
+            @if (canInspectWorkspaceSharing) {
+              <a
+                class="top-bar__action top-bar__action--share"
+                data-testid="workspace-sharing-action"
+                [routerLink]="['/workspaces', workspace.id, 'members']"
+              >{{ canManageWorkspaceSharing ? i18n.translate('topBar.manageSharing') : i18n.translate('topBar.sharingDetails') }}</a>
+            }
           </nav>
         }
         <nav class="top-bar__action-group top-bar__action-group--global" [attr.aria-label]="i18n.translate('topBar.globalActions')">
@@ -116,6 +138,11 @@ export class TopBarComponent {
   @Input() runningProjectCount: number | null = null;
   @Input() needsReviewProjectCount: number | null = null;
   @Input() canOpenWorkspaceMembers = false;
+  @Input() hasExternalShares = false;
+  @Input() externalShareCount: number | null = null;
+  @Input() memberPreview: readonly { readonly id: string; readonly displayName: string }[] = [];
+  @Input() canInspectWorkspaceSharing = false;
+  @Input() canManageWorkspaceSharing = false;
   @Input() sessionStatus: AuthSessionStatus = 'active';
   @Input() rightPanelMode: RightPanelMode = 'collapsed';
   @Input() logoutPending = false;
@@ -129,6 +156,10 @@ export class TopBarComponent {
     if (value && value !== this.workspace?.id) {
       this.workspaceSelected.emit(value);
     }
+  }
+
+  initials(displayName: string): string {
+    return Array.from(displayName.trim()).slice(0, 2).join('').toUpperCase() || '?';
   }
 }
 

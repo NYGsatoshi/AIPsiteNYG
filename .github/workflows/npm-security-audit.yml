@@ -147,6 +147,9 @@ jobs:
 
       - name: Upload npm audit reports
         if: always()
+        # The baseline check below remains authoritative if artifact storage
+        # is unavailable or its quota is exhausted.
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: npm-audit-reports

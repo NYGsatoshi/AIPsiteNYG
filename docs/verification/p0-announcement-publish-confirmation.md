@@ -16,8 +16,11 @@ Draft -> Scheduled -> Published
 `Save draft` stores or updates only `Draft` content. A reviewed **Publish now**
 command does not create an `Announcement` in the controller or browser; it
 records an immediate UTC `Scheduled` due time. A reviewed scheduled command
-records the supplied local wall-clock value and IANA zone, resolves the one
-UTC due instant server-side, and records `Scheduled`. The bounded in-process
+uses the organizational timezone resolved from the selected Workspace, then
+Tenant, then UTC. The audience projection shows that authoritative IANA zone
+before input and Review. The command records the supplied local wall-clock
+value and that zone, resolves the one UTC due instant server-side, and records
+`Scheduled`. The bounded in-process
 publisher is the only path that creates the real `Announcement` and changes
 the draft to `Published`.
 
@@ -38,8 +41,10 @@ All routes are cookie-authenticated, CSRF-protected unsafe requests:
 - `POST /api/announcement-drafts/{draftId}/publish` requires
   `Idempotency-Key` and changes Draft to an immediate Scheduled record.
 - `POST /api/announcement-drafts/{draftId}/schedule` requires
-  `Idempotency-Key`, an IANA `timeZoneId`, an unspecified local datetime, and
-  `expectedVersion`.
+  `Idempotency-Key`, the displayed organizational IANA `timeZoneId`, an
+  unspecified local datetime, and `expectedVersion`. The server resolves the
+  current Workspace/Tenant default again and rejects a stale or substituted
+  zone before accepting the immutable instant.
 - `GET /api/announcement-drafts` and its exact-item read return only the
   current authorized author’s drafts.
 
@@ -54,8 +59,10 @@ claim and publish the same Scheduled draft.
 For an immediate request, the server records its own `UTC` local/time-zone
 representation and UTC due instant. For user scheduling, `TimeZoneInfo`
 resolves the IANA local wall-clock time once. Invalid zones, skipped local
-times, and unresolved/invalid DST-overlap offsets fail safely. The stored UTC
-instant is never recalculated by the worker.
+times, and unresolved/invalid DST-overlap offsets fail safely. The accepted
+local value, IANA zone, applicable overlap offset (when required), and UTC
+instant are retained; the stored UTC instant is never recalculated by the
+worker or changed by later timezone-setting/tzdb updates.
 
 ## Authorization and durable publisher boundary
 

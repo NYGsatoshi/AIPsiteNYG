@@ -63,6 +63,7 @@ describe('announcement API adapters', () => {
       channelId: undefined,
       displayName: 'School / Teachers',
       recipientCount: 86,
+      scheduleTimeZoneId: 'UTC',
     });
 
     expect(mapAnnouncementAudienceOption({
