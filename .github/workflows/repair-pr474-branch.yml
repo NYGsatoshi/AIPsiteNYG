@@ -44,6 +44,44 @@ jobs:
             printf 'Conflicted paths:\n%s\n' "${conflicts[*]:-none}"
             for path in "${conflicts[@]}"; do
               case "$path" in
+                src/AipPortal.Application/DependencyInjection.cs)
+                  # Both branches add independent fail-closed repositories and
+                  # services. Retain the Announcement registrations from this
+                  # branch and add the Research Plan registrations from main.
+                  git checkout --ours -- "$path"
+                  python3 - "$path" <<'PY'
+          from pathlib import Path
+          import sys
+
+          path = Path(sys.argv[1])
+          text = path.read_text(encoding="utf-8")
+
+          repository_anchor = "        services.AddScoped<IArtifactEvidenceRepository, UnavailableArtifactEvidenceRepository>();\n"
+          repository_registration = "        services.AddScoped<IResearchPlanRepository, UnavailableResearchPlanRepository>();\n"
+          if repository_registration not in text:
+              if repository_anchor not in text:
+                  raise RuntimeError("Could not locate Research Plan repository registration anchor")
+              text = text.replace(
+                  repository_anchor,
+                  repository_anchor + repository_registration,
+                  1,
+              )
+
+          service_anchor = "        services.AddScoped<ITaskExecutionScopeService, TaskExecutionScopeService>();\n"
+          service_registration = "        services.AddScoped<IResearchPlanService, ResearchPlanService>();\n"
+          if service_registration not in text:
+              if service_anchor not in text:
+                  raise RuntimeError("Could not locate Research Plan service registration anchor")
+              text = text.replace(
+                  service_anchor,
+                  service_anchor + service_registration,
+                  1,
+              )
+
+          path.write_text(text, encoding="utf-8")
+          PY
+                  git add "$path"
+                  ;;
                 src/AipPortal.Infrastructure/Persistence/Migrations/AppDbContextModelSnapshot.cs)
                   # main contains the later Research Plan snapshot. Use it as the
                   # baseline, then generate a no-op reconciliation migration whose
