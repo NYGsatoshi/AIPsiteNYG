@@ -1,5 +1,7 @@
-import { Component, ElementRef, EventEmitter, Input, Output, QueryList, ViewChildren, computed, signal } from '@angular/core';
+import { Component, ElementRef, EventEmitter, Input, Output, QueryList, ViewChildren, computed, inject, signal } from '@angular/core';
 import { LucideChevronLeft, LucideChevronRight, LucideClock3, LucideFolder, LucideFolderOpen, LucideShare2, LucideStar } from '@lucide/angular';
+
+import { I18nService } from '../../../core/i18n/i18n.service';
 
 export type FileBrowserShortcut = 'recent' | 'starred' | 'shared';
 
@@ -29,6 +31,7 @@ export class FileBrowserSidebarComponent {
 
   @ViewChildren('treeitem', { read: ElementRef }) private treeItems?: QueryList<ElementRef<HTMLElement>>;
 
+  readonly i18n = inject(I18nService);
   readonly collapsed = signal(false);
   readonly width = signal(264);
   readonly expandedIds = signal<ReadonlySet<string>>(new Set());

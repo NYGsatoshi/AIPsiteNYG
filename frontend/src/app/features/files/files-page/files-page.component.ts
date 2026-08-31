@@ -13,6 +13,7 @@ import {
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { Subscription } from 'rxjs';
 
+import { I18nService } from '../../../core/i18n/i18n.service';
 import { FrontendFeatureFlagsService } from '../../../core/feature-flags/frontend-feature-flags.service';
 import { AuthSessionFacade } from '../../../core/auth/auth-session.facade';
 import { RealtimeFacade } from '../../../core/realtime/realtime.facade';
@@ -29,7 +30,6 @@ import { FileQuotaStateComponent } from '../file-quota-state/file-quota-state.co
 import { FilesFacade } from '../files.facade';
 import { RecentFilesListComponent } from '../recent-files-list/recent-files-list.component';
 import {
-  FILE_SCAN_STATUS_LABELS,
   FileSearchFilters,
   FileSearchKindFilter,
   FileSearchModifiedFilter,
@@ -76,18 +76,29 @@ export class FilesPageComponent {
   private readonly activeWorkspace = inject(ActiveWorkspaceFacade);
   private readonly authSession = inject(AuthSessionFacade);
   private readonly realtime = inject(RealtimeFacade);
+  readonly i18n = inject(I18nService);
 
   readonly page = this.facade.page;
   readonly search = this.facade.search;
   readonly syncfusionUploaderEnabled = this.flags.syncfusionUploaderEnabled;
-  readonly fileScanStatusLabels = FILE_SCAN_STATUS_LABELS;
   readonly searchQuery = signal('');
   readonly searchKind = signal<FileSearchKindFilter>('all');
   readonly searchModified = signal<FileSearchModifiedFilter>('any');
   readonly searchOwner = signal<FileSearchOwnerFilter>('any');
   readonly browserShortcut = signal<FileBrowserShortcut>('recent');
   readonly browserFolders: readonly FileBrowserFolderNode[] = [];
-  readonly activeWorkspaceLabel = computed(() => this.activeWorkspace.activeWorkspace()?.label ?? 'Current Workspace');
+  readonly activeWorkspaceLabel = computed(() =>
+    this.activeWorkspace.activeWorkspace()?.label ?? this.i18n.translate('files.currentWorkspace'));
+  readonly browserShortcutLabel = computed(() => {
+    switch (this.browserShortcut()) {
+      case 'starred':
+        return this.i18n.translate('files.browser.starred');
+      case 'shared':
+        return this.i18n.translate('files.browser.shared');
+      default:
+        return this.i18n.translate('files.browser.recent');
+    }
+  });
   readonly searchApplied = computed(() => this.search().status !== 'idle');
   readonly displayedList = computed(() => {
     const search = this.search();
@@ -163,7 +174,7 @@ export class FilesPageComponent {
   readonly inspectorTab = signal<FileInspectorTab>('preview');
   readonly inspectorTabs: readonly FileInspectorTab[] = ['preview', 'details', 'activity'];
   readonly fileLocationLabel = computed(() =>
-    this.activeWorkspace.activeWorkspace()?.label ?? 'Current Workspace');
+    this.activeWorkspace.activeWorkspace()?.label ?? this.i18n.translate('files.currentWorkspace'));
   readonly previewCanDownload = computed(() => {
     const file = this.previewFile();
     return !!file?.canonicalFileId && file.downloadPolicy === 'available' &&
@@ -192,27 +203,31 @@ export class FilesPageComponent {
   readonly deleteState = this.facade.deleteState;
   readonly deleteBusy = computed(() => this.deleteState().state === 'pending');
   readonly deleteDialogTitle = computed(() =>
-    this.deleteSelectionCount() === 1 ? 'Delete file?' : `Delete ${this.deleteSelectionCount()} files?`);
+    this.deleteSelectionCount() === 1
+      ? this.i18n.translate('files.delete.titleOne')
+      : this.i18n.translate('files.delete.titleMany', { count: this.deleteSelectionCount() }));
   readonly deleteDialogDescription = computed(() => {
     const snapshot = this.deleteSnapshot();
     if (snapshot) {
-      return `Delete ${snapshot.selectedCount} captured search-result files? Files are deleted one at a time, so this is not an atomic batch. Deletion is soft; restoration follows your organization's recovery policy.`;
+      return this.i18n.translate('files.delete.descriptionSearch', { count: snapshot.selectedCount });
     }
     const targets = this.deleteTargets();
     if (targets.length === 1) {
-      return `Delete ${targets[0]?.originalFileName ?? 'the selected file'}? Deletion is soft; restoration follows your organization's recovery policy.`;
+      return this.i18n.translate('files.delete.descriptionOne', {
+        name: targets[0]?.originalFileName ?? this.i18n.translate('files.untitledFile'),
+      });
     }
-    return `Delete ${targets.length} selected files? Files are deleted one at a time, so this is not an atomic batch. Deletion is soft; restoration follows your organization's recovery policy.`;
+    return this.i18n.translate('files.delete.descriptionMany', { count: targets.length });
   });
   readonly totalPages = computed(() => {
     const page = this.displayedList();
     return Math.max(1, Math.ceil(page.totalCount / Math.max(1, page.pageSize)));
   });
-  readonly optionalColumns = [
-    { id: 'type' as const, label: 'Type' },
-    { id: 'size' as const, label: 'Size' },
-    { id: 'scan' as const, label: 'Scan details' },
-  ];
+  readonly optionalColumns = computed(() => [
+    { id: 'type' as const, label: this.i18n.translate('files.table.type') },
+    { id: 'size' as const, label: this.i18n.translate('files.table.size') },
+    { id: 'scan' as const, label: this.i18n.translate('files.table.scanDetails') },
+  ]);
   private readonly visibleOptionalColumns = signal<ReadonlySet<FileListOptionalColumn>>(new Set());
   private previewRequest: Subscription | null = null;
   private previewGeneration = 0;
@@ -225,7 +240,7 @@ export class FilesPageComponent {
     const columns: AppDataGridColumnDef<FileViewModel>[] = [
       {
         colId: 'name',
-        headerName: 'Name',
+        headerName: this.i18n.translate('files.table.name'),
         flex: 2,
         minWidth: 220,
         actions: (row) => [{
@@ -234,29 +249,46 @@ export class FilesPageComponent {
           row,
         }],
       },
-      { field: 'modifiedAtLabel', headerName: 'Modified', flex: 1, minWidth: 150 },
-      { field: 'uploadedByDisplay', headerName: 'Owner', flex: 1, minWidth: 140 },
+      {
+        colId: 'modified',
+        headerName: this.i18n.translate('files.table.modified'),
+        flex: 1,
+        minWidth: 150,
+        valueGetter: ({ data }) => data ? this.fileModifiedLabel(data) : '',
+      },
+      { field: 'uploadedByDisplay', headerName: this.i18n.translate('files.table.owner'), flex: 1, minWidth: 140 },
       {
         colId: 'status',
-        headerName: 'Status',
+        headerName: this.i18n.translate('files.table.status'),
         minWidth: 130,
-        valueGetter: ({ data }) => data ? FILE_SCAN_STATUS_LABELS[data.scanStatus] : '',
+        valueGetter: ({ data }) => data ? this.i18n.fileScanStatusLabel(data.scanStatus) : '',
       },
     ];
 
     if (visible.has('type')) {
-      columns.push({ field: 'contentType', headerName: 'Type', flex: 1, minWidth: 160 });
+      columns.push({
+        field: 'contentType',
+        headerName: this.i18n.translate('files.table.type'),
+        flex: 1,
+        minWidth: 160,
+        valueFormatter: ({ value }) => this.i18n.fileContentTypeLabel(String(value ?? '')),
+      });
     }
     if (visible.has('size')) {
       columns.push({
         field: 'sizeBytes',
-        headerName: 'Size',
+        headerName: this.i18n.translate('files.table.size'),
         minWidth: 100,
-        valueFormatter: ({ value }) => `${Math.round(Number(value ?? 0) / 1024)} KB`,
+        valueFormatter: ({ value }) => this.i18n.formatFileSize(Number(value ?? 0)),
       });
     }
     if (visible.has('scan')) {
-      columns.push({ field: 'scanStatus', headerName: 'Scan details', minWidth: 130 });
+      columns.push({
+        field: 'scanStatus',
+        headerName: this.i18n.translate('files.table.scanDetails'),
+        minWidth: 130,
+        valueFormatter: ({ value }) => this.i18n.fileScanStatusLabel(value as FileViewModel['scanStatus']),
+      });
     }
 
     return columns;
@@ -363,23 +395,25 @@ export class FilesPageComponent {
   }
 
   searchKindLabel(kind: FileSearchKindFilter): string {
-    return ({
-      all: 'Any type',
-      document: 'Documents',
-      image: 'Images',
-      pdf: 'PDF',
-      video: 'Video',
-      archive: 'Archives',
+    const key = ({
+      all: 'files.search.anyType',
+      document: 'files.search.documents',
+      image: 'files.search.images',
+      pdf: 'files.search.pdf',
+      video: 'files.search.video',
+      archive: 'files.search.archives',
     } as const)[kind];
+    return this.i18n.translate(key);
   }
 
   searchModifiedLabel(modified: FileSearchModifiedFilter): string {
-    return ({
-      any: 'Any time',
-      last7Days: 'Last 7 days',
-      last30Days: 'Last 30 days',
-      last90Days: 'Last 90 days',
+    const key = ({
+      any: 'files.search.anyTime',
+      last7Days: 'files.search.last7Days',
+      last30Days: 'files.search.last30Days',
+      last90Days: 'files.search.last90Days',
     } as const)[modified];
+    return this.i18n.translate(key);
   }
 
   cancelUpload(clientRequestId: string): void {
@@ -485,14 +519,14 @@ export class FilesPageComponent {
 
     if (this.previewRenderer() === 'unsupported') {
       this.previewState.set('unsupported');
-      this.previewMessage.set('This file type does not have an inline preview. Download it explicitly to open it in another application.');
+      this.previewMessage.set(this.i18n.translate('files.preview.unsupportedType'));
       return;
     }
 
     const fileObjectId = file.canonicalFileId;
     if (!fileObjectId) {
       this.previewState.set('failed');
-      this.previewMessage.set('Preview is not available until the canonical file is ready.');
+      this.previewMessage.set(this.i18n.translate('files.preview.canonicalPending'));
       return;
     }
 
@@ -505,7 +539,7 @@ export class FilesPageComponent {
       this.previewRequest = null;
       if (!result.ok || !result.blob) {
         this.previewState.set('failed');
-        this.previewMessage.set(result.message || 'Preview content was unavailable.');
+        this.previewMessage.set(result.message || this.i18n.translate('files.preview.contentUnavailable'));
         return;
       }
       this.applyPreviewBlob(file, result.blob, generation);
@@ -592,40 +626,44 @@ export class FilesPageComponent {
     return file.downloadPolicy === 'available' &&
       file.scanStatus === 'allowed' &&
       file.capabilities.includes('download')
-      ? 'Authorized download'
-      : 'Restricted';
+      ? this.i18n.translate('files.preview.authorizedDownload')
+      : this.i18n.translate('files.preview.restricted');
   }
 
   copyPreviewCitation(): void {
     const file = this.previewFile();
     if (!file?.canonicalFileId) {
-      this.previewActionStatus.set('Citation is not available for this file.');
+      this.previewActionStatus.set(this.i18n.translate('files.preview.citationUnavailable'));
       return;
     }
     const citation = this.previewCitationText(file);
     const clipboard = typeof navigator !== 'undefined' ? navigator.clipboard : undefined;
     if (clipboard && typeof clipboard.writeText === 'function') {
       void clipboard.writeText(citation).then(
-        () => this.previewActionStatus.set('Citation copied.'),
-        () => this.previewActionStatus.set(this.fallbackCopyText(citation) ? 'Citation copied.' : 'Citation copy is not available in this browser.'),
+        () => this.previewActionStatus.set(this.i18n.translate('files.preview.citationCopied')),
+        () => this.previewActionStatus.set(this.fallbackCopyText(citation)
+          ? this.i18n.translate('files.preview.citationCopied')
+          : this.i18n.translate('files.preview.copyUnavailable')),
       );
       return;
     }
-    this.previewActionStatus.set(this.fallbackCopyText(citation) ? 'Citation copied.' : 'Citation copy is not available in this browser.');
+    this.previewActionStatus.set(this.fallbackCopyText(citation)
+      ? this.i18n.translate('files.preview.citationCopied')
+      : this.i18n.translate('files.preview.copyUnavailable'));
   }
 
   sharePreview(): void {
     const file = this.previewFile();
     if (!file || typeof navigator === 'undefined' || typeof navigator.share !== 'function') {
-      this.previewActionStatus.set('Sharing is not available in this browser.');
+      this.previewActionStatus.set(this.i18n.translate('files.preview.sharingUnavailable'));
       return;
     }
     void navigator.share({
       title: file.originalFileName,
       text: this.previewCitationText(file),
     }).then(
-      () => this.previewActionStatus.set('Share sheet opened.'),
-      () => this.previewActionStatus.set('Sharing was cancelled or unavailable.'),
+      () => this.previewActionStatus.set(this.i18n.translate('files.preview.shareOpened')),
+      () => this.previewActionStatus.set(this.i18n.translate('files.preview.shareCancelled')),
     );
   }
 
@@ -726,10 +764,15 @@ export class FilesPageComponent {
   }
 
   formatBytes(bytes: number): string {
-    if (bytes >= 1024 * 1024) {
-      return `${Math.round(bytes / 1024 / 1024)} MB`;
-    }
-    return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+    return this.i18n.formatFileSize(bytes);
+  }
+
+  fileCreatedLabel(file: FileViewModel): string {
+    return this.formatFileDate(file.createdAt, file.createdAtLabel);
+  }
+
+  fileModifiedLabel(file: FileViewModel): string {
+    return this.formatFileDate(file.modifiedAt, file.modifiedAtLabel);
   }
 
   private applyFileSearch(): void {
@@ -785,16 +828,16 @@ export class FilesPageComponent {
 
   private previewAccessMessage(file: FileViewModel): string | null {
     if (!file.canonicalFileId) {
-      return 'Preview is not available until the canonical file is ready.';
+      return this.i18n.translate('files.preview.canonicalPending');
     }
     if (file.scanStatus === 'pending' || file.scanStatus === 'unavailable') {
-      return 'Preview is unavailable until file scanning completes.';
+      return this.i18n.translate('files.preview.scanPending');
     }
     if (file.scanStatus === 'blocked') {
-      return 'Preview is blocked by file scan state.';
+      return this.i18n.translate('files.preview.blocked');
     }
     if (file.downloadPolicy !== 'available' || !file.capabilities.includes('download')) {
-      return 'You do not have permission to preview this file.';
+      return this.i18n.translate('files.preview.permissionDenied');
     }
     return null;
   }
@@ -852,7 +895,7 @@ export class FilesPageComponent {
       this.previewResourceUrl.set(renderer === 'pdf' ? this.sanitizer.bypassSecurityTrustResourceUrl(objectUrl) : null);
     } else if (renderer !== 'text') {
       this.previewState.set('failed');
-      this.previewMessage.set('This browser cannot create a local preview URL.');
+      this.previewMessage.set(this.i18n.translate('files.preview.localUrlUnavailable'));
       return;
     }
 
@@ -863,12 +906,12 @@ export class FilesPageComponent {
           return;
         }
         this.previewText.set(text);
-        this.previewMessage.set(truncated ? 'Text preview is limited to the first 512 KB.' : '');
+        this.previewMessage.set(truncated ? this.i18n.translate('files.preview.textLimited') : '');
         this.previewState.set('ready');
       }).catch(() => {
         if (generation === this.previewGeneration && this.previewFile()?.id === file.id) {
           this.previewState.set('failed');
-          this.previewMessage.set('The text preview could not be decoded.');
+          this.previewMessage.set(this.i18n.translate('files.preview.textDecodeFailed'));
         }
       });
       return;
@@ -878,8 +921,16 @@ export class FilesPageComponent {
   }
 
   private previewCitationText(file: FileViewModel): string {
-    const modified = file.modifiedAtLabel ? `; modified ${file.modifiedAtLabel}` : '';
-    return `“${file.originalFileName}” — ${file.uploadedByDisplay}${modified}; AIPsite file ${file.canonicalFileId ?? file.id}`;
+    const modifiedAt = this.fileModifiedLabel(file);
+    const modified = modifiedAt
+      ? this.i18n.translate('files.preview.citationModified', { value: modifiedAt })
+      : '';
+    return this.i18n.translate('files.preview.citation', {
+      name: file.originalFileName,
+      owner: file.uploadedByDisplay,
+      modified,
+      id: file.canonicalFileId ?? file.id,
+    });
   }
 
   private fallbackCopyText(text: string): boolean {
@@ -906,7 +957,13 @@ export class FilesPageComponent {
 
   private failPreviewForContentType(): void {
     this.previewState.set('failed');
-    this.previewMessage.set('The downloaded content type did not match the file preview type.');
+    this.previewMessage.set(this.i18n.translate('files.preview.contentTypeMismatch'));
+  }
+
+  private formatFileDate(value: string | undefined, fallback: string): string {
+    return value
+      ? this.i18n.formatDateTime(value, { dateStyle: 'medium', timeStyle: 'short' })
+      : fallback;
   }
 
   private isCompactViewport(): boolean {

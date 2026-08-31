@@ -1,9 +1,15 @@
 import { fileSearchParams, mapFileSearchResponse } from './files-search.api';
+import { FileDisplayLocalizer } from './files.api';
 
 const WORKSPACE_ID = '11111111-1111-4111-8111-111111111111';
 const OTHER_WORKSPACE_ID = '22222222-2222-4222-8222-222222222222';
 const FILE_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const USER_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+const DISPLAY_LOCALIZER: FileDisplayLocalizer = {
+  untitledFile: '無題のファイル',
+  unknownUser: '不明なユーザー',
+  formatDate: (value) => value ? `表示日時: ${value}` : '',
+};
 
 describe('Files search API adapter', () => {
   it('builds one server-owned File query for name, type, modified, and current-user facets', () => {
@@ -47,7 +53,7 @@ describe('Files search API adapter', () => {
         storageKey: 'tenant/private/report.pdf',
         internalPath: '/srv/private/report.pdf',
       }],
-    }, WORKSPACE_ID);
+    }, WORKSPACE_ID, DISPLAY_LOCALIZER);
 
     expect(result).not.toBeNull();
     expect(result?.totalCount).toBe(1);
@@ -86,7 +92,7 @@ describe('Files search API adapter', () => {
         scanStatus: 'Allowed',
         ...patch,
       }],
-    }, WORKSPACE_ID);
+    }, WORKSPACE_ID, DISPLAY_LOCALIZER);
 
     expect(result).toBeNull();
   });

@@ -1,6 +1,6 @@
 import { HttpParams } from '@angular/common/http';
 
-import { FileListItemDto, mapFileListItem } from './files.api';
+import { FileDisplayLocalizer, FileListItemDto, mapFileListItem } from './files.api';
 import { FileSearchFilters, FileSearchPage } from './files.types';
 
 interface FileSearchResponseDto {
@@ -92,7 +92,11 @@ export function fileSearchSelectionSnapshotParams(
   return params;
 }
 
-export function mapFileSearchResponse(value: unknown, expectedWorkspaceId: string): FileSearchPage | null {
+export function mapFileSearchResponse(
+  value: unknown,
+  expectedWorkspaceId: string,
+  displayLocalizer: FileDisplayLocalizer,
+): FileSearchPage | null {
   if (!isObject(value)) {
     return null;
   }
@@ -116,7 +120,7 @@ export function mapFileSearchResponse(value: unknown, expectedWorkspaceId: strin
 
   const files = [];
   for (const candidate of items) {
-    const item = mapFileSearchItem(candidate, expected);
+    const item = mapFileSearchItem(candidate, expected, displayLocalizer);
     if (!item) {
       return null;
     }
@@ -130,7 +134,11 @@ export function mapFileSearchResponse(value: unknown, expectedWorkspaceId: strin
   return { files, page, pageSize, totalCount, hasMore: page * pageSize < totalCount };
 }
 
-function mapFileSearchItem(value: unknown, expectedWorkspaceId: string) {
+function mapFileSearchItem(
+  value: unknown,
+  expectedWorkspaceId: string,
+  displayLocalizer: FileDisplayLocalizer,
+) {
   if (!isObject(value)) {
     return null;
   }
@@ -175,7 +183,7 @@ function mapFileSearchItem(value: unknown, expectedWorkspaceId: string) {
     // canonical inventory projection, never be inferred from a result row.
     canDelete: false,
   };
-  return mapFileListItem(dto);
+  return mapFileListItem(dto, displayLocalizer);
 }
 
 function backendFileKind(kind: Exclude<FileSearchFilters['kind'], 'all'>): string {

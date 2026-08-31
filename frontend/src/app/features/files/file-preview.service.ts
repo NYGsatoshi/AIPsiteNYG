@@ -3,6 +3,7 @@ import { Injectable, inject } from '@angular/core';
 import { Observable, catchError, map, of, switchMap } from 'rxjs';
 
 import { normalizeApiError } from '../../core/api/api-error.adapter';
+import { I18nService } from '../../core/i18n/i18n.service';
 import { FileDownloadGrantDto } from './files.api';
 
 export interface FilePreviewLoadResult {
@@ -14,11 +15,12 @@ export interface FilePreviewLoadResult {
 @Injectable({ providedIn: 'root' })
 export class FilePreviewService {
   private readonly http = inject(HttpClient);
+  private readonly i18n = inject(I18nService);
 
   load(fileObjectId: string): Observable<FilePreviewLoadResult> {
     const expectedFileObjectId = normalizeIdentity(fileObjectId);
     if (!expectedFileObjectId) {
-      return of(previewFailure('Preview is not available for this file.'));
+      return of(previewFailure(this.i18n.translate('files.preview.permissionDenied')));
     }
 
     return this.http.post<FileDownloadGrantDto>(
@@ -32,7 +34,7 @@ export class FilePreviewService {
         const token = stringValue(grant.token);
         if (!grantId || grantedFileObjectId !== expectedFileObjectId || !token) {
           return of<FilePreviewLoadResult>(
-            previewFailure('Preview authorization response was incomplete or mismatched.'),
+            previewFailure(this.i18n.translate('files.preview.contentUnavailable')),
           );
         }
 
@@ -43,14 +45,14 @@ export class FilePreviewService {
         }).pipe(
           map((response): FilePreviewLoadResult => response.body
             ? { ok: true, blob: response.body, message: '' }
-            : previewFailure('Preview content was empty.')),
+            : previewFailure(this.i18n.translate('files.preview.contentUnavailable'))),
         );
       }),
       catchError((error: unknown) => {
         const normalized = normalizeApiError(error);
         const message = [401, 403, 404].includes(normalized.httpStatus)
-          ? 'Preview is not available for this file.'
-          : normalized.message;
+          ? this.i18n.translate('files.preview.permissionDenied')
+          : this.i18n.apiErrorMessage(normalized, 'files.preview.contentUnavailable');
         return of<FilePreviewLoadResult>(previewFailure(message));
       }),
     );

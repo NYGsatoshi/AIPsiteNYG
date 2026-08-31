@@ -127,7 +127,10 @@ const installClipboardMock = (): { writeText: ReturnType<typeof vi.fn>; restore:
 };
 
 describe('FilesPageComponent issue #352', () => {
+  beforeEach(() => window.localStorage.setItem('aip.locale', 'en'));
+
   afterEach(() => {
+    window.localStorage.removeItem('aip.locale');
     TestBed.inject(HttpTestingController).verify();
     vi.restoreAllMocks();
     TestBed.resetTestingModule();

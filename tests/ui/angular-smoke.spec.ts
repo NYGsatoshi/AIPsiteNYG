@@ -739,6 +739,68 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await expect(previewAction).toBeFocused();
   });
 
+  test('Japanese Files labels cover search, selection, and destructive confirmation at 320px', async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 800 });
+    await page.addInitScript(() => globalThis.localStorage.setItem('aip.locale', 'ja'));
+    const workspace: WorkspaceContextFixture = {
+      id: '35700000-0000-4000-8000-000000000001',
+      name: '日本語ワークスペース',
+      canAddFiles: true,
+      runningProjectCount: 0,
+      needsReviewProjectCount: 0,
+    };
+    const fileObjectId = '35700000-0000-4000-8000-000000000002';
+
+    await installWorkspaceContextApi(page, [workspace], workspace);
+    await page.route('**/api/files**', async (route) => {
+      const request = route.request();
+      const url = new URL(request.url());
+      if (request.method() !== 'GET' || url.pathname !== '/api/files') {
+        await route.fulfill({ status: 404 });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json; charset=utf-8',
+        body: JSON.stringify({
+          items: [{
+            id: '35700000-0000-4000-8000-000000000003',
+            fileObjectId,
+            workspaceId: workspace.id,
+            originalFileName: '日本語テスト.pdf',
+            contentType: 'application/pdf',
+            sizeBytes: 2048,
+            status: 'Active',
+            scanStatus: 'Clean',
+            uploadedByUserId: 'mock-user-a',
+            uploadedByDisplayName: 'Mock User A',
+            createdAt: '2026-08-28T02:00:00Z',
+            updatedAt: '2026-08-29T03:30:00Z',
+            canDelete: true,
+          }],
+          page: 1,
+          pageSize: 20,
+          totalCount: 1,
+          hasMore: false,
+        }),
+      });
+    });
+
+    await page.goto('/app/files');
+    await expect(page.locator('html')).toHaveAttribute('lang', 'ja');
+    await expect(page.getByText('ファイルを検索・絞り込み', { exact: true })).toBeVisible();
+    await expect(page.getByTestId('files-search-input')).toHaveAttribute('placeholder', 'ファイル名を検索');
+    await expect(page.getByText('ファイルをアップロード', { exact: true }).first()).toBeVisible();
+    await expect(page.getByTestId('file-content-type')).toHaveText('PDF');
+
+    await page.getByRole('checkbox', { name: '日本語テスト.pdfを選択' }).check();
+    await page.getByTestId('files-selected-delete').click();
+    await expect(page.getByRole('dialog')).toContainText('日本語テスト.pdfを削除しますか？');
+    await expect(page.getByRole('dialog').getByRole('button', { name: 'キャンセル' })).toBeVisible();
+    await expect(page.getByRole('dialog').getByRole('button', { name: 'ファイルを削除' })).toBeVisible();
+    await expectNoDocumentHorizontalOverflow(page);
+  });
+
   test('uses File container breakpoints inside the desktop shell without page overflow', async ({ page }) => {
     const cases = [
       { width: 1440, columns: 2, usesMobileList: false },

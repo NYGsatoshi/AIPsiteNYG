@@ -2,24 +2,30 @@
   class="upload-drop-zone"
   [class]="'upload-drop-zone upload-drop-zone--' + upload.state"
   [class.upload-drop-zone--disabled]="!canUpload"
+  [attr.aria-label]="i18n.translate('files.upload.ariaLabel')"
   (drop)="onDrop($event)"
   (dragover)="onDragOver($event)"
   data-testid="upload-drop-zone"
 >
   <div class="upload-drop-zone__copy">
-    <p>Upload</p>
-    <h2>File upload</h2>
-    <span>Limit {{ formatBytes(maxUploadBytes) }}. Files are saved only after the backend accepts them.</span>
+    <p>{{ i18n.translate('files.actions.upload') }}</p>
+    <h2>{{ i18n.translate('files.upload.title') }}</h2>
+    <span>{{ i18n.translate('files.upload.limit', { size: formatBytes(maxUploadBytes) }) }}</span>
   </div>
 
   @if (canUpload) {
     <label class="upload-drop-zone__button">
-      <span>Choose file</span>
-      <input type="file" (change)="onFileInputChange($event)" data-testid="file-input" />
+      <span>{{ i18n.translate('files.upload.choose') }}</span>
+      <input
+        type="file"
+        [attr.aria-label]="i18n.translate('files.upload.choose')"
+        (change)="onFileInputChange($event)"
+        data-testid="file-input"
+      />
     </label>
   } @else {
     <button type="button" class="upload-drop-zone__button" data-testid="file-upload-disabled" disabled>
-      {{ upload.state === 'pending' || upload.state === 'progress' ? 'Uploading' : 'Upload unavailable' }}
+      {{ upload.state === 'pending' || upload.state === 'progress' ? i18n.translate('files.upload.uploading') : i18n.translate('files.upload.disabled') }}
     </button>
   }
 

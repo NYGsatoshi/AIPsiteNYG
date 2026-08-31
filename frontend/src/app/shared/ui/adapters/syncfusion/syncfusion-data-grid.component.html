@@ -1,17 +1,18 @@
 <section class="aip-syncfusion-grid" [attr.aria-label]="ariaLabel" data-testid="app-data-grid" data-grid-implementation="syncfusion">
   @if (loading) {
-    <p class="aip-syncfusion-grid__state" role="status" aria-live="polite" data-testid="app-data-grid-loading">Loading {{ ariaLabel }}.</p>
+    <p class="aip-syncfusion-grid__state" role="status" aria-live="polite" data-testid="app-data-grid-loading">{{ loadingLabel }}</p>
   } @else if (permissionDenied) {
-    <p class="aip-syncfusion-grid__state aip-syncfusion-grid__state--denied" role="alert" data-testid="app-data-grid-permission-denied">Permission denied.</p>
+    <p class="aip-syncfusion-grid__state aip-syncfusion-grid__state--denied" role="alert" data-testid="app-data-grid-permission-denied">{{ permissionDeniedLabel }}</p>
   } @else if (error) {
     <p class="aip-syncfusion-grid__state aip-syncfusion-grid__state--error" role="alert" data-testid="app-data-grid-error">{{ error }}</p>
   } @else if (rows.length === 0) {
-    <p class="aip-syncfusion-grid__state" data-testid="app-data-grid-empty">{{ emptyState ?? 'No rows are available.' }}</p>
+    <p class="aip-syncfusion-grid__state" data-testid="app-data-grid-empty">{{ emptyState ?? emptyLabel }}</p>
   } @else {
     <ejs-grid
       #grid
       class="aip-syncfusion-grid__grid"
       [attr.aria-label]="ariaLabel"
+      [locale]="locale"
       [dataSource]="rows"
       [allowPaging]="true"
       [allowSorting]="true"
@@ -75,6 +76,5 @@
         }
       </e-columns>
     </ejs-grid>
-    <p class="aip-syncfusion-grid__pagination" aria-live="polite" data-testid="app-data-grid-pagination">Page {{ pageSettings.currentPage }}, {{ pageSettings.pageSize }} rows per page.</p>
   }
 </section>

@@ -37,4 +37,21 @@ describe('I18nService', () => {
     expect(service.locale()).toBe('en');
     expect(service.translate('login.title')).toBe('Sign in');
   });
+
+  it('supplies Japanese Files, API error, and grid labels from the same locale source', () => {
+    const service = TestBed.inject(I18nService);
+    TestBed.tick();
+
+    expect(service.translate('files.actions.download')).toBe('ダウンロード');
+    expect(service.fileScanStatusLabel('blocked')).toBe('ブロック済み');
+    expect(service.fileContentTypeLabel('application/pdf')).toBe('PDF');
+    expect(service.fileContentTypeLabel('application/pdf; charset=utf-8')).toBe('PDF');
+    expect(service.fileContentTypeLabel('application/zip')).toBe('アーカイブ');
+    expect(service.apiErrorMessage({ httpStatus: 403, message: 'Forbidden' })).toBe('この操作を行う権限がありません。');
+    expect(service.agGridLocaleText()['noRowsToShow']).toBe('表示する行がありません');
+    expect(service.agGridLocaleText()['ariaRowToggleSelection']).toBe('行の選択を切り替え');
+    expect(service.agGridLocaleText()['ariaSortableColumn']).toBe('Enterキーを押して並べ替え');
+    expect(service.agGridLocaleText()['pageSizeSelectorLabel']).toBe('1ページあたりの件数');
+    expect(service.syncfusionLocale()).toBe('ja');
+  });
 });

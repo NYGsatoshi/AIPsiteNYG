@@ -110,6 +110,24 @@ describe('TaskDetailPageComponent local edit state', () => {
     expect(loadActivity).toHaveBeenCalledWith('task-a');
   });
 
+  it('localizes task-file metadata and backend status values without exposing internal values', () => {
+    const storedLocale = window.localStorage.getItem('aip.locale');
+    try {
+      component.i18n.setLocale('ja');
+
+      expect(component.taskFileMetadataLabel({ contentType: 'application/pdf', sizeBytes: 2 * 1024 })).toBe('PDF・2 KB');
+      expect(component.taskFileScanLabel('Clean')).toBe('スキャン: 利用可');
+      expect(component.taskFileScanLabel('Infected')).toBe('スキャン: ブロック済み');
+      expect(component.taskFileAccessLabel('AccessRevoked')).toBe('アクセス: アクセス権がありません');
+      expect(component.taskFileRestrictionLabel('ACCESS_REVOKED')).toBe('アクセス権がありません');
+      expect(component.taskFileSectionMessage({ status: 'permissionDenied', message: 'Permission was denied.' })).toBe('この操作を行う権限がありません。');
+      expect(component.taskFileSectionMessage({ status: 'error', message: 'Task command failed.' })).toBe('タスクのファイルを更新できませんでした。');
+    } finally {
+      component.i18n.setLocale(storedLocale === 'en' ? 'en' : 'ja');
+      if (storedLocale === null) window.localStorage.removeItem('aip.locale');
+    }
+  });
+
   it('notifies the facade that editing ended on destroy', () => {
     component.commentBody.set('Draft comment');
     fixture.detectChanges();

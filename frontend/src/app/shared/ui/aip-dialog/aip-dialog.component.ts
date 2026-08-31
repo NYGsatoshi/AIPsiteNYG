@@ -7,8 +7,11 @@ import {
   Input,
   OnChanges,
   Output,
-  SimpleChanges
+  SimpleChanges,
+  inject
 } from '@angular/core';
+
+import { I18nService } from '../../../core/i18n/i18n.service';
 
 @Component({
   selector: 'app-aip-dialog',
@@ -38,7 +41,7 @@ import {
                 <p [id]="descriptionId">{{ description }}</p>
               }
             </div>
-            <button type="button" class="aip-dialog__close" [disabled]="busy" aria-label="Close dialog" (click)="requestCancel()">×</button>
+            <button type="button" class="aip-dialog__close" [disabled]="busy" [attr.aria-label]="i18n.translate('common.close')" (click)="requestCancel()">×</button>
           </header>
 
           <div class="aip-dialog__content">
@@ -46,7 +49,7 @@ import {
           </div>
 
           <footer class="aip-dialog__actions">
-            <button type="button" [disabled]="busy" (click)="requestCancel()">{{ cancelLabel }}</button>
+            <button type="button" [disabled]="busy" (click)="requestCancel()">{{ cancelLabel || i18n.translate('common.cancel') }}</button>
             <button
               [attr.type]="confirmForm ? 'submit' : 'button'"
               [attr.form]="confirmForm"
@@ -55,7 +58,7 @@ import {
               [disabled]="busy || confirmDisabled"
               (click)="requestConfirm()"
             >
-              {{ busy ? 'Working…' : confirmLabel }}
+              {{ busy ? i18n.translate('common.working') : (confirmLabel || i18n.translate('common.confirm')) }}
             </button>
           </footer>
         </section>
@@ -84,6 +87,7 @@ import {
 export class AipDialogComponent implements OnChanges {
   private static nextInstanceId = 0;
 
+  protected readonly i18n = inject(I18nService);
   private readonly instanceId = AipDialogComponent.nextInstanceId++;
   private invocationFocus: HTMLElement | null = null;
   private focusTransition = 0;
@@ -93,8 +97,8 @@ export class AipDialogComponent implements OnChanges {
   @Input() description: string | null = null;
   @Input() titleId = `aip-dialog-title-${this.instanceId}`;
   @Input() descriptionId = `aip-dialog-description-${this.instanceId}`;
-  @Input() confirmLabel = 'Confirm';
-  @Input() cancelLabel = 'Cancel';
+  @Input() confirmLabel = '';
+  @Input() cancelLabel = '';
   @Input() confirmForm: string | null = null;
   @Input() focusReturnFallbackId: string | null = null;
   @Input() busy = false;

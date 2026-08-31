@@ -11,6 +11,8 @@ import {
   SimpleChanges,
   ViewChild,
   ViewContainerRef,
+  computed,
+  effect,
   inject,
   signal
 } from '@angular/core';
@@ -25,6 +27,7 @@ import {
 } from 'ag-grid-community';
 
 import { FrontendFeatureFlagsService } from '../../../core/feature-flags/frontend-feature-flags.service';
+import { I18nService } from '../../../core/i18n/i18n.service';
 import {
   APP_DATA_GRID_DEFAULT_PAGE_SIZE,
   APP_DATA_GRID_MAXIMUM_PAGE_SIZE,
@@ -52,6 +55,7 @@ ModuleRegistry.registerModules([AllCommunityModule]);
 })
 export class AppDataGridComponent<TData extends object> implements OnInit, AfterViewInit, OnChanges, OnDestroy {
   private readonly flags = inject(FrontendFeatureFlagsService);
+  protected readonly i18n = inject(I18nService);
   @ViewChild('syncfusionHost', { read: ViewContainerRef }) private syncfusionHost?: ViewContainerRef;
   @ViewChild(AgGridAngular) private agGrid?: AgGridAngular<TData>;
 
@@ -61,7 +65,7 @@ export class AppDataGridComponent<TData extends object> implements OnInit, After
   @Input() defaultPageSize = APP_DATA_GRID_DEFAULT_PAGE_SIZE;
   @Input() maximumPageSize = APP_DATA_GRID_MAXIMUM_PAGE_SIZE;
   @Input() rowIdField: keyof TData & string = 'id' as keyof TData & string;
-  @Input() ariaLabel = 'Data grid';
+  @Input({ required: true }) ariaLabel = '';
   /** Target-limited internal migration switch; feature code remains vendor-neutral. */
   @Input() migrationTarget?: AppDataGridMigrationTarget;
   @Input() selectionMode: AppDataGridSelectionMode = 'none';
@@ -80,9 +84,15 @@ export class AppDataGridComponent<TData extends object> implements OnInit, After
   @Output() filterChanged = new EventEmitter<AppDataGridFilterChange>();
 
   readonly syncfusionRequested = signal(false);
-  readonly syncfusionLoadError = signal<string | null>(null);
+  readonly syncfusionLoadError = signal(false);
+  readonly agGridLocaleText = computed(() => this.i18n.agGridLocaleText());
   private syncfusionComponent?: ComponentRef<SyncfusionDataGridComponent<TData>>;
   private viewReady = false;
+  private readonly localizedAdapterInputs = effect(() => {
+    this.i18n.locale();
+    this.updateSyncfusionInputs();
+    this.refreshAgGridLocale();
+  });
 
   readonly modules: Module[] = [AllCommunityModule];
   readonly defaultColDef: ColDef<TData> = {
@@ -162,7 +172,7 @@ export class AppDataGridComponent<TData extends object> implements OnInit, After
   }
 
   get maximumPageSizeLabel(): string {
-    return String(Math.min(this.maximumPageSize, APP_DATA_GRID_MAXIMUM_PAGE_SIZE));
+    return this.i18n.formatNumber(Math.min(this.maximumPageSize, APP_DATA_GRID_MAXIMUM_PAGE_SIZE));
   }
 
   getRowId = (params: { data: TData }): string => String(params.data[this.rowIdField]);
@@ -175,6 +185,7 @@ export class AppDataGridComponent<TData extends object> implements OnInit, After
 
   ngAfterViewInit(): void {
     this.viewReady = true;
+    this.refreshAgGridLocale();
     if (this.syncfusionRequested()) {
       void this.loadSyncfusionAdapter();
     }
@@ -242,7 +253,7 @@ export class AppDataGridComponent<TData extends object> implements OnInit, After
     if (actions.length === 0) {
       const empty = document.createElement('span');
       empty.className = 'app-grid-actions__empty';
-      empty.textContent = 'No actions';
+      empty.textContent = this.i18n.translate('grid.noActions');
       container.append(empty);
       return container;
     }
@@ -288,7 +299,7 @@ export class AppDataGridComponent<TData extends object> implements OnInit, After
       this.updateSyncfusionInputs();
     } catch {
       // A flagged vendor adapter must never silently become the AG Grid fallback.
-      this.syncfusionLoadError.set('The data grid could not be loaded. Disable the rollout flag to use the retained fallback.');
+      this.syncfusionLoadError.set(true);
     }
   }
 
@@ -312,5 +323,14 @@ export class AppDataGridComponent<TData extends object> implements OnInit, After
     component.setInput('error', this.error);
     component.setInput('emptyState', this.emptyState);
     component.setInput('permissionDenied', this.permissionDenied);
+    component.setInput('locale', this.i18n.syncfusionLocale());
+    component.setInput('loadingLabel', this.i18n.translate('grid.loading', { label: this.ariaLabel }));
+    component.setInput('permissionDeniedLabel', this.i18n.translate('grid.permissionDenied'));
+    component.setInput('emptyLabel', this.i18n.translate('grid.empty'));
+  }
+
+  private refreshAgGridLocale(): void {
+    this.agGrid?.api.refreshHeader();
+    this.agGrid?.api.refreshCells({ force: true });
   }
 }

@@ -63,6 +63,9 @@ export interface FileViewModel {
   readonly sizeBytes: number;
   readonly scanStatus: FileScanStatus;
   readonly uploadedByDisplay: string;
+  /** Raw server timestamps are retained so active-locale formatting happens at the UI boundary. */
+  readonly createdAt?: string;
+  readonly modifiedAt?: string;
   readonly createdAtLabel: string;
   readonly modifiedAtLabel: string;
   readonly kind: FileKind;
@@ -146,11 +149,5 @@ export interface FilesPageViewModel {
   readonly hasMore: boolean;
 }
 
-export const FILE_SCAN_STATUS_LABELS: Record<FileScanStatus, string> = {
-  pending: 'Scan pending',
-  allowed: 'Allowed',
-  blocked: 'Blocked',
-  unavailable: 'Scan unavailable',
-};
 /** Legacy story fixture only; live upload validation is backend-authoritative. */
 export const FILE_UPLOAD_MAX_BYTES = 50 * 1024 * 1024;

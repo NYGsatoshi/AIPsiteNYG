@@ -3,11 +3,11 @@
     <input
       type="checkbox"
       [checked]="selected"
-      [attr.aria-label]="'Select ' + file.originalFileName"
+      [attr.aria-label]="i18n.translate('files.row.select', { name: file.originalFileName })"
       (change)="updateSelection($any($event.target).checked, $event)"
       data-testid="mobile-file-selection"
     />
-    <span>Select file</span>
+    <span>{{ i18n.translate('files.row.selectFile') }}</span>
   </label>
   <div class="file-row__main">
     <div class="file-row__title-line">
@@ -15,7 +15,7 @@
         <button
           type="button"
           class="file-row__preview-trigger"
-          [attr.aria-label]="'Preview ' + file.originalFileName"
+          [attr.aria-label]="i18n.translate('files.row.preview', { name: file.originalFileName })"
           (click)="requestPreview()"
           data-testid="preview-action"
         >{{ file.originalFileName }}</button>
@@ -23,22 +23,22 @@
       <app-file-scan-status-badge [status]="file.scanStatus" />
     </div>
 
-    <dl class="file-row__meta" aria-label="File metadata">
+    <dl class="file-row__meta" [attr.aria-label]="i18n.translate('files.row.metadata')">
       <div>
-        <dt>contentType</dt>
-        <dd data-testid="file-content-type">{{ file.contentType }}</dd>
+        <dt>{{ i18n.translate('files.row.contentType') }}</dt>
+        <dd data-testid="file-content-type">{{ i18n.fileContentTypeLabel(file.contentType) }}</dd>
       </div>
       <div>
-        <dt>sizeBytes</dt>
+        <dt>{{ i18n.translate('files.row.size') }}</dt>
         <dd>{{ formatBytes(file.sizeBytes) }}</dd>
       </div>
       <div>
-        <dt>uploadedBy</dt>
+        <dt>{{ i18n.translate('files.row.owner') }}</dt>
         <dd>{{ file.uploadedByDisplay }}</dd>
       </div>
       <div>
-        <dt>createdAt</dt>
-        <dd>{{ file.createdAtLabel }}</dd>
+        <dt>{{ i18n.translate('files.row.created') }}</dt>
+        <dd>{{ createdAtLabel() }}</dd>
       </div>
     </dl>
   </div>
@@ -50,7 +50,7 @@
       (click)="requestDownload()"
       data-testid="download-action"
     >
-      {{ file.downloadState === 'pending' ? 'Authorizing' : 'Download' }}
+      {{ file.downloadState === 'pending' ? i18n.translate('files.row.authorizing') : i18n.translate('files.row.download') }}
     </button>
     @if (downloadDisabledReason()) {
       <p class="file-row__safe-state" data-testid="download-disabled-reason">{{ downloadDisabledReason() }}</p>
@@ -62,11 +62,11 @@
 
   @if (showAdminOverride()) {
     <section class="file-row__override" data-testid="admin-override-panel">
-      <strong>Admin override is not wired for MVP0 downloads.</strong>
-      <p>Blocked files are not downloaded or previewed from this screen.</p>
+      <strong>{{ i18n.translate('files.row.adminOverrideTitle') }}</strong>
+      <p>{{ i18n.translate('files.row.adminOverrideDescription') }}</p>
       @if (file.capabilities.includes('adminOverrideBlockedDownload')) {
         <label>
-          <span>Audit reason</span>
+          <span>{{ i18n.translate('files.row.auditReason') }}</span>
           <textarea
             [value]="auditReason()"
             (input)="updateAuditReason($any($event.target).value)"
@@ -78,10 +78,10 @@
           [disabled]="true"
           data-testid="admin-override-action"
         >
-          Override disabled
+          {{ i18n.translate('files.row.overrideDisabled') }}
         </button>
       } @else {
-        <p data-testid="admin-override-no-capability">Override capability is not available.</p>
+        <p data-testid="admin-override-no-capability">{{ i18n.translate('files.row.overrideUnavailable') }}</p>
       }
     </section>
   }
