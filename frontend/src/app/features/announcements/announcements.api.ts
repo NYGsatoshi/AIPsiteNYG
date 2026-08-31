@@ -47,6 +47,7 @@ export interface AnnouncementAudienceOptionDto {
   readonly channelId?: unknown;
   readonly displayName?: unknown;
   readonly estimatedRecipientCount?: unknown;
+  readonly scheduleTimeZoneId?: unknown;
 }
 
 export interface CreateAnnouncementRequestDto {
@@ -145,6 +146,9 @@ export function mapAnnouncementAudienceOption(dto: AnnouncementAudienceOptionDto
   const scope = audienceScope(dto.scopeType);
   const displayName = stringValue(dto.displayName);
   const recipientCount = nonNegativeInteger(dto.estimatedRecipientCount);
+  // UTC is the contract's final server fallback and preserves compatibility
+  // while independently deployed API nodes roll out the explicit field.
+  const scheduleTimeZoneId = stringValue(dto.scheduleTimeZoneId) ?? 'UTC';
   if (!key || !scope || !displayName || recipientCount === undefined) {
     return null;
   }
@@ -157,6 +161,7 @@ export function mapAnnouncementAudienceOption(dto: AnnouncementAudienceOptionDto
     workspaceId: stringValue(dto.workspaceId),
     groupId: stringValue(dto.groupId),
     channelId: stringValue(dto.channelId),
+    scheduleTimeZoneId,
   };
 }
 
@@ -527,7 +532,16 @@ function formatAcceptedSchedule(
   dueAtUtc: unknown,
 ): string {
   if (localDateTime && timeZoneId) {
-    return `${localDateTime} (${timeZoneId})`;
+    return `${formatScheduleWallClock(localDateTime)} ${timeZoneId}`;
   }
   return formatDate(dueAtUtc) || 'Scheduled time accepted';
+}
+
+function formatScheduleWallClock(value: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(value);
+  if (!match) return value;
+  const [, year, month, day, hour, minute] = match;
+  const monthLabel = new Intl.DateTimeFormat('en-US', { month: 'short', timeZone: 'UTC' })
+    .format(new Date(Date.UTC(2000, Number(month) - 1, 1)));
+  return `${monthLabel} ${Number(day)}, ${year} · ${hour}:${minute}`;
 }

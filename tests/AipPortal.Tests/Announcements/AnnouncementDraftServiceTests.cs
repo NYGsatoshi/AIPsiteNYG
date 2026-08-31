@@ -251,6 +251,7 @@ public sealed class AnnouncementDraftServiceTests
                 new AnnouncementDraftRepository(db, tenant),
                 new TestAnnouncementRepository(db),
                 audiences,
+                new TestScheduleTimeZoneResolver(),
                 new EfCreateIdempotencyCoordinator(db),
                 currentUser,
                 tenant,
@@ -313,6 +314,15 @@ public sealed class AnnouncementDraftServiceTests
             Task.FromResult(Result<bool>.Success(actorUserId != Guid.Empty && Next()));
 
         private bool Next() => Outcomes.TryDequeue(out var value) ? value : IsAllowed;
+    }
+
+    private sealed class TestScheduleTimeZoneResolver : IAnnouncementScheduleTimeZoneResolver
+    {
+        public Task<TimeZoneInfo> ResolveAsync(
+            Guid tenantId,
+            Guid? workspaceId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(TimeZoneInfo.FindSystemTimeZoneById("Asia/Tokyo"));
     }
 
     private sealed class TestAnnouncementRepository(AppDbContext db) : IAnnouncementRepository

@@ -43,6 +43,8 @@ export interface AnnouncementAudienceOption {
   readonly workspaceId?: string;
   readonly groupId?: string;
   readonly channelId?: string;
+  /** Server-resolved Workspace -> Tenant -> UTC organizational default. */
+  readonly scheduleTimeZoneId?: string;
 }
 
 /** A recipient-visible action. URLs are revalidated by both API and mapper. */
@@ -69,7 +71,7 @@ export interface AnnouncementEditorSubmission {
   readonly deliveryMode?: AnnouncementDeliveryMode;
   /** A local wall-clock value without a UTC offset. The server resolves it. */
   readonly scheduledLocalDateTime?: string;
-  /** IANA time-zone ID selected by the browser user and validated server-side. */
+  /** Server-authoritative organizational IANA time-zone ID shown to the user. */
   readonly timeZoneId?: string;
 }
 

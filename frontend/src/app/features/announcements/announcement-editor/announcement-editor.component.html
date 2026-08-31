@@ -440,17 +440,17 @@
           }
         </label>
         <label for="announcement-schedule-time-zone">
-          <span>IANA time zone <span aria-hidden="true">*</span></span>
+          <span>Organizational time zone</span>
           <input
             id="announcement-schedule-time-zone"
             type="text"
             formControlName="timeZoneId"
             autocomplete="off"
             required
-            placeholder="Asia/Tokyo"
+            readonly
             data-testid="announcement-editor-schedule-time-zone"
           />
-          <small>Examples: Asia/Tokyo, America/New_York, or UTC. The server rejects unsupported or ambiguous selections safely.</small>
+          <small>Workspace default, then Tenant default, then UTC. Select a different audience to change this value. The server rejects DST gaps and overlaps rather than silently converting them.</small>
         </label>
       </div>
     }

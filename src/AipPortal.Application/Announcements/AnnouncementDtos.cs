@@ -85,7 +85,8 @@ public sealed record AnnouncementAudienceOptionResponse(
     Guid? GroupId,
     Guid? ChannelId,
     string DisplayName,
-    int EstimatedRecipientCount);
+    int EstimatedRecipientCount,
+    string ScheduleTimeZoneId);
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record CreateAnnouncementRequest
