@@ -7,7 +7,9 @@ LICENSE_FILE="${SYNCFUSION_LICENSE_FILE:-/srv/aipsite/app/secrets/syncfusion-lic
 CADDY_FILE="${AIPSITE_CADDYFILE:-/srv/aipsite/deploy/Caddyfile}"
 COMPOSE_FILE="${SOURCE_DIR}/deploy/sakura/docker-compose.yml"
 TRYCLOUDFLARE_COMPOSE_FILE="${SOURCE_DIR}/deploy/sakura/docker-compose.trycloudflare.yml"
-EDGE_MODE="${AIPSITE_EDGE_MODE:-caddy}"
+PROCESS_EDGE_MODE="${AIPSITE_EDGE_MODE:-}"
+EDGE_MODE=""
+EDGE_MODE_SOURCE=""
 VALIDATE_ONLY="${AIPSITE_DEPLOY_VALIDATE_ONLY:-false}"
 
 fail() {
@@ -19,9 +21,14 @@ usage() {
   cat <<'EOF'
 Usage: deploy.sh [caddy|trycloudflare]
 
-The default edge mode is caddy. Set AIPSITE_EDGE_MODE or pass the mode as the
-single positional argument. Use AIPSITE_DEPLOY_VALIDATE_ONLY=true to validate
-the rendered deployment contract without building or starting containers.
+The Sakura edge mode has no implicit default. Configure AIPSITE_EDGE_MODE in the
+owner-only deployment environment file (default: /srv/aipsite/deploy/.env), set
+it in the invoking process, or pass the mode explicitly as the single positional
+argument. Persisting the mode outside the Git worktree prevents unrelated pulls
+or deployments from silently switching proxy topology.
+
+Use AIPSITE_DEPLOY_VALIDATE_ONLY=true to validate the rendered deployment
+contract without building or starting containers.
 EOF
 }
 
@@ -35,12 +42,60 @@ require_owner_only_file() {
   (( (8#${mode} & 8#077) == 0 )) || fail "${label} must not be readable or writable by group/other users."
 }
 
+read_deploy_env_value() {
+  local key="$1"
+  python3 - "$DEPLOY_ENV" "$key" <<'PY'
+import sys
+
+path, target = sys.argv[1:]
+value = None
+with open(path, encoding="utf-8") as handle:
+    for raw in handle:
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, candidate = line.split("=", 1)
+        if key.strip() != target:
+            continue
+        candidate = candidate.strip()
+        if len(candidate) >= 2 and candidate[0] == candidate[-1] and candidate[0] in {"'", '"'}:
+            candidate = candidate[1:-1]
+        value = candidate.strip()
+
+if value is not None:
+    print(value)
+PY
+}
+
 if (( $# > 1 )); then
   usage >&2
   exit 2
 fi
+
+case "$VALIDATE_ONLY" in
+  true|false|1|0)
+    ;;
+  *)
+    fail "AIPSITE_DEPLOY_VALIDATE_ONLY must be true, false, 1, or 0."
+    ;;
+esac
+
+require_owner_only_file "$DEPLOY_ENV" "Deployment environment file"
+require_owner_only_file "$LICENSE_FILE" "Syncfusion license file"
+
+PERSISTED_EDGE_MODE="$(read_deploy_env_value AIPSITE_EDGE_MODE)"
 if (( $# == 1 )); then
   EDGE_MODE="$1"
+  EDGE_MODE_SOURCE="command line"
+elif [[ -n "$PROCESS_EDGE_MODE" ]]; then
+  EDGE_MODE="$PROCESS_EDGE_MODE"
+  EDGE_MODE_SOURCE="process environment"
+elif [[ -n "$PERSISTED_EDGE_MODE" ]]; then
+  EDGE_MODE="$PERSISTED_EDGE_MODE"
+  EDGE_MODE_SOURCE="$DEPLOY_ENV"
+else
+  usage >&2
+  fail "Sakura edge mode is not configured. Set AIPSITE_EDGE_MODE=caddy or AIPSITE_EDGE_MODE=trycloudflare in ${DEPLOY_ENV} before deploying."
 fi
 
 case "$EDGE_MODE" in
@@ -52,17 +107,11 @@ case "$EDGE_MODE" in
     ;;
   *)
     usage >&2
-    fail "Unsupported Sakura edge mode: ${EDGE_MODE}"
+    fail "Unsupported Sakura edge mode from ${EDGE_MODE_SOURCE}: ${EDGE_MODE}"
     ;;
 esac
 
-case "$VALIDATE_ONLY" in
-  true|false|1|0)
-    ;;
-  *)
-    fail "AIPSITE_DEPLOY_VALIDATE_ONLY must be true, false, 1, or 0."
-    ;;
-esac
+echo "Using Sakura edge mode: ${EDGE_MODE} (${EDGE_MODE_SOURCE})"
 
 test -f "$COMPOSE_FILE" || fail "Missing tracked Sakura Compose file: ${COMPOSE_FILE}"
 if [[ "$EDGE_MODE" == "trycloudflare" ]]; then
@@ -70,8 +119,6 @@ if [[ "$EDGE_MODE" == "trycloudflare" ]]; then
 else
   test -f "$CADDY_FILE" || fail "Missing Caddyfile: ${CADDY_FILE}"
 fi
-require_owner_only_file "$DEPLOY_ENV" "Deployment environment file"
-require_owner_only_file "$LICENSE_FILE" "Syncfusion license file"
 
 test -d "${SOURCE_DIR}/.git" || test -f "${SOURCE_DIR}/.git" || fail "Source directory is not a Git worktree."
 if [[ "$VALIDATE_ONLY" != "true" && "$VALIDATE_ONLY" != "1" ]]; then
