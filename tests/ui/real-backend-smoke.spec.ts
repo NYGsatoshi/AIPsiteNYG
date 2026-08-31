@@ -4520,6 +4520,9 @@ async function createDirectMessageAndVerifyPersistence(page: Page, evidence: Smo
   });
 
   const reloadedMore = page.getByTestId(`message-more-actions-${evidence.messageId}`);
+  // Reload replaces the message row, so repeat the real hover interaction
+  // before opening its intentionally hover/focus-revealed overflow control.
+  await page.locator(`#message-${evidence.messageId}`).hover();
   await reloadedMore.click();
   await page.getByTestId(`delete-message-${evidence.messageId}`).click();
   await expect(page.getByRole('dialog', { name: 'Delete message?' })).toBeVisible();
