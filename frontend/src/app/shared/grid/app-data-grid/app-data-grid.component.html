@@ -1,7 +1,7 @@
 <section class="app-data-grid" [attr.aria-label]="ariaLabel" data-testid="app-data-grid">
   @if (syncfusionRequested()) {
-    @if (syncfusionLoadError(); as loadError) {
-      <p class="app-data-grid__adapter-error" role="alert" data-testid="app-data-grid-adapter-error">{{ loadError }}</p>
+    @if (syncfusionLoadError()) {
+      <p class="app-data-grid__adapter-error" role="alert" data-testid="app-data-grid-adapter-error">{{ i18n.translate('grid.loadError') }}</p>
     }
     <ng-container #syncfusionHost />
   } @else {
@@ -19,11 +19,12 @@
       [pagination]="true"
       [paginationPageSize]="boundedPageSize"
       [paginationPageSizeSelector]="pageSizeOptions"
+      [localeText]="agGridLocaleText()"
       [getRowId]="getRowId"
       [rowSelection]="rowSelection"
       (cellClicked)="handleCellClicked($event)"
       (selectionChanged)="handleSelectionChanged($event)"
     />
   }
-  <p class="app-data-grid__page-limit" data-testid="app-data-grid-page-limit">max {{ maximumPageSizeLabel }}</p>
+  <p class="app-data-grid__page-limit" data-testid="app-data-grid-page-limit">{{ i18n.translate('grid.pageLimit', { count: maximumPageSizeLabel }) }}</p>
 </section>

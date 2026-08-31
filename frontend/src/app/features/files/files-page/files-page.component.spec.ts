@@ -87,7 +87,10 @@ const downloadButton = (fixture: ComponentFixture<FilesPageComponent>): HTMLButt
   (fixture.nativeElement as HTMLElement).querySelector('[data-testid="download-action"]') as HTMLButtonElement;
 
 describe('FilesPageComponent', () => {
+  beforeEach(() => window.localStorage.setItem('aip.locale', 'en'));
+
   afterEach(() => {
+    window.localStorage.removeItem('aip.locale');
     TestBed.inject(HttpTestingController).verify();
     vi.restoreAllMocks();
     TestBed.resetTestingModule();
@@ -116,6 +119,60 @@ describe('FilesPageComponent', () => {
     expect(textContent(fixture)).toContain('Upload accepted by backend.');
     expect(textContent(fixture)).toContain('note.txt');
   }, 15_000);
+
+  it('renders Files actions, filters, and destructive confirmation in Japanese without raw keys', async () => {
+    window.localStorage.setItem('aip.locale', 'ja');
+    const { fixture, http } = await renderLiveFilesPage([backendFile]);
+    const host = fixture.nativeElement as HTMLElement;
+
+    expect(document.documentElement.lang).toBe('ja');
+    expect(textContent(fixture)).toContain('ファイルを検索・絞り込み');
+    expect(textContent(fixture)).toContain('ファイルをアップロード');
+    expect((host.querySelector('[data-testid="files-search-input"]') as HTMLInputElement).placeholder).toBe('ファイル名を検索');
+
+    const type = host.querySelector('[data-testid="files-filter-type"]') as HTMLSelectElement;
+    type.value = 'pdf';
+    type.dispatchEvent(new Event('change'));
+    (host.querySelector('[data-testid="files-search-surface"] form') as HTMLFormElement)
+      .dispatchEvent(new Event('submit'));
+    const search = http.expectOne((request) => request.url === '/api/search');
+    search.flush({
+      page: 1,
+      pageSize: 50,
+      totalCount: 1,
+      items: [{
+        type: 13,
+        id: FILE_OBJECT_ID,
+        title: 'report.pdf',
+        workspaceId: WORKSPACE_ID,
+        createdAt: '2026-08-20T00:00:00Z',
+        authorDisplayName: 'Fixture User',
+        contentType: 'application/pdf',
+        sizeBytes: 2048,
+        status: 'Active',
+        scanStatus: 'Allowed',
+      }],
+    });
+    fixture.detectChanges();
+
+    expect(textContent(fixture)).toContain('種類: PDF');
+    expect(textContent(fixture)).toContain('現在閲覧できるファイルが1件見つかりました。');
+    expect(host.querySelector('button[aria-label="フィルターを削除: 種類: PDF"]')).not.toBeNull();
+    expect(textContent(fixture)).not.toContain('files.search.');
+
+    const file = fixture.componentInstance.page().recentFiles[0];
+    if (!file) {
+      throw new Error('Expected a listed file.');
+    }
+    fixture.componentInstance.handleSelectionChanged({ rows: [file] });
+    fixture.detectChanges();
+    (host.querySelector('[data-testid="files-selected-delete"]') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    expect(textContent(fixture)).toContain('note.txtを削除しますか？');
+    expect(textContent(fixture)).toContain('キャンセル');
+    expect(textContent(fixture)).toContain('ファイルを削除');
+  });
 
   it('keeps File search and Type, Modified, and Owner filters in one scoped surface with removable chips', async () => {
     const { fixture, http } = await renderLiveFilesPage([backendFile]);
@@ -376,7 +433,7 @@ describe('FilesPageComponent', () => {
     (host.querySelector('[data-testid="files-search-surface"] form') as HTMLFormElement)
       .dispatchEvent(new Event('submit'));
 
-    const search = http.expectOne('/api/search');
+    const search = http.expectOne((request) => request.url === '/api/search');
     search.flush({
       page: 1,
       pageSize: 50,
@@ -427,14 +484,14 @@ describe('FilesPageComponent', () => {
     (host.querySelector('[data-testid="files-selected-delete"]') as HTMLButtonElement).click();
     fixture.detectChanges();
     expect(textContent(fixture)).toContain('Delete 2 captured search-result files?');
-    expect(textContent(fixture)).toContain("restoration follows your organization's recovery policy");
+    expect(textContent(fixture)).toContain('restoration follows your organization’s recovery policy');
 
     (host.querySelector('.aip-dialog__confirm') as HTMLButtonElement).click();
     const deletion = http.expectOne('/api/files/selection-snapshots/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb/delete');
     expect(deletion.request.method).toBe('POST');
     deletion.flush({ attemptedCount: 2, succeededCount: 1, failedCount: 1, items: [] });
 
-    const refreshedSearch = http.expectOne('/api/search');
+    const refreshedSearch = http.expectOne((request) => request.url === '/api/search');
     refreshedSearch.flush({ page: 1, pageSize: 50, totalCount: 1, items: [] });
     flushFileList(http, []);
     fixture.detectChanges();

@@ -22,6 +22,7 @@ describe('FilesFacade paging query state', () => {
   const continueWorkingHistory = { touchFile: vi.fn() };
 
   beforeEach(() => {
+    window.localStorage.setItem('aip.locale', 'en');
     clearProtectedState = undefined;
     activeWorkspaceState = signal<{ readonly id: string; readonly label: string } | null>(null);
     continueWorkingHistory.touchFile.mockReset();
@@ -44,7 +45,11 @@ describe('FilesFacade paging query state', () => {
     http = TestBed.inject(HttpTestingController);
   });
 
-  afterEach(() => { http.verify(); TestBed.resetTestingModule(); });
+  afterEach(() => {
+    window.localStorage.removeItem('aip.locale');
+    http.verify();
+    TestBed.resetTestingModule();
+  });
 
   it('keeps existing picker candidates and retries the failed second page', () => {
     facade.loadPickerFilesForWorkspace('workspace-a');

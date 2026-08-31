@@ -235,7 +235,10 @@ const renderExport = async (
 };
 
 describe('Admin audit and export mock UI', () => {
+  beforeEach(() => window.localStorage.setItem('aip.locale', 'en'));
+
   afterEach(() => {
+    window.localStorage.removeItem('aip.locale');
     vi.restoreAllMocks();
     TestBed.resetTestingModule();
   });

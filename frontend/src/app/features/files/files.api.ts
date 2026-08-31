@@ -38,9 +38,22 @@ export interface FileDownloadGrantDto {
   readonly token?: unknown;
 }
 
-export function mapFileListItem(dto: FileListItemDto): FileViewModel {
+export interface FileDisplayLocalizer {
+  readonly untitledFile: string;
+  readonly unknownUser: string;
+  formatDate(value: string | undefined): string;
+}
+
+/**
+ * API values stay language-neutral. UI callers can provide the app's active
+ * locale formatter for values that are only display fallbacks.
+ */
+export function mapFileListItem(
+  dto: FileListItemDto,
+  displayLocalizer: FileDisplayLocalizer,
+): FileViewModel {
   const canonicalFileId = stringValue(dto.fileObjectId);
-  const originalFileName = stringValue(dto.originalFileName) ?? 'Untitled file';
+  const originalFileName = stringValue(dto.originalFileName) ?? displayLocalizer.untitledFile;
   const contentType = stringValue(dto.contentType) ?? 'application/octet-stream';
   const scanStatus = toScanStatus(dto.scanStatus, dto.status);
   const active = isActiveStatus(dto.status) && !stringValue(dto.deletedAt);
@@ -55,9 +68,11 @@ export function mapFileListItem(dto: FileListItemDto): FileViewModel {
     contentType,
     sizeBytes: numberValue(dto.sizeBytes),
     scanStatus,
-    uploadedByDisplay: stringValue(dto.uploadedByDisplayName) ?? 'Unknown user',
-    createdAtLabel: formatDate(createdAt),
-    modifiedAtLabel: formatDate(modifiedAt),
+    uploadedByDisplay: stringValue(dto.uploadedByDisplayName) ?? displayLocalizer.unknownUser,
+    createdAt,
+    modifiedAt,
+    createdAtLabel: displayLocalizer.formatDate(createdAt),
+    modifiedAtLabel: displayLocalizer.formatDate(modifiedAt),
     kind: fileKind(originalFileName, contentType),
     downloadPolicy: canDownload ? 'available' : 'denied',
     capabilities: canDownload ? ['download'] : [],
@@ -143,9 +158,4 @@ function stringValue(value: unknown): string | undefined {
 
 function numberValue(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
-}
-
-function formatDate(value: unknown): string {
-  const raw = stringValue(value);
-  return raw ? new Date(raw).toLocaleString() : '';
 }

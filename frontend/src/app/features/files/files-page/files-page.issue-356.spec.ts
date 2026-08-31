@@ -58,7 +58,10 @@ async function renderFilesPage(
 }
 
 describe('FilesPageComponent issue #356', () => {
+  beforeEach(() => window.localStorage.setItem('aip.locale', 'en'));
+
   afterEach(() => {
+    window.localStorage.removeItem('aip.locale');
     TestBed.inject(HttpTestingController).verify();
     TestBed.resetTestingModule();
   });
@@ -93,7 +96,7 @@ describe('FilesPageComponent issue #356', () => {
     const disclosure = panel.querySelector('details') as HTMLDetailsElement;
     const text = panel.textContent ?? '';
 
-    expect(text).toContain('application/zip');
+    expect(text).toContain('Archive');
     expect(text).toContain('4 KB');
     expect(text).toContain('Authorized owner');
     expect(text).toContain('2026/08/29');

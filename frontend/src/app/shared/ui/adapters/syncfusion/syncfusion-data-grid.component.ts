@@ -7,7 +7,9 @@ import {
   SelectionService,
   SortService
 } from '@syncfusion/ej2-angular-grids';
+import { L10n } from '@syncfusion/ej2-base';
 
+import { SYNCFUSION_JAPANESE_LOCALE } from '../../../../core/i18n/i18n.service';
 import {
   APP_DATA_GRID_DEFAULT_PAGE_SIZE,
   APP_DATA_GRID_MAXIMUM_PAGE_SIZE,
@@ -21,6 +23,10 @@ import {
   AppDataGridSortChange,
   clampAppDataGridPageSize
 } from '../../../grid/app-data-grid/app-data-grid.types';
+
+// This adapter is lazy-loaded. Register Japanese strings with the vendor when
+// its chunk is loaded, then let the grid instance select its locale via input.
+L10n.load(SYNCFUSION_JAPANESE_LOCALE);
 
 type SyncfusionGridEvent<TData> = {
   readonly rowData?: TData;
@@ -51,7 +57,7 @@ export class SyncfusionDataGridComponent<TData extends object> implements OnChan
   @Input() defaultPageSize = APP_DATA_GRID_DEFAULT_PAGE_SIZE;
   @Input() maximumPageSize = APP_DATA_GRID_MAXIMUM_PAGE_SIZE;
   @Input() rowIdField: keyof TData & string = 'id' as keyof TData & string;
-  @Input() ariaLabel = 'Data grid';
+  @Input({ required: true }) ariaLabel = '';
   @Input() selectionMode: AppDataGridSelectionMode = 'none';
   @Input() rowHeight?: number;
   @Input() stickyHeader = false;
@@ -59,6 +65,10 @@ export class SyncfusionDataGridComponent<TData extends object> implements OnChan
   @Input() error: string | null = null;
   @Input() emptyState: string | null = null;
   @Input() permissionDenied = false;
+  @Input({ required: true }) locale: 'en-US' | 'ja' = 'en-US';
+  @Input({ required: true }) loadingLabel = '';
+  @Input({ required: true }) permissionDeniedLabel = '';
+  @Input({ required: true }) emptyLabel = '';
   @Output() actionInvoked = new EventEmitter<AppDataGridActionEvent<TData>>();
   @Output() rowActivated = new EventEmitter<AppDataGridRowActivationEvent<TData>>();
   @Output() selectionChanged = new EventEmitter<AppDataGridSelectionChange<TData>>();

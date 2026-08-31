@@ -7,6 +7,7 @@ import { Subscription } from 'rxjs';
 import { AppEmptyStateComponent } from '../../../shared/empty-state/app-empty-state/app-empty-state.component';
 import { AppInlineLoadingComponent } from '../../../shared/loading/app-inline-loading/app-inline-loading.component';
 import { AppPermissionDeniedComponent } from '../../../shared/permission/app-permission-denied/app-permission-denied.component';
+import { I18nService } from '../../../core/i18n/i18n.service';
 import { ProjectsFacade } from '../projects.facade';
 import { TASK_LABEL_DESCRIPTION_MAX_LENGTH, TASK_LABEL_NAME_MAX_LENGTH, TaskActivityLogType, TaskDetailSection, TaskDetailSectionState, TaskEditorSaveRequest, TaskStageCategory, TaskStatus } from '../projects.types';
 import { TaskDependenciesReadonlyComponent } from '../task-dependencies-readonly/task-dependencies-readonly.component';
@@ -43,6 +44,7 @@ export class TaskDetailPageComponent implements OnDestroy {
   private readonly facade = inject(ProjectsFacade);
   private readonly route = inject(ActivatedRoute);
   private readonly files = inject(FilesFacade);
+  readonly i18n = inject(I18nService);
   private routeSubscription: Subscription | null = null;
   private readonly projectId = signal<string | undefined>(undefined);
   private readonly taskId = signal<string | undefined>(undefined);
@@ -217,6 +219,42 @@ export class TaskDetailPageComponent implements OnDestroy {
   downloadFile(attachmentId: string, fileObjectId: string, fileName: string): void { const taskId = this.taskId(); const projectId = this.projectId(); const workspaceId = this.page().detail?.workspaceId; if (!taskId || !workspaceId) return; this.files.downloadAttachment(attachmentId, fileName, { workspaceId, fileObjectId, isCurrent: () => this.taskId() === taskId && this.projectId() === projectId, onState: (_, message) => this.fileDownloadMessage.set(message), onPermissionDenied: () => this.facade.retryTaskDetail(taskId) }); }
   loadMorePickerFiles(): void { this.files.loadMorePickerFiles(); }
   retryPickerFiles(): void { this.files.retryPickerFiles(); }
+
+  taskFileMetadataLabel(file: { readonly contentType: string; readonly sizeBytes: number }): string {
+    return this.i18n.translate('files.task.fileMetadata', {
+      type: file.contentType
+        ? this.i18n.fileContentTypeLabel(file.contentType)
+        : this.i18n.translate('files.details.unavailable'),
+      size: this.i18n.formatFileSize(file.sizeBytes)
+    });
+  }
+
+  taskFileScanLabel(scanStatus: string): string {
+    return this.i18n.translate('files.task.scan', { status: this.i18n.taskFileScanStatusLabel(scanStatus) });
+  }
+
+  taskFileAccessLabel(accessState: string): string {
+    return this.i18n.translate('files.task.access', { status: this.i18n.taskFileAccessStateLabel(accessState) });
+  }
+
+  taskFileRestrictionLabel(restrictionCode: string | null): string | null {
+    return this.i18n.taskFileRestrictionLabel(restrictionCode);
+  }
+
+  taskFileSectionMessage(state: TaskDetailSectionState): string {
+    if (this.i18n.locale() === 'en') return state.message ?? this.i18n.translate('files.task.error');
+    if (state.status === 'permissionDenied') return this.i18n.translate('api.permissionDenied');
+    if (state.status === 'conflict') return this.i18n.translate('api.conflict');
+    return this.i18n.translate('files.task.error');
+  }
+
+  taskFilePickerMessage(): string {
+    const state = this.filePickerState();
+    if (this.i18n.locale() === 'en') return state.message ?? this.i18n.translate('files.task.error');
+    return state.status === 'permissionDenied'
+      ? this.i18n.translate('api.permissionDenied')
+      : this.i18n.translate('files.task.error');
+  }
 
   private resetLocalTaskDraftState(): void {
     this.subtaskTitle.set(''); this.checklistText.set(''); this.editingChecklistId.set(null); this.editingChecklistText.set(''); this.originalChecklistText.set(''); this.taskEditorDirty.set(false); this.researchPlanDirty.set(false);

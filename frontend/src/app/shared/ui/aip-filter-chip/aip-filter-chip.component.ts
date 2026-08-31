@@ -1,4 +1,6 @@
-import { Component, EventEmitter, Input, Output } from '@angular/core';
+import { Component, EventEmitter, Input, Output, inject } from '@angular/core';
+
+import { I18nService } from '../../../core/i18n/i18n.service';
 
 @Component({
   selector: 'app-aip-filter-chip',
@@ -9,7 +11,7 @@ import { Component, EventEmitter, Input, Output } from '@angular/core';
       <button
         type="button"
         class="aip-filter-chip__remove"
-        [attr.aria-label]="'Remove filter ' + label + ': ' + value"
+        [attr.aria-label]="i18n.translate('common.removeFilter', { label, value })"
         (click)="removed.emit()"
       ><span aria-hidden="true">&times;</span></button>
     </span>
@@ -57,6 +59,8 @@ import { Component, EventEmitter, Input, Output } from '@angular/core';
   `,
 })
 export class AipFilterChipComponent {
+  protected readonly i18n = inject(I18nService);
+
   @Input({ required: true }) label = '';
   @Input({ required: true }) value = '';
   @Output() readonly removed = new EventEmitter<void>();

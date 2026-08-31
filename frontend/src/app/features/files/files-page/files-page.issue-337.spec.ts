@@ -27,7 +27,10 @@ const renderFilesPage = async (
 };
 
 describe('FilesPageComponent issue #337', () => {
+  beforeEach(() => window.localStorage.setItem('aip.locale', 'en'));
+
   afterEach(() => {
+    window.localStorage.removeItem('aip.locale');
     TestBed.resetTestingModule();
   });
 

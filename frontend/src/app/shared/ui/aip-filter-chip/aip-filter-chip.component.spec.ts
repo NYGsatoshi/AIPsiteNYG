@@ -6,6 +6,7 @@ describe('AipFilterChipComponent', () => {
   let fixture: ComponentFixture<AipFilterChipComponent>;
 
   beforeEach(async () => {
+    window.localStorage.setItem('aip.locale', 'en');
     await TestBed.configureTestingModule({ imports: [AipFilterChipComponent] }).compileComponents();
     fixture = TestBed.createComponent(AipFilterChipComponent);
     fixture.componentRef.setInput('label', 'Type');
@@ -13,7 +14,10 @@ describe('AipFilterChipComponent', () => {
     fixture.detectChanges();
   });
 
-  afterEach(() => TestBed.resetTestingModule());
+  afterEach(() => {
+    window.localStorage.removeItem('aip.locale');
+    TestBed.resetTestingModule();
+  });
 
   it('exposes a native keyboard-operable removal action with its filter context', () => {
     const removed = vi.fn();

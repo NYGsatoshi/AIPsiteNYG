@@ -60,6 +60,7 @@ describe('MessageSearchFiltersComponent', () => {
   let httpMock: HttpTestingController;
 
   beforeEach(async () => {
+    window.localStorage.setItem('aip.locale', 'en');
     await TestBed.configureTestingModule({
       imports: [MessageSearchFiltersComponent],
       providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting()]
@@ -73,6 +74,7 @@ describe('MessageSearchFiltersComponent', () => {
   });
 
   afterEach(() => {
+    window.localStorage.removeItem('aip.locale');
     httpMock.verify();
     TestBed.resetTestingModule();
   });
