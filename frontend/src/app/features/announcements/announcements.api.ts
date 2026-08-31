@@ -58,8 +58,8 @@ export interface CreateAnnouncementRequestDto {
   readonly priority: number;
   readonly isPinned: boolean;
   readonly requiresReadConfirmation: boolean;
-  readonly cta: AnnouncementActionLinkDto | null;
-  readonly attachment: AnnouncementActionLinkDto | null;
+  readonly cta?: AnnouncementActionLinkDto;
+  readonly attachment?: AnnouncementActionLinkDto;
 }
 
 export interface AnnouncementDraftResponseDto {
@@ -95,8 +95,8 @@ export interface AnnouncementDraftContentRequestDto {
   readonly isPinned: boolean;
   readonly requiresReadConfirmation: boolean;
   readonly expiresAt: null;
-  readonly cta: AnnouncementActionLinkDto | null;
-  readonly attachment: AnnouncementActionLinkDto | null;
+  readonly cta?: AnnouncementActionLinkDto;
+  readonly attachment?: AnnouncementActionLinkDto;
 }
 
 export interface CreateAnnouncementDraftRequestDto {
@@ -161,6 +161,8 @@ export function mapAnnouncementAudienceOption(dto: AnnouncementAudienceOptionDto
 }
 
 export function toCreateAnnouncementRequest(submission: AnnouncementEditorSubmission): CreateAnnouncementRequestDto {
+  const cta = toActionLinkDto(submission.cta);
+  const attachment = toActionLinkDto(submission.attachment);
   return {
     workspaceId: submission.audience.workspaceId ?? null,
     groupId: submission.audience.groupId ?? null,
@@ -170,8 +172,8 @@ export function toCreateAnnouncementRequest(submission: AnnouncementEditorSubmis
     priority: priorityNumber(submission.priority),
     isPinned: false,
     requiresReadConfirmation: submission.requiresReadConfirmation,
-    cta: toActionLinkDto(submission.cta),
-    attachment: toActionLinkDto(submission.attachment),
+    ...(cta ? { cta } : {}),
+    ...(attachment ? { attachment } : {}),
   };
 }
 
@@ -429,6 +431,8 @@ function priorityNumber(priority: AnnouncementPriority): number {
 function toAnnouncementDraftContentRequest(
   submission: AnnouncementEditorSubmission,
 ): AnnouncementDraftContentRequestDto {
+  const cta = toActionLinkDto(submission.cta);
+  const attachment = toActionLinkDto(submission.attachment);
   return {
     target: {
       workspaceId: submission.audience.workspaceId ?? null,
@@ -441,8 +445,8 @@ function toAnnouncementDraftContentRequest(
     isPinned: false,
     requiresReadConfirmation: submission.requiresReadConfirmation,
     expiresAt: null,
-    cta: toActionLinkDto(submission.cta),
-    attachment: toActionLinkDto(submission.attachment),
+    ...(cta ? { cta } : {}),
+    ...(attachment ? { attachment } : {}),
   };
 }
 
@@ -456,9 +460,9 @@ function mapActionLink(value: AnnouncementActionLinkDto | null | undefined): Ann
   return { label, url };
 }
 
-function toActionLinkDto(value: AnnouncementActionLink | undefined): AnnouncementActionLinkDto | null {
+function toActionLinkDto(value: AnnouncementActionLink | undefined): AnnouncementActionLinkDto | undefined {
   if (!value) {
-    return null;
+    return undefined;
   }
 
   return {
