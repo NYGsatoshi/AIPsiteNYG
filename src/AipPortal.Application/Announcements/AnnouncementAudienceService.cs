@@ -18,6 +18,7 @@ public sealed class AnnouncementAudienceService(
     IWorkspaceAuthorizationService workspaceAuthorization,
     IGroupAuthorizationService groupAuthorization,
     IChannelAuthorizationService channelAuthorization,
+    IAnnouncementScheduleTimeZoneResolver scheduleTimeZones,
     ICurrentUser currentUser,
     ICurrentTenant currentTenant) : IAnnouncementAudienceService
 {
@@ -288,7 +289,11 @@ public sealed class AnnouncementAudienceService(
             groupId,
             channelId,
             displayName,
-            recipients.Count);
+            recipients.Count,
+            (await scheduleTimeZones.ResolveAsync(
+                currentTenant.TenantId,
+                workspaceId,
+                cancellationToken)).Id);
     }
 
     private async Task<bool> CanCreateWorkspaceAnnouncementAsync(Guid userId, Guid workspaceId, CancellationToken cancellationToken)

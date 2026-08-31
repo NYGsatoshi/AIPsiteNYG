@@ -127,6 +127,7 @@ public static class DependencyInjection
         services.AddScoped<IResearchPlanService, ResearchPlanService>();
         services.AddScoped<ITaskExecutionResultService, TaskExecutionResultService>();
         services.AddScoped<ITaskWorkspaceTimeZoneResolver, TaskWorkspaceTimeZoneResolver>();
+        services.AddScoped<IAnnouncementScheduleTimeZoneResolver, AnnouncementScheduleTimeZoneResolver>();
         services.AddScoped<IEventService, EventService>();
         services.AddScoped<IFormService, FormService>();
         services.AddScoped<IFileService, FileService>();

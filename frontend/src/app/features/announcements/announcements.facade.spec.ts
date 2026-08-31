@@ -493,7 +493,7 @@ describe('AnnouncementsFacade', () => {
       id: '11111111-1111-1111-1111-111111111119',
       version: 2,
       publicationState: 'scheduled',
-      scheduledAtLabel: '2026-08-30T00:00 (UTC)',
+      scheduledAtLabel: 'Aug 30, 2026 · 00:00 UTC',
     });
     expect(facade.page().message).toContain('Publication queued');
     expect(facade.page().isPublishing).toBe(false);

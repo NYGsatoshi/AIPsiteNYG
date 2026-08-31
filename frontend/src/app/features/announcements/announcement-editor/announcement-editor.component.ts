@@ -88,6 +88,7 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
   private contentLinksDirty = false;
   private formChanges?: Subscription;
   private deliveryModeChanges?: Subscription;
+  private audienceChanges?: Subscription;
 
   readonly form = new FormBuilder().nonNullable.group({
     title: [
@@ -111,7 +112,7 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
     requiresReadConfirmation: [false],
     deliveryMode: ['now' as AnnouncementDeliveryMode, Validators.required],
     scheduledLocalDateTime: [''],
-    timeZoneId: [browserTimeZoneId()],
+    timeZoneId: ['UTC'],
   });
 
   /**
@@ -178,12 +179,14 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
       this.updateScheduleValidators(),
     );
     this.formChanges = this.form.valueChanges.subscribe(() => this.emitDraftChange());
+    this.audienceChanges = this.form.controls.audienceKey.valueChanges.subscribe(() => this.applyAudienceTimeZone());
     this.updateScheduleValidators();
   }
 
   ngOnDestroy(): void {
     this.formChanges?.unsubscribe();
     this.deliveryModeChanges?.unsubscribe();
+    this.audienceChanges?.unsubscribe();
   }
 
   ngOnChanges(changes: SimpleChanges): void {
@@ -216,6 +219,7 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
     if (this.formInitialized && (this.form.dirty || this.contentLinksDirty)) {
       if (currentAudienceKey !== authorizedAudienceKey) {
         this.form.controls.audienceKey.setValue(authorizedAudienceKey, { emitEvent: false });
+        this.applyAudienceTimeZone();
         this.previewRevision.update((revision) => revision + 1);
         // The editor received a new authoritative audience projection. Do not
         // keep an already-open view that might have displayed the revoked
@@ -236,7 +240,11 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
         requiresReadConfirmation: this.draft.requiresReadConfirmation,
         deliveryMode: this.draft.deliveryMode ?? 'now',
         scheduledLocalDateTime: this.draft.scheduledLocalDateTime ?? '',
-        timeZoneId: this.draft.timeZoneId ?? browserTimeZoneId(),
+        timeZoneId:
+          this.draft.timeZoneId ??
+          this.draft.availableAudiences.find((audience) => audience.key === authorizedAudienceKey)
+            ?.scheduleTimeZoneId ??
+          'UTC',
       },
       { emitEvent: false },
     );
@@ -465,7 +473,7 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
     const localDateTime = review?.scheduledLocalDateTime ?? this.form.controls.scheduledLocalDateTime.value;
     const timeZoneId = review?.timeZoneId ?? this.form.controls.timeZoneId.value;
     return localDateTime && timeZoneId
-      ? `Schedule for ${localDateTime} (${timeZoneId})`
+      ? `Schedule for ${localDateTime} ${timeZoneId}`
       : 'Scheduled publication requires a local date, time, and IANA time zone';
   }
 
@@ -488,6 +496,12 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
       this.draft.availableAudiences[0]?.key ??
       ''
     );
+  }
+
+  private applyAudienceTimeZone(): void {
+    const zone = this.selectedAudience()?.scheduleTimeZoneId ?? 'UTC';
+    this.form.controls.timeZoneId.setValue(zone, { emitEvent: false });
+    this.emitDraftChange();
   }
 
   private emitDraftChange(): void {
@@ -725,11 +739,3 @@ const ianaTimeZoneValidator: ValidatorFn = (
   const value = control.value.trim();
   return value === 'UTC' || value.includes('/') ? null : { ianaTimeZone: true };
 };
-
-function browserTimeZoneId(): string {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-  } catch {
-    return 'UTC';
-  }
-}
