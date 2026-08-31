@@ -415,15 +415,19 @@ test.describe('MVP0 real backend browser smoke', () => {
       await workspaceSwitcher.selectOption(workspaceId);
       await expect(workspaceSwitcher).toHaveValue(workspaceId);
 
-      await page.goto('/app/projects');
-      await expect(page.getByTestId('projects-overview-page')).toBeVisible();
-      const createAction = page.getByTestId('projects-create-project');
-      await expect(createAction).toBeVisible();
+      // The options request may be issued while the Projects route initializes
+      // or after the user explicitly opens the dialog. Start observing before
+      // navigation so this real-backend assertion does not race either valid
+      // lifecycle timing.
       const uiOptionsResponse = waitForApiResponse(
         page,
         'GET',
         `/api/workspaces/${workspaceId}/projects/create-options`
       );
+      await page.goto('/app/projects');
+      await expect(page.getByTestId('projects-overview-page')).toBeVisible();
+      const createAction = page.getByTestId('projects-create-project');
+      await expect(createAction).toBeVisible();
       await createAction.click();
       await recordOkJson(await uiOptionsResponse, evidence, 'project-create-options-ui', (body) =>
         hasString(body, 'requestId') &&
