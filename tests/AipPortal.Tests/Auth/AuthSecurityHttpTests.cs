@@ -99,6 +99,9 @@ public sealed class AuthSecurityHttpTests
     [InlineData("POST", "/api/auth/register-by-invite")]
     [InlineData("POST", "/api/invites/accept")]
     [InlineData("POST", "/api/workspaces")]
+    [InlineData("PUT", "/api/files/00000000-0000-0000-0000-000000000000/sharing")]
+    [InlineData("POST", "/api/files/00000000-0000-0000-0000-000000000000/sharing/recipients")]
+    [InlineData("DELETE", "/api/files/00000000-0000-0000-0000-000000000000/sharing/recipients/00000000-0000-0000-0000-000000000000")]
     [InlineData("PUT", "/api/projects/00000000-0000-0000-0000-000000000000/kanban/config")]
     [InlineData("PUT", "/api/projects/00000000-0000-0000-0000-000000000000/execution-scope")]
     [InlineData("POST", "/api/tasks/00000000-0000-0000-0000-000000000000/kanban-move")]
@@ -442,6 +445,7 @@ public sealed class AuthSecurityHttpTests
             services.AddScoped<IEventRepository, EventRepository>();
             services.AddScoped<IFormRepository, FormRepository>();
             services.AddScoped<IFileRepository, FileRepository>();
+            services.AddScoped<AipPortal.Application.Files.IFileAccessGrantRepository, FileAccessGrantRepository>();
             services.AddScoped<IFileDownloadGrantRepository, FileDownloadGrantRepository>();
             services.AddScoped<AipPortal.Application.Files.IFileSelectionSnapshotService, FileSelectionSnapshotService>();
             services.AddScoped<IStudentRecordExportGrantRepository, StudentRecordExportGrantRepository>();

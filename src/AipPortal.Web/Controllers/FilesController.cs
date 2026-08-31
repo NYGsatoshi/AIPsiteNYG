@@ -13,7 +13,8 @@ namespace AipPortal.Web.Controllers;
 [Authorize]
 public sealed class FilesController(
     IFileObjectService files,
-    IFileSelectionSnapshotService selectionSnapshots) : ControllerBase
+    IFileSelectionSnapshotService selectionSnapshots,
+    IFileSharingService sharing) : ControllerBase
 {
     [HttpGet("api/files")]
     public async Task<IActionResult> List(
@@ -60,6 +61,48 @@ public sealed class FilesController(
             "FileRead");
     }
 
+    [HttpGet("api/files/{fileObjectId:guid}/sharing")]
+    public async Task<IActionResult> GetSharing(Guid fileObjectId, CancellationToken cancellationToken)
+    {
+        return ToFileMetadataActionResult(
+            await sharing.GetAsync(fileObjectId, cancellationToken),
+            "FileSharing");
+    }
+
+    [HttpPut("api/files/{fileObjectId:guid}/sharing")]
+    public async Task<IActionResult> UpdateSharingPolicy(
+        Guid fileObjectId,
+        [FromBody] FileSharingPolicyUpdateRequest request,
+        CancellationToken cancellationToken)
+    {
+        return ToFileMetadataActionResult(
+            await sharing.UpdatePolicyAsync(fileObjectId, request, cancellationToken),
+            "FileSharing");
+    }
+
+    [HttpPost("api/files/{fileObjectId:guid}/sharing/recipients")]
+    public async Task<IActionResult> GrantSharingRecipient(
+        Guid fileObjectId,
+        [FromBody] FileShareGrantCreateRequest request,
+        CancellationToken cancellationToken)
+    {
+        return ToFileMetadataActionResult(
+            await sharing.GrantAsync(fileObjectId, request, cancellationToken),
+            "FileSharing");
+    }
+
+    [HttpDelete("api/files/{fileObjectId:guid}/sharing/recipients/{grantId:guid}")]
+    public async Task<IActionResult> RevokeSharingRecipient(
+        Guid fileObjectId,
+        Guid grantId,
+        [FromQuery] long expectedSharingVersion,
+        CancellationToken cancellationToken)
+    {
+        return ToFileMetadataActionResult(
+            await sharing.RevokeAsync(fileObjectId, grantId, expectedSharingVersion, cancellationToken),
+            "FileSharing");
+    }
+
     [HttpGet("api/files/{fileObjectId:guid}/download")]
     public async Task<IActionResult> Download(Guid fileObjectId, CancellationToken cancellationToken)
     {
@@ -92,15 +135,10 @@ public sealed class FilesController(
         [FromQuery] FileSelectionSnapshotCreateRequest request,
         CancellationToken cancellationToken)
     {
-        var result = await selectionSnapshots.CaptureAsync(request, cancellationToken);
-        return result.IsSuccess
-            ? Ok(result.Value!)
-            : BadRequest(CanonicalErrorEnvelope.FromResult(
-                HttpContext,
-                StatusCodes.Status400BadRequest,
-                result.ErrorDetail,
-                result.Error,
-                "FileSelectionSnapshotFailed"));
+        return ToFileMetadataActionResult(
+            await selectionSnapshots.CaptureAsync(request, cancellationToken),
+            "FileSelectionSnapshot",
+            "FileSelectionSnapshotFailed");
     }
 
     [HttpPost("api/files/selection-snapshots/{selectionSnapshotId:guid}/delete")]
@@ -108,15 +146,10 @@ public sealed class FilesController(
         Guid selectionSnapshotId,
         CancellationToken cancellationToken)
     {
-        var result = await selectionSnapshots.DeleteAsync(selectionSnapshotId, cancellationToken);
-        return result.IsSuccess
-            ? Ok(result.Value!)
-            : BadRequest(CanonicalErrorEnvelope.FromResult(
-                HttpContext,
-                StatusCodes.Status400BadRequest,
-                result.ErrorDetail,
-                result.Error,
-                "FileSelectionSnapshotDeleteFailed"));
+        return ToFileMetadataActionResult(
+            await selectionSnapshots.DeleteAsync(selectionSnapshotId, cancellationToken),
+            "FileSelectionSnapshot",
+            "FileSelectionSnapshotDeleteFailed");
     }
 
     [HttpPost("api/file-download-grants/{fileDownloadGrantId:guid}/download")]
@@ -170,7 +203,8 @@ public sealed class FilesController(
 
     private IActionResult ToFileMetadataActionResult<T>(
         Result<T> result,
-        string moduleKey) =>
+        string moduleKey,
+        string failureCode = "FileMetadataFailed") =>
         result.IsSuccess
             ? Ok(CanonicalRedactionProjection.Apply(
                 HttpContext,
@@ -183,7 +217,7 @@ public sealed class FilesController(
                 StatusCodes.Status400BadRequest,
                 result.ErrorDetail,
                 result.Error,
-                "FileMetadataFailed"));
+                failureCode));
 
     private FileStreamResult PrivateFile(Stream content, string contentType, string fileName)
     {

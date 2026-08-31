@@ -1,4 +1,10 @@
-import { FileDisplayLocalizer, mapFileListItem, safeFileNameFromHeader } from './files.api';
+import {
+  FileDisplayLocalizer,
+  mapFileListItem,
+  mapFileSharingPresentation,
+  mapFileSharingResponse,
+  safeFileNameFromHeader,
+} from './files.api';
 
 const DISPLAY_LOCALIZER: FileDisplayLocalizer = {
   untitledFile: '無題のファイル',
@@ -107,5 +113,43 @@ describe('files api mapper', () => {
       'report copy.pdf',
     );
     expect(safeFileNameFromHeader(null, 'fallback.txt')).toBe('fallback.txt');
+  });
+
+  it('renders only explicit server sharing states and redacts external counts without inspection authority', () => {
+    expect(mapFileSharingPresentation({ accessState: 'Private', sharingVersion: 2, canManageSharing: true }))
+      .toEqual({ accessState: 'private', canManageSharing: true, sharingVersion: 2, externalRecipientCount: undefined });
+    expect(mapFileSharingPresentation({ accessState: 'Workspace', sharingVersion: 3, canManageSharing: true }))
+      .toEqual({ accessState: 'workspace', canManageSharing: true, sharingVersion: 3, externalRecipientCount: undefined });
+    expect(mapFileSharingPresentation({
+      accessState: 'External', externalRecipientCount: 2, canManageSharing: true, sharingVersion: 4,
+    })).toEqual({ accessState: 'external', externalRecipientCount: 2, canManageSharing: true, sharingVersion: 4 });
+    expect(mapFileSharingPresentation({
+      accessState: 'External', externalRecipientCount: 2, canManageSharing: false, sharingVersion: 4,
+    })).toEqual({ accessState: 'external', externalRecipientCount: undefined, canManageSharing: false, sharingVersion: 4 });
+    expect(mapFileSharingPresentation({ accessState: 'External', externalRecipientCount: '2', canManageSharing: true }))
+      .toEqual({ accessState: 'external', externalRecipientCount: undefined, canManageSharing: false, sharingVersion: undefined });
+  });
+
+  it('does not expose recipient data when the server withholds sharing inspection authority', () => {
+    const detail = mapFileSharingResponse({
+      fileObjectId: 'file-object-1',
+      sharingPolicy: 'Private',
+      accessState: 'External',
+      sharingVersion: 4,
+      canManageSharing: false,
+      canInspectSharing: false,
+      externalRecipientCount: 9,
+      recipients: [{ grantId: 'grant-1', displayName: 'Protected person', accessKind: 'ExternalProjectMember' }],
+      availableRecipients: [{ userId: 'person-1', displayName: 'Protected person', accessKind: 'ExternalProjectMember' }],
+    });
+
+    expect(detail).toEqual({
+      fileObjectId: 'file-object-1',
+      sharing: { accessState: 'external', canManageSharing: false, sharingVersion: 4, externalRecipientCount: undefined },
+      shareWithWorkspace: false,
+      canInspectSharing: false,
+      recipients: [],
+      availableRecipients: [],
+    });
   });
 });

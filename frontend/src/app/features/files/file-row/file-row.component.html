@@ -40,6 +40,10 @@
         <dt>{{ i18n.translate('files.row.created') }}</dt>
         <dd>{{ createdAtLabel() }}</dd>
       </div>
+      <div>
+        <dt>{{ i18n.translate('files.details.access') }}</dt>
+        <dd data-testid="file-access-state">{{ sharingLabel() }}</dd>
+      </div>
     </dl>
   </div>
 

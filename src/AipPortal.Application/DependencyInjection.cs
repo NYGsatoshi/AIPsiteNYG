@@ -130,6 +130,7 @@ public static class DependencyInjection
         services.AddScoped<IAnnouncementScheduleTimeZoneResolver, AnnouncementScheduleTimeZoneResolver>();
         services.AddScoped<IEventService, EventService>();
         services.AddScoped<IFormService, FormService>();
+        services.AddScoped<IFileSharingService, FileSharingService>();
         services.AddScoped<IFileService, FileService>();
         services.AddScoped<IFileObjectService>(provider => provider.GetRequiredService<IFileService>() as IFileObjectService
             ?? throw new InvalidOperationException("IFileService must be implemented by IFileObjectService."));
