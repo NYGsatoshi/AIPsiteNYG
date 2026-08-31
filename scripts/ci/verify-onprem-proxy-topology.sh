@@ -8,7 +8,9 @@ onprem_config="$(mktemp)"
 sakura_config="$(mktemp)"
 trycloudflare_config="$(mktemp)"
 trycloudflare_caddy_config="$(mktemp)"
-trap 'rm -f "$onprem_config" "$sakura_config" "$trycloudflare_config" "$trycloudflare_caddy_config"' EXIT
+deploy_env="$(mktemp)"
+deploy_license="$(mktemp)"
+trap 'rm -f "$onprem_config" "$sakura_config" "$trycloudflare_config" "$trycloudflare_caddy_config" "$deploy_env" "$deploy_license"' EXIT
 
 docker compose -f docker-compose.onprem.yml config --format json > "$onprem_config"
 docker compose -p deploy -f deploy/sakura/docker-compose.yml config --format json > "$sakura_config"
@@ -92,3 +94,25 @@ assert "caddy" not in trycloudflare["services"], trycloudflare["services"]
 assert "caddy" in trycloudflare_caddy["services"], trycloudflare_caddy["services"]
 assert "caddy" in trycloudflare_caddy["services"]["caddy"].get("profiles", []), trycloudflare_caddy["services"]["caddy"]
 PY
+
+# Exercise the canonical deployment entrypoint itself. PR #480 originally
+# validated the tracked overlay but the Sakura deploy script never selected it,
+# allowing an operator-side stale overlay to recreate the outage. Validate both
+# edge modes through deploy.sh so CI fails if the entrypoint and Compose contract
+# diverge again.
+bash -n deploy/sakura/deploy.sh
+chmod 600 "$deploy_env" "$deploy_license"
+cat > "$deploy_env" <<'EOF'
+DB_PASSWORD=ci_dummy_password
+LOCAL_ADMIN_PASSWORD=ci_dummy_local_admin_password
+EOF
+printf '%s\n' 'ci_dummy_syncfusion_license' > "$deploy_license"
+
+for edge_mode in caddy trycloudflare; do
+  AIPSITE_SOURCE_DIR="$PWD" \
+  AIPSITE_DEPLOY_ENV="$deploy_env" \
+  AIPSITE_CADDYFILE="$PWD/deploy/sakura/Caddyfile" \
+  SYNCFUSION_LICENSE_FILE="$deploy_license" \
+  AIPSITE_DEPLOY_VALIDATE_ONLY=true \
+    bash deploy/sakura/deploy.sh "$edge_mode"
+done
