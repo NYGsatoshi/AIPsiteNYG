@@ -1,15 +1,36 @@
 <section
   class="announcement-local-preview"
+  [class.announcement-local-preview--mobile]="viewport() === 'mobile'"
   aria-labelledby="announcement-local-preview-heading"
   data-testid="announcement-local-preview"
 >
+  <div class="announcement-local-preview__viewport" role="group" aria-label="Preview viewport">
+    <span>Preview width</span>
+    <button
+      type="button"
+      [attr.aria-pressed]="viewport() === 'desktop'"
+      (click)="setViewport('desktop')"
+      data-testid="announcement-preview-desktop"
+    >
+      Desktop
+    </button>
+    <button
+      type="button"
+      [attr.aria-pressed]="viewport() === 'mobile'"
+      (click)="setViewport('mobile')"
+      data-testid="announcement-preview-mobile"
+    >
+      Mobile
+    </button>
+  </div>
+
   <header class="announcement-local-preview__header">
     <div>
       <p class="announcement-local-preview__priority" data-testid="announcement-preview-priority">
         <app-announcement-priority-badge [priority]="preview.priority" />
       </p>
       <h3 #heading id="announcement-local-preview-heading" tabindex="-1" data-testid="announcement-preview-heading">
-        Recipient view — not published
+        Recipient view — preview only / not published
       </h3>
     </div>
     <p class="announcement-local-preview__delivery" data-testid="announcement-preview-delivery">
@@ -40,11 +61,36 @@
         {{ preview.requiresReadConfirmation ? 'Required after publication' : 'Not required' }}
       </dd>
     </div>
+    <div>
+      <dt>Linked attachment</dt>
+      <dd data-testid="announcement-preview-attachment-state">
+        {{ preview.attachment ? 'Present' : 'None' }}
+      </dd>
+    </div>
   </dl>
 
   <p class="announcement-local-preview__body" data-testid="announcement-preview-body">
     {{ preview.body || 'Message not entered' }}
   </p>
+
+  @if (preview.attachment; as attachment) {
+    <div class="announcement-local-preview__attachment" data-testid="announcement-preview-attachment">
+      <span>Attachment</span>
+      <span role="link" aria-disabled="true">{{ attachment.label }}</span>
+      <small>{{ attachment.url }}</small>
+    </div>
+  }
+
+  @if (preview.cta; as cta) {
+    <span
+      class="announcement-local-preview__cta"
+      role="link"
+      aria-disabled="true"
+      data-testid="announcement-preview-content-cta-inert"
+    >
+      {{ cta.label }}
+    </span>
+  }
 
   @if (preview.requiresReadConfirmation) {
     <p class="announcement-local-preview__inert-action" data-testid="announcement-preview-cta-inert">
@@ -53,8 +99,7 @@
   }
 
   <p class="announcement-local-preview__boundary" data-testid="announcement-preview-boundary">
-    This local preview makes no request and does not publish, deliver, mark read, or record analytics.
-    Links, attachments, scheduling, and saved drafts are not available in the current announcement
-    create contract.
+    This local preview makes no request and does not publish, deliver, navigate links, download files,
+    mark read, or record analytics. CTA and attachment rows are visual-only until the server accepts publication.
   </p>
 </section>

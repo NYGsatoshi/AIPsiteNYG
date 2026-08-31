@@ -1,0 +1,78 @@
+name: Public HTTPS Production Golden Path
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  public-https-production-gate:
+    # The protected environment owns all fixture values. It must be approved
+    # after deployment and configured with the dedicated synthetic account.
+    environment: public-https-gate
+    runs-on: self-hosted
+    timeout-minutes: 20
+    concurrency:
+      group: aipsite-public-https-deployment-gate
+      cancel-in-progress: false
+      queue: max
+    env:
+      AIP_PUBLIC_HTTPS_SMOKE: '1'
+      AIP_PUBLIC_SMOKE_SYNTHETIC_FIXTURE: '1'
+      AIP_PUBLIC_SMOKE_URL: ${{ secrets.AIP_PUBLIC_SMOKE_URL }}
+      AIP_PUBLIC_SMOKE_EMAIL: ${{ secrets.AIP_PUBLIC_SMOKE_EMAIL }}
+      AIP_PUBLIC_SMOKE_PASSWORD: ${{ secrets.AIP_PUBLIC_SMOKE_PASSWORD }}
+      AIP_PUBLIC_SMOKE_WORKSPACE_ID: ${{ secrets.AIP_PUBLIC_SMOKE_WORKSPACE_ID }}
+      AIP_PUBLIC_SMOKE_PROJECT_ID: ${{ secrets.AIP_PUBLIC_SMOKE_PROJECT_ID }}
+      AIP_PUBLIC_SMOKE_TASK_ID: ${{ secrets.AIP_PUBLIC_SMOKE_TASK_ID }}
+      AIP_PUBLIC_SMOKE_UNAUTHORIZED_WORKSPACE_ID: ${{ secrets.AIP_PUBLIC_SMOKE_UNAUTHORIZED_WORKSPACE_ID }}
+      AIP_PUBLIC_SMOKE_UNAUTHORIZED_PROJECT_ID: ${{ secrets.AIP_PUBLIC_SMOKE_UNAUTHORIZED_PROJECT_ID }}
+      AIP_PUBLIC_SMOKE_UNAUTHORIZED_TASK_ID: ${{ secrets.AIP_PUBLIC_SMOKE_UNAUTHORIZED_TASK_ID }}
+      AIP_PUBLIC_SMOKE_REVOKED_FILE_ID: ${{ secrets.AIP_PUBLIC_SMOKE_REVOKED_FILE_ID }}
+
+    steps:
+      - name: Checkout deployed candidate source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          clean: true
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
+      - name: Install deployment-gate dependencies
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Verify protected deployment-gate configuration
+        shell: bash
+        run: |
+          required=(
+            AIP_PUBLIC_SMOKE_URL
+            AIP_PUBLIC_SMOKE_EMAIL
+            AIP_PUBLIC_SMOKE_PASSWORD
+            AIP_PUBLIC_SMOKE_WORKSPACE_ID
+            AIP_PUBLIC_SMOKE_PROJECT_ID
+            AIP_PUBLIC_SMOKE_TASK_ID
+            AIP_PUBLIC_SMOKE_UNAUTHORIZED_WORKSPACE_ID
+            AIP_PUBLIC_SMOKE_UNAUTHORIZED_PROJECT_ID
+            AIP_PUBLIC_SMOKE_UNAUTHORIZED_TASK_ID
+            AIP_PUBLIC_SMOKE_REVOKED_FILE_ID
+          )
+          for key in "${required[@]}"; do
+            if [[ -z "${!key:-}" ]]; then
+              echo "$key is not configured in the protected public-https-gate environment." >&2
+              exit 1
+            fi
+          done
+
+      - name: Run public HTTPS production Golden Path
+        # No Playwright artifacts are uploaded. The public-gate configuration
+        # disables trace, screenshots, video, HTML, and JUnit output so tokens,
+        # cookies, credentials, and protected metadata cannot enter artifacts.
+        run: npm run test:ui:public-https

@@ -10,7 +10,8 @@
     </div>
   </header>
 
-  <div class="files-page__grid">
+  <div class="files-page__grid files-page__grid--browser">
+    <app-file-browser-sidebar [folders]="browserFolders" [activeShortcut]="browserShortcut()" (shortcutSelected)="selectBrowserShortcut($event)" />
     <div class="files-page__main">
       <app-aip-file-uploader
         id="upload"
@@ -134,10 +135,10 @@
         </form>
       </section>
 
-      <section class="files-page__panel" [attr.aria-label]="searchApplied() ? 'File search results' : 'Recent files'">
+      <section class="files-page__panel" [attr.aria-label]="searchApplied() ? 'File search results' : browserShortcut() + ' files'">
         <div class="files-page__panel-header">
           <div>
-            <p>{{ searchApplied() ? 'Search results' : 'Recent files' }}</p>
+            <p>{{ searchApplied() ? 'Search results' : browserShortcut() === 'recent' ? 'Recent files' : browserShortcut() === 'starred' ? 'Starred' : 'Shared' }}</p>
             <strong>Choose files with checkboxes. Preview a file from its name.</strong>
           </div>
         </div>

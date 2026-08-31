@@ -443,20 +443,14 @@ test.describe('MVP0 real backend browser smoke', () => {
       await page.getByTestId('project-create-start-date').fill('2026-09-01');
       await page.getByTestId('project-create-end-date').fill('2026-09-30');
 
-      const createResponsePromise = waitForApiResponse(
+      const firstCreateOutcome = waitForProjectCreateOutcome(
         page,
-        'POST',
-        `/api/workspaces/${workspaceId}/projects`,
-        { timeout: 15_000 }
+        `/api/workspaces/${workspaceId}/projects`
       );
       await dialog.getByRole('button', { name: 'Create Project' }).click();
       let createResponse: PlaywrightResponse;
-      try {
-        createResponse = await createResponsePromise;
-      } catch {
-        await expect(page.getByTestId('project-create-create-status')).toContainText(
-          'Project creation was stopped before it was sent.'
-        );
+      const resolvedFirstCreateOutcome = await firstCreateOutcome;
+      if (resolvedFirstCreateOutcome.kind === 'stopped') {
         expect(observedProjectCreatePosts, 'no Project POST was dispatched before reauthorization').toBe(0);
 
         const reauthorizedOptions = waitForApiResponse(
@@ -477,6 +471,8 @@ test.describe('MVP0 real backend browser smoke', () => {
         );
         await dialog.getByRole('button', { name: 'Create Project' }).click();
         createResponse = await retryCreateResponse;
+      } else {
+        createResponse = resolvedFirstCreateOutcome.response;
       }
       expect(observedProjectCreatePosts, 'one explicit Project POST is observed').toBe(1);
       const createText = await createResponse.text();
@@ -898,18 +894,14 @@ test.describe('MVP0 real backend browser smoke', () => {
       }
       await page.getByTestId('project-create-visibility').selectOption({ label: 'Members only' });
 
-      const projectCreateResponsePromise = waitForApiResponse(
+      const projectCreateOutcome = waitForProjectCreateOutcome(
         page,
-        'POST',
-        `/api/workspaces/${createdWorkspaceId}/projects`,
-        { timeout: 15_000 }
+        `/api/workspaces/${createdWorkspaceId}/projects`
       );
       await projectDialog.getByRole('button', { name: 'Create Project' }).click();
       let projectCreateResponse: PlaywrightResponse;
-      try {
-        projectCreateResponse = await projectCreateResponsePromise;
-      } catch {
-        await expect(page.getByTestId('project-create-create-status')).toContainText('Project creation was stopped before it was sent.');
+      const resolvedProjectCreateOutcome = await projectCreateOutcome;
+      if (resolvedProjectCreateOutcome.kind === 'stopped') {
         expect(observedProjectCreatePosts, 'project create has not been retried automatically').toBe(0);
         const reauthorizedOptionsResponse = waitForApiResponse(page, 'GET', projectOptionsPath);
         await page.getByTestId('project-create-options-retry').click();
@@ -925,6 +917,8 @@ test.describe('MVP0 real backend browser smoke', () => {
         );
         await projectDialog.getByRole('button', { name: 'Create Project' }).click();
         projectCreateResponse = await retryProjectCreateResponse;
+      } else {
+        projectCreateResponse = resolvedProjectCreateOutcome.response;
       }
 
       const projectCreateText = await projectCreateResponse.text();
@@ -5027,6 +5021,42 @@ function waitForApiResponse(
     const pathname = new URL(response.url()).pathname;
     return typeof path === 'string' ? pathname === path : path.test(pathname);
   }, options);
+}
+
+type ProjectCreateOutcome =
+  | { readonly kind: 'response'; readonly response: PlaywrightResponse }
+  | { readonly kind: 'stopped' };
+
+async function waitForProjectCreateOutcome(page: Page, path: string): Promise<ProjectCreateOutcome> {
+  const timeout = 15_000;
+  const response = waitForApiResponse(page, 'POST', path, { timeout }).then(
+    (value) => ({ kind: 'response' as const, response: value }),
+    () => null,
+  );
+  const stoppedBeforeDispatch = page
+    .getByTestId('project-create-create-status')
+    .filter({ hasText: 'stopped before it was sent' })
+    .waitFor({ state: 'visible', timeout })
+    .then(
+      () => ({ kind: 'stopped' as const }),
+      () => null,
+    );
+
+  // An authorization refresh can replace the transient recovery message before
+  // a response wait expires. Observe both valid outcomes concurrently, while
+  // handling the losing waiter so it cannot produce an unhandled rejection.
+  const first = await Promise.race([response, stoppedBeforeDispatch]);
+  if (first) {
+    return first;
+  }
+
+  const [responseOutcome, stoppedOutcome] = await Promise.all([response, stoppedBeforeDispatch]);
+  const outcome = responseOutcome ?? stoppedOutcome;
+  if (outcome) {
+    return outcome;
+  }
+
+  throw new Error('Timed out waiting for the Project create response or authorization-clear recovery.');
 }
 
 function waitForSuccessfulApiResponse(

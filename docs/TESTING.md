@@ -642,6 +642,34 @@ node tests/ui/run-real-backend-playwright.mjs
 The normal `dotnet run` launch profile uses port 5098; the Compose application
 uses internal port 8080. Direct execution does not start ASP.NET Core for you.
 
+### Public HTTPS production Golden Path
+
+Issue #481 adds a separately protected release gate for a deployed public
+origin. It is not part of the static or Compose suites and must not be pointed
+at localhost, Kestrel, or a private proxy port. See
+`docs/verification/p0-public-https-golden-path.md` for the full synthetic
+fixture contract and security behavior.
+
+After deployment, run the manual **Public HTTPS Production Golden Path** GitHub
+Actions workflow. It reads only protected `public-https-gate` environment
+values and fails closed when the public HTTPS endpoint or its fixture is not
+available. The test checks `/health/ready` only as a bounded preflight before
+the real browser journey; readiness never constitutes a pass on its own.
+
+The equivalent controlled operator command is:
+
+```bash
+npm run test:ui:public-https
+```
+
+The command requires `AIP_PUBLIC_HTTPS_SMOKE=1`,
+`AIP_PUBLIC_SMOKE_SYNTHETIC_FIXTURE=1`, a root public
+`AIP_PUBLIC_SMOKE_URL`, synthetic `@example.test` credentials, and the seven
+authorized/denied fixture IDs documented in the verification record. Public
+mode disables Playwright trace, screenshots, video, HTML, JUnit, and test
+attachments; no credentials, cookies, CSRF values, response bodies, or fixture
+identifiers are written to a CI artifact.
+
 ### Node DEP0205 note
 
 Historical static-suite evidence shows `[DEP0205] module.register()` only after

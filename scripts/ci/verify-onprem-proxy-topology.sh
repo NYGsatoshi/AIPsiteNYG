@@ -8,7 +8,9 @@ onprem_config="$(mktemp)"
 sakura_config="$(mktemp)"
 trycloudflare_config="$(mktemp)"
 trycloudflare_caddy_config="$(mktemp)"
-trap 'rm -f "$onprem_config" "$sakura_config" "$trycloudflare_config" "$trycloudflare_caddy_config"' EXIT
+deploy_env="$(mktemp)"
+deploy_license="$(mktemp)"
+trap 'rm -f "$onprem_config" "$sakura_config" "$trycloudflare_config" "$trycloudflare_caddy_config" "$deploy_env" "$deploy_license"' EXIT
 
 docker compose -f docker-compose.onprem.yml config --format json > "$onprem_config"
 docker compose -p deploy -f deploy/sakura/docker-compose.yml config --format json > "$sakura_config"
@@ -62,6 +64,21 @@ sakura = load(sakura_path)
 trycloudflare = load(trycloudflare_path)
 trycloudflare_caddy = load(trycloudflare_caddy_path)
 
+with open("global.json", encoding="utf-8") as handle:
+    sdk_version = json.load(handle)["sdk"]["version"]
+expected_sdk_image = f"mcr.microsoft.com/dotnet/sdk:{sdk_version}"
+
+for name, config in (
+    ("onprem", onprem),
+    ("sakura", sakura),
+    ("trycloudflare", trycloudflare),
+):
+    actual = config["services"]["migrate"].get("image")
+    assert actual == expected_sdk_image, (
+        f"{name} migrate SDK image must match global.json: "
+        f"expected {expected_sdk_image!r}, got {actual!r}"
+    )
+
 onprem_env = environment(onprem, "app")
 assert_loopback_only_origin(onprem, "app", 8080)
 assert_https_security(onprem_env)
@@ -92,3 +109,49 @@ assert "caddy" not in trycloudflare["services"], trycloudflare["services"]
 assert "caddy" in trycloudflare_caddy["services"], trycloudflare_caddy["services"]
 assert "caddy" in trycloudflare_caddy["services"]["caddy"].get("profiles", []), trycloudflare_caddy["services"]["caddy"]
 PY
+
+# Exercise the canonical deployment entrypoint itself. The Sakura edge mode must
+# be persisted outside the Git worktree so unrelated pulls cannot silently switch
+# a Quick Tunnel deployment back to Caddy. CI verifies fail-closed behavior when
+# no mode is configured, then verifies the persisted TryCloudflare path without a
+# positional argument, and finally checks an explicit Caddy override.
+bash -n deploy/sakura/deploy.sh
+chmod 600 "$deploy_env" "$deploy_license"
+cat > "$deploy_env" <<'EOF'
+DB_PASSWORD=ci_dummy_password
+LOCAL_ADMIN_PASSWORD=ci_dummy_local_admin_password
+EOF
+printf '%s\n' 'ci_dummy_syncfusion_license' > "$deploy_license"
+
+set +e
+missing_mode_output="$(
+  AIPSITE_SOURCE_DIR="$PWD" \
+  AIPSITE_DEPLOY_ENV="$deploy_env" \
+  AIPSITE_CADDYFILE="$PWD/deploy/sakura/Caddyfile" \
+  SYNCFUSION_LICENSE_FILE="$deploy_license" \
+  AIPSITE_DEPLOY_VALIDATE_ONLY=true \
+    bash deploy/sakura/deploy.sh 2>&1
+)"
+missing_mode_status=$?
+set -e
+if [[ "$missing_mode_status" -eq 0 ]]; then
+  echo "deploy.sh must fail closed when Sakura edge mode is not configured." >&2
+  exit 1
+fi
+grep -q 'Sakura edge mode is not configured' <<<"$missing_mode_output"
+
+printf '%s\n' 'AIPSITE_EDGE_MODE=trycloudflare' >> "$deploy_env"
+
+AIPSITE_SOURCE_DIR="$PWD" \
+AIPSITE_DEPLOY_ENV="$deploy_env" \
+AIPSITE_CADDYFILE="$PWD/deploy/sakura/Caddyfile" \
+SYNCFUSION_LICENSE_FILE="$deploy_license" \
+AIPSITE_DEPLOY_VALIDATE_ONLY=true \
+  bash deploy/sakura/deploy.sh
+
+AIPSITE_SOURCE_DIR="$PWD" \
+AIPSITE_DEPLOY_ENV="$deploy_env" \
+AIPSITE_CADDYFILE="$PWD/deploy/sakura/Caddyfile" \
+SYNCFUSION_LICENSE_FILE="$deploy_license" \
+AIPSITE_DEPLOY_VALIDATE_ONLY=true \
+  bash deploy/sakura/deploy.sh caddy

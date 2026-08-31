@@ -175,7 +175,7 @@ jobs:
         run: dotnet tool restore
 
       - name: Apply latest PostgreSQL schema
-        run: dotnet ef database update --project src/AipPortal.Infrastructure --startup-project src/AipPortal.Web --configuration Release
+        run: dotnet ef database update --project src/AipPortal.Infrastructure --startup-project src/AipPortal.Web --configuration Release --no-build
 
       - name: Reject pending EF Core model changes
         run: dotnet ef migrations has-pending-model-changes --project src/AipPortal.Infrastructure --startup-project src/AipPortal.Web --configuration Release --no-build

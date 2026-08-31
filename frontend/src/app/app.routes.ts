@@ -136,6 +136,22 @@ export const routes: Routes = [
           )
       },
       {
+        path: 'app/projects/:projectId/tasks/:taskId/reports/:artifactVersionId',
+        loadComponent: () => import('./features/artifacts/report-reader-page/report-reader-page.component').then((m) => m.ReportReaderPageComponent)
+      },
+      {
+        path: 'app/projects/:projectId/reports/:artifactVersionId',
+        loadComponent: () => import('./features/artifacts/report-reader-page/report-reader-page.component').then((m) => m.ReportReaderPageComponent)
+      },
+      {
+        path: 'projects/:projectId/tasks/:taskId/reports/:artifactVersionId',
+        loadComponent: () => import('./features/artifacts/report-reader-page/report-reader-page.component').then((m) => m.ReportReaderPageComponent)
+      },
+      {
+        path: 'projects/:projectId/reports/:artifactVersionId',
+        loadComponent: () => import('./features/artifacts/report-reader-page/report-reader-page.component').then((m) => m.ReportReaderPageComponent)
+      },
+      {
         path: 'projects/:projectId/tasks/new',
         loadComponent: () =>
           import('./features/projects/task-create-page/task-create-page.component').then(

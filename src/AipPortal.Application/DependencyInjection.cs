@@ -87,6 +87,7 @@ public static class DependencyInjection
         services.AddScoped<ICommunicationPollingService, CommunicationPollingService>();
         services.AddSingleton(new CommunicationSafetyOptions());
         services.AddSingleton<ICommunicationSafetyGuard, InMemoryCommunicationSafetyGuard>();
+        services.AddScoped<IAnnouncementAttachmentService, AnnouncementAttachmentService>();
         services.AddScoped<IAnnouncementService, AnnouncementService>();
         services.AddScoped<IAnnouncementAudienceService, AnnouncementAudienceService>();
         services.AddScoped<AnnouncementDraftService>();
@@ -126,6 +127,7 @@ public static class DependencyInjection
         services.AddScoped<IResearchPlanService, ResearchPlanService>();
         services.AddScoped<ITaskExecutionResultService, TaskExecutionResultService>();
         services.AddScoped<ITaskWorkspaceTimeZoneResolver, TaskWorkspaceTimeZoneResolver>();
+        services.AddScoped<IAnnouncementScheduleTimeZoneResolver, AnnouncementScheduleTimeZoneResolver>();
         services.AddScoped<IEventService, EventService>();
         services.AddScoped<IFormService, FormService>();
         services.AddScoped<IFileService, FileService>();
@@ -133,6 +135,7 @@ public static class DependencyInjection
             ?? throw new InvalidOperationException("IFileService must be implemented by IFileObjectService."));
         services.AddScoped<IArtifactService, ArtifactService>();
         services.AddScoped<IArtifactEvidenceManifestService, ArtifactEvidenceManifestService>();
+        services.AddScoped<IArtifactReportService, UnavailableArtifactReportService>();
         services.AddScoped<IPlanningService, PlanningService>();
         services.AddScoped<IUiShellService, UiShellService>();
         services.AddScoped<IStudentRecordService, StudentRecordService>();

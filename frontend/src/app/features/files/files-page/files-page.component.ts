@@ -24,6 +24,7 @@ import { AipFilterChipComponent } from '../../../shared/ui/aip-filter-chip/aip-f
 import { AipFileUploaderComponent } from '../../../shared/ui/adapters/syncfusion/aip-file-uploader.component';
 import { AttachmentPickerDialogComponent } from '../attachment-picker-dialog/attachment-picker-dialog.component';
 import { FilePreviewService } from '../file-preview.service';
+import { FileBrowserFolderNode, FileBrowserShortcut, FileBrowserSidebarComponent } from '../file-browser-sidebar/file-browser-sidebar.component';
 import { FileQuotaStateComponent } from '../file-quota-state/file-quota-state.component';
 import { FilesFacade } from '../files.facade';
 import { RecentFilesListComponent } from '../recent-files-list/recent-files-list.component';
@@ -57,6 +58,7 @@ const PREVIEW_OVERLAY_MAX_WIDTH = 860;
     AppDataGridComponent,
     AttachmentPickerDialogComponent,
     FileQuotaStateComponent,
+    FileBrowserSidebarComponent,
     RecentFilesListComponent,
   ],
   templateUrl: './files-page.component.html',
@@ -83,6 +85,8 @@ export class FilesPageComponent {
   readonly searchKind = signal<FileSearchKindFilter>('all');
   readonly searchModified = signal<FileSearchModifiedFilter>('any');
   readonly searchOwner = signal<FileSearchOwnerFilter>('any');
+  readonly browserShortcut = signal<FileBrowserShortcut>('recent');
+  readonly browserFolders: readonly FileBrowserFolderNode[] = [];
   readonly activeWorkspaceLabel = computed(() => this.activeWorkspace.activeWorkspace()?.label ?? 'Current Workspace');
   readonly searchApplied = computed(() => this.search().status !== 'idle');
   readonly displayedList = computed(() => {
@@ -97,6 +101,9 @@ export class FilesPageComponent {
       };
     }
     const page = this.page();
+    if (this.browserShortcut() !== 'recent') {
+      return { files: [], page: 1, pageSize: page.pageSize, totalCount: 0, hasMore: false };
+    }
     return {
       files: page.recentFiles,
       page: page.page,
@@ -105,6 +112,12 @@ export class FilesPageComponent {
       hasMore: page.hasMore,
     };
   });
+
+  selectBrowserShortcut(shortcut: FileBrowserShortcut): void {
+    this.browserShortcut.set(shortcut);
+    this.clearSelection();
+    this.closePreview(false);
+  }
   readonly density = signal<FileListDensity>('comfortable');
   readonly selectedFiles = signal<readonly FileViewModel[]>([]);
   readonly selectionSnapshot = this.facade.selectionSnapshot;
