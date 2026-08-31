@@ -803,7 +803,7 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
 
   test('uses File container breakpoints inside the desktop shell without page overflow', async ({ page }) => {
     const cases = [
-      { width: 1440, columns: 2, usesMobileList: false },
+      { width: 1440, columns: 3, usesMobileList: false },
       { width: 1024, columns: 1, usesMobileList: true },
       { width: 768, columns: 1, usesMobileList: false },
     ];
@@ -817,11 +817,26 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
         columns: getComputedStyle(element).gridTemplateColumns.split(' ').filter(Boolean).length,
         desktopGridDisplay: getComputedStyle(element.querySelector('.files-page__desktop-grid')!).display,
         mobileListDisplay: getComputedStyle(element.querySelector('.files-page__mobile-list')!).display,
+        children: Array.from(element.children).map((child) => {
+          const rect = child.getBoundingClientRect();
+          return { gridArea: getComputedStyle(child).gridArea, x: rect.x, y: rect.y };
+        }),
       }));
 
       expect(layout.columns).toBe(scenario.columns);
       expect(layout.desktopGridDisplay === 'none').toBe(scenario.usesMobileList);
       expect(layout.mobileListDisplay !== 'none').toBe(scenario.usesMobileList);
+
+      if (scenario.columns === 3) {
+        const [browser, main, inspector] = layout.children;
+        expect(browser.gridArea).toBe('browser');
+        expect(main.gridArea).toBe('main');
+        expect(inspector.gridArea).toBe('inspector');
+        expect(browser.x).toBeLessThan(main.x);
+        expect(main.x).toBeLessThan(inspector.x);
+        expect(browser.y).toBeCloseTo(main.y, 0);
+        expect(main.y).toBeCloseTo(inspector.y, 0);
+      }
       await expectNoDocumentHorizontalOverflow(page);
     }
   });
