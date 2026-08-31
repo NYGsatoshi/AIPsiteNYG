@@ -403,7 +403,7 @@ describe('FilesPageComponent', () => {
     expect(host.querySelector('object')).toBeNull();
     expect(host.querySelector('embed')).toBeNull();
     expect(host.querySelector('video')).toBeNull();
-    expect(host.querySelector('svg')).toBeNull();
+    expect(host.querySelector('[data-testid="files-preview-pane"] svg')).toBeNull();
     expect(text).toContain('Preview is not available in MVP0.');
     expect(text).toContain('CDN links, public links, and external signed URL sharing are disabled.');
   });

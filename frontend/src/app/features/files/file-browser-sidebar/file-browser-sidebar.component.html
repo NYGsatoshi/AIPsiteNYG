@@ -1,0 +1,53 @@
+<aside class="browser" [class.browser--collapsed]="collapsed()" [style.width.px]="collapsed() ? 56 : width()" aria-label="File browser">
+  <div class="browser__heading">
+    @if (!collapsed()) { <strong>Browse</strong> }
+    <button type="button" (click)="toggleCollapsed()" [attr.aria-expanded]="!collapsed()" aria-label="Toggle file browser">
+      @if (collapsed()) { <svg lucideChevronRight [size]="18" aria-hidden="true"></svg> } @else { <svg lucideChevronLeft [size]="18" aria-hidden="true"></svg> }
+    </button>
+  </div>
+
+  <nav class="browser__shortcuts" aria-label="File views">
+    <button type="button" [class.is-active]="activeShortcut === 'recent'" [attr.aria-current]="activeShortcut === 'recent' ? 'page' : null" (click)="chooseShortcut('recent')">
+      <svg lucideClock3 [size]="18" aria-hidden="true"></svg><span>Recent</span>
+    </button>
+    <button type="button" [class.is-active]="activeShortcut === 'starred'" [attr.aria-current]="activeShortcut === 'starred' ? 'page' : null" (click)="chooseShortcut('starred')">
+      <svg lucideStar [size]="18" aria-hidden="true"></svg><span>Starred</span>
+    </button>
+    <button type="button" [class.is-active]="activeShortcut === 'shared'" [attr.aria-current]="activeShortcut === 'shared' ? 'page' : null" (click)="chooseShortcut('shared')">
+      <svg lucideShare2 [size]="18" aria-hidden="true"></svg><span>Shared</span>
+    </button>
+  </nav>
+
+  @if (!collapsed()) {
+    <div class="browser__tree-heading"><strong>Folders</strong><span>Expand as needed</span></div>
+    <div role="tree" aria-label="Workspace folders" class="browser__tree">
+      @for (node of visibleFolders(); track node.id) {
+        <div
+          #treeitem
+          role="treeitem"
+          class="browser__treeitem"
+          [class.is-selected]="selectedFolderId === node.id"
+          [class.is-focused]="focusedId() === node.id"
+          [attr.aria-selected]="selectedFolderId === node.id"
+          [attr.aria-expanded]="node.children.length ? expandedIds().has(node.id) : null"
+          [attr.aria-level]="node.level"
+          [style.--tree-level]="node.level"
+          [attr.tabindex]="focusedId() === node.id || (!focusedId() && $first) ? 0 : -1"
+          (focus)="focusedId.set(node.id)"
+          (keydown)="onTreeKeydown($event, node)"
+          (dblclick)="toggle(node)"
+        >
+          <button class="browser__disclosure" type="button" [disabled]="!node.children.length" (click)="toggle(node)" [attr.aria-label]="'Toggle ' + node.name" tabindex="-1">
+            @if (node.children.length) { <svg lucideChevronRight [class.is-expanded]="expandedIds().has(node.id)" [size]="15" aria-hidden="true"></svg> }
+          </button>
+          <button class="browser__folder" type="button" (click)="chooseFolder(node)" tabindex="-1">
+            @if (expandedIds().has(node.id)) { <svg lucideFolderOpen [size]="18" aria-hidden="true"></svg> } @else { <svg lucideFolder [size]="18" aria-hidden="true"></svg> }<span>{{ node.name }}</span>
+          </button>
+        </div>
+      } @empty {
+        <p class="browser__empty">No folders yet</p>
+      }
+    </div>
+    <label class="browser__resize"><span>Sidebar width</span><input type="range" min="220" max="400" step="8" [value]="width()" (input)="resize($event)" /></label>
+  }
+</aside>
