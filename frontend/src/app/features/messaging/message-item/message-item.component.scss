@@ -24,6 +24,11 @@
   background: var(--aip-color-bg-surface-subtle);
 }
 
+.message:hover .message__meta,
+.message:focus-within .message__meta {
+  color: var(--aip-color-text-secondary);
+}
+
 .message--own {
   margin-left: 0;
   border-color: transparent;
