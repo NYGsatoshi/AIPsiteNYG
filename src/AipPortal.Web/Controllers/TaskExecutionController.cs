@@ -7,16 +7,17 @@ using Microsoft.AspNetCore.Mvc;
 namespace AipPortal.Web.Controllers;
 
 /// <summary>
-/// Server-authoritative Task execution-policy and durable acceptance boundary.
-/// It never accepts browser authority for sources and never starts a runtime
-/// before the accepted run has committed.
+/// Server-authoritative Task execution-policy, durable acceptance, and normal
+/// result-read boundary. It never accepts browser authority for sources and
+/// never starts a runtime before the accepted run has committed.
 /// </summary>
 [ApiController]
 [Authorize]
 public sealed class TaskExecutionController(
     ITaskExecutionScopeService executionScopes,
     ITaskExecutionRuntime? runtime = null,
-    ICurrentTenant? currentTenant = null) : ControllerBase
+    ICurrentTenant? currentTenant = null,
+    ITaskExecutionResultService? executionResults = null) : ControllerBase
 {
     [HttpGet("api/projects/{projectId:guid}/execution-scope")]
     public async Task<IActionResult> GetProjectScope(Guid projectId, CancellationToken cancellationToken) =>
@@ -47,6 +48,23 @@ public sealed class TaskExecutionController(
         CancellationToken cancellationToken) =>
         ToActionResult(await executionScopes.ClearTaskOverrideAsync(taskItemId, request, cancellationToken));
 
+    [HttpGet("api/tasks/{taskItemId:guid}/execution-result")]
+    public async Task<IActionResult> GetLatestResult(
+        Guid taskItemId,
+        CancellationToken cancellationToken) =>
+        executionResults is null
+            ? ResultUnavailable()
+            : ToActionResult(await executionResults.GetLatestAsync(taskItemId, cancellationToken));
+
+    [HttpGet("api/tasks/{taskItemId:guid}/execution-runs/{runId:guid}/result")]
+    public async Task<IActionResult> GetResult(
+        Guid taskItemId,
+        Guid runId,
+        CancellationToken cancellationToken) =>
+        executionResults is null
+            ? ResultUnavailable()
+            : ToActionResult(await executionResults.GetAsync(taskItemId, runId, cancellationToken));
+
     [HttpPost("api/tasks/{taskItemId:guid}/execution-runs")]
     public async Task<IActionResult> RequestRun(
         Guid taskItemId,
@@ -66,10 +84,6 @@ public sealed class TaskExecutionController(
             currentTenant is { IsAvailable: true, IsPlatformScope: false } &&
             currentTenant.TenantId != Guid.Empty)
         {
-            // The acceptance/idempotency transaction has completed before this
-            // post-commit dispatch. A disconnected browser cannot revoke that
-            // durable request, so runtime completion is not tied to the HTTP
-            // request cancellation token.
             await runtime.ExecuteAsync(new TaskExecutionRuntimeHandle(
                 accepted.Id,
                 currentTenant.TenantId,
@@ -87,6 +101,11 @@ public sealed class TaskExecutionController(
         return StatusCode(StatusCodes.Status201Created, response);
     }
 
+    private IActionResult ResultUnavailable() =>
+        ToActionResult(Result<TaskExecutionResultResponse>.Failure(new ApplicationErrorDetail(
+            "TASK_EXECUTION_RESULT_UNAVAILABLE",
+            "The execution result is temporarily unavailable.")));
+
     private IActionResult ToActionResult<T>(Result<T> result)
     {
         if (result.IsSuccess)
@@ -97,9 +116,11 @@ public sealed class TaskExecutionController(
         var message = detail?.Message ?? "The execution scope request could not be completed.";
         var status = code switch
         {
-            "TASK_EXECUTION_NOT_FOUND" => StatusCodes.Status404NotFound,
+            "TASK_EXECUTION_NOT_FOUND" or "TASK_EXECUTION_RESULT_NOT_FOUND" => StatusCodes.Status404NotFound,
             "TASK_EXECUTION_STALE_VERSION" or "TASK_EXECUTION_IDEMPOTENCY_CONFLICT" => StatusCodes.Status409Conflict,
-            "TASK_EXECUTION_PERSISTENCE_UNAVAILABLE" or "TASK_EXECUTION_REPLAY_UNAVAILABLE" => StatusCodes.Status503ServiceUnavailable,
+            "TASK_EXECUTION_PERSISTENCE_UNAVAILABLE" or
+            "TASK_EXECUTION_REPLAY_UNAVAILABLE" or
+            "TASK_EXECUTION_RESULT_UNAVAILABLE" => StatusCodes.Status503ServiceUnavailable,
             _ => StatusCodes.Status400BadRequest
         };
 
@@ -112,7 +133,7 @@ public sealed class TaskExecutionController(
                 message,
                 target = detail?.Target,
                 details = Array.Empty<object>(),
-                redactionApplied = code == "TASK_EXECUTION_NOT_FOUND"
+                redactionApplied = code is "TASK_EXECUTION_NOT_FOUND" or "TASK_EXECUTION_RESULT_NOT_FOUND"
             }
         });
     }

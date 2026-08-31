@@ -53,7 +53,9 @@ public static class DependencyInjection
         services.AddScoped<IDefaultConversationStore, DefaultConversationStore>();
         services.AddScoped<IProjectRepository, ProjectRepository>();
         services.AddScoped<ITaskExecutionScopeRepository, TaskExecutionScopeRepository>();
-        services.AddScoped<ITaskExecutionRuntime, FirstPartyProjectFilesTaskExecutionRuntime>();
+        services.AddScoped<ITaskExecutionResultRepository, TaskExecutionResultRepository>();
+        services.AddScoped<DurableTaskExecutionResultRuntime>();
+        services.AddScoped<ITaskExecutionRuntime>(provider => provider.GetRequiredService<DurableTaskExecutionResultRuntime>());
         services.AddScoped<IProjectVisibilityService, ProjectVisibilityService>();
         services.AddScoped<IProjectActivationWorkflowStore, ProjectActivationWorkflowStore>();
         services.AddScoped<IProjectActivationUnitOfWork, ProjectActivationUnitOfWork>();

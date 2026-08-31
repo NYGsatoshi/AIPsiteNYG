@@ -100,6 +100,9 @@
             <div><dt>Runtime detail</dt><dd>{{ runStatusLabel(latestRun.status) }}</dd></div>
           </dl>
         </section>
+        @if (latestRun.status === 'Succeeded') {
+          <app-task-execution-result [taskId]="taskId"></app-task-execution-result>
+        }
       }
     </section>
 
