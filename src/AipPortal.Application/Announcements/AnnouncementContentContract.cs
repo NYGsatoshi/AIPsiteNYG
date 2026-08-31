@@ -14,18 +14,18 @@ public sealed record AnnouncementActionLink(string Label, string Url);
 /// <summary>
 /// The presentation content decoded from the backwards-compatible persisted
 /// string. PersistedBody is the canonical value written to the existing Body
-/// column; API responses expose Body, CTA, and an authorized Attachment
-/// projection separately.
+/// column; API responses expose Body, CTA, and one linked Attachment action
+/// separately.
 /// </summary>
 public sealed record AnnouncementDecodedContent(
     string Body,
     AnnouncementActionLink? Cta,
-    Guid? AttachmentId,
+    AnnouncementActionLink? Attachment,
     string PersistedBody,
     bool IsEnvelope);
 
 /// <summary>
-/// Versioned compatibility codec for a CTA and one canonical Attachment ID.
+/// Versioned compatibility codec for a CTA and one linked Attachment action.
 /// Existing plain-text Announcement rows remain valid. No storage key, signed
 /// URL, capability, or file-download grant is placed in this envelope.
 /// </summary>
@@ -50,10 +50,10 @@ public static class AnnouncementContentContract
     public static AnnouncementDecodedContent PrepareForPersistence(
         string? body,
         AnnouncementActionLink? cta = null,
-        Guid? attachmentId = null)
+        AnnouncementActionLink? attachment = null)
     {
         var suppliedBody = body ?? string.Empty;
-        if (cta is null && !attachmentId.HasValue)
+        if (cta is null && attachment is null)
         {
             var existing = Decode(suppliedBody);
             if (existing.IsEnvelope)
@@ -69,10 +69,10 @@ public static class AnnouncementContentContract
         }
 
         var normalizedCta = NormalizeLink(cta, "CTA");
-        var normalizedAttachmentId = NormalizeAttachmentId(attachmentId);
-        var persisted = normalizedCta is null && !normalizedAttachmentId.HasValue
+        var normalizedAttachment = NormalizeLink(attachment, "Attachment");
+        var persisted = normalizedCta is null && normalizedAttachment is null
             ? normalizedBody
-            : EncodeEnvelope(normalizedBody, normalizedCta, normalizedAttachmentId);
+            : EncodeEnvelope(normalizedBody, normalizedCta, normalizedAttachment);
 
         if (persisted.Length > MaximumPersistedLength)
         {
@@ -82,9 +82,9 @@ public static class AnnouncementContentContract
         return new AnnouncementDecodedContent(
             normalizedBody,
             normalizedCta,
-            normalizedAttachmentId,
+            normalizedAttachment,
             persisted,
-            normalizedCta is not null || normalizedAttachmentId.HasValue);
+            normalizedCta is not null || normalizedAttachment is not null);
     }
 
     /// <summary>
@@ -116,19 +116,19 @@ public static class AnnouncementContentContract
             }
 
             var cta = NormalizeLink(envelope.Cta, "CTA");
-            var attachmentId = NormalizeAttachmentId(envelope.AttachmentId);
-            if (cta is null && !attachmentId.HasValue)
+            var attachment = NormalizeLink(envelope.Attachment, "Attachment");
+            if (cta is null && attachment is null)
             {
                 return Plain(persisted);
             }
 
-            var canonical = EncodeEnvelope(body, cta, attachmentId);
+            var canonical = EncodeEnvelope(body, cta, attachment);
             if (canonical.Length > MaximumPersistedLength)
             {
                 return Plain(persisted);
             }
 
-            return new AnnouncementDecodedContent(body, cta, attachmentId, canonical, true);
+            return new AnnouncementDecodedContent(body, cta, attachment, canonical, true);
         }
         catch (JsonException)
         {
@@ -211,26 +211,12 @@ public static class AnnouncementContentContract
         return new AnnouncementActionLink(label, url);
     }
 
-    private static Guid? NormalizeAttachmentId(Guid? attachmentId)
-    {
-        if (!attachmentId.HasValue)
-        {
-            return null;
-        }
-        if (attachmentId.Value == Guid.Empty)
-        {
-            throw new JsonException("Attachment ID must be a non-empty UUID.");
-        }
-
-        return attachmentId.Value;
-    }
-
     private static string EncodeEnvelope(
         string body,
         AnnouncementActionLink? cta,
-        Guid? attachmentId) =>
+        AnnouncementActionLink? attachment) =>
         EnvelopePrefix + JsonSerializer.Serialize(
-            new AnnouncementContentEnvelope(1, body, cta, attachmentId),
+            new AnnouncementContentEnvelope(1, body, cta, attachment),
             JsonOptions);
 
     private static AnnouncementDecodedContent Plain(string body) =>
@@ -240,5 +226,5 @@ public static class AnnouncementContentContract
         int Version,
         string Body,
         AnnouncementActionLink? Cta,
-        Guid? AttachmentId);
+        AnnouncementActionLink? Attachment);
 }
