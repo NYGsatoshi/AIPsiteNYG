@@ -158,18 +158,18 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
       return [];
     }
 
-    const formErrors = announcementEditorFormFields
-      .map((field) => {
+    const formErrors: AnnouncementEditorFieldError[] = announcementEditorFormFields.flatMap(
+      (field) => {
         const message = this.fieldError(field);
-        return message ? { field, message } : null;
-      })
-      .filter((error): error is AnnouncementEditorFieldError => error !== null);
-    const linkErrors = announcementEditorLinkFields
-      .map((field) => {
+        return message ? [{ field, message }] : [];
+      },
+    );
+    const linkErrors: AnnouncementEditorFieldError[] = announcementEditorLinkFields.flatMap(
+      (field) => {
         const message = this.linkFieldError(field);
-        return message ? { field, message } : null;
-      })
-      .filter((error): error is AnnouncementEditorFieldError => error !== null);
+        return message ? [{ field, message }] : [];
+      },
+    );
     return [...formErrors, ...linkErrors];
   }
 
