@@ -17,6 +17,7 @@ public sealed class TaskExecutionScopeService(
     IProjectRepository projects,
     IProjectAuthorizationService projectAuthorization,
     ITaskExecutionScopeRepository executionScopes,
+    IResearchPlanRepository researchPlans,
     ICurrentUser currentUser,
     IClock clock,
     IAuditLogger audit,
@@ -241,6 +242,7 @@ public sealed class TaskExecutionScopeService(
                 {
                     var projectScope = await executionScopes.GetProjectScopeAsync(task.ProjectId, token);
                     var overrideScope = await executionScopes.GetTaskOverrideAsync(task.Id, token);
+                    var researchPlanSnapshot = await researchPlans.GetCurrentExecutionSnapshotForTaskAsync(task.Id, token);
                     var snapshot = EffectivePolicy(projectScope, overrideScope);
 
                     run.TenantId = task.TenantId;
@@ -249,11 +251,14 @@ public sealed class TaskExecutionScopeService(
                     run.TaskItemId = task.Id;
                     run.RequestedByUserId = actor;
                     run.RequestedAtUtc = clock.UtcNow;
+                    run.SnapshotSchemaVersion = TaskExecutionRun.CurrentSnapshotSchemaVersion;
                     run.SnapshotScopeOrigin = snapshot.Origin;
                     run.SnapshotProjectScopeVersion = snapshot.ProjectVersion;
                     run.SnapshotTaskOverrideVersion = snapshot.OverrideVersion;
                     run.SnapshotWebEnabled = snapshot.WebEnabled;
                     run.SnapshotProjectFilesEnabled = snapshot.ProjectFilesEnabled;
+                    run.SnapshotResearchPlanRevisionId = researchPlanSnapshot?.RevisionId;
+                    run.SnapshotResearchPlanRevisionNo = researchPlanSnapshot?.RevisionNo;
                     run.RuntimeProvider = FirstPartyProjectFilesRuntimeV1.Provider;
                     run.RuntimeContractVersion = FirstPartyProjectFilesRuntimeV1.ContractVersion;
                     run.Status = TaskExecutionRunStatus.Accepted;
@@ -432,7 +437,9 @@ public sealed class TaskExecutionScopeService(
         run.RuntimeProvider,
         run.RuntimeContractVersion,
         run.QueuedAtUtc,
-        run.StartedAtUtc);
+        run.StartedAtUtc,
+        run.SnapshotResearchPlanRevisionId,
+        run.SnapshotResearchPlanRevisionNo);
 
     private static EffectiveExecutionScope EffectivePolicy(
         ProjectExecutionScope? projectScope,
@@ -468,6 +475,7 @@ public sealed class TaskExecutionScopeService(
             ["taskOverrideVersion"] = run.SnapshotTaskOverrideVersion,
             ["webEnabled"] = run.SnapshotWebEnabled,
             ["projectFilesEnabled"] = run.SnapshotProjectFilesEnabled,
+            ["researchPlanRevisionNo"] = run.SnapshotResearchPlanRevisionNo,
             ["runtimeProvider"] = run.RuntimeProvider.ToString(),
             ["runtimeContractVersion"] = run.RuntimeContractVersion,
             ["status"] = run.Status.ToString()

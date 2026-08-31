@@ -53,6 +53,7 @@ public static class DependencyInjection
         services.AddScoped<IDefaultConversationStore, DefaultConversationStore>();
         services.AddScoped<IProjectRepository, ProjectRepository>();
         services.AddScoped<ITaskExecutionScopeRepository, TaskExecutionScopeRepository>();
+        services.AddScoped<IResearchPlanRepository, ResearchPlanRepository>();
         services.AddScoped<ITaskExecutionResultRepository, TaskExecutionResultRepository>();
         services.AddScoped<DurableTaskExecutionResultRuntime>();
         services.AddScoped<ITaskExecutionRuntime>(provider => provider.GetRequiredService<DurableTaskExecutionResultRuntime>());

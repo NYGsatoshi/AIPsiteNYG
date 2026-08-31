@@ -2,7 +2,7 @@ import { Component, EventEmitter, Input, Output, Provider, signal, WritableSigna
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { HttpClient } from '@angular/common/http';
 import { ActivatedRoute, convertToParamMap, provideRouter, Router } from '@angular/router';
-import { BehaviorSubject, EMPTY } from 'rxjs';
+import { BehaviorSubject, EMPTY, of } from 'rxjs';
 
 import { AuthSessionFacade } from '../../core/auth/auth-session.facade';
 import { FrontendApiError } from '../../core/api/api-error.model';
@@ -170,7 +170,7 @@ const scenarioProviders = (
   );
 
   return [
-    { provide: HttpClient, useValue: {} },
+    { provide: HttpClient, useValue: { get: () => of(null) } },
     { provide: AIP_PROJECTS_MOCK, useValue: scenario },
     { provide: AIP_MY_TASKS_MOCK, useValue: scenario },
     {
