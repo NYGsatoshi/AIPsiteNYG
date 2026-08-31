@@ -86,7 +86,7 @@ services:
           - aipsite-caddy
 
   migrate:
-    image: mcr.microsoft.com/dotnet/sdk:10.0
+    image: mcr.microsoft.com/dotnet/sdk:10.0.302
     working_dir: /src
     restart: "no"
     volumes:
