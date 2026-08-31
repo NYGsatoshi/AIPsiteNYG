@@ -100,21 +100,21 @@
   top: 5px;
   right: 7px;
   padding: 2px;
-  border: 1px solid var(--aip-color-border-default);
+  border: 1px solid transparent;
   border-radius: 7px;
-  background: var(--aip-color-bg-surface);
-  box-shadow: 0 4px 12px rgb(0 0 0 / 10%);
-  opacity: 0;
-  pointer-events: none;
-  transform: translateY(-2px);
-  transition: opacity 120ms ease, transform 120ms ease;
+  background: transparent;
+  box-shadow: none;
+  opacity: 1;
+  pointer-events: auto;
+  transform: none;
+  transition: border-color 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
 }
 
 .message:hover .message__actions,
 .message:focus-within .message__actions {
-  opacity: 1;
-  pointer-events: auto;
-  transform: translateY(0);
+  border-color: var(--aip-color-border-default);
+  background: var(--aip-color-bg-surface);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 10%);
 }
 
 .message__overflow {
