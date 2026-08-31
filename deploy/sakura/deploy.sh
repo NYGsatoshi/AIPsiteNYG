@@ -181,7 +181,7 @@ check_trycloudflare_security_probe() {
       -D - -o /dev/null \
       -H 'X-Forwarded-For: 198.51.100.42, 203.0.113.20' \
       -H 'X-Forwarded-Proto: https' \
-      -H 'X-Forwarded-Host: localhost' \
+      -H 'X-Forwarded-Host: portal.example.com' \
       http://localhost:8080/api/security/csrf-token
   )" || return 1
 
