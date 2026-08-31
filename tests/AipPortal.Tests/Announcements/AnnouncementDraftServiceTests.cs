@@ -133,7 +133,7 @@ public sealed class AnnouncementDraftServiceTests
             new ScheduleAnnouncementDraftRequest(
                 created.Value.Version,
                 new DateTime(2026, 9, 1, 9, 0, 0, DateTimeKind.Unspecified),
-                "UTC"),
+                "Asia/Tokyo"),
             "draft-schedule-0003");
         Assert.True(scheduled.IsSuccess, scheduled.Error);
 
