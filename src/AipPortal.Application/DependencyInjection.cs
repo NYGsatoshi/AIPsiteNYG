@@ -87,6 +87,7 @@ public static class DependencyInjection
         services.AddScoped<ICommunicationPollingService, CommunicationPollingService>();
         services.AddSingleton(new CommunicationSafetyOptions());
         services.AddSingleton<ICommunicationSafetyGuard, InMemoryCommunicationSafetyGuard>();
+        services.AddScoped<IAnnouncementAttachmentService, AnnouncementAttachmentService>();
         services.AddScoped<IAnnouncementService, AnnouncementService>();
         services.AddScoped<IAnnouncementAudienceService, AnnouncementAudienceService>();
         services.AddScoped<AnnouncementDraftService>();
