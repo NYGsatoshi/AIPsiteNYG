@@ -120,6 +120,13 @@ local Preview, #383 attachment behavior, or #387 analytics.
   idempotency headers, queued immediate status rather than browser-synthesized
   publication, and exact schedule request serialization.
 
+The branch was subsequently synchronized with the current Research Plan model.
+The reconciliation retains both independent dependency registrations, records
+the union EF target model through a no-op reconciliation migration, and keeps
+the intentionally removed Azure/on-prem workflow definitions absent. The
+synchronized branch builds successfully, has no pending EF model changes, and
+passes the focused announcement service verification before repository CI.
+
 Final-head promotion still requires the relevant PostgreSQL migration and
 concurrency gate plus repository-required CI. Mocked Angular tests prove only
 UI interaction; they are not evidence of server authorization or worker
