@@ -109,15 +109,35 @@
 
     @if (announcement.detailState === 'loaded') {
       <p class="announcement-detail__body" data-testid="announcement-body-text">{{ announcement.body }}</p>
+
+      @if (announcement.attachment; as attachment) {
+        <section class="announcement-detail__attachment" data-testid="announcement-attachment-link">
+          <span>添付</span>
+          <a
+            [href]="attachment.url"
+            target="_blank"
+            rel="noopener noreferrer"
+            data-testid="announcement-attachment-action"
+          >
+            {{ attachment.label }}
+          </a>
+        </section>
+      }
+
+      @if (announcement.cta; as cta) {
+        <a
+          class="announcement-detail__cta"
+          [href]="cta.url"
+          target="_blank"
+          rel="noopener noreferrer"
+          data-testid="announcement-cta-action"
+        >
+          {{ cta.label }}
+        </a>
+      }
     } @else {
       <p class="announcement-detail__body" data-testid="announcement-detail-message">
         {{ announcement.detailMessage }}
-      </p>
-    }
-
-    @if (announcement.attachment) {
-      <p class="announcement-detail__attachment" data-testid="announcement-attachment-disabled">
-        {{ announcement.attachment.label }}
       </p>
     }
   </article>
