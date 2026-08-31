@@ -41,6 +41,7 @@ describe('FilesPageComponent issue #337', () => {
       'Name',
       'Modified',
       'Owner',
+      'Access',
       'Status',
     ]);
     expect(fixture.componentInstance.isColumnVisible('type')).toBe(false);
@@ -60,6 +61,7 @@ describe('FilesPageComponent issue #337', () => {
       'Name',
       'Modified',
       'Owner',
+      'Access',
       'Status',
       'Type',
       'Size',
@@ -72,6 +74,7 @@ describe('FilesPageComponent issue #337', () => {
       'Name',
       'Modified',
       'Owner',
+      'Access',
       'Status',
       'Size',
     ]);

@@ -11,7 +11,7 @@ import {
   signal,
 } from '@angular/core';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
-import { Subscription } from 'rxjs';
+import { Observable, Subscription } from 'rxjs';
 
 import { I18nService } from '../../../core/i18n/i18n.service';
 import { FrontendFeatureFlagsService } from '../../../core/feature-flags/frontend-feature-flags.service';
@@ -28,6 +28,7 @@ import { FilePreviewService } from '../file-preview.service';
 import { FileBrowserFolderNode, FileBrowserShortcut, FileBrowserSidebarComponent } from '../file-browser-sidebar/file-browser-sidebar.component';
 import { FileQuotaStateComponent } from '../file-quota-state/file-quota-state.component';
 import { FilesFacade } from '../files.facade';
+import { FileSharingDetailViewModel } from '../files.api';
 import { RecentFilesListComponent } from '../recent-files-list/recent-files-list.component';
 import {
   FileSearchFilters,
@@ -194,8 +195,19 @@ export class FilesPageComponent {
     });
     return `/workspaces/${encodeURIComponent(workspaceId)}/research/new?${params.toString()}`;
   });
-  readonly previewCanShare = computed(() =>
-    this.previewFile() !== null && typeof navigator !== 'undefined' && typeof navigator.share === 'function');
+  readonly previewCanManageSharing = computed(() => {
+    const file = this.previewFile();
+    return !!file?.canonicalFileId && file.sharing.canManageSharing === true && !!file.sharing.sharingVersion;
+  });
+
+  readonly sharingDialogOpen = signal(false);
+  readonly sharingDetail = signal<FileSharingDetailViewModel | null>(null);
+  readonly sharingBusy = signal(false);
+  readonly sharingError = signal('');
+  readonly sharingSelectedRecipientId = signal('');
+  readonly sharingDialogFile = computed(() => this.previewFile());
+  readonly sharingDialogCanEdit = computed(() =>
+    this.sharingDetail()?.sharing.canManageSharing === true && !this.sharingBusy());
 
   readonly deleteDialogOpen = signal(false);
   readonly deleteTargets = signal<readonly FileViewModel[]>([]);
@@ -234,6 +246,8 @@ export class FilesPageComponent {
   private previewObjectUrl: string | null = null;
   private previewReturnFocus: HTMLElement | null = null;
   private mobileSelectionAnchorId: string | null = null;
+  private sharingRequest: Subscription | null = null;
+  private sharingGeneration = 0;
 
   readonly columns = computed<readonly AppDataGridColumnDef<FileViewModel>[]>(() => {
     const visible = this.visibleOptionalColumns();
@@ -257,6 +271,12 @@ export class FilesPageComponent {
         valueGetter: ({ data }) => data ? this.fileModifiedLabel(data) : '',
       },
       { field: 'uploadedByDisplay', headerName: this.i18n.translate('files.table.owner'), flex: 1, minWidth: 140 },
+      {
+        colId: 'access',
+        headerName: this.i18n.translate('files.table.access'),
+        minWidth: 130,
+        valueGetter: ({ data }) => data ? this.fileSharingLabel(data) : '',
+      },
       {
         colId: 'status',
         headerName: this.i18n.translate('files.table.status'),
@@ -342,7 +362,7 @@ export class FilesPageComponent {
 
   @HostListener('document:keydown.escape', ['$event'])
   handleEscape(event: KeyboardEvent): void {
-    if (!this.previewOpen() || this.deleteDialogOpen()) {
+    if (!this.previewOpen() || this.deleteDialogOpen() || this.sharingDialogOpen()) {
       return;
     }
     event.preventDefault();
@@ -559,6 +579,7 @@ export class FilesPageComponent {
     this.previewText.set('');
     this.previewMessage.set('');
     this.previewActionStatus.set('');
+    this.closeSharingDialog();
 
     if (target) {
       queueMicrotask(() => {
@@ -630,6 +651,27 @@ export class FilesPageComponent {
       : this.i18n.translate('files.preview.restricted');
   }
 
+  fileSharingLabel(file: FileViewModel): string {
+    const accessState = file.sharing.accessState;
+    if (accessState === 'external' && typeof file.sharing.externalRecipientCount === 'number') {
+      return this.i18n.translate('files.sharing.externalCount', { count: file.sharing.externalRecipientCount });
+    }
+    return this.fileSharingStateLabel(accessState);
+  }
+
+  fileSharingStateLabel(accessState: FileViewModel['sharing']['accessState']): string {
+    switch (accessState) {
+      case 'private':
+        return this.i18n.translate('files.sharing.private');
+      case 'workspace':
+        return this.i18n.translate('files.sharing.workspace');
+      case 'external':
+        return this.i18n.translate('files.sharing.external');
+      default:
+        return this.i18n.translate('files.sharing.unavailable');
+    }
+  }
+
   copyPreviewCitation(): void {
     const file = this.previewFile();
     if (!file?.canonicalFileId) {
@@ -652,19 +694,147 @@ export class FilesPageComponent {
       : this.i18n.translate('files.preview.copyUnavailable'));
   }
 
-  sharePreview(): void {
+  openSharingDialog(): void {
     const file = this.previewFile();
-    if (!file || typeof navigator === 'undefined' || typeof navigator.share !== 'function') {
-      this.previewActionStatus.set(this.i18n.translate('files.preview.sharingUnavailable'));
+    if (!file?.canonicalFileId || !this.previewCanManageSharing()) {
       return;
     }
-    void navigator.share({
-      title: file.originalFileName,
-      text: this.previewCitationText(file),
-    }).then(
-      () => this.previewActionStatus.set(this.i18n.translate('files.preview.shareOpened')),
-      () => this.previewActionStatus.set(this.i18n.translate('files.preview.shareCancelled')),
-    );
+
+    this.cancelSharingRequest();
+    const generation = ++this.sharingGeneration;
+    this.sharingDialogOpen.set(true);
+    this.sharingDetail.set(null);
+    this.sharingError.set('');
+    this.sharingSelectedRecipientId.set('');
+    this.sharingBusy.set(true);
+    const request = this.facade.getFileSharing(file.canonicalFileId).subscribe({
+      next: (detail) => {
+        if (!this.isCurrentSharingRequest(generation, file.canonicalFileId)) {
+          return;
+        }
+        this.sharingRequest = null;
+        this.sharingBusy.set(false);
+        if (!detail.sharing.canManageSharing || !detail.canInspectSharing) {
+          this.applySharingDetail(detail);
+          this.sharingError.set(this.i18n.translate('files.sharing.permissionChanged'));
+          return;
+        }
+        this.applySharingDetail(detail);
+      },
+      error: () => {
+        if (!this.isCurrentSharingRequest(generation, file.canonicalFileId)) {
+          return;
+        }
+        this.sharingRequest = null;
+        this.sharingBusy.set(false);
+        this.sharingError.set(this.i18n.translate('files.sharing.loadFailed'));
+      },
+    });
+    this.sharingRequest = request;
+  }
+
+  closeSharingDialog(): void {
+    this.sharingGeneration += 1;
+    this.cancelSharingRequest();
+    this.sharingDialogOpen.set(false);
+    this.sharingBusy.set(false);
+    this.sharingError.set('');
+    this.sharingSelectedRecipientId.set('');
+    this.sharingDetail.set(null);
+  }
+
+  updateSharingWorkspace(enabled: boolean): void {
+    const detail = this.sharingDetail();
+    if (!detail || !this.sharingDialogCanEdit()) {
+      return;
+    }
+    this.runSharingMutation(this.facade.updateFileSharingPolicy(
+      detail.fileObjectId,
+      enabled,
+      detail.sharing.sharingVersion!,
+    ));
+  }
+
+  updateSharingRecipient(event: Event): void {
+    this.sharingSelectedRecipientId.set(
+      event.target instanceof HTMLSelectElement ? event.target.value : '');
+  }
+
+  grantSharingRecipient(): void {
+    const detail = this.sharingDetail();
+    const recipientUserId = this.sharingSelectedRecipientId();
+    if (!detail || !recipientUserId || !this.sharingDialogCanEdit()) {
+      return;
+    }
+    this.runSharingMutation(this.facade.grantFileSharingRecipient(
+      detail.fileObjectId,
+      recipientUserId,
+      detail.sharing.sharingVersion!,
+    ));
+  }
+
+  revokeSharingRecipient(grantId: string): void {
+    const detail = this.sharingDetail();
+    if (!detail || !grantId || !this.sharingDialogCanEdit()) {
+      return;
+    }
+    this.runSharingMutation(this.facade.revokeFileSharingRecipient(
+      detail.fileObjectId,
+      grantId,
+      detail.sharing.sharingVersion!,
+    ));
+  }
+
+  private runSharingMutation(request: Observable<FileSharingDetailViewModel>): void {
+    const fileObjectId = this.sharingDetail()?.fileObjectId;
+    if (!fileObjectId) {
+      return;
+    }
+    this.cancelSharingRequest();
+    const generation = ++this.sharingGeneration;
+    this.sharingBusy.set(true);
+    this.sharingError.set('');
+    const subscription = request.subscribe({
+      next: (detail) => {
+        if (!this.isCurrentSharingRequest(generation, fileObjectId)) {
+          return;
+        }
+        this.sharingRequest = null;
+        this.sharingBusy.set(false);
+        this.sharingSelectedRecipientId.set('');
+        this.applySharingDetail(detail);
+        this.previewActionStatus.set(this.i18n.translate('files.sharing.updated'));
+      },
+      error: () => {
+        if (!this.isCurrentSharingRequest(generation, fileObjectId)) {
+          return;
+        }
+        this.sharingRequest = null;
+        this.sharingBusy.set(false);
+        this.sharingError.set(this.i18n.translate('files.sharing.saveFailed'));
+      },
+    });
+    this.sharingRequest = subscription;
+  }
+
+  private applySharingDetail(detail: FileSharingDetailViewModel): void {
+    this.sharingDetail.set(detail);
+    this.facade.reconcileFileSharing(detail);
+    this.previewFile.update((file) =>
+      file?.canonicalFileId === detail.fileObjectId
+        ? { ...file, sharing: detail.sharing }
+        : file);
+  }
+
+  private isCurrentSharingRequest(generation: number, fileObjectId: string): boolean {
+    return generation === this.sharingGeneration &&
+      this.sharingDialogOpen() &&
+      this.previewFile()?.canonicalFileId === fileObjectId;
+  }
+
+  private cancelSharingRequest(): void {
+    this.sharingRequest?.unsubscribe();
+    this.sharingRequest = null;
   }
 
   downloadSelectedFile(): void {

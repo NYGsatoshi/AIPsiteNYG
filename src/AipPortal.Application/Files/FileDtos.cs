@@ -52,7 +52,11 @@ public sealed record FileListItemResponse(
     DateTimeOffset CreatedAt,
     DateTimeOffset? UpdatedAt,
     DateTimeOffset? DeletedAt,
-    bool CanDelete);
+    bool CanDelete,
+    string? AccessState = null,
+    int? ExternalRecipientCount = null,
+    bool CanManageSharing = false,
+    long? SharingVersion = null);
 
 public sealed record FileObjectResponse(
     Guid Id,
@@ -65,4 +69,8 @@ public sealed record FileObjectResponse(
     string Status,
     DateTimeOffset CreatedAt,
     DateTimeOffset? UpdatedAt,
-    DateTimeOffset? DeletedAt);
+    DateTimeOffset? DeletedAt,
+    string? AccessState = null,
+    int? ExternalRecipientCount = null,
+    bool CanManageSharing = false,
+    long? SharingVersion = null);

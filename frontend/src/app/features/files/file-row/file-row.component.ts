@@ -102,4 +102,23 @@ export class FileRowComponent {
       ? this.i18n.formatDateTime(this.file.createdAt, { dateStyle: 'medium', timeStyle: 'short' })
       : this.file.createdAtLabel;
   }
+
+  sharingLabel(): string {
+    if (this.file.sharing.accessState === 'external' &&
+      typeof this.file.sharing.externalRecipientCount === 'number') {
+      return this.i18n.translate('files.sharing.externalCount', {
+        count: this.file.sharing.externalRecipientCount,
+      });
+    }
+    switch (this.file.sharing.accessState) {
+      case 'private':
+        return this.i18n.translate('files.sharing.private');
+      case 'workspace':
+        return this.i18n.translate('files.sharing.workspace');
+      case 'external':
+        return this.i18n.translate('files.sharing.external');
+      default:
+        return this.i18n.translate('files.sharing.unavailable');
+    }
+  }
 }

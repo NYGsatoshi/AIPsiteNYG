@@ -3,6 +3,7 @@ using AipPortal.Application.Common.Interfaces;
 using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
 using AipPortal.Application.Realtime;
+using AipPortal.Application.Workspaces;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -22,7 +23,9 @@ public sealed class FileService(
     IAuditLogger auditLogger,
     ITokenHasher tokenHasher,
     IBusinessInvalidationPublisher invalidations,
-    IUnitOfWork unitOfWork) : IFileService
+    IUnitOfWork unitOfWork,
+    IFileSharingService? sharing = null,
+    IWorkspaceAuthorizationService? workspaceAuthorization = null) : IFileService
     , IFileObjectService
 {
     private static readonly TimeSpan FileDownloadGrantLifetime = TimeSpan.FromMinutes(10);
@@ -152,17 +155,36 @@ public sealed class FileService(
 
         var safePage = Math.Max(page, 1);
         var safePageSize = Math.Clamp(pageSize, 1, MaxFileListPageSize);
-        var result = await files.ListWorkspaceFileObjectsAsync(workspaceId, safePage, safePageSize, cancellationToken);
+        var canManageSharing = workspaceAuthorization is not null &&
+                                await workspaceAuthorization.CanManageWorkspace(userId, workspaceId, cancellationToken);
+        var result = await files.ListAccessibleWorkspaceFileObjectsAsync(
+            workspaceId,
+            userId,
+            canManageSharing,
+            safePage,
+            safePageSize,
+            cancellationToken);
         var deletableAttachmentIds = await authorization.GetDeletableWorkspaceAttachmentIdsAsync(
             userId,
             workspaceId,
             result.Items,
             cancellationToken);
+        var presentations = sharing is null
+            ? new Dictionary<Guid, FileSharingPresentation>()
+            : await sharing.GetListPresentationsAsync(
+                workspaceId,
+                userId,
+                result.Items
+                    .Where(attachment => attachment.FileObject is not null)
+                    .Select(attachment => attachment.FileObject!)
+                    .ToArray(),
+                cancellationToken);
         return Result<PagedResponse<FileListItemResponse>>.Success(new PagedResponse<FileListItemResponse>(
             result.Items
                 .Select(attachment => ToFileListItemResponse(
                     attachment,
-                    deletableAttachmentIds.Contains(attachment.Id)))
+                    deletableAttachmentIds.Contains(attachment.Id),
+                    presentations.GetValueOrDefault(attachment.FileObjectId)))
                 .ToList(),
             result.Page,
             result.PageSize,
@@ -366,7 +388,23 @@ public sealed class FileService(
             return Result<FileObjectResponse>.Failure("File not found.");
         }
 
-        return Result<FileObjectResponse>.Success(ToFileObjectResponse(attachment.FileObject));
+        FileSharingPresentation? presentation = null;
+        if (sharing is not null &&
+            attachment.OwnerType == AttachmentOwnerType.Workspace &&
+            attachment.OwnerId == attachment.WorkspaceId)
+        {
+            var sharingResult = await sharing.GetAsync(fileObjectId, cancellationToken);
+            if (sharingResult.IsSuccess)
+            {
+                presentation = new FileSharingPresentation(
+                    sharingResult.Value!.AccessState,
+                    sharingResult.Value.ExternalRecipientCount,
+                    sharingResult.Value.CanManageSharing,
+                    sharingResult.Value.SharingVersion);
+            }
+        }
+
+        return Result<FileObjectResponse>.Success(ToFileObjectResponse(attachment.FileObject, presentation));
     }
 
     public async Task<Result<FileDownloadResponse>> DownloadFileObjectAsync(Guid fileObjectId, CancellationToken cancellationToken = default)
@@ -776,6 +814,8 @@ public sealed class FileService(
             attachment.FileObject?.WorkspaceId?.ToString("D") ?? "none",
             attachment.FileObject?.ProjectId?.ToString("D") ?? "none",
             attachment.FileObject?.Classification?.ToString() ?? "missing",
+            attachment.FileObject?.SharingPolicy.ToString() ?? "missing",
+            attachment.FileObject?.SharingVersion.ToString() ?? "missing",
             attachment.FileObject?.Status.ToString() ?? "missing",
             attachment.ScanStatus.ToString());
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(basis));
@@ -832,7 +872,9 @@ public sealed class FileService(
         return string.IsNullOrWhiteSpace(contentType) ? "application/octet-stream" : contentType.Trim();
     }
 
-    private static FileObjectResponse ToFileObjectResponse(FileObject fileObject)
+    private static FileObjectResponse ToFileObjectResponse(
+        FileObject fileObject,
+        FileSharingPresentation? sharing = null)
     {
         return new FileObjectResponse(
             fileObject.Id,
@@ -845,10 +887,17 @@ public sealed class FileService(
             fileObject.Status.ToString(),
             fileObject.CreatedAt,
             fileObject.UpdatedAt,
-            fileObject.DeletedAt);
+            fileObject.DeletedAt,
+            sharing?.AccessState,
+            sharing?.ExternalRecipientCount,
+            sharing?.CanManageSharing ?? false,
+            sharing?.SharingVersion);
     }
 
-    private static FileListItemResponse ToFileListItemResponse(Attachment attachment, bool canDelete)
+    private static FileListItemResponse ToFileListItemResponse(
+        Attachment attachment,
+        bool canDelete,
+        FileSharingPresentation? sharing)
     {
         var fileObject = attachment.FileObject ?? throw new InvalidOperationException("Listed attachment must include a file object.");
         return new FileListItemResponse(
@@ -865,6 +914,10 @@ public sealed class FileService(
             fileObject.CreatedAt,
             fileObject.UpdatedAt,
             fileObject.DeletedAt ?? attachment.DeletedAt,
-            canDelete);
+            canDelete,
+            sharing?.AccessState,
+            sharing?.ExternalRecipientCount,
+            sharing?.CanManageSharing ?? false,
+            sharing?.SharingVersion);
     }
 }

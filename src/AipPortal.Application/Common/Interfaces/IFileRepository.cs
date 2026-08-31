@@ -21,6 +21,21 @@ public interface IFileRepository
         int pageSize,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Lists the Workspace-owned inventory after applying the server-side
+    /// File sharing boundary. Implementations that have not yet adopted the
+    /// sharing projection preserve their legacy behavior for test doubles;
+    /// the production repository must override this method.
+    /// </summary>
+    Task<PagedResponse<Attachment>> ListAccessibleWorkspaceFileObjectsAsync(
+        Guid workspaceId,
+        Guid userId,
+        bool canManageSharing,
+        int page,
+        int pageSize,
+        CancellationToken cancellationToken = default) =>
+        ListWorkspaceFileObjectsAsync(workspaceId, page, pageSize, cancellationToken);
+
     Task AddFileObjectAsync(FileObject fileObject, CancellationToken cancellationToken = default);
 
     Task<Attachment?> GetAttachmentAsync(Guid attachmentId, CancellationToken cancellationToken = default);

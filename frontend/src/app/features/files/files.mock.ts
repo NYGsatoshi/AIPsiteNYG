@@ -1,5 +1,10 @@
 import { FILE_UPLOAD_MAX_BYTES, FilesPageViewModel, FileViewModel } from './files.types';
 
+const MOCK_FILE_SHARING = {
+  accessState: 'unavailable',
+  canManageSharing: false,
+} as const;
+
 export const DEFAULT_FILES: readonly FileViewModel[] = [
   {
     id: 'attachment-001',
@@ -15,6 +20,7 @@ export const DEFAULT_FILES: readonly FileViewModel[] = [
     downloadPolicy: 'available',
     capabilities: ['download'],
     canDelete: true,
+    sharing: MOCK_FILE_SHARING,
     internalStorageKey: 'tenant-a/private/raw/sanitized-project-note.pdf',
     internalPath: '/var/lib/aipsite/private/raw/sanitized-project-note.pdf',
     rawScanMetadata: 'engine=mock;signature=private-debug-value',
@@ -33,6 +39,7 @@ export const DEFAULT_FILES: readonly FileViewModel[] = [
     downloadPolicy: 'available',
     capabilities: ['download'],
     canDelete: true,
+    sharing: MOCK_FILE_SHARING,
   },
   {
     id: 'attachment-003',
@@ -48,6 +55,7 @@ export const DEFAULT_FILES: readonly FileViewModel[] = [
     downloadPolicy: 'adminOverrideRequired',
     capabilities: ['adminOverrideBlockedDownload'],
     canDelete: false,
+    sharing: MOCK_FILE_SHARING,
     safeStatusLabel: 'Admin override requires a backend path.',
   },
   {
@@ -64,6 +72,7 @@ export const DEFAULT_FILES: readonly FileViewModel[] = [
     downloadPolicy: 'denied',
     capabilities: [],
     canDelete: false,
+    sharing: MOCK_FILE_SHARING,
     safeStatusLabel: 'Canonical file ID is required.',
   },
   {
@@ -80,6 +89,7 @@ export const DEFAULT_FILES: readonly FileViewModel[] = [
     downloadPolicy: 'denied',
     capabilities: [],
     canDelete: false,
+    sharing: MOCK_FILE_SHARING,
     safeStatusLabel: 'You do not have permission to download this file.',
   },
 ];

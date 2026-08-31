@@ -132,6 +132,30 @@ app-files-page > .files-page > .files-page__grid--browser > .files-page__side { 
 .files-page__search-submit,
 .files-page__search-clear { min-width: 0; min-height: 40px; }
 
+/* File-sharing dialog and badges are global so this focused enhancement does
+   not push the Files component beyond its per-component style budget. */
+app-files-page .files-page__access-badge { width: fit-content; margin-top: 6px !important; border: 1px solid var(--aip-color-border-default); border-radius: 999px; padding: 3px 8px; font-size: .76rem; font-weight: 900; }
+app-files-page .files-page__sharing,
+app-files-page .files-page__sharing-section,
+app-files-page .files-page__sharing-add-controls { display: grid; gap: 10px; }
+app-files-page .files-page__sharing p,
+app-files-page .files-page__sharing h3,
+app-files-page .files-page__sharing-recipient-list { margin: 0; }
+app-files-page .files-page__sharing-error { color: var(--aip-color-danger); font-weight: 900; }
+app-files-page .files-page__sharing-policy,
+app-files-page .files-page__sharing-recipient-list li { display: flex; gap: 10px; align-items: center; justify-content: space-between; }
+app-files-page .files-page__sharing-policy { justify-content: flex-start; font-weight: 900; }
+app-files-page .files-page__sharing-section { border-top: 1px solid var(--aip-color-border-default); padding-top: 12px; }
+app-files-page .files-page__sharing-recipient-list { display: grid; gap: 8px; padding: 0; list-style: none; }
+app-files-page .files-page__sharing-recipient-list span { overflow-wrap: anywhere; }
+app-files-page .files-page__sharing-add-controls label { display: grid; gap: 4px; }
+app-files-page .files-page__sharing-add-controls select,
+app-files-page .files-page__sharing-recipient-list button,
+app-files-page .files-page__sharing-add-controls button { min-height: 42px; font: inherit; }
+app-files-page .files-page__sharing input:focus-visible,
+app-files-page .files-page__sharing button:focus-visible,
+app-files-page .files-page__sharing select:focus-visible { outline: 3px solid var(--aip-color-focus); outline-offset: 2px; }
+
 @container (max-width: 58rem) {
   app-files-page > .files-page > .files-page__grid { grid-template-columns: minmax(0, 1fr); }
   app-files-page > .files-page > .files-page__grid.files-page__grid--browser {

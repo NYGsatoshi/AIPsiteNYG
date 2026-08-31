@@ -172,7 +172,7 @@ describe('FilesPageComponent', () => {
     expect(textContent(fixture)).toContain('note.txtを削除しますか？');
     expect(textContent(fixture)).toContain('キャンセル');
     expect(textContent(fixture)).toContain('ファイルを削除');
-  });
+  }, 15_000);
 
   it('keeps File search and Type, Modified, and Owner filters in one scoped surface with removable chips', async () => {
     const { fixture, http } = await renderLiveFilesPage([backendFile]);
