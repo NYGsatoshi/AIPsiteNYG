@@ -4,7 +4,8 @@ import { defineConfig, devices } from "@playwright/test";
 
 const port = Number(process.env.PLAYWRIGHT_PORT ?? 4173);
 const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? `http://127.0.0.1:${port}`;
-const expectTimeout = process.env.AIP_REAL_BACKEND_SMOKE === "1" ? 15_000 : 5_000;
+const publicHttpsSmoke = process.env.AIP_PUBLIC_HTTPS_SMOKE === "1";
+const expectTimeout = publicHttpsSmoke || process.env.AIP_REAL_BACKEND_SMOKE === "1" ? 15_000 : 5_000;
 const snapshotPathTemplate = process.env.CI
   ? "{testDir}/__angular_snapshots__/linux/{testFilePath}/{arg}{ext}"
   : "{testDir}/__angular_snapshots__/{testFilePath}/{arg}{ext}";
@@ -25,7 +26,7 @@ const deterministicUiStorageState = {
 export default defineConfig({
   testDir: "./tests/ui",
   snapshotPathTemplate,
-  timeout: 30_000,
+  timeout: publicHttpsSmoke ? 180_000 : 30_000,
   expect: {
     timeout: expectTimeout
   },
@@ -33,17 +34,22 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: 1,
-  reporter: [
-    ["list"],
-    ["html", { outputFolder: "playwright-report", open: "never" }],
-    ["junit", { outputFile: "test-results/playwright-results.xml" }]
-  ],
+  // The public deployment gate intentionally emits no trace, video, screenshot,
+  // HTML, or JUnit artifact. Browser-network artifacts can contain session or
+  // CSRF material even when the test code never logs those values.
+  reporter: publicHttpsSmoke
+    ? [["list"]]
+    : [
+        ["list"],
+        ["html", { outputFolder: "playwright-report", open: "never" }],
+        ["junit", { outputFile: "test-results/playwright-results.xml" }]
+      ],
   use: {
     baseURL,
     storageState: deterministicUiStorageState,
-    trace: "retain-on-failure",
-    screenshot: "only-on-failure",
-    video: "retain-on-failure"
+    trace: publicHttpsSmoke ? "off" : "retain-on-failure",
+    screenshot: publicHttpsSmoke ? "off" : "only-on-failure",
+    video: publicHttpsSmoke ? "off" : "retain-on-failure"
   },
   webServer: process.env.PLAYWRIGHT_BASE_URL
     ? undefined

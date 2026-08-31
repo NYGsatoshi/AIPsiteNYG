@@ -88,6 +88,9 @@ jobs:
 
       - name: Upload Playwright artifacts
         if: always()
+        # Preserve the test outcome when optional diagnostic retention is
+        # blocked by a transient GitHub Actions artifact-storage quota.
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: real-backend-my-tasks-acceptance-artifacts

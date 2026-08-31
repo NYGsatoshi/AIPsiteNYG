@@ -378,10 +378,10 @@ Status after the MVP-A P0 Angular migration: obsolete as active frontend defects
 
 ### KI-006: Reverse-proxy HTTPS behavior still requires deployment-specific verification
 
-- Status: configuration boundary implemented; target-host verification pending.
-- Evidence: `Program.cs` enables forwarded headers only after an operator opts in and supplies explicit IP/CIDR trust boundaries; it retains loopback defaults rather than trusting all peers. `docker-compose.onprem.yml` binds the origin to loopback by default and fails startup when proxy mode lacks a boundary. Focused Kestrel coverage verifies secure CSRF-cookie issuance through a trusted forwarded HTTPS request.
-- Remaining impact: an operator can still misstate the trusted proxy peer or public DNS/TLS route, so the exact target topology must be verified through `/health/ready` and authenticated browser traffic.
-- Tracking issue: **#467 — Decide and verify the on-prem TLS/reverse-proxy topology**.
+- Status: configuration boundary and repeatable deployment gate implemented; target-host execution pending.
+- Evidence: `Program.cs` enables forwarded headers only after an operator opts in and supplies explicit IP/CIDR trust boundaries; it retains loopback defaults rather than trusting all peers. `docker-compose.onprem.yml` binds the origin to loopback by default and fails startup when proxy mode lacks a boundary. Focused Kestrel coverage verifies secure CSRF-cookie issuance through a trusted forwarded HTTPS request. Issue #481 adds `tests/ui/public-https-golden-path.spec.ts` and a protected manual workflow that requires the real public HTTPS route, HTTP-to-HTTPS redirect, HSTS, Secure cookies, CSRF, authenticated Task execution, reload, logout, and re-login.
+- Remaining impact: an operator can still misstate the trusted proxy peer or public DNS/TLS route, and the gate cannot execute until its protected synthetic fixture is configured. The exact target topology remains unverified until a successful recorded public-gate run; `/health/ready` alone is not sufficient.
+- Tracking issues: **#467 — Decide and verify the on-prem TLS/reverse-proxy topology**; **#481 — Public HTTPS Production Golden Path**.
 
 ## Medium priority
 
