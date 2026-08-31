@@ -28,6 +28,10 @@ var browserSmokeSeedEnabled = BrowserSmokeTestBoundary.IsEnabled(
     builder.Environment.EnvironmentName,
     builder.Configuration.GetValue<bool>("BrowserSmokeSeed:Enabled") ||
     builder.Configuration.GetValue<bool>("AIP_BROWSER_SMOKE_SEED_ENABLED"));
+var demoDatasetSeedEnabled = DemoDatasetBoundary.IsEnabled(
+    builder.Environment.EnvironmentName,
+    builder.Configuration.GetValue<bool>("DemoDataset:Enabled") ||
+    builder.Configuration.GetValue<bool>("AIP_DEMO_DATASET_ENABLED"));
 var browserSmokeResponseGateEnabled =
     browserSmokeSeedEnabled &&
     builder.Configuration.GetValue<bool>("AIP_BROWSER_SMOKE_RESPONSE_GATE_ENABLED");
@@ -142,6 +146,7 @@ if (tenancyOptions.SeedOnStartup ||
     tenancyOptions.AppMode == AppMode.OnPremSingleTenant ||
     builder.Configuration.GetValue<bool>("UiShell:SeedOnStartup") ||
     browserSmokeSeedEnabled ||
+    demoDatasetSeedEnabled ||
     seedAdminEnabled ||
     !string.IsNullOrWhiteSpace(bootstrapAdminEmail))
 {
@@ -228,6 +233,30 @@ if (tenancyOptions.SeedOnStartup ||
         await BrowserSmokeNotificationFixtureSeed.EnsureRevocableProjectAccessAsync(
             dbContext,
             defaultTenant.Id);
+    }
+
+    if (demoDatasetSeedEnabled)
+    {
+        var demoEmail =
+            builder.Configuration["DemoDataset:Email"] ??
+            builder.Configuration["AIP_DEMO_DATASET_EMAIL"] ??
+            DemoDatasetSeed.OwnerEmail;
+        var demoPassword =
+            builder.Configuration["DemoDataset:Password"] ??
+            builder.Configuration["AIP_DEMO_DATASET_PASSWORD"];
+        if (string.IsNullOrWhiteSpace(demoPassword))
+        {
+            throw new InvalidOperationException(
+                "Demo dataset seed is enabled but DemoDataset:Password is missing.");
+        }
+
+        await DemoDatasetSeed.SeedAsync(
+            dbContext,
+            scope.ServiceProvider.GetRequiredService<IPasswordHasher>(),
+            scope.ServiceProvider.GetRequiredService<IFileStorageService>(),
+            defaultTenant.Id,
+            demoEmail,
+            demoPassword);
     }
 }
 
