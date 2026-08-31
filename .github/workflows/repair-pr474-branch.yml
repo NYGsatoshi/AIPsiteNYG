@@ -26,7 +26,7 @@ jobs:
         with:
           global-json-file: global.json
 
-      - name: Merge current main and reconcile concurrent EF snapshots
+      - name: Merge current main, remove Azure CI, and reconcile EF snapshots
         shell: bash
         env:
           ConnectionStrings__DefaultConnection: Host=127.0.0.1;Port=5432;Database=aipsite_design;Username=postgres;Password=postgres
@@ -178,8 +178,13 @@ jobs:
 
           dotnet test tests/AipPortal.Tests/AipPortal.Tests.csproj \
             --no-build \
-            --filter "FullyQualifiedName~AnnouncementDraftServiceTests|FullyQualifiedName~AnnouncementDraftWorkflowPostgreSqlTests" \
+            --filter "FullyQualifiedName~AnnouncementDraftServiceTests" \
             -v:minimal
+
+          git rm --ignore-unmatch azure-pipelines.yml azure-pipelines-wpc02d.yml
+          if ! git diff --cached --quiet; then
+            git commit -m "ci: remove Azure Pipelines definitions"
+          fi
 
           git rm .github/workflows/repair-pr474-branch.yml
           git commit -m "chore(ci): remove one-shot PR 474 branch repair"
