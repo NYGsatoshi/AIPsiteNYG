@@ -62,6 +62,7 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
   @ViewChild('attachmentUrlInput') private attachmentUrlInput?: ElementRef<HTMLInputElement>;
   @ViewChild(AnnouncementLocalPreviewComponent)
   private previewComponent?: AnnouncementLocalPreviewComponent;
+  @ViewChild('reviewStepHeading') private reviewStepHeading?: ElementRef<HTMLElement>;
 
   @Input({ required: true }) draft!: AnnouncementEditorDraft;
   @Input() submissionError: string | undefined;
@@ -73,6 +74,7 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
   readonly priorityOptions: readonly AnnouncementPriority[] = ['normal', 'important', 'critical'];
   readonly priorityLabels = ANNOUNCEMENT_PRIORITY_LABELS;
   readonly availableAudiences = signal<readonly AnnouncementAudienceOption[]>([]);
+  readonly currentStep = signal<AnnouncementEditorStep>('content');
   readonly previewOpen = signal(false);
   readonly publicationReviewOpen = signal(false);
   readonly publicationConfirming = signal(false);
@@ -81,11 +83,18 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
   readonly ctaUrl = signal('');
   readonly attachmentLabel = signal('');
   readonly attachmentUrl = signal('');
+  readonly editorSteps: readonly AnnouncementEditorStepDefinition[] = [
+    { id: 'content', label: 'Content' },
+    { id: 'audience', label: 'Audience' },
+    { id: 'delivery', label: 'Delivery' },
+    { id: 'review', label: 'Review' },
+  ];
   private readonly previewRevision = signal(0);
   private readonly touchedLinkFields = new Set<AnnouncementEditorLinkField>();
   private submissionAttempted = false;
   private formInitialized = false;
   private contentLinksDirty = false;
+  private focusRequestVersion = 0;
   private formChanges?: Subscription;
   private deliveryModeChanges?: Subscription;
   private audienceChanges?: Subscription;
@@ -159,13 +168,15 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
       return [];
     }
 
-    const formErrors: AnnouncementEditorFieldError[] = announcementEditorFormFields.flatMap(
+    const formErrors: AnnouncementEditorFieldError[] = announcementEditorStepFields[this.currentStep()].flatMap(
       (field) => {
         const message = this.fieldError(field);
         return message ? [{ field, message }] : [];
       },
     );
-    const linkErrors: AnnouncementEditorFieldError[] = announcementEditorLinkFields.flatMap(
+    const linkErrors: AnnouncementEditorFieldError[] = (this.currentStep() === 'content'
+      ? announcementEditorLinkFields
+      : []).flatMap(
       (field) => {
         const message = this.linkFieldError(field);
         return message ? [{ field, message }] : [];
@@ -205,6 +216,14 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
 
     if (!changes['draft'] || !this.draft) {
       return;
+    }
+
+    // A durable schedule or publication is no longer an editable creation
+    // flow. Start its retained read-only editor on the same review summary,
+    // preserving the prior disabled-action behavior without exposing a
+    // misleading editable Content step.
+    if (this.publicationState !== 'draft') {
+      this.currentStep.set('review');
     }
 
     this.availableAudiences.set(this.draft.availableAudiences);
@@ -267,6 +286,61 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
   selectedAudience(): AnnouncementAudienceOption | null {
     const selectedKey = this.form.controls.audienceKey.value;
     return this.availableAudiences().find((audience) => audience.key === selectedKey) ?? null;
+  }
+
+  stepNumber(step: AnnouncementEditorStep): number {
+    return this.editorSteps.findIndex((candidate) => candidate.id === step) + 1;
+  }
+
+  currentStepLabel(): string {
+    return this.editorSteps.find((step) => step.id === this.currentStep())?.label ?? 'Content';
+  }
+
+  canNavigateToStep(step: AnnouncementEditorStep): boolean {
+    return this.stepNumber(step) <= this.stepNumber(this.currentStep()) && !this.publishing;
+  }
+
+  goToStep(step: AnnouncementEditorStep): void {
+    if (!this.canNavigateToStep(step)) {
+      return;
+    }
+
+    this.previewOpen.set(false);
+    this.currentStep.set(step);
+    this.scheduleStepFocus(step);
+  }
+
+  previousStep(): void {
+    const currentIndex = this.stepNumber(this.currentStep()) - 1;
+    const previous = this.editorSteps[currentIndex - 1];
+    if (previous) {
+      this.goToStep(previous.id);
+    }
+  }
+
+  nextStep(): void {
+    const step = this.currentStep();
+    this.submissionAttempted = true;
+    this.markStepTouched(step);
+    if (!this.stepIsValid(step)) {
+      this.focusFirstInvalidStepControl(step);
+      return;
+    }
+
+    const next = this.editorSteps[this.stepNumber(step)];
+    if (next) {
+      this.currentStep.set(next.id);
+      this.scheduleStepFocus(next.id);
+    }
+  }
+
+  submitCurrentStep(): void {
+    if (this.currentStep() === 'review') {
+      this.publish();
+      return;
+    }
+
+    this.nextStep();
   }
 
   audienceOptionLabel(audience: AnnouncementAudienceOption): string {
@@ -407,7 +481,7 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
     if (restoreFocus) {
       setTimeout(() => {
         if (!this.previewOpen()) {
-          this.focusControl('title');
+          this.focusStep(this.currentStep());
         }
       });
     }
@@ -498,6 +572,33 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
     );
   }
 
+  private markStepTouched(step: AnnouncementEditorStep): void {
+    announcementEditorStepFields[step].forEach((field) => this.form.controls[field].markAsTouched());
+    if (step === 'content') {
+      this.markContentLinksTouched();
+    }
+    if (step === 'delivery' && this.form.controls.deliveryMode.value === 'scheduled') {
+      this.form.controls.timeZoneId.markAsTouched();
+    }
+  }
+
+  private stepIsValid(step: AnnouncementEditorStep): boolean {
+    switch (step) {
+      case 'content':
+        return !this.form.controls.title.invalid &&
+          !this.form.controls.body.invalid &&
+          this.contentLinksAreValid();
+      case 'audience':
+        return !this.form.controls.audienceKey.invalid && this.selectedAudience() !== null;
+      case 'delivery':
+        return !this.form.controls.priority.invalid &&
+          (this.form.controls.deliveryMode.value !== 'scheduled' ||
+            (!this.form.controls.scheduledLocalDateTime.invalid && !this.form.controls.timeZoneId.invalid));
+      case 'review':
+        return true;
+    }
+  }
+
   private applyAudienceTimeZone(): void {
     const zone = this.selectedAudience()?.scheduleTimeZoneId ?? 'UTC';
     this.form.controls.timeZoneId.setValue(zone, { emitEvent: false });
@@ -543,10 +644,29 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
       return;
     }
 
-    queueMicrotask(() => this.focusControl(invalidField));
+    setTimeout(() => this.focusControl(invalidField));
+  }
+
+  private focusFirstInvalidStepControl(step: AnnouncementEditorStep): void {
+    const invalidFormField = announcementEditorStepFields[step].find(
+      (field) => this.form.controls[field].invalid,
+    );
+    const invalidLinkField = step === 'content'
+      ? announcementEditorLinkFields.find((field) => this.linkFieldError(field) !== null)
+      : undefined;
+    const invalidField = invalidFormField ?? invalidLinkField ??
+      (step === 'audience' ? 'audienceKey' : step === 'delivery' ? 'scheduledLocalDateTime' : 'title');
+    setTimeout(() => this.focusControl(invalidField));
   }
 
   private focusControl(field: AnnouncementEditorField): void {
+    const targetStep = announcementEditorFieldSteps[field];
+    if (!this.previewOpen() && this.currentStep() !== targetStep) {
+      this.currentStep.set(targetStep);
+      this.scheduleFieldFocus(field);
+      return;
+    }
+
     switch (field) {
       case 'title':
         this.titleInput?.nativeElement.focus();
@@ -576,6 +696,50 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
         this.attachmentUrlInput?.nativeElement.focus();
         break;
     }
+  }
+
+  private focusStep(step: AnnouncementEditorStep): void {
+    switch (step) {
+      case 'content':
+        this.focusControl('title');
+        break;
+      case 'audience':
+        this.focusControl('audienceKey');
+        break;
+      case 'delivery':
+        this.focusControl('priority');
+        break;
+      case 'review':
+        this.reviewStepHeading?.nativeElement.focus();
+        break;
+    }
+  }
+
+  private scheduleStepFocus(step: AnnouncementEditorStep): void {
+    const requestVersion = ++this.focusRequestVersion;
+    setTimeout(() => {
+      if (
+        requestVersion === this.focusRequestVersion &&
+        !this.previewOpen() &&
+        this.currentStep() === step
+      ) {
+        this.focusStep(step);
+      }
+    });
+  }
+
+  private scheduleFieldFocus(field: AnnouncementEditorField): void {
+    const requestVersion = ++this.focusRequestVersion;
+    const targetStep = announcementEditorFieldSteps[field];
+    setTimeout(() => {
+      if (
+        requestVersion === this.focusRequestVersion &&
+        !this.previewOpen() &&
+        this.currentStep() === targetStep
+      ) {
+        this.focusControl(field);
+      }
+    });
   }
 
   private createSubmission(requireSchedule: boolean): AnnouncementEditorSubmission | null {
@@ -692,6 +856,12 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
 type AnnouncementEditorFormField = 'title' | 'body' | 'priority' | 'audienceKey' | 'scheduledLocalDateTime';
 type AnnouncementEditorLinkField = 'ctaLabel' | 'ctaUrl' | 'attachmentLabel' | 'attachmentUrl';
 type AnnouncementEditorField = AnnouncementEditorFormField | AnnouncementEditorLinkField;
+type AnnouncementEditorStep = 'content' | 'audience' | 'delivery' | 'review';
+
+interface AnnouncementEditorStepDefinition {
+  readonly id: AnnouncementEditorStep;
+  readonly label: string;
+}
 
 interface AnnouncementEditorFieldError {
   readonly field: AnnouncementEditorField;
@@ -701,16 +871,33 @@ interface AnnouncementEditorFieldError {
 const announcementEditorFormFields: readonly AnnouncementEditorFormField[] = [
   'title',
   'body',
-  'priority',
   'audienceKey',
+  'priority',
   'scheduledLocalDateTime',
 ];
+const announcementEditorStepFields: Readonly<Record<AnnouncementEditorStep, readonly AnnouncementEditorFormField[]>> = {
+  content: ['title', 'body'],
+  audience: ['audienceKey'],
+  delivery: ['priority', 'scheduledLocalDateTime'],
+  review: [],
+};
 const announcementEditorLinkFields: readonly AnnouncementEditorLinkField[] = [
   'ctaLabel',
   'ctaUrl',
   'attachmentLabel',
   'attachmentUrl',
 ];
+const announcementEditorFieldSteps: Readonly<Record<AnnouncementEditorField, AnnouncementEditorStep>> = {
+  title: 'content',
+  body: 'content',
+  ctaLabel: 'content',
+  ctaUrl: 'content',
+  attachmentLabel: 'content',
+  attachmentUrl: 'content',
+  audienceKey: 'audience',
+  priority: 'delivery',
+  scheduledLocalDateTime: 'delivery',
+};
 
 const announcementTitleMaximumLength = 200;
 const announcementBodyMaximumLength = 20_000;

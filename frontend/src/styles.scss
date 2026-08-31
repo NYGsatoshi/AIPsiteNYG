@@ -132,6 +132,28 @@ app-files-page > .files-page > .files-page__grid--browser > .files-page__side { 
 .files-page__search-submit,
 .files-page__search-clear { min-width: 0; min-height: 40px; }
 
+/* The Announcement creation-flow controls are global only to stay within the
+   editor component's established style budget. They remain scoped to its host. */
+app-announcement-editor .announcement-editor__progress,
+app-announcement-editor .announcement-editor__step,
+app-announcement-editor .announcement-editor__review-edits { display: grid; gap: 10px; min-width: 0; }
+app-announcement-editor .announcement-editor__progress { border: 1px solid var(--aip-color-border-default); border-radius: 8px; padding: 12px; background: var(--aip-color-bg-elevated); }
+app-announcement-editor .announcement-editor__progress p { margin: 0; color: var(--aip-color-text-primary); font-size: .88rem; font-weight: 900; }
+app-announcement-editor .announcement-editor__progress ol { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 0; padding: 0; list-style: none; }
+app-announcement-editor .announcement-editor__progress button,
+app-announcement-editor .announcement-editor__review-edits button { display: inline-flex; min-width: 0; min-height: 44px; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--aip-color-border-default); border-radius: 6px; padding: 7px 10px; background: var(--aip-color-bg-control); color: var(--aip-color-text-primary); font: inherit; font-weight: 800; overflow-wrap: anywhere; }
+app-announcement-editor .announcement-editor__progress button[aria-current='step'] { border-color: var(--aip-color-action-primary); background: var(--aip-color-bg-selected); }
+app-announcement-editor .announcement-editor__progress button:disabled { opacity: .72; }
+app-announcement-editor [hidden] { display: none !important; }
+app-announcement-editor .announcement-editor__row--single { grid-template-columns: minmax(0, 1fr); }
+app-announcement-editor .announcement-editor__review-edits { grid-template-columns: repeat(auto-fit, minmax(min(11rem, 100%), 1fr)); }
+app-announcement-editor .announcement-editor__step-actions { flex-wrap: wrap; }
+
+@media (max-width: 620px) {
+  app-announcement-editor .announcement-editor__progress ol,
+  app-announcement-editor .announcement-editor__review-edits { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
 @container (max-width: 58rem) {
   app-files-page > .files-page > .files-page__grid { grid-template-columns: minmax(0, 1fr); }
   app-files-page > .files-page > .files-page__grid.files-page__grid--browser {

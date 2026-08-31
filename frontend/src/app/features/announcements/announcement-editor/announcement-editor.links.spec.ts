@@ -2,6 +2,8 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 
 import { AnnouncementEditorComponent } from './announcement-editor.component';
 
+const nextRenderTick = (): Promise<void> => new Promise((resolve) => setTimeout(resolve));
+
 const audience = {
   key: 'workspace:school',
   scope: 'workspace' as const,
@@ -89,6 +91,7 @@ describe('AnnouncementEditorComponent content links', () => {
     fixture.componentInstance.publish();
     fixture.detectChanges();
     await fixture.whenStable();
+    await nextRenderTick();
 
     expect(host.querySelector('[data-testid="announcement-editor-error-summary"]')?.textContent).toContain(
       '安全なHTTPS URL',

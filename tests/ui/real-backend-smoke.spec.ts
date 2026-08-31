@@ -3355,9 +3355,12 @@ test.describe('MVP0 real backend browser smoke', () => {
       await expect(editor).toBeVisible();
       await editor.getByTestId('announcement-editor-title').fill(immediateTitle);
       await editor.getByTestId('announcement-editor-body').fill(immediateBody);
-      await editor.getByTestId('announcement-editor-priority').selectOption('critical');
+      await editor.getByTestId('announcement-next-step').click();
       await editor.getByTestId('announcement-editor-audience').selectOption(primaryAudienceKey);
+      await editor.getByTestId('announcement-next-step').click();
+      await editor.getByTestId('announcement-editor-priority').selectOption('critical');
       await editor.locator('#announcement-read-confirmation').check();
+      await editor.getByTestId('announcement-next-step').click();
 
       let directBrowserAnnouncementPosts = 0;
       const observeDirectBrowserAnnouncementPosts = (request: { method(): string; url(): string }) => {

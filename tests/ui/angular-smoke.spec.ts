@@ -1045,6 +1045,9 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     };
     await installWorkspaceContextApi(page, [workspace], workspace);
     const api = await installAnnouncementEditorApi(page);
+    await page.addInitScript((storageKey) => {
+      globalThis.localStorage.setItem(storageKey, 'light');
+    }, themeStorageKey);
 
     await page.goto('/app/announcements');
     const create = page.getByTestId('create-announcement-action');
@@ -1054,9 +1057,10 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
 
     const title = page.getByTestId('announcement-editor-title');
     const body = page.getByTestId('announcement-editor-body');
+    const nextStep = page.getByTestId('announcement-next-step');
     const publish = page.getByTestId('announcement-publish-action');
     await expect(title).toBeVisible();
-    await publish.focus();
+    await nextStep.focus();
     await page.keyboard.press('Enter');
 
     const validationSummary = page.getByTestId('announcement-editor-error-summary');
@@ -1074,6 +1078,17 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
 
     await title.fill('Accessible announcement');
     await body.fill('The draft must remain available after an API failure.');
+
+    await nextStep.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByTestId('announcement-editor-current-step')).toContainText('Step 2 of 4: Audience');
+    await expect(page.getByTestId('announcement-editor-content-step')).toBeHidden();
+    await expect(page.getByTestId('announcement-editor-audience')).toBeVisible();
+    await nextStep.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByTestId('announcement-editor-current-step')).toContainText('Step 3 of 4: Delivery');
+    await expect(page.getByTestId('announcement-editor-audience')).toBeHidden();
+    await expect(page.getByTestId('announcement-editor-priority')).toBeVisible();
 
     const previewAction = page.getByTestId('announcement-preview-action');
     const editAction = page.getByTestId('announcement-edit-action');
@@ -1114,7 +1129,7 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await editAction.focus();
     await page.keyboard.press('Enter');
     await expect(localPreview).toHaveCount(0);
-    await expect(title).toBeFocused();
+    await expect(page.getByTestId('announcement-editor-priority')).toBeFocused();
     await expect(title).toHaveValue('Accessible announcement');
     await expect(body).toHaveValue('The draft must remain available after an API failure.');
     await expect(page.getByTestId('announcement-editor-priority')).toHaveValue('critical');
@@ -1123,6 +1138,42 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
 
     await page.getByTestId('announcement-editor-priority').selectOption('normal');
     await page.getByTestId('announcement-editor-read-confirmation').uncheck();
+
+    await nextStep.focus();
+    await page.keyboard.press('Enter');
+    const review = page.getByTestId('announcement-review-summary');
+    await expect(review).toBeVisible();
+    await expect(page.getByTestId('announcement-editor-priority')).toBeHidden();
+    await expect(review).toContainText('Accessible announcement');
+    await expect(review).toContainText('Announcement evidence workspace');
+    await expect(review).toContainText('24名');
+
+    const reviewPreview = page.getByTestId('announcement-review-preview');
+    await reviewPreview.focus();
+    await page.keyboard.press('Enter');
+    await expect(localPreview).toBeVisible();
+    await expect(page.getByTestId('announcement-preview-heading')).toBeFocused();
+    await editAction.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('heading', { name: 'Review before publication' })).toBeFocused();
+
+    const editContent = page.getByTestId('announcement-review-edit-content');
+    await editContent.focus();
+    await page.keyboard.press('Enter');
+    await expect(title).toBeFocused();
+    await expect(title).toHaveValue('Accessible announcement');
+    await expect(body).toHaveValue('The draft must remain available after an API failure.');
+    await nextStep.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByTestId('announcement-editor-audience')).toBeFocused();
+    await nextStep.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByTestId('announcement-editor-priority')).toBeFocused();
+    await expect(page.getByTestId('announcement-editor-priority')).toHaveValue('normal');
+    await nextStep.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('heading', { name: 'Review before publication' })).toBeFocused();
+    await expect(review).toBeVisible();
 
     await publish.focus();
     await page.keyboard.press('Enter');
@@ -1171,6 +1222,12 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     expect((await succeededResponse).status()).toBe(200);
     await expect(page.getByText(/Publication queued/)).toBeVisible();
     expect(api.publishRequests).toHaveLength(2);
+    await expectNoDocumentHorizontalOverflow(page);
+    await expectNoAccessibilityViolations(page);
+
+    await page.getByTestId('theme-toggle').focus();
+    await page.keyboard.press('Enter');
+    await expect(page.locator('html')).toHaveAttribute('data-aip-theme', 'dark');
     await expectNoDocumentHorizontalOverflow(page);
     await expectNoAccessibilityViolations(page);
   });
@@ -1269,9 +1326,21 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
 
     const title = page.getByTestId('announcement-editor-title');
     const body = page.getByTestId('announcement-editor-body');
+    const nextStep = page.getByTestId('announcement-next-step');
     const publish = page.getByTestId('announcement-publish-action');
     await title.fill('Submitted title');
     await body.fill('Submitted body');
+
+    await nextStep.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByTestId('announcement-editor-audience')).toBeFocused();
+    await nextStep.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByTestId('announcement-editor-priority')).toBeFocused();
+    await nextStep.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('heading', { name: 'Review before publication' })).toBeFocused();
+    await expect(publish).toBeVisible();
 
     await publish.focus();
     await page.keyboard.press('Enter');
@@ -1289,14 +1358,18 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await expect(submissionError).toContainText('selected audience is no longer authorized');
     await expect(submissionError).not.toContainText('Announcement audience is not authorized.');
 
+    await page.getByTestId('announcement-review-edit-content').focus();
+    await page.keyboard.press('Enter');
     await title.fill('Live title edited after publish failed');
     await body.fill('Live body edited after publish failed');
     api.releaseAudienceRefresh();
 
+    await nextStep.focus();
+    await page.keyboard.press('Enter');
     await expect(page.getByTestId('announcement-audience-unavailable')).toBeVisible();
     await expect(title).toHaveValue('Live title edited after publish failed');
     await expect(body).toHaveValue('Live body edited after publish failed');
-    await expect(publish).toBeDisabled();
+    await expect(page.getByTestId('announcement-save-draft-action')).toBeDisabled();
     await expectNoDocumentHorizontalOverflow(page);
     await expectNoAccessibilityViolations(page);
   });

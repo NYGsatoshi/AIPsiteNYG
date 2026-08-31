@@ -50,6 +50,15 @@ const renderEditor = async (
   return fixture;
 };
 
+const advanceToReview = (fixture: ComponentFixture<AnnouncementEditorComponent>): void => {
+  fixture.componentInstance.nextStep();
+  fixture.detectChanges();
+  fixture.componentInstance.nextStep();
+  fixture.detectChanges();
+  fixture.componentInstance.nextStep();
+  fixture.detectChanges();
+};
+
 describe('AnnouncementEditorComponent', () => {
   afterEach(() => {
     TestBed.resetTestingModule();
@@ -95,16 +104,19 @@ describe('AnnouncementEditorComponent', () => {
     const select = host.querySelector(
       '[data-testid="announcement-editor-audience"]',
     ) as HTMLSelectElement;
-    const publish = host.querySelector(
-      '[data-testid="announcement-publish-action"]',
-    ) as HTMLButtonElement;
-
     expect(select.options).toHaveLength(0);
     expect(select.value).toBe('');
     expect(fixture.componentInstance.form.controls.audienceKey.invalid).toBe(true);
     expect(fixture.componentInstance.selectedAudience()).toBeNull();
+
+    fixture.componentInstance.nextStep();
+    fixture.detectChanges();
+    fixture.componentInstance.nextStep();
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.currentStep()).toBe('audience');
     expect(host.querySelector('[data-testid="announcement-audience-unavailable"]')).toBeTruthy();
-    expect(publish.disabled).toBe(true);
+    expect(host.querySelector('[data-testid="announcement-editor-error-summary"]')).toBeTruthy();
   });
 
   it('updates both immediate and review summaries when the selected audience changes', async () => {
@@ -139,10 +151,8 @@ describe('AnnouncementEditorComponent', () => {
       priority: 'important',
       requiresReadConfirmation: true,
     });
-    (fixture.nativeElement as HTMLElement)
-      .querySelector('form')
-      ?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-
+    advanceToReview(fixture);
+    fixture.componentInstance.publish();
     fixture.detectChanges();
 
     const confirmation = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>(
@@ -186,6 +196,11 @@ describe('AnnouncementEditorComponent', () => {
     });
     fixture.detectChanges();
 
+    fixture.componentInstance.nextStep();
+    fixture.detectChanges();
+    fixture.componentInstance.nextStep();
+    fixture.detectChanges();
+
     (fixture.nativeElement as HTMLElement)
       .querySelector<HTMLButtonElement>('[data-testid="announcement-save-draft-action"]')
       ?.click();
@@ -197,7 +212,11 @@ describe('AnnouncementEditorComponent', () => {
     });
     expect(published).toBeUndefined();
 
-    fixture.componentInstance.publish();
+    fixture.componentInstance.nextStep();
+    fixture.detectChanges();
+    (fixture.nativeElement as HTMLElement)
+      .querySelector<HTMLButtonElement>('[data-testid="announcement-publish-action"]')
+      ?.click();
     fixture.detectChanges();
     const confirmation = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>(
       '[data-testid="announcement-publication-confirmation"]',
@@ -212,6 +231,99 @@ describe('AnnouncementEditorComponent', () => {
       scheduledLocalDateTime: '2026-09-02T09:45',
       timeZoneId: 'Asia/Tokyo',
     });
+  });
+
+  it('validates each step, retains values through Back, and exposes an editable Review', async () => {
+    const fixture = await renderEditor(createDraft({ title: '', body: '' }));
+    const host = fixture.nativeElement as HTMLElement;
+
+    fixture.componentInstance.nextStep();
+    fixture.detectChanges();
+    await nextRenderTick();
+    expect(fixture.componentInstance.currentStep()).toBe('content');
+    expect(host.querySelector('[data-testid="announcement-editor-error-summary"]')).toBeTruthy();
+    expect(document.activeElement).toBe(host.querySelector('[data-testid="announcement-editor-title"]'));
+
+    fixture.componentInstance.form.patchValue({
+      title: 'Step-by-step safety update',
+      body: 'Keep this local form state while each step is reviewed.',
+      deliveryMode: 'scheduled',
+    });
+    fixture.componentInstance.nextStep();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.currentStep()).toBe('audience');
+    expect(host.querySelector('[data-testid="announcement-editor-current-step"]')?.textContent)
+      .toContain('Step 2 of 4: Audience');
+
+    fixture.componentInstance.nextStep();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.currentStep()).toBe('delivery');
+    fixture.componentInstance.nextStep();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.currentStep()).toBe('delivery');
+    expect(host.querySelector('[data-testid="announcement-schedule-local-time-error"]')).toBeTruthy();
+
+    fixture.componentInstance.form.controls.scheduledLocalDateTime.setValue('2026-09-02T09:45');
+    fixture.componentInstance.nextStep();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.currentStep()).toBe('review');
+    expect(host.querySelector('[data-testid="announcement-editor-step-review"]')?.getAttribute('aria-current'))
+      .toBe('step');
+    expect(host.querySelector('[data-testid="announcement-review-summary"]')?.textContent)
+      .toContain('Step-by-step safety update');
+    const reviewPreview = host.querySelector<HTMLButtonElement>(
+      '[data-testid="announcement-review-preview"]',
+    );
+    expect(reviewPreview).toBeTruthy();
+    reviewPreview?.click();
+    fixture.detectChanges();
+    await nextRenderTick();
+    expect(host.querySelector('[data-testid="announcement-local-preview"]')).toBeTruthy();
+    fixture.componentInstance.closePreview(false);
+    fixture.detectChanges();
+
+    (host.querySelector('[data-testid="announcement-review-edit-content"]') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.currentStep()).toBe('content');
+    expect(fixture.componentInstance.form.getRawValue()).toMatchObject({
+      title: 'Step-by-step safety update',
+      body: 'Keep this local form state while each step is reviewed.',
+      deliveryMode: 'scheduled',
+      scheduledLocalDateTime: '2026-09-02T09:45',
+    });
+
+    fixture.componentInstance.nextStep();
+    fixture.detectChanges();
+    (host.querySelector('[data-testid="announcement-previous-step"]') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.currentStep()).toBe('content');
+  });
+
+  it('saves a valid draft from Audience without requiring Delivery or Review', async () => {
+    const fixture = await renderEditor(createDraft());
+    let saved: AnnouncementEditorSubmission | undefined;
+    fixture.componentInstance.saveDraftRequested.subscribe((value) => {
+      saved = value;
+    });
+    fixture.componentInstance.form.patchValue({
+      title: 'Save while selecting an audience',
+      body: 'The durable draft flow owns persistence outside this step UI.',
+    });
+
+    fixture.componentInstance.nextStep();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.currentStep()).toBe('audience');
+    (fixture.nativeElement as HTMLElement)
+      .querySelector<HTMLButtonElement>('[data-testid="announcement-save-draft-action"]')
+      ?.click();
+
+    expect(saved).toMatchObject({
+      title: 'Save while selecting an audience',
+      body: 'The durable draft flow owns persistence outside this step UI.',
+      audience: workspaceAudience,
+      deliveryMode: 'now',
+    });
+    expect(fixture.componentInstance.currentStep()).toBe('audience');
   });
 
   it('renders a local-only live preview and returns to the preserved editor values', async () => {
@@ -332,6 +444,7 @@ describe('AnnouncementEditorComponent', () => {
     fixture.componentInstance.publish();
     fixture.detectChanges();
     await fixture.whenStable();
+    await nextRenderTick();
 
     const host = fixture.nativeElement as HTMLElement;
     const title = host.querySelector<HTMLInputElement>('[data-testid="announcement-editor-title"]');
