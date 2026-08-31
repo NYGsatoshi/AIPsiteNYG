@@ -7,6 +7,7 @@ namespace AipPortal.Web.Configuration;
 public static class ForwardedHeadersConfiguration
 {
     public const string TrustForwardedHeadersKey = "ReverseProxy:TrustForwardedHeaders";
+    public const string RequireHeaderSymmetryKey = "ReverseProxy:RequireHeaderSymmetry";
     public const string TrustedProxiesKey = "ReverseProxy:TrustedProxies";
     public const string TrustedNetworksKey = "ReverseProxy:TrustedNetworks";
 
@@ -38,7 +39,7 @@ public static class ForwardedHeadersConfiguration
             ForwardedHeaders.XForwardedProto |
             ForwardedHeaders.XForwardedHost;
         options.ForwardLimit = 1;
-        options.RequireHeaderSymmetry = true;
+        options.RequireHeaderSymmetry = configuration.GetValue(RequireHeaderSymmetryKey, true);
 
         // Keep ASP.NET Core's loopback defaults and add only deliberate,
         // operator-configured proxy boundaries. Clearing these collections
