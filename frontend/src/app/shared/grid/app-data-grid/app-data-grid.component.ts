@@ -220,6 +220,16 @@ export class AppDataGridComponent<TData extends object> implements OnInit, After
     this.syncfusionComponent?.instance.clearSelection();
   }
 
+  /** Select every row currently rendered by the adapter. */
+  selectAllRows(): void {
+    if (this.selectionMode !== 'multiple') {
+      return;
+    }
+
+    this.agGrid?.api.selectAll();
+    this.syncfusionComponent?.instance.selectAllRows();
+  }
+
   private renderActions(column: AppDataGridColumnDef<TData>, row: TData | undefined): HTMLElement | string {
     if (!row || !column.actions) {
       return '';

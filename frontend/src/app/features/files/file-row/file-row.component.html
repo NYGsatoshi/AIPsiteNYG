@@ -4,7 +4,7 @@
       type="checkbox"
       [checked]="selected"
       [attr.aria-label]="'Select ' + file.originalFileName"
-      (change)="updateSelection($any($event.target).checked)"
+      (change)="updateSelection($any($event.target).checked, $event)"
       data-testid="mobile-file-selection"
     />
     <span>Select file</span>

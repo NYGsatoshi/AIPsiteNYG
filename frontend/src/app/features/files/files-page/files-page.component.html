@@ -152,6 +152,17 @@
             data-testid="files-normal-toolbar"
           >
             <a class="files-page__toolbar-action files-page__toolbar-action--primary" href="#upload">Upload</a>
+            @if (list.files.length > 0) {
+              <button type="button" (click)="selectThisPage()" data-testid="files-select-this-page">Select all this page</button>
+            }
+            @if (searchApplied() && search().status === 'ready') {
+              <button
+                type="button"
+                [disabled]="selectionCaptureBusy()"
+                (click)="selectAllSearchResults()"
+                data-testid="files-select-all-search-results"
+              >{{ selectionCaptureBusy() ? 'Capturing search results…' : 'Select all search results' }}</button>
+            }
             <details class="files-page__view-settings">
               <summary>View settings</summary>
               <div class="files-page__view-settings-menu">
@@ -185,26 +196,47 @@
             <strong class="files-page__selection-status" role="status" aria-live="polite">
               {{ selectedCount() }} selected
             </strong>
-            @if (downloadableSelection()) {
-              <button type="button" (click)="downloadSelectedFile()" data-testid="files-selected-download">Download</button>
+            @if (hasSearchResultsSelection()) {
+              <span class="files-page__no-actions">Captured search-result selection</span>
+            } @else {
+              <span class="files-page__no-actions">This page selection</span>
             }
-            @if (canDeleteSelection()) {
-              <button
-                type="button"
-                class="files-page__toolbar-action--danger"
-                [disabled]="deleteBusy()"
-                (click)="openDeleteConfirmation()"
-                data-testid="files-selected-delete"
-              >Delete</button>
-            }
-            @if (!downloadableSelection() && !canDeleteSelection()) {
-              <span class="files-page__no-actions">No available actions for this selection.</span>
-            }
-            <button type="button" [disabled]="deleteBusy()" (click)="clearSelection()" data-testid="files-clear-selection">Clear selection</button>
+            <button type="button" disabled title="Move is unavailable until the server batch contract is delivered.">Move</button>
+            <button
+              type="button"
+              [disabled]="!downloadableSelection()"
+              [title]="downloadableSelection() ? '' : 'Batch download is not available. Select one file to download it.'"
+              (click)="downloadSelectedFile()"
+              data-testid="files-selected-download"
+            >Download</button>
+            <button type="button" disabled title="Share is unavailable until the server batch contract is delivered.">Share</button>
+            <button
+              type="button"
+              class="files-page__toolbar-action--danger"
+              [disabled]="!canDeleteSelection() || deleteBusy()"
+              (click)="openDeleteConfirmation()"
+              data-testid="files-selected-delete"
+            >Delete</button>
+            <button
+              type="button"
+              [disabled]="deleteBusy()"
+              (click)="clearSelection()"
+              aria-label="Clear selection"
+              title="Clear selection"
+              data-testid="files-clear-selection"
+            >&times;</button>
           </div>
         }
 
-        <p class="files-page__selection-help">Keyboard focus does not change selection.</p>
+        @if (!hasSelection() && selectionSnapshot().status !== 'idle') {
+          <p
+            class="files-page__selection-help"
+            [attr.role]="selectionSnapshot().status === 'error' || selectionSnapshot().status === 'overflow' ? 'alert' : 'status'"
+            aria-live="polite"
+            data-testid="files-selection-snapshot-status"
+          >{{ selectionSnapshot().message }}</p>
+        }
+        <p class="files-page__selection-help">Keyboard focus does not change selection. Shift+click a selection checkbox to select a range on this page.</p>
         @if (deleteState().message) {
           <p
             class="files-page__delete-status"
@@ -490,7 +522,7 @@
   [open]="deleteDialogOpen()"
   [title]="deleteDialogTitle()"
   [description]="deleteDialogDescription()"
-  [confirmLabel]="deleteTargets().length === 1 ? 'Delete file' : 'Delete files'"
+  [confirmLabel]="deleteSelectionCount() === 1 ? 'Delete file' : 'Delete files'"
   [busy]="deleteBusy()"
   [destructive]="true"
   focusReturnFallbackId="files-normal-toolbar"
@@ -498,5 +530,5 @@
   (cancel)="closeDeleteDialog()"
   (closed)="closeDeleteDialog()"
 >
-  <p>This removes the selection from the active workspace inventory. The server rechecks authorization for every file.</p>
+  <p>Deletion is soft; restoration follows your organization's recovery policy. The server rechecks authorization for every file, so a batch may partially succeed.</p>
 </app-aip-dialog>

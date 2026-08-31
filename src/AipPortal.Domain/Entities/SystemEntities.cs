@@ -115,6 +115,32 @@ public sealed class FileDownloadGrant : AuditableEntity, ITenantEntity
     public DateTimeOffset? DownloadedAt { get; set; }
 }
 
+/// <summary>
+/// An immutable, short-lived server capture of the exact Workspace File
+/// identities selected by one actor from one normalized search.
+/// </summary>
+public sealed class FileSelectionSnapshot : AuditableEntity, ITenantEntity
+{
+    public Guid TenantId { get; set; }
+    public Guid ActorUserId { get; set; }
+    public Guid WorkspaceId { get; set; }
+    public string NormalizedQuery { get; set; } = string.Empty;
+    public string FileKind { get; set; } = string.Empty;
+    public DateTimeOffset? FromDateUtc { get; set; }
+    public bool OnlyMyUploads { get; set; }
+    public DateTimeOffset ExpiresAt { get; set; }
+    public DateTimeOffset? ConsumedAt { get; set; }
+    public int ConsumptionVersion { get; set; }
+    public ICollection<FileSelectionSnapshotItem> Items { get; } = new List<FileSelectionSnapshotItem>();
+}
+
+public sealed class FileSelectionSnapshotItem
+{
+    public Guid SelectionSnapshotId { get; set; }
+    public Guid FileObjectId { get; set; }
+    public FileSelectionSnapshot? SelectionSnapshot { get; set; }
+}
+
 public sealed class FileScanResult : Entity, ITenantEntity
 {
     public Guid TenantId { get; set; }

@@ -15,7 +15,12 @@ import {
   PagedResponseDto,
   safeFileNameFromHeader,
 } from './files.api';
-import { fileSearchParams, mapFileSearchResponse } from './files-search.api';
+import {
+  fileSearchFromDate,
+  fileSearchParams,
+  fileSearchSelectionSnapshotParams,
+  mapFileSearchResponse,
+} from './files-search.api';
 import {
   FileDeleteViewModel,
   FileDownloadState,
@@ -24,6 +29,8 @@ import {
   FileUploadViewModel,
   FileViewModel,
   FileSearchFilters,
+  FileSelectionSnapshot,
+  FileSelectionSnapshotState,
   FileSearchViewModel,
   TaskFilePickerState,
 } from './files.types';
@@ -61,6 +68,7 @@ export class FilesFacade {
   private readonly inventoryRevisionSignal = signal(0);
   private readonly searchState = signal<FileSearchViewModel>(this.emptySearchState());
   private readonly searchRevisionSignal = signal(0);
+  private readonly selectionSnapshotState = signal<FileSelectionSnapshotState>(this.emptySelectionSnapshotState());
   /** Task detail owns this independent query; it must never alter Files-page workspace state. */
   private readonly pickerState = signal<TaskFilePickerState>(this.emptyPickerState());
   private pageWorkspaceId: string | null = null;
@@ -75,7 +83,10 @@ export class FilesFacade {
   private readonly pendingUploads = new Map<string, { file: File; subscription: Subscription }>();
   private deleteRequest: Subscription | null = null;
   private searchRequest: Subscription | null = null;
+  private selectionSnapshotRequest: Subscription | null = null;
+  private selectionSnapshotDeleteRequest: Subscription | null = null;
   private searchGeneration = 0;
+  private selectionSnapshotGeneration = 0;
   private searchCurrentUserId: string | null = null;
   private refreshAfterMutation = false;
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
@@ -86,6 +97,7 @@ export class FilesFacade {
   readonly inventoryRevision = this.inventoryRevisionSignal.asReadonly();
   readonly search = this.searchState.asReadonly();
   readonly searchRevision = this.searchRevisionSignal.asReadonly();
+  readonly selectionSnapshot = this.selectionSnapshotState.asReadonly();
   readonly pickerStateForTask = this.pickerState.asReadonly();
   /** Compatibility projection for existing consumers; Task detail must consume pickerStateForTask. */
   readonly pickerFiles = () => this.pickerState().files;
@@ -145,6 +157,7 @@ export class FilesFacade {
       (normalized.owner === 'me' && !currentUserId)
     ) {
       this.cancelSearchRequest();
+      this.clearSearchSelectionSnapshot();
       this.searchState.set({
         ...this.emptySearchState(workspaceId || null),
         status: 'invalid',
@@ -159,20 +172,24 @@ export class FilesFacade {
 
     const safePage = Math.max(1, Math.floor(page));
     const generation = ++this.searchGeneration;
+    this.clearSearchSelectionSnapshot();
     this.searchRequest?.unsubscribe();
     this.searchRequest = null;
     this.searchCurrentUserId = currentUserId;
+    const requestedAt = new Date();
+    const fromDate = fileSearchFromDate(normalized.modified, requestedAt);
     this.searchState.set({
       ...this.emptySearchState(workspaceId),
       status: 'loading',
       filters: normalized,
       page: safePage,
+      fromDate,
       message: 'Searching currently authorized files in this Workspace.',
     });
     this.searchRevisionSignal.update((revision) => revision + 1);
 
     const request = this.http.get<unknown>('/api/search', {
-      params: fileSearchParams(workspaceId, normalized, safePage, FILES_PAGE_SIZE, currentUserId),
+      params: fileSearchParams(workspaceId, normalized, safePage, FILES_PAGE_SIZE, currentUserId, requestedAt),
       withCredentials: true,
     }).subscribe({
       next: (response) => {
@@ -196,6 +213,7 @@ export class FilesFacade {
           status: pageResult.files.length > 0 ? 'ready' : 'empty',
           workspaceId,
           filters: normalized,
+          fromDate,
           message: pageResult.files.length > 0
             ? pageResult.totalCount === 1
               ? '1 currently authorized file matches.'
@@ -235,9 +253,181 @@ export class FilesFacade {
 
   clearFileSearch(): void {
     this.cancelSearchRequest();
+    this.clearSearchSelectionSnapshot();
     this.searchCurrentUserId = null;
     this.searchState.set(this.emptySearchState(this.pageWorkspaceId));
     this.searchRevisionSignal.update((revision) => revision + 1);
+  }
+
+  /** Captures the exact currently authorized search result set on the server. */
+  captureSearchSelectionSnapshot(): void {
+    if (this.mockPage) {
+      return;
+    }
+
+    const search = this.searchState();
+    const workspaceId = search.workspaceId;
+    if (!workspaceId || search.status !== 'ready' || workspaceId !== this.pageWorkspaceId ||
+      workspaceId !== this.activeWorkspace.activeWorkspace()?.id) {
+      this.selectionSnapshotState.set({
+        ...this.emptySelectionSnapshotState(),
+        status: 'error',
+        message: 'Refresh the current file search before selecting all results.',
+      });
+      return;
+    }
+
+    const generation = ++this.selectionSnapshotGeneration;
+    const searchGeneration = this.searchGeneration;
+    this.selectionSnapshotRequest?.unsubscribe();
+    this.selectionSnapshotRequest = null;
+    this.selectionSnapshotState.set({
+      ...this.emptySelectionSnapshotState(),
+      status: 'capturing',
+      message: 'Capturing the currently authorized search results.',
+    });
+
+    const request = this.http.post<unknown>('/api/files/selection-snapshots', null, {
+      params: fileSearchSelectionSnapshotParams(workspaceId, search.filters, search.fromDate),
+      withCredentials: true,
+    }).subscribe({
+      next: (response) => {
+        if (!this.isCurrentSelectionSnapshotRequest(generation, searchGeneration, workspaceId)) {
+          return;
+        }
+        this.selectionSnapshotRequest = null;
+        const captured = mapSelectionSnapshotCapture(response);
+        if (!captured) {
+          this.selectionSnapshotState.set({
+            ...this.emptySelectionSnapshotState(),
+            status: 'error',
+            message: 'The server returned an invalid file selection response.',
+          });
+          return;
+        }
+        this.selectionSnapshotState.set(captured);
+      },
+      error: (error: unknown) => {
+        if (!this.isCurrentSelectionSnapshotRequest(generation, searchGeneration, workspaceId)) {
+          return;
+        }
+        this.selectionSnapshotRequest = null;
+        const normalized = normalizeApiError(error);
+        this.selectionSnapshotState.set({
+          ...this.emptySelectionSnapshotState(),
+          status: 'error',
+          message: normalized.message || 'The search-result selection could not be created.',
+        });
+      },
+    });
+    this.selectionSnapshotRequest = request;
+  }
+
+  /** The server consumes the snapshot and reauthorizes every captured FileObject. */
+  deleteSearchSelectionSnapshot(onComplete?: () => void): void {
+    const selection = this.selectionSnapshotState().selection;
+    if (this.mockPage || !selection || this.selectionSnapshotDeleteRequest || this.deleteRequest) {
+      return;
+    }
+
+    const workspaceId = this.pageWorkspaceId;
+    const generation = this.pageGeneration;
+    const searchGeneration = this.searchGeneration;
+    if (!workspaceId) {
+      return;
+    }
+
+    this.deleteStateSignal.set({
+      state: 'pending',
+      message: `Deleting ${selection.selectedCount} captured files one at a time.`,
+      succeededCount: 0,
+      failedCount: 0,
+    });
+    const request = this.http.post<unknown>(
+      `/api/files/selection-snapshots/${selection.id}/delete`,
+      null,
+      { withCredentials: true },
+    ).subscribe({
+      next: (response) => {
+        if (generation !== this.pageGeneration || workspaceId !== this.pageWorkspaceId) {
+          return;
+        }
+        const deleted = mapSelectionSnapshotDelete(response);
+        if (!deleted || deleted.attemptedCount !== selection.selectedCount) {
+          this.deleteStateSignal.set({
+            state: 'failed',
+            message: 'The server returned an invalid batch-delete response.',
+            succeededCount: 0,
+            failedCount: selection.selectedCount,
+          });
+        } else if (deleted.failedCount === 0) {
+          this.deleteStateSignal.set({
+            state: 'succeeded',
+            message: deleted.succeededCount === 1
+              ? 'The file was deleted.'
+              : `${deleted.succeededCount} files were deleted one at a time.`,
+            succeededCount: deleted.succeededCount,
+            failedCount: 0,
+          });
+        } else if (deleted.succeededCount > 0) {
+          this.deleteStateSignal.set({
+            state: 'partial',
+            message: `${deleted.succeededCount} of ${deleted.attemptedCount} files were deleted. ${deleted.failedCount} could not be deleted. Each deletion was processed separately; this was not an atomic batch.`,
+            succeededCount: deleted.succeededCount,
+            failedCount: deleted.failedCount,
+          });
+        } else {
+          this.deleteStateSignal.set({
+            state: 'failed',
+            message: 'No files were deleted. The server did not authorize or complete any captured deletion.',
+            succeededCount: 0,
+            failedCount: deleted.failedCount,
+          });
+        }
+
+        this.clearSearchSelectionSnapshot();
+        onComplete?.();
+        const search = this.searchState();
+        if (this.searchGeneration === searchGeneration &&
+          search.workspaceId === workspaceId &&
+          search.status !== 'idle' && search.status !== 'invalid') {
+          this.searchFilesForWorkspace(workspaceId, search.filters, this.searchCurrentUserId, search.page);
+        }
+        const page = this.pageState();
+        this.loadFiles(workspaceId, page.page, page.pageSize);
+      },
+      error: (error: unknown) => {
+        if (generation !== this.pageGeneration || workspaceId !== this.pageWorkspaceId) {
+          return;
+        }
+        const normalized = normalizeApiError(error);
+        this.deleteStateSignal.set({
+          state: 'failed',
+          message: normalized.message || 'The captured file selection could not be deleted.',
+          succeededCount: 0,
+          failedCount: selection.selectedCount,
+        });
+        this.clearSearchSelectionSnapshot();
+        onComplete?.();
+      },
+    });
+    this.selectionSnapshotDeleteRequest = request;
+    request.add(() => {
+      if (this.selectionSnapshotDeleteRequest === request) {
+        this.selectionSnapshotDeleteRequest = null;
+      }
+    });
+  }
+
+  clearSearchSelectionSnapshot(cancelMutation = false): void {
+    this.selectionSnapshotGeneration++;
+    this.selectionSnapshotRequest?.unsubscribe();
+    this.selectionSnapshotRequest = null;
+    if (cancelMutation) {
+      this.selectionSnapshotDeleteRequest?.unsubscribe();
+      this.selectionSnapshotDeleteRequest = null;
+    }
+    this.selectionSnapshotState.set(this.emptySelectionSnapshotState());
   }
 
   goToPage(page: number): void {
@@ -844,6 +1034,10 @@ export class FilesFacade {
     };
   }
 
+  private emptySelectionSnapshotState(): FileSelectionSnapshotState {
+    return { status: 'idle', selection: null, message: '' };
+  }
+
   private emptyDeleteState(): FileDeleteViewModel {
     return { state: 'idle', succeededCount: 0, failedCount: 0 };
   }
@@ -878,6 +1072,16 @@ export class FilesFacade {
       this.activeWorkspace.activeWorkspace()?.id === workspaceId;
   }
 
+  private isCurrentSelectionSnapshotRequest(
+    generation: number,
+    searchGeneration: number,
+    workspaceId: string,
+  ): boolean {
+    return generation === this.selectionSnapshotGeneration &&
+      searchGeneration === this.searchGeneration &&
+      this.isCurrentSearch(searchGeneration, workspaceId);
+  }
+
   private isCurrentPageOperation(generation: number, fileObjectId: string): boolean {
     return generation === this.pageGeneration &&
       this.pageWorkspaceId !== null &&
@@ -886,6 +1090,7 @@ export class FilesFacade {
 
   private clearProtectedState(): void {
     this.cancelDeleteOperation();
+    this.clearSearchSelectionSnapshot(true);
     this.invalidatePageRequests();
     this.pageWorkspaceId = null;
     this.clearFileSearch();
@@ -919,3 +1124,74 @@ function fileObjectIdentity(value: unknown): string | undefined {
 }
 
 const fileObjectIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+
+function mapSelectionSnapshotCapture(value: unknown): FileSelectionSnapshotState | null {
+  if (!isRecord(value) || typeof value['outcome'] !== 'string') {
+    return null;
+  }
+
+  if (value['outcome'] === 'Overflow' && positiveInteger(value['maximumSelectionCount'])) {
+    const maximumSelectionCount = positiveInteger(value['maximumSelectionCount']);
+    return {
+      status: 'overflow',
+      selection: null,
+      message: `More than ${maximumSelectionCount} authorized files match. Refine the search before selecting all results.`,
+    };
+  }
+  if (value['outcome'] === 'Empty') {
+    return {
+      status: 'empty',
+      selection: null,
+      message: 'No currently authorized files remained to select.',
+    };
+  }
+  if (value['outcome'] !== 'Captured') {
+    return null;
+  }
+
+  const id = fileObjectIdentity(value['selectionSnapshotId']);
+  const selectedCount = positiveInteger(value['selectedCount']);
+  const expiresAt = isoTimestamp(value['expiresAt']);
+  if (!id || !selectedCount || !expiresAt) {
+    return null;
+  }
+  return {
+    status: 'ready',
+    selection: { id, selectedCount, expiresAt },
+    message: `${selectedCount} currently authorized search result${selectedCount === 1 ? '' : 's'} captured for this batch action.`,
+  };
+}
+
+function mapSelectionSnapshotDelete(value: unknown): {
+  attemptedCount: number;
+  succeededCount: number;
+  failedCount: number;
+} | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const attemptedCount = nonNegativeInteger(value['attemptedCount']);
+  const succeededCount = nonNegativeInteger(value['succeededCount']);
+  const failedCount = nonNegativeInteger(value['failedCount']);
+  if (attemptedCount === null || succeededCount === null || failedCount === null ||
+    attemptedCount !== succeededCount + failedCount) {
+    return null;
+  }
+  return { attemptedCount, succeededCount, failedCount };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function positiveInteger(value: unknown): number | null {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : null;
+}
+
+function nonNegativeInteger(value: unknown): number | null {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : null;
+}
+
+function isoTimestamp(value: unknown): string | undefined {
+  return typeof value === 'string' && Number.isFinite(Date.parse(value)) ? value : undefined;
+}

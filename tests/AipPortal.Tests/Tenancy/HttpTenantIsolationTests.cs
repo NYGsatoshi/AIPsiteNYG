@@ -1042,6 +1042,78 @@ public sealed class HttpTenantIsolationTests
     }
 
     [Fact]
+    [Trait("Scope", "Issue348")]
+    public async Task FileSearchSelectionSnapshotIsActorBoundConsumedOnceAndReauthorizesBatchDeletion()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+        Guid fileObjectId;
+
+        using (var upload = new MultipartFormDataContent
+               {
+                   { new StringContent(AttachmentOwnerType.Workspace.ToString()), "OwnerType" },
+                   { new StringContent(data.WorkspaceB.Id.ToString("D")), "OwnerId" },
+               })
+        {
+            var file = new ByteArrayContent("batch-selection"u8.ToArray());
+            file.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("text/plain");
+            upload.Add(file, "File", "batch-selection.txt");
+
+            using var response = await app.SendAsync(
+                data.TenantBOwner,
+                data.TenantB.Slug,
+                "/api/files",
+                HttpMethod.Post,
+                upload);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            fileObjectId = document.RootElement.GetProperty("fileObjectId").GetGuid();
+        }
+
+        Guid selectionSnapshotId;
+        using (var capture = await app.SendAsync(
+                   data.TenantBOwner,
+                   data.TenantB.Slug,
+                   $"/api/files/selection-snapshots?workspaceId={data.WorkspaceB.Id:D}&onlyMyUploads=true",
+                   HttpMethod.Post))
+        {
+            Assert.Equal(HttpStatusCode.OK, capture.StatusCode);
+            using var document = JsonDocument.Parse(await capture.Content.ReadAsStringAsync());
+            Assert.Equal("Captured", document.RootElement.GetProperty("outcome").GetString());
+            Assert.Equal(1, document.RootElement.GetProperty("selectedCount").GetInt32());
+            selectionSnapshotId = document.RootElement.GetProperty("selectionSnapshotId").GetGuid();
+        }
+
+        using (var deleted = await app.SendAsync(
+                   data.TenantBOwner,
+                   data.TenantB.Slug,
+                   $"/api/files/selection-snapshots/{selectionSnapshotId:D}/delete",
+                   HttpMethod.Post))
+        {
+            Assert.Equal(HttpStatusCode.OK, deleted.StatusCode);
+            using var document = JsonDocument.Parse(await deleted.Content.ReadAsStringAsync());
+            Assert.Equal(1, document.RootElement.GetProperty("attemptedCount").GetInt32());
+            Assert.Equal(1, document.RootElement.GetProperty("succeededCount").GetInt32());
+            Assert.Equal(0, document.RootElement.GetProperty("failedCount").GetInt32());
+        }
+
+        using (var secondAttempt = await app.SendAsync(
+                   data.TenantBOwner,
+                   data.TenantB.Slug,
+                   $"/api/files/selection-snapshots/{selectionSnapshotId:D}/delete",
+                   HttpMethod.Post))
+        {
+            Assert.Equal(HttpStatusCode.BadRequest, secondAttempt.StatusCode);
+        }
+
+        using var deletedRead = await app.SendAsync(
+            data.TenantBOwner,
+            data.TenantB.Slug,
+            $"/api/files/{fileObjectId:D}");
+        Assert.Equal(HttpStatusCode.BadRequest, deletedRead.StatusCode);
+    }
+
+    [Fact]
     public async Task AuthenticatedHttpNotificationsStayUserAndTenantScoped()
     {
         await using var app = await HttpTenantIsolationTestApp.CreateAsync();
@@ -4768,6 +4840,7 @@ public sealed class HttpTenantIsolationTests
             services.AddScoped<IFormRepository, FormRepository>();
             services.AddScoped<IFileRepository, FileRepository>();
             services.AddScoped<IFileDownloadGrantRepository, FileDownloadGrantRepository>();
+            services.AddScoped<AipPortal.Application.Files.IFileSelectionSnapshotService, FileSelectionSnapshotService>();
             services.AddScoped<IStudentRecordExportGrantRepository, StudentRecordExportGrantRepository>();
             services.AddScoped<ITenantPlanRepository, TenantPlanRepository>();
             services.AddScoped<IArtifactRepository, ArtifactRepository>();
