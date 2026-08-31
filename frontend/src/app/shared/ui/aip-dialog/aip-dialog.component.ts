@@ -20,6 +20,7 @@ import {
       <div class="aip-dialog__backdrop" (mousedown)="handleBackdrop($event)">
         <section
           class="aip-dialog"
+          [class.aip-dialog--wide]="size === 'wide'"
           role="dialog"
           aria-modal="true"
           [attr.aria-labelledby]="titleId"
@@ -65,6 +66,7 @@ import {
     :host { display: contents; }
     .aip-dialog__backdrop { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 1rem; background: var(--aip-color-overlay, rgb(0 0 0 / 58%)); }
     .aip-dialog { width: min(42rem, 100%); max-height: min(48rem, calc(100vh - 2rem)); overflow: auto; border: 1px solid var(--aip-color-border-default, #48505e); border-radius: var(--aip-radius-lg, 0.75rem); background: var(--aip-color-bg-elevated, #171b22); color: var(--aip-color-text-primary, #f4f7fb); box-shadow: var(--aip-shadow-floating, 0 1.5rem 4rem rgb(0 0 0 / 45%)); }
+    .aip-dialog--wide { width: min(72rem, 100%); }
     .aip-dialog__header, .aip-dialog__actions { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; padding: 1rem 1.25rem; }
     .aip-dialog__header { border-bottom: 1px solid var(--aip-color-border-default, #48505e); }
     .aip-dialog__header h2, .aip-dialog__header p { margin: 0; }
@@ -98,6 +100,7 @@ export class AipDialogComponent implements OnChanges {
   @Input() busy = false;
   @Input() confirmDisabled = false;
   @Input() destructive = false;
+  @Input() size: 'default' | 'wide' = 'default';
 
   @Output() readonly confirm = new EventEmitter<void>();
   @Output() readonly cancel = new EventEmitter<void>();
