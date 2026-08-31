@@ -12,7 +12,7 @@
   box-sizing: border-box;
   border: 1px solid transparent;
   border-radius: 6px;
-  padding: 9px 118px 9px 10px;
+  padding: 9px 154px 9px 10px;
   background: transparent;
   color: var(--aip-color-text-primary);
   transition: background-color 120ms ease, border-color 120ms ease;
@@ -140,8 +140,8 @@
 .message__edit-actions button,
 .message__thread-entry {
   display: inline-flex;
-  min-width: 34px;
-  min-height: 34px;
+  min-width: 44px;
+  min-height: 44px;
   align-items: center;
   justify-content: center;
   gap: 5px;
@@ -276,6 +276,7 @@
   .message__actions {
     position: static;
     width: fit-content;
+    justify-self: end;
     margin-top: 2px;
     padding: 0;
     border: 0;
@@ -303,8 +304,8 @@
   }
 
   .message__overflow-panel {
-    right: auto;
-    left: 0;
+    right: 0;
+    left: auto;
     width: min(15rem, calc(100vw - 3rem));
     box-sizing: border-box;
   }
