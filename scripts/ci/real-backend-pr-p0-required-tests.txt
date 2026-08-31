@@ -1,4 +1,5 @@
 # Required real-backend browser tests for pull requests.
+# Revalidated after merging the current main execution-result baseline.
 #
 # This is the first CI acceptance slice. It deliberately covers a small set of
 # high-value cross-layer journeys so PR feedback stays bounded while the full
