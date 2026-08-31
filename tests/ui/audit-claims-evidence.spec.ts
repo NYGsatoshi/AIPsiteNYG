@@ -143,6 +143,6 @@ test.describe('Audit Claims & Evidence workspace', () => {
 
     await page.getByTestId('audit-summary-warning').click();
     await expect(page).toHaveURL(/\/app\/admin\/audit\?severity=warning$/);
-    await expect(page.getByTestId('filter-chip')).toContainText('Severity: Warning');
+    await expect(page.getByRole('button', { name: 'Remove filter Severity: Warning' })).toBeVisible();
   });
 });
