@@ -21,7 +21,7 @@ permissions:
 jobs:
   changes:
     name: CI change routing
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 5
     outputs:
       backend: ${{ steps.classify.outputs.backend }}
@@ -112,7 +112,7 @@ jobs:
 
   secret-scan:
     name: Secret scan
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 10
 
     steps:
@@ -137,7 +137,8 @@ jobs:
           exit "$status"
 
       - name: Upload Gitleaks secret scan report
-        if: always()
+        if: failure()
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: gitleaks-secret-scan-report
@@ -237,7 +238,8 @@ jobs:
           exit "$restore_status"
 
       - name: Upload build restore log
-        if: always()
+        if: failure()
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: build-test-dotnet-restore-log
@@ -282,7 +284,8 @@ jobs:
             --label "Full backend"
 
       - name: Upload backend test results
-        if: always()
+        if: failure()
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: backend-test-results
@@ -417,7 +420,8 @@ jobs:
           exit "$restore_status"
 
       - name: Upload security restore log
-        if: always()
+        if: failure()
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: security-dotnet-restore-log
@@ -448,7 +452,8 @@ jobs:
           exit "$status"
 
       - name: Upload .NET dependency scan reports
-        if: always()
+        if: failure()
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: dotnet-dependency-scan-reports
@@ -573,7 +578,8 @@ jobs:
           exit "$status"
 
       - name: Upload Trivy image scan report
-        if: always()
+        if: failure()
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: trivy-image-scan-report
@@ -683,6 +689,7 @@ jobs:
 
       - name: Upload Playwright artifacts
         if: failure()
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: playwright-ui-test-artifacts
