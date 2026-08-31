@@ -98,6 +98,7 @@ public sealed class ArtifactEvidenceManifestService(
             {
                 TenantId = version.TenantId,
                 ArtifactVersionId = version.Id,
+                LogicalClaimId = Guid.NewGuid(),
                 Ordinal = item.Ordinal,
                 Text = claimText,
                 CitationPresent = item.CitationPresent,

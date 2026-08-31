@@ -103,6 +103,9 @@ public sealed class AppDbContext(
     public DbSet<ActivityLog> ActivityLogs => Set<ActivityLog>();
     public DbSet<Artifact> Artifacts => Set<Artifact>();
     public DbSet<ArtifactVersion> ArtifactVersions => Set<ArtifactVersion>();
+    public DbSet<ArtifactReportDocument> ArtifactReportDocuments => Set<ArtifactReportDocument>();
+    public DbSet<ArtifactReportSection> ArtifactReportSections => Set<ArtifactReportSection>();
+    public DbSet<ArtifactReportCitation> ArtifactReportCitations => Set<ArtifactReportCitation>();
     public DbSet<Comment> Comments => Set<Comment>();
     public DbSet<Feedback> Feedback => Set<Feedback>();
     public DbSet<FileObject> FileObjects => Set<FileObject>();

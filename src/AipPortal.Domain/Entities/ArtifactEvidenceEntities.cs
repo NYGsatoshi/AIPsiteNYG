@@ -10,6 +10,7 @@ public sealed class ArtifactClaim : AuditableEntity, ITenantEntity
 {
     public Guid TenantId { get; set; }
     public Guid ArtifactVersionId { get; set; }
+    public Guid LogicalClaimId { get; set; } = Guid.NewGuid();
     public int Ordinal { get; set; }
     public string Text { get; set; } = string.Empty;
     public bool CitationPresent { get; set; }
@@ -18,6 +19,41 @@ public sealed class ArtifactClaim : AuditableEntity, ITenantEntity
 
     public ArtifactVersion? ArtifactVersion { get; set; }
     public ICollection<ArtifactEvidence> Evidence { get; } = new List<ArtifactEvidence>();
+}
+
+/// <summary>Immutable structured report attached once to an ArtifactVersion.</summary>
+public sealed class ArtifactReportDocument : AuditableEntity, ITenantEntity
+{
+    public Guid TenantId { get; set; }
+    public Guid ArtifactVersionId { get; set; }
+    public int SchemaVersion { get; set; } = 1;
+    public string Title { get; set; } = string.Empty;
+    public ArtifactVersion? ArtifactVersion { get; set; }
+    public ICollection<ArtifactReportSection> Sections { get; } = new List<ArtifactReportSection>();
+}
+
+public sealed class ArtifactReportSection : AuditableEntity, ITenantEntity
+{
+    public Guid LogicalSectionId { get; set; } = Guid.NewGuid();
+    public Guid TenantId { get; set; }
+    public Guid ArtifactReportDocumentId { get; set; }
+    public int Ordinal { get; set; }
+    public string Heading { get; set; } = string.Empty;
+    public string BodyText { get; set; } = string.Empty;
+    public ArtifactReportDocument? Document { get; set; }
+    public ICollection<ArtifactReportCitation> Citations { get; } = new List<ArtifactReportCitation>();
+}
+
+public sealed class ArtifactReportCitation : AuditableEntity, ITenantEntity
+{
+    public Guid TenantId { get; set; }
+    public Guid ArtifactReportSectionId { get; set; }
+    public int Ordinal { get; set; }
+    public int AnchorStartUtf16 { get; set; }
+    public int AnchorLengthUtf16 { get; set; }
+    public Guid ArtifactClaimId { get; set; }
+    public ArtifactReportSection? Section { get; set; }
+    public ArtifactClaim? Claim { get; set; }
 }
 
 /// <summary>

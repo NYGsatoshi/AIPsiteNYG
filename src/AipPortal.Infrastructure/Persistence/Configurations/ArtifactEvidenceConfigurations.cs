@@ -19,6 +19,7 @@ public sealed class ArtifactClaimConfiguration : IEntityTypeConfiguration<Artifa
             table.HasCheckConstraint("CK_artifact_claims_ordinal", "\"Ordinal\" > 0");
         });
         builder.ConfigureAuditableEntity();
+        builder.Property(claim => claim.LogicalClaimId).IsRequired();
         builder.Property(claim => claim.Text).HasMaxLength(4000).IsRequired();
         builder.Property(claim => claim.SupportStatus).HasEnumStringConversion().IsRequired();
         builder.Property(claim => claim.ReviewStatus).HasEnumStringConversion().IsRequired();
@@ -28,6 +29,47 @@ public sealed class ArtifactClaimConfiguration : IEntityTypeConfiguration<Artifa
             .WithMany()
             .HasForeignKey(claim => claim.ArtifactVersionId)
             .OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+public sealed class ArtifactReportDocumentConfiguration : IEntityTypeConfiguration<ArtifactReportDocument>
+{
+    public void Configure(EntityTypeBuilder<ArtifactReportDocument> builder)
+    {
+        builder.ToTable("artifact_report_documents", t => t.ExcludeFromMigrations());
+        builder.ConfigureAuditableEntity();
+        builder.Property(x => x.Title).HasMaxLength(512).IsRequired();
+        builder.HasIndex(x => x.ArtifactVersionId).IsUnique();
+        builder.HasOne(x => x.ArtifactVersion).WithMany().HasForeignKey(x => x.ArtifactVersionId).OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+public sealed class ArtifactReportSectionConfiguration : IEntityTypeConfiguration<ArtifactReportSection>
+{
+    public void Configure(EntityTypeBuilder<ArtifactReportSection> builder)
+    {
+        builder.ToTable("artifact_report_sections", t => t.ExcludeFromMigrations());
+        builder.ConfigureAuditableEntity();
+        builder.Property(x => x.Heading).HasMaxLength(512).IsRequired();
+        builder.Property(x => x.BodyText).HasMaxLength(50000).IsRequired();
+        builder.HasIndex(x => new { x.TenantId, x.ArtifactReportDocumentId, x.Ordinal }).IsUnique();
+        builder.HasOne(x => x.Document).WithMany(x => x.Sections).HasForeignKey(x => x.ArtifactReportDocumentId).OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+public sealed class ArtifactReportCitationConfiguration : IEntityTypeConfiguration<ArtifactReportCitation>
+{
+    public void Configure(EntityTypeBuilder<ArtifactReportCitation> builder)
+    {
+        builder.ToTable("artifact_report_citations", t =>
+        {
+            t.ExcludeFromMigrations();
+            t.HasCheckConstraint("CK_artifact_report_citations_anchor", "\"AnchorStartUtf16\" >= 0 AND \"AnchorLengthUtf16\" >= 0");
+        });
+        builder.ConfigureAuditableEntity();
+        builder.HasIndex(x => new { x.TenantId, x.ArtifactReportSectionId, x.Ordinal }).IsUnique();
+        builder.HasOne(x => x.Section).WithMany(x => x.Citations).HasForeignKey(x => x.ArtifactReportSectionId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne(x => x.Claim).WithMany().HasForeignKey(x => x.ArtifactClaimId).OnDelete(DeleteBehavior.Restrict);
     }
 }
 
