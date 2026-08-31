@@ -4475,6 +4475,10 @@ async function createDirectMessageAndVerifyPersistence(page: Page, evidence: Smo
 
   const messageRow = page.locator(`#message-${evidence.messageId}`);
   const more = page.getByTestId(`message-more-actions-${evidence.messageId}`);
+  // Message actions are intentionally revealed only for a hovered or
+  // keyboard-focused row. Mirror the real mouse interaction before invoking
+  // the overflow control rather than forcing a click through that boundary.
+  await messageRow.hover();
   await more.click();
   await page.getByTestId(`report-message-${evidence.messageId}`).click();
   const [reportResponse] = await Promise.all([
@@ -4489,6 +4493,7 @@ async function createDirectMessageAndVerifyPersistence(page: Page, evidence: Smo
   await expect(page.getByTestId('message-action-status')).toContainText('Report request recorded.');
 
   const editedMessageBody = `${messageBody} edited`;
+  await messageRow.hover();
   await more.click();
   await page.getByTestId(`edit-message-${evidence.messageId}`).click();
   await expect(page.getByTestId(`message-edit-input-${evidence.messageId}`)).toBeFocused();
