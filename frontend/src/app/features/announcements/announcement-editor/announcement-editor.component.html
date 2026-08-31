@@ -53,7 +53,22 @@
         @for (error of summaryErrors; track error.field) {
           <li>
             <a
-              [href]="'#announcement-' + (error.field === 'audienceKey' ? 'audience' : error.field)"
+              [href]="
+                '#announcement-' +
+                (error.field === 'audienceKey'
+                  ? 'audience'
+                  : error.field === 'scheduledLocalDateTime'
+                    ? 'schedule-local-time'
+                    : error.field === 'ctaLabel'
+                      ? 'cta-label'
+                      : error.field === 'ctaUrl'
+                        ? 'cta-url'
+                        : error.field === 'attachmentLabel'
+                          ? 'attachment-label'
+                          : error.field === 'attachmentUrl'
+                            ? 'attachment-url'
+                            : error.field)
+              "
               (click)="focusField(error.field, $event)"
             >
               {{ error.message }}
@@ -119,7 +134,7 @@
       data-testid="announcement-editor-body"
     ></textarea>
     <small id="announcement-body-help"
-      >必須・20,000文字以内。本文はプレーンテキストとして表示されます。</small
+      >必須・20,000文字以内。本文はプレーンテキストとして表示されます。CTAまたはリンク添付を設定した場合は、そのメタデータもサーバーの保存上限に含まれます。</small
     >
     @if (fieldError('body'); as error) {
       <small
@@ -132,6 +147,141 @@
       </small>
     }
   </label>
+
+  <fieldset
+    class="announcement-editor__content-links"
+    aria-describedby="announcement-content-links-help"
+    data-testid="announcement-content-links"
+  >
+    <legend>CTA・リンク添付</legend>
+    <p id="announcement-content-links-help">
+      任意項目です。表示名とURLを両方入力してください。URLは <code>/</code> から始まるアプリ内パス、またはHTTPS URLに限定されます。Previewでは移動を発生させません。
+    </p>
+
+    <div class="announcement-editor__row">
+      <label for="announcement-cta-label">
+        <span>CTA表示名</span>
+        <input
+          #ctaLabelInput
+          id="announcement-cta-label"
+          type="text"
+          autocomplete="off"
+          maxlength="120"
+          [value]="ctaLabel()"
+          [disabled]="!canSaveDraft || publishing"
+          [attr.aria-invalid]="linkFieldError('ctaLabel') ? 'true' : null"
+          [attr.aria-describedby]="linkFieldDescribedBy('ctaLabel', 'announcement-cta-label-help')"
+          (input)="updateContentLink('ctaLabel', $event)"
+          (blur)="touchContentLink('ctaLabel')"
+          data-testid="announcement-editor-cta-label"
+        />
+        <small id="announcement-cta-label-help">例: 申請フォームを開く</small>
+        @if (linkFieldError('ctaLabel'); as error) {
+          <small
+            id="announcement-cta-label-error"
+            class="announcement-editor__field-error"
+            role="alert"
+            data-testid="announcement-cta-label-error"
+          >
+            {{ error }}
+          </small>
+        }
+      </label>
+
+      <label for="announcement-cta-url">
+        <span>CTA URL</span>
+        <input
+          #ctaUrlInput
+          id="announcement-cta-url"
+          type="text"
+          inputmode="url"
+          autocomplete="off"
+          maxlength="2048"
+          placeholder="/forms/example または https://example.jp/..."
+          [value]="ctaUrl()"
+          [disabled]="!canSaveDraft || publishing"
+          [attr.aria-invalid]="linkFieldError('ctaUrl') ? 'true' : null"
+          [attr.aria-describedby]="linkFieldDescribedBy('ctaUrl', 'announcement-cta-url-help')"
+          (input)="updateContentLink('ctaUrl', $event)"
+          (blur)="touchContentLink('ctaUrl')"
+          data-testid="announcement-editor-cta-url"
+        />
+        <small id="announcement-cta-url-help">認証情報を含むURL、HTTP、javascript:、プロトコル相対URLは使用できません。</small>
+        @if (linkFieldError('ctaUrl'); as error) {
+          <small
+            id="announcement-cta-url-error"
+            class="announcement-editor__field-error"
+            role="alert"
+            data-testid="announcement-cta-url-error"
+          >
+            {{ error }}
+          </small>
+        }
+      </label>
+    </div>
+
+    <div class="announcement-editor__row">
+      <label for="announcement-attachment-label">
+        <span>リンク添付の表示名</span>
+        <input
+          #attachmentLabelInput
+          id="announcement-attachment-label"
+          type="text"
+          autocomplete="off"
+          maxlength="120"
+          [value]="attachmentLabel()"
+          [disabled]="!canSaveDraft || publishing"
+          [attr.aria-invalid]="linkFieldError('attachmentLabel') ? 'true' : null"
+          [attr.aria-describedby]="linkFieldDescribedBy('attachmentLabel', 'announcement-attachment-label-help')"
+          (input)="updateContentLink('attachmentLabel', $event)"
+          (blur)="touchContentLink('attachmentLabel')"
+          data-testid="announcement-editor-attachment-label"
+        />
+        <small id="announcement-attachment-label-help">例: 行事要項 PDF</small>
+        @if (linkFieldError('attachmentLabel'); as error) {
+          <small
+            id="announcement-attachment-label-error"
+            class="announcement-editor__field-error"
+            role="alert"
+            data-testid="announcement-attachment-label-error"
+          >
+            {{ error }}
+          </small>
+        }
+      </label>
+
+      <label for="announcement-attachment-url">
+        <span>リンク添付 URL</span>
+        <input
+          #attachmentUrlInput
+          id="announcement-attachment-url"
+          type="text"
+          inputmode="url"
+          autocomplete="off"
+          maxlength="2048"
+          placeholder="/files/... または https://example.jp/file.pdf"
+          [value]="attachmentUrl()"
+          [disabled]="!canSaveDraft || publishing"
+          [attr.aria-invalid]="linkFieldError('attachmentUrl') ? 'true' : null"
+          [attr.aria-describedby]="linkFieldDescribedBy('attachmentUrl', 'announcement-attachment-url-help')"
+          (input)="updateContentLink('attachmentUrl', $event)"
+          (blur)="touchContentLink('attachmentUrl')"
+          data-testid="announcement-editor-attachment-url"
+        />
+        <small id="announcement-attachment-url-help">この欄は既存ファイルへのリンクです。Storage key、署名URL、ダウンロード権限は保存しません。</small>
+        @if (linkFieldError('attachmentUrl'); as error) {
+          <small
+            id="announcement-attachment-url-error"
+            class="announcement-editor__field-error"
+            role="alert"
+            data-testid="announcement-attachment-url-error"
+          >
+            {{ error }}
+          </small>
+        }
+      </label>
+    </div>
+  </fieldset>
 
   <div class="announcement-editor__row">
     <label for="announcement-priority">
@@ -329,6 +479,14 @@
           <dd>{{ priorityLabels[form.controls.priority.value] }}</dd>
         </div>
         <div>
+          <dt>CTA</dt>
+          <dd>{{ ctaLabel().trim() || 'なし' }}</dd>
+        </div>
+        <div>
+          <dt>リンク添付</dt>
+          <dd>{{ attachmentLabel().trim() || 'なし' }}</dd>
+        </div>
+        <div>
           <dt>Delivery</dt>
           <dd>{{ publicationTimingLabel() }}</dd>
         </div>
@@ -360,7 +518,7 @@
 <app-aip-dialog
   [open]="publicationReviewOpen()"
   title="Confirm publication — Confirm delivery"
-  description="Review the authorized audience, recipient estimate, priority, and delivery timing before the server accepts this request."
+  description="Review the authorized audience, recipient estimate, priority, actions, attachment, and delivery timing before the server accepts this request."
   [confirmLabel]="confirmationLabel()"
   cancelLabel="Back to editing"
   [busy]="publicationConfirming() || publishing"
@@ -402,6 +560,26 @@
         <div>
           <dt>Priority</dt>
           <dd data-testid="announcement-confirmation-priority">{{ priorityLabels[review.priority] }}</dd>
+        </div>
+        <div>
+          <dt>CTA</dt>
+          <dd data-testid="announcement-confirmation-cta">
+            @if (review.cta; as cta) {
+              {{ cta.label }} — {{ cta.url }}
+            } @else {
+              None
+            }
+          </dd>
+        </div>
+        <div>
+          <dt>Linked attachment</dt>
+          <dd data-testid="announcement-confirmation-attachment">
+            @if (review.attachment; as attachment) {
+              {{ attachment.label }} — {{ attachment.url }}
+            } @else {
+              None
+            }
+          </dd>
         </div>
         <div>
           <dt>Delivery</dt>
