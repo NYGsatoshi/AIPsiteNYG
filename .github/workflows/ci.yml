@@ -111,6 +111,9 @@ jobs:
 
       - name: Upload build restore log
         if: always()
+        # Evidence upload must not hide the actual restore/build result when
+        # GitHub Actions storage is temporarily unavailable or exhausted.
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: build-test-dotnet-restore-log
