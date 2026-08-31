@@ -4,6 +4,28 @@
     <h3 id="task-execution-result-heading">Execution result</h3>
   </header>
 
+  @if (allowExecutionStart) {
+    <section class="task-execution-result__launcher" aria-labelledby="task-execution-launcher-heading" data-testid="task-execution-launcher">
+      <h4 id="task-execution-launcher-heading">Run against authorized Project files</h4>
+      <p>The browser submits no file identifiers, paths, source inventory, or evidence. The server snapshots the active scope and reauthorizes every Project file before materialization.</p>
+      <button
+        type="button"
+        data-testid="task-execution-start"
+        [disabled]="starting() || loading()"
+        (click)="startExecution()"
+      >
+        {{ starting() ? 'Starting execution...' : 'Start execution' }}
+      </button>
+    </section>
+  }
+
+  @if (startFeedback(); as message) {
+    <p class="task-execution-result__status" role="status" aria-live="polite" data-testid="task-execution-start-feedback">{{ message }}</p>
+  }
+  @if (startError(); as message) {
+    <p class="task-execution-result__failure" role="alert" data-testid="task-execution-start-error">{{ message }}</p>
+  }
+
   @if (result(); as current) {
     <p class="task-execution-result__status" role="status" aria-live="polite" aria-atomic="true">
       <span>Execution state</span>
