@@ -7,7 +7,8 @@ set -euo pipefail
 onprem_config="$(mktemp)"
 sakura_config="$(mktemp)"
 trycloudflare_config="$(mktemp)"
-trap 'rm -f "$onprem_config" "$sakura_config" "$trycloudflare_config"' EXIT
+trycloudflare_caddy_config="$(mktemp)"
+trap 'rm -f "$onprem_config" "$sakura_config" "$trycloudflare_config" "$trycloudflare_caddy_config"' EXIT
 
 docker compose -f docker-compose.onprem.yml config --format json > "$onprem_config"
 docker compose -p deploy -f deploy/sakura/docker-compose.yml config --format json > "$sakura_config"
@@ -15,12 +16,16 @@ docker compose -p deploy \
   -f deploy/sakura/docker-compose.yml \
   -f deploy/sakura/docker-compose.trycloudflare.yml \
   config --format json > "$trycloudflare_config"
+docker compose -p deploy --profile caddy \
+  -f deploy/sakura/docker-compose.yml \
+  -f deploy/sakura/docker-compose.trycloudflare.yml \
+  config --format json > "$trycloudflare_caddy_config"
 
-python3 - "$onprem_config" "$sakura_config" "$trycloudflare_config" <<'PY'
+python3 - "$onprem_config" "$sakura_config" "$trycloudflare_config" "$trycloudflare_caddy_config" <<'PY'
 import json
 import sys
 
-onprem_path, sakura_path, trycloudflare_path = sys.argv[1:]
+onprem_path, sakura_path, trycloudflare_path, trycloudflare_caddy_path = sys.argv[1:]
 
 
 def load(path):
@@ -55,6 +60,7 @@ def assert_https_security(env):
 onprem = load(onprem_path)
 sakura = load(sakura_path)
 trycloudflare = load(trycloudflare_path)
+trycloudflare_caddy = load(trycloudflare_caddy_path)
 
 onprem_env = environment(onprem, "app")
 assert_loopback_only_origin(onprem, "app", 8080)
@@ -79,5 +85,10 @@ assert (
     trycloudflare_env["ReverseProxy__TrustedNetworks__0"]
     == sakura_env["ReverseProxy__TrustedNetworks__0"]
 ), (sakura_env, trycloudflare_env)
-assert "caddy" in trycloudflare["services"]["caddy"].get("profiles", []), trycloudflare["services"]["caddy"]
+
+# The Quick Tunnel topology excludes bundled Caddy by default, but operators can
+# explicitly re-enable the profile when validating or transitioning topologies.
+assert "caddy" not in trycloudflare["services"], trycloudflare["services"]
+assert "caddy" in trycloudflare_caddy["services"], trycloudflare_caddy["services"]
+assert "caddy" in trycloudflare_caddy["services"]["caddy"].get("profiles", []), trycloudflare_caddy["services"]["caddy"]
 PY
