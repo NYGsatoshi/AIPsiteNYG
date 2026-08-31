@@ -64,6 +64,21 @@ sakura = load(sakura_path)
 trycloudflare = load(trycloudflare_path)
 trycloudflare_caddy = load(trycloudflare_caddy_path)
 
+with open("global.json", encoding="utf-8") as handle:
+    sdk_version = json.load(handle)["sdk"]["version"]
+expected_sdk_image = f"mcr.microsoft.com/dotnet/sdk:{sdk_version}"
+
+for name, config in (
+    ("onprem", onprem),
+    ("sakura", sakura),
+    ("trycloudflare", trycloudflare),
+):
+    actual = config["services"]["migrate"].get("image")
+    assert actual == expected_sdk_image, (
+        f"{name} migrate SDK image must match global.json: "
+        f"expected {expected_sdk_image!r}, got {actual!r}"
+    )
+
 onprem_env = environment(onprem, "app")
 assert_loopback_only_origin(onprem, "app", 8080)
 assert_https_security(onprem_env)
