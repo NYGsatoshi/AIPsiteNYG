@@ -132,7 +132,7 @@ describe('Workspace dashboard API mapper', () => {
     }));
     const ordinaryViewer = mapWorkspaceDashboardItem(dashboardItem({
       hasExternalShares: true,
-      externalShareCount: null,
+      externalShareCount: 2,
     }));
 
     expect(manager.hasExternalShares).toBe(true);

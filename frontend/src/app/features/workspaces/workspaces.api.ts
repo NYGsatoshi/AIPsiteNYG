@@ -171,6 +171,7 @@ export function mapWorkspaceDashboardItem(
   const unreadConversationCount = nonNegativeInteger(workspace.unreadConversationCount);
   const runningProjectCount = nonNegativeInteger(workspace.runningProjectCount);
   const needsReviewProjectCount = nonNegativeInteger(workspace.needsReviewProjectCount);
+  const canInspectSharing = workspace.canInspectSharing === true;
   const activeProjectCount =
     nonNegativeInteger(workspace.inProgressProjectCount) ??
     (runningProjectCount !== null && needsReviewProjectCount !== null
@@ -190,7 +191,9 @@ export function mapWorkspaceDashboardItem(
     runningProjectCount,
     needsReviewProjectCount,
     hasExternalShares: workspace.hasExternalShares === true,
-    externalShareCount: nonNegativeInteger(workspace.externalShareCount),
+    externalShareCount: canInspectSharing
+      ? nonNegativeInteger(workspace.externalShareCount)
+      : null,
     memberPreview: memberPreview(workspace.memberPreview),
     lastUpdatedLabel,
     availability: {

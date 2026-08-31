@@ -111,11 +111,13 @@ jobs:
 
       - name: Upload build restore log
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: build-test-dotnet-restore-log
           path: artifacts/ci/build-test-dotnet-restore.log
           if-no-files-found: warn
+          retention-days: 1
 
       - name: Build
         run: '"$DOTNET_CMD" build AipPortal.slnx --configuration Release --no-restore --disable-build-servers -m:1'
@@ -156,11 +158,13 @@ jobs:
 
       - name: Upload backend test results
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: backend-test-results
           path: artifacts/test-results
           if-no-files-found: warn
+          retention-days: 1
 
       - name: Verify TASK-V1-PR07-B acceptance results
         shell: bash
@@ -264,11 +268,13 @@ jobs:
 
       - name: Upload Gitleaks secret scan report
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: gitleaks-secret-scan-report
           path: gitleaks-report.json
           if-no-files-found: error
+          retention-days: 1
 
       - name: Configure persistent .NET caches
         shell: bash
@@ -312,11 +318,13 @@ jobs:
 
       - name: Upload security restore log
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: security-dotnet-restore-log
           path: artifacts/ci/security-dotnet-restore.log
           if-no-files-found: error
+          retention-days: 1
 
       - name: Check .NET vulnerable packages
         shell: bash
@@ -343,6 +351,7 @@ jobs:
 
       - name: Upload .NET dependency scan reports
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: dotnet-dependency-scan-reports
@@ -350,6 +359,7 @@ jobs:
             dotnet-vulnerable-packages.txt
             dotnet-deprecated-packages.txt
           if-no-files-found: error
+          retention-days: 1
 
       - name: Validate Docker Compose configs
         env:
@@ -468,11 +478,13 @@ jobs:
 
       - name: Upload Trivy image scan report
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: trivy-image-scan-report
           path: trivy-image-report.txt
           if-no-files-found: warn
+          retention-days: 1
 
       - name: Remove per-run Docker image
         if: always()
@@ -575,6 +587,7 @@ jobs:
 
       - name: Upload Playwright artifacts
         if: failure()
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: playwright-ui-test-artifacts
@@ -582,6 +595,7 @@ jobs:
             playwright-report/
             test-results/
           if-no-files-found: ignore
+          retention-days: 1
 
       - name: Report frontend cache and host resources on failure
         if: failure()
