@@ -166,6 +166,14 @@ export class SyncfusionDataGridComponent<TData extends object> implements OnChan
     this.grid?.clearSelection();
   }
 
+  selectAllRows(): void {
+    if (this.selectionMode !== 'multiple' || !this.grid) {
+      return;
+    }
+
+    this.grid.selectRows(this.rows.map((_, index) => index));
+  }
+
   handleActionComplete(event: SyncfusionGridEvent<TData>): void {
     if (event.requestType === 'paging') {
       this.pageChanged.emit({ page: event.currentPage ?? this.page, pageSize: this.boundedPageSize });

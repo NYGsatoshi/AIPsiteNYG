@@ -1976,6 +1976,85 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                     b.ToTable("file_scan_results", (string)null);
                 });
 
+            modelBuilder.Entity("AipPortal.Domain.Entities.FileSelectionSnapshot", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ActorUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("ConsumedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("ConsumptionVersion")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("FileKind")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTimeOffset?>("FromDateUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("NormalizedQuery")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<bool>("OnlyMyUploads")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("WorkspaceId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActorUserId");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("ExpiresAt");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("WorkspaceId");
+
+                    b.HasIndex("TenantId", "ActorUserId", "ExpiresAt");
+
+                    b.ToTable("file_selection_snapshots", (string)null);
+                });
+
+            modelBuilder.Entity("AipPortal.Domain.Entities.FileSelectionSnapshotItem", b =>
+                {
+                    b.Property<Guid>("SelectionSnapshotId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("FileObjectId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("SelectionSnapshotId", "FileObjectId");
+
+                    b.HasIndex("FileObjectId");
+
+                    b.ToTable("file_selection_snapshot_items", (string)null);
+                });
+
             modelBuilder.Entity("AipPortal.Domain.Entities.FormAnswer", b =>
                 {
                     b.Property<Guid>("Id")
@@ -6515,6 +6594,17 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                     b.Navigation("Attachment");
                 });
 
+            modelBuilder.Entity("AipPortal.Domain.Entities.FileSelectionSnapshotItem", b =>
+                {
+                    b.HasOne("AipPortal.Domain.Entities.FileSelectionSnapshot", "SelectionSnapshot")
+                        .WithMany("Items")
+                        .HasForeignKey("SelectionSnapshotId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("SelectionSnapshot");
+                });
+
             modelBuilder.Entity("AipPortal.Domain.Entities.FormAnswer", b =>
                 {
                     b.HasOne("AipPortal.Domain.Entities.FormQuestion", "FormQuestion")
@@ -7666,6 +7756,11 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                     b.Navigation("CommandDefinitions");
 
                     b.Navigation("PanelDefinitions");
+                });
+
+            modelBuilder.Entity("AipPortal.Domain.Entities.FileSelectionSnapshot", b =>
+                {
+                    b.Navigation("Items");
                 });
 
             modelBuilder.Entity("AipPortal.Domain.Entities.FormQuestion", b =>

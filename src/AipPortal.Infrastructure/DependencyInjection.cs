@@ -70,6 +70,7 @@ public static class DependencyInjection
         services.AddScoped<IFormRepository, FormRepository>();
         services.AddScoped<IFileRepository, FileRepository>();
         services.AddScoped<IFileDownloadGrantRepository, FileDownloadGrantRepository>();
+        services.AddScoped<AipPortal.Application.Files.IFileSelectionSnapshotService, FileSelectionSnapshotService>();
         services.AddScoped<ITenantPlanRepository, TenantPlanRepository>();
         services.AddScoped<IArtifactRepository, ArtifactRepository>();
         services.AddScoped<IArtifactEvidenceRepository, ArtifactEvidenceRepository>();

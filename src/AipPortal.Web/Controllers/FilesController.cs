@@ -11,7 +11,9 @@ namespace AipPortal.Web.Controllers;
 
 [ApiController]
 [Authorize]
-public sealed class FilesController(IFileObjectService files) : ControllerBase
+public sealed class FilesController(
+    IFileObjectService files,
+    IFileSelectionSnapshotService selectionSnapshots) : ControllerBase
 {
     [HttpGet("api/files")]
     public async Task<IActionResult> List(
@@ -82,6 +84,39 @@ public sealed class FilesController(IFileObjectService files) : ControllerBase
             fileObjectId,
             request ?? new FileDownloadGrantRequest(),
             cancellationToken));
+    }
+
+    [HttpPost("api/files/selection-snapshots")]
+    [EnableRateLimiting("search")]
+    public async Task<IActionResult> CaptureSelectionSnapshot(
+        [FromQuery] FileSelectionSnapshotCreateRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await selectionSnapshots.CaptureAsync(request, cancellationToken);
+        return result.IsSuccess
+            ? Ok(result.Value!)
+            : BadRequest(CanonicalErrorEnvelope.FromResult(
+                HttpContext,
+                StatusCodes.Status400BadRequest,
+                result.ErrorDetail,
+                result.Error,
+                "FileSelectionSnapshotFailed"));
+    }
+
+    [HttpPost("api/files/selection-snapshots/{selectionSnapshotId:guid}/delete")]
+    public async Task<IActionResult> DeleteSelectionSnapshot(
+        Guid selectionSnapshotId,
+        CancellationToken cancellationToken)
+    {
+        var result = await selectionSnapshots.DeleteAsync(selectionSnapshotId, cancellationToken);
+        return result.IsSuccess
+            ? Ok(result.Value!)
+            : BadRequest(CanonicalErrorEnvelope.FromResult(
+                HttpContext,
+                StatusCodes.Status400BadRequest,
+                result.ErrorDetail,
+                result.Error,
+                "FileSelectionSnapshotDeleteFailed"));
     }
 
     [HttpPost("api/file-download-grants/{fileDownloadGrantId:guid}/download")]

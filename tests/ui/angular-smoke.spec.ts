@@ -739,6 +739,31 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await expect(previewAction).toBeFocused();
   });
 
+  test('uses File container breakpoints inside the desktop shell without page overflow', async ({ page }) => {
+    const cases = [
+      { width: 1440, columns: 2, usesMobileList: false },
+      { width: 1024, columns: 1, usesMobileList: true },
+      { width: 768, columns: 1, usesMobileList: false },
+    ];
+
+    for (const scenario of cases) {
+      await page.setViewportSize({ width: scenario.width, height: 800 });
+      await page.goto('/app/files');
+      await expect(page.getByTestId('files-page')).toBeVisible();
+
+      const layout = await page.locator('.files-page__grid').evaluate((element) => ({
+        columns: getComputedStyle(element).gridTemplateColumns.split(' ').filter(Boolean).length,
+        desktopGridDisplay: getComputedStyle(element.querySelector('.files-page__desktop-grid')!).display,
+        mobileListDisplay: getComputedStyle(element.querySelector('.files-page__mobile-list')!).display,
+      }));
+
+      expect(layout.columns).toBe(scenario.columns);
+      expect(layout.desktopGridDisplay === 'none').toBe(scenario.usesMobileList);
+      expect(layout.mobileListDisplay !== 'none').toBe(scenario.usesMobileList);
+      await expectNoDocumentHorizontalOverflow(page);
+    }
+  });
+
   test('keeps the canonical Research Quick Create flow accessible and duplicate-safe at 320px', async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 800 });
     const workspace: WorkspaceContextFixture = {

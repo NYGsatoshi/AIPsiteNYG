@@ -48,11 +48,46 @@ export function fileSearchParams(
     params = params.set('fileKind', backendFileKind(filters.kind));
   }
   if (filters.modified !== 'any') {
-    const days = filters.modified === 'last7Days' ? 7 : filters.modified === 'last30Days' ? 30 : 90;
-    params = params.set('fromDate', new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toISOString());
+    params = params.set('fromDate', fileSearchFromDate(filters.modified, now)!);
   }
   if (filters.owner === 'me' && currentUserId) {
     params = params.set('authorUserId', currentUserId);
+  }
+  return params;
+}
+
+/** The capture request reuses the exact relative-date boundary used by search. */
+export function fileSearchFromDate(
+  modified: FileSearchFilters['modified'],
+  now = new Date(),
+): string | undefined {
+  if (modified === 'any') {
+    return undefined;
+  }
+
+  const days = modified === 'last7Days' ? 7 : modified === 'last30Days' ? 30 : 90;
+  return new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toISOString();
+}
+
+/** Parameters accepted by the server-owned all-search-results snapshot endpoint. */
+export function fileSearchSelectionSnapshotParams(
+  workspaceId: string,
+  filters: FileSearchFilters,
+  fromDate?: string,
+): HttpParams {
+  let params = new HttpParams().set('workspaceId', workspaceId);
+  const query = filters.query.trim();
+  if (query) {
+    params = params.set('q', query);
+  }
+  if (filters.kind !== 'all') {
+    params = params.set('fileKind', backendFileKind(filters.kind));
+  }
+  if (fromDate) {
+    params = params.set('fromDate', fromDate);
+  }
+  if (filters.owner === 'me') {
+    params = params.set('onlyMyUploads', 'true');
   }
   return params;
 }

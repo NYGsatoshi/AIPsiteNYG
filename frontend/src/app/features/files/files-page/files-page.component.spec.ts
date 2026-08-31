@@ -350,7 +350,7 @@ describe('FilesPageComponent', () => {
     expect(textContent(fixture)).not.toContain('note.txt');
   });
 
-  it('does not render a delete control when the server capability is absent', async () => {
+  it('keeps the batch Delete action visible but disabled when the server capability is absent', async () => {
     const { fixture } = await renderLiveFilesPage([{ ...backendFile, canDelete: undefined }]);
     const component = fixture.componentInstance;
     const file = component.page().recentFiles[0];
@@ -362,8 +362,107 @@ describe('FilesPageComponent', () => {
     fixture.detectChanges();
 
     const host = fixture.nativeElement as HTMLElement;
-    expect(host.querySelector('[data-testid="files-selected-delete"]')).toBeNull();
+    expect((host.querySelector('[data-testid="files-selected-delete"]') as HTMLButtonElement).disabled).toBe(true);
     expect(host.querySelector('[data-testid="files-selected-download"]')).not.toBeNull();
+  });
+
+  it('captures all search results on the server and batch-deletes the opaque selection', async () => {
+    const secondFileObjectId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+    const { fixture, http } = await renderLiveFilesPage([backendFile]);
+    const host = fixture.nativeElement as HTMLElement;
+    const input = host.querySelector('[data-testid="files-search-input"]') as HTMLInputElement;
+    input.value = 'report';
+    input.dispatchEvent(new Event('input'));
+    (host.querySelector('[data-testid="files-search-surface"] form') as HTMLFormElement)
+      .dispatchEvent(new Event('submit'));
+
+    const search = http.expectOne('/api/search');
+    search.flush({
+      page: 1,
+      pageSize: 50,
+      totalCount: 2,
+      items: [
+        {
+          type: 13,
+          id: FILE_OBJECT_ID,
+          title: 'report-one.pdf',
+          workspaceId: WORKSPACE_ID,
+          createdAt: '2026-08-20T00:00:00Z',
+          contentType: 'application/pdf',
+          sizeBytes: 10,
+          status: 'Active',
+        },
+        {
+          type: 13,
+          id: secondFileObjectId,
+          title: 'report-two.pdf',
+          workspaceId: WORKSPACE_ID,
+          createdAt: '2026-08-21T00:00:00Z',
+          contentType: 'application/pdf',
+          sizeBytes: 20,
+          status: 'Active',
+        },
+      ],
+    });
+    fixture.detectChanges();
+
+    (host.querySelector('[data-testid="files-select-all-search-results"]') as HTMLButtonElement).click();
+    const capture = http.expectOne(request =>
+      request.url === '/api/files/selection-snapshots' && request.method === 'POST');
+    expect(capture.request.params.get('workspaceId')).toBe(WORKSPACE_ID);
+    expect(capture.request.params.get('q')).toBe('report');
+    capture.flush({
+      outcome: 'Captured',
+      selectionSnapshotId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      selectedCount: 2,
+      maximumSelectionCount: 100,
+      expiresAt: '2026-08-31T12:00:00Z',
+    });
+    fixture.detectChanges();
+
+    expect(textContent(fixture)).toContain('2 selected');
+    expect(textContent(fixture)).toContain('Captured search-result selection');
+    expect((host.querySelector('[data-testid="files-selected-download"]') as HTMLButtonElement).disabled).toBe(true);
+
+    (host.querySelector('[data-testid="files-selected-delete"]') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(textContent(fixture)).toContain('Delete 2 captured search-result files?');
+    expect(textContent(fixture)).toContain("restoration follows your organization's recovery policy");
+
+    (host.querySelector('.aip-dialog__confirm') as HTMLButtonElement).click();
+    const deletion = http.expectOne('/api/files/selection-snapshots/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb/delete');
+    expect(deletion.request.method).toBe('POST');
+    deletion.flush({ attemptedCount: 2, succeededCount: 1, failedCount: 1, items: [] });
+
+    const refreshedSearch = http.expectOne('/api/search');
+    refreshedSearch.flush({ page: 1, pageSize: 50, totalCount: 1, items: [] });
+    flushFileList(http, []);
+    fixture.detectChanges();
+
+    expect(textContent(fixture)).toContain('1 of 2 files were deleted.');
+    expect(host.querySelector('[data-testid="files-normal-toolbar"]')).not.toBeNull();
+  }, 15_000);
+
+  it('selects a mobile checkbox range from the last selection anchor', async () => {
+    const { fixture } = await renderLiveFilesPage([
+      backendFile,
+      { ...backendFile, id: 'attachment-2', fileObjectId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', originalFileName: 'two.txt' },
+      { ...backendFile, id: 'attachment-3', fileObjectId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', originalFileName: 'three.txt' },
+    ]);
+    const component = fixture.componentInstance;
+    const files = component.page().recentFiles;
+    const first = files[0];
+    const last = files[2];
+    if (!first || !last) {
+      throw new Error('Expected three listed files.');
+    }
+
+    component.handleMobileSelection({ file: first, selected: true });
+    component.handleMobileSelection({ file: last, selected: true, range: true });
+    fixture.detectChanges();
+
+    expect(component.selectedCount()).toBe(3);
+    expect(textContent(fixture)).toContain('3 selected');
   });
 
   it('shows a safe denied state when download grant issuance is denied', async () => {

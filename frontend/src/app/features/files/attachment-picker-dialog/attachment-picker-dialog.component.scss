@@ -1,6 +1,7 @@
 :host {
   display: block;
   min-width: 0;
+  container-type: inline-size;
 }
 
 .attachment-picker {
@@ -73,8 +74,12 @@
   grid-column: 2 / -1;
 }
 
-@media (max-width: 640px) {
+@container (max-width: 22rem) {
   .attachment-picker__row {
     grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .attachment-picker__row app-file-scan-status-badge {
+    grid-column: 2;
   }
 }

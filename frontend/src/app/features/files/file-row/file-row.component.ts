@@ -15,7 +15,7 @@ export class FileRowComponent {
   @Input() selected = false;
   @Output() readonly previewRequested = new EventEmitter<FileViewModel>();
   @Output() readonly downloadRequested = new EventEmitter<string>();
-  @Output() readonly selectionChanged = new EventEmitter<{ file: FileViewModel; selected: boolean }>();
+  @Output() readonly selectionChanged = new EventEmitter<{ file: FileViewModel; selected: boolean; range?: boolean }>();
   @Output() readonly adminOverrideRequested = new EventEmitter<{ fileId: string; reason: string }>();
 
   readonly auditReason = signal('');
@@ -67,8 +67,12 @@ export class FileRowComponent {
     }
   }
 
-  updateSelection(selected: boolean): void {
-    this.selectionChanged.emit({ file: this.file, selected });
+  updateSelection(selected: boolean, event?: Event): void {
+    this.selectionChanged.emit({
+      file: this.file,
+      selected,
+      range: event instanceof MouseEvent && event.shiftKey,
+    });
   }
 
   requestAdminOverride(): void {

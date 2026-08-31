@@ -101,6 +101,20 @@ export interface FileSearchViewModel extends FileSearchPage {
   readonly status: 'idle' | 'loading' | 'ready' | 'empty' | 'invalid' | 'error';
   readonly workspaceId: string | null;
   readonly filters: FileSearchFilters;
+  /** Exact date boundary sent with the current server-authorized search. */
+  readonly fromDate?: string;
+  readonly message: string;
+}
+
+export interface FileSelectionSnapshot {
+  readonly id: string;
+  readonly selectedCount: number;
+  readonly expiresAt: string;
+}
+
+export interface FileSelectionSnapshotState {
+  readonly status: 'idle' | 'capturing' | 'ready' | 'overflow' | 'empty' | 'error';
+  readonly selection: FileSelectionSnapshot | null;
   readonly message: string;
 }
 

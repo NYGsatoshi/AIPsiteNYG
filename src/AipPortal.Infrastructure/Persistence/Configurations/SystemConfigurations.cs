@@ -136,6 +136,40 @@ public sealed class FileDownloadGrantConfiguration : IEntityTypeConfiguration<Fi
     }
 }
 
+public sealed class FileSelectionSnapshotConfiguration : IEntityTypeConfiguration<FileSelectionSnapshot>
+{
+    public void Configure(EntityTypeBuilder<FileSelectionSnapshot> builder)
+    {
+        builder.ToTable("file_selection_snapshots");
+        builder.ConfigureAuditableEntity();
+
+        builder.Property(snapshot => snapshot.NormalizedQuery).HasMaxLength(512).IsRequired();
+        builder.Property(snapshot => snapshot.FileKind).HasMaxLength(32).IsRequired();
+        builder.Property(snapshot => snapshot.ExpiresAt).IsRequired();
+        builder.Property(snapshot => snapshot.ConsumptionVersion).IsConcurrencyToken();
+
+        builder.HasIndex(snapshot => snapshot.ActorUserId);
+        builder.HasIndex(snapshot => snapshot.WorkspaceId);
+        builder.HasIndex(snapshot => snapshot.ExpiresAt);
+        builder.HasIndex(snapshot => new { snapshot.TenantId, snapshot.ActorUserId, snapshot.ExpiresAt });
+
+        builder.HasMany(snapshot => snapshot.Items)
+            .WithOne(item => item.SelectionSnapshot)
+            .HasForeignKey(item => item.SelectionSnapshotId)
+            .OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
+public sealed class FileSelectionSnapshotItemConfiguration : IEntityTypeConfiguration<FileSelectionSnapshotItem>
+{
+    public void Configure(EntityTypeBuilder<FileSelectionSnapshotItem> builder)
+    {
+        builder.ToTable("file_selection_snapshot_items");
+        builder.HasKey(item => new { item.SelectionSnapshotId, item.FileObjectId });
+        builder.HasIndex(item => item.FileObjectId);
+    }
+}
+
 public sealed class FileScanResultConfiguration : IEntityTypeConfiguration<FileScanResult>
 {
     public void Configure(EntityTypeBuilder<FileScanResult> builder)

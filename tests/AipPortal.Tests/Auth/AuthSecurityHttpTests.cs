@@ -443,6 +443,7 @@ public sealed class AuthSecurityHttpTests
             services.AddScoped<IFormRepository, FormRepository>();
             services.AddScoped<IFileRepository, FileRepository>();
             services.AddScoped<IFileDownloadGrantRepository, FileDownloadGrantRepository>();
+            services.AddScoped<AipPortal.Application.Files.IFileSelectionSnapshotService, FileSelectionSnapshotService>();
             services.AddScoped<IStudentRecordExportGrantRepository, StudentRecordExportGrantRepository>();
             services.AddScoped<ITenantPlanRepository, TenantPlanRepository>();
             services.AddScoped<IArtifactRepository, ArtifactRepository>();

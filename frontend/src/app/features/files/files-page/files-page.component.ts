@@ -34,6 +34,7 @@ import {
   FileSearchKindFilter,
   FileSearchModifiedFilter,
   FileSearchOwnerFilter,
+  FileSelectionSnapshot,
   FileViewModel,
 } from '../files.types';
 
@@ -119,14 +120,28 @@ export class FilesPageComponent {
   }
   readonly density = signal<FileListDensity>('comfortable');
   readonly selectedFiles = signal<readonly FileViewModel[]>([]);
-  readonly selectedCount = computed(() => this.selectedFiles().length);
+  readonly selectionSnapshot = this.facade.selectionSnapshot;
+  readonly selectedSearchResults = computed(() => this.selectionSnapshot().selection);
+  readonly selectedCount = computed(() =>
+    this.selectedSearchResults()?.selectedCount ?? this.selectedFiles().length);
+  readonly hasSelection = computed(() => this.selectedCount() > 0);
+  readonly hasSearchResultsSelection = computed(() => this.selectedSearchResults() !== null);
+  readonly selectionCaptureBusy = computed(() => this.selectionSnapshot().status === 'capturing');
   readonly selectedFileIds = computed<ReadonlySet<string>>(() =>
     new Set(this.selectedFiles().map((file) => file.id)));
   readonly canDeleteSelection = computed(() => {
+    if (this.hasSearchResultsSelection()) {
+      // The selection snapshot grants no delete authority. The server
+      // reauthorizes each item at batch execution.
+      return true;
+    }
     const selected = this.selectedFiles();
     return selected.length > 0 && selected.every((file) => file.canDelete === true && !!file.canonicalFileId);
   });
   readonly downloadableSelection = computed(() => {
+    if (this.hasSearchResultsSelection()) {
+      return null;
+    }
     const selected = this.selectedFiles();
     const file = selected.length === 1 ? selected[0] : undefined;
     return file && file.canonicalFileId && file.downloadPolicy === 'available' &&
@@ -173,16 +188,21 @@ export class FilesPageComponent {
 
   readonly deleteDialogOpen = signal(false);
   readonly deleteTargets = signal<readonly FileViewModel[]>([]);
+  readonly deleteSnapshot = signal<FileSelectionSnapshot | null>(null);
   readonly deleteState = this.facade.deleteState;
   readonly deleteBusy = computed(() => this.deleteState().state === 'pending');
   readonly deleteDialogTitle = computed(() =>
-    this.deleteTargets().length === 1 ? 'Delete file?' : `Delete ${this.deleteTargets().length} files?`);
+    this.deleteSelectionCount() === 1 ? 'Delete file?' : `Delete ${this.deleteSelectionCount()} files?`);
   readonly deleteDialogDescription = computed(() => {
+    const snapshot = this.deleteSnapshot();
+    if (snapshot) {
+      return `Delete ${snapshot.selectedCount} captured search-result files? Files are deleted one at a time, so this is not an atomic batch. Deletion is soft; restoration follows your organization's recovery policy.`;
+    }
     const targets = this.deleteTargets();
     if (targets.length === 1) {
-      return `Delete ${targets[0]?.originalFileName ?? 'the selected file'}?`;
+      return `Delete ${targets[0]?.originalFileName ?? 'the selected file'}? Deletion is soft; restoration follows your organization's recovery policy.`;
     }
-    return `Delete ${targets.length} selected files? Files are deleted one at a time; this is not an atomic batch.`;
+    return `Delete ${targets.length} selected files? Files are deleted one at a time, so this is not an atomic batch. Deletion is soft; restoration follows your organization's recovery policy.`;
   });
   readonly totalPages = computed(() => {
     const page = this.displayedList();
@@ -198,6 +218,7 @@ export class FilesPageComponent {
   private previewGeneration = 0;
   private previewObjectUrl: string | null = null;
   private previewReturnFocus: HTMLElement | null = null;
+  private mobileSelectionAnchorId: string | null = null;
 
   readonly columns = computed<readonly AppDataGridColumnDef<FileViewModel>[]>(() => {
     const visible = this.visibleOptionalColumns();
@@ -394,22 +415,54 @@ export class FilesPageComponent {
   }
 
   handleSelectionChanged(event: { rows: readonly FileViewModel[] }): void {
+    this.facade.clearSearchSelectionSnapshot();
     this.selectedFiles.set([...event.rows]);
   }
 
-  handleMobileSelection(event: { file: FileViewModel; selected: boolean }): void {
+  handleMobileSelection(event: { file: FileViewModel; selected: boolean; range?: boolean }): void {
+    this.facade.clearSearchSelectionSnapshot();
     const selectedIds = new Set(this.selectedFiles().map((file) => file.id));
-    if (event.selected) {
-      selectedIds.add(event.file.id);
-    } else {
-      selectedIds.delete(event.file.id);
+    const files = this.displayedList().files;
+    const anchorIndex = this.mobileSelectionAnchorId
+      ? files.findIndex((file) => file.id === this.mobileSelectionAnchorId)
+      : -1;
+    const targetIndex = files.findIndex((file) => file.id === event.file.id);
+    const affected = event.range && anchorIndex >= 0 && targetIndex >= 0
+      ? files.slice(Math.min(anchorIndex, targetIndex), Math.max(anchorIndex, targetIndex) + 1)
+      : [event.file];
+    for (const file of affected) {
+      if (event.selected) {
+        selectedIds.add(file.id);
+      } else {
+        selectedIds.delete(file.id);
+      }
     }
-    this.selectedFiles.set(this.displayedList().files.filter((file) => selectedIds.has(file.id)));
+    this.selectedFiles.set(files.filter((file) => selectedIds.has(file.id)));
+    this.mobileSelectionAnchorId = event.file.id;
   }
 
   clearSelection(): void {
+    this.facade.clearSearchSelectionSnapshot();
     this.selectedFiles.set([]);
+    this.mobileSelectionAnchorId = null;
     this.dataGrid?.clearSelection();
+  }
+
+  selectThisPage(): void {
+    this.facade.clearSearchSelectionSnapshot();
+    this.selectedFiles.set([...this.displayedList().files]);
+    this.mobileSelectionAnchorId = this.displayedList().files[0]?.id ?? null;
+    this.dataGrid?.selectAllRows();
+  }
+
+  selectAllSearchResults(): void {
+    if (!this.searchApplied() || this.selectionCaptureBusy()) {
+      return;
+    }
+    this.selectedFiles.set([]);
+    this.mobileSelectionAnchorId = null;
+    this.dataGrid?.clearSelection();
+    this.facade.captureSearchSelectionSnapshot();
   }
 
   openPreview(file: FileViewModel): void {
@@ -587,7 +640,15 @@ export class FilesPageComponent {
     if (!this.canDeleteSelection() || this.deleteBusy()) {
       return;
     }
+    const snapshot = this.selectedSearchResults();
+    if (snapshot) {
+      this.deleteTargets.set([]);
+      this.deleteSnapshot.set(snapshot);
+      this.deleteDialogOpen.set(true);
+      return;
+    }
     this.deleteTargets.set([...this.selectedFiles()]);
+    this.deleteSnapshot.set(null);
     this.deleteDialogOpen.set(true);
   }
 
@@ -597,9 +658,19 @@ export class FilesPageComponent {
     }
     this.deleteDialogOpen.set(false);
     this.deleteTargets.set([]);
+    this.deleteSnapshot.set(null);
   }
 
   confirmDelete(): void {
+    const snapshot = this.deleteSnapshot();
+    if (snapshot && !this.deleteBusy()) {
+      this.facade.deleteSearchSelectionSnapshot(() => {
+        this.deleteDialogOpen.set(false);
+        this.deleteSnapshot.set(null);
+        this.clearSelection();
+      });
+      return;
+    }
     const targets = this.deleteTargets();
     if (targets.length === 0 || this.deleteBusy()) {
       return;
@@ -607,8 +678,13 @@ export class FilesPageComponent {
     this.facade.deleteFiles(targets, () => {
       this.deleteDialogOpen.set(false);
       this.deleteTargets.set([]);
+      this.deleteSnapshot.set(null);
       this.clearSelection();
     });
+  }
+
+  deleteSelectionCount(): number {
+    return this.deleteSnapshot()?.selectedCount ?? this.deleteTargets().length;
   }
 
   goToPreviousPage(): void {
