@@ -9,7 +9,8 @@
 
 .claims-page__header,
 .claims-page__version,
-.comparison__header {
+.comparison__header,
+.claims-page__summary-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -19,7 +20,8 @@
 .claims-page__header h1,
 .claims-page__version h2,
 .comparison__header h2,
-.comparison__pane h3 {
+.comparison__pane h3,
+.claims-page__summary-header h2 {
   margin: 0.25rem 0 0;
 }
 
@@ -27,7 +29,10 @@
 .claims-page__version p,
 .claims-page__status,
 .claims-page__notice p,
-.comparison__pane p {
+.comparison__pane p,
+.claims-page__summary-header p,
+.claims-page__summary-note,
+.claims-page__summary-status {
   margin: 0;
 }
 
@@ -68,7 +73,8 @@
 .claims-page__notice,
 .claims-page__version,
 .claims-page__loader,
-.claims-page__comparison {
+.claims-page__comparison,
+.claims-page__summary {
   border: 1px solid var(--aip-color-border-default);
   border-radius: var(--aip-radius-lg);
   background: var(--aip-color-bg-surface);
@@ -125,7 +131,8 @@
 .claim-row--button:focus-visible,
 .evidence-tabs button:focus-visible,
 .claims-page__views a:focus-visible,
-.evidence-trace a:focus-visible {
+.evidence-trace a:focus-visible,
+.summary-card:focus-visible {
   outline: var(--aip-focus-outline);
   outline-offset: var(--aip-focus-offset);
 }
@@ -233,7 +240,8 @@
   border-width: 2px;
 }
 
-.claims-page__comparison {
+.claims-page__comparison,
+.claims-page__summary {
   display: grid;
   gap: 1rem;
 }
@@ -328,41 +336,12 @@
   color: var(--aip-color-text-muted);
 }
 
-.comparison__empty {
-  color: var(--aip-color-text-secondary);
-}
-
-.claims-page__summary {
-  display: grid;
-  gap: 1rem;
-  min-width: 0;
-  border: 1px solid var(--aip-color-border-default);
-  border-radius: var(--aip-radius-lg);
-  background: var(--aip-color-bg-surface);
-  padding: 1rem;
-}
-
-.claims-page__summary-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-}
-
-.claims-page__summary-header h2,
-.claims-page__summary-header p,
-.claims-page__summary-note,
-.claims-page__summary-status {
-  margin: 0;
-}
-
-.claims-page__summary-header h2 {
-  margin-top: 0.25rem;
-}
-
+.comparison__empty,
 .claims-page__summary-header > p,
 .claims-page__summary-note,
-.claims-page__summary-status {
+.claims-page__summary-status,
+.summary-card__description,
+.claims-page__applied-filter > span {
   color: var(--aip-color-text-secondary);
 }
 
@@ -375,20 +354,15 @@
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.75rem;
-  min-width: 0;
 }
 
 .summary-card {
   display: grid;
-  align-content: start;
   gap: 0.45rem;
-  min-width: 0;
-  min-height: 12rem;
   border: 1px solid var(--aip-color-border-default);
   border-radius: var(--aip-radius-md);
   background: var(--aip-color-bg-surface-subtle);
   color: var(--aip-color-text-primary);
-  cursor: pointer;
   font: inherit;
   padding: 1rem;
   text-align: left;
@@ -400,37 +374,24 @@
   background: var(--aip-color-bg-selected);
 }
 
-.summary-card:focus-visible {
-  outline: var(--aip-focus-outline);
-  outline-offset: var(--aip-focus-offset);
-}
-
 .summary-card:disabled {
-  cursor: not-allowed;
   opacity: 0.72;
 }
 
 .summary-card__count {
-  font-size: clamp(1.8rem, 5vw, 2.6rem);
+  font-size: 2rem;
   font-weight: 800;
   line-height: 1;
 }
 
-.summary-card__title {
-  font-size: 1rem;
-  font-weight: 800;
-}
-
-.summary-card__description {
-  color: var(--aip-color-text-secondary);
-  line-height: 1.45;
+.summary-card__title,
+.summary-card__action,
+.claims-page__applied-filter > span {
+  font-weight: 700;
 }
 
 .summary-card__action {
-  align-self: end;
-  margin-top: auto;
   color: var(--aip-color-action-primary);
-  font-weight: 700;
 }
 
 .claims-page__applied-filter {
@@ -442,12 +403,6 @@
   border-radius: var(--aip-radius-md);
   background: var(--aip-color-bg-surface-subtle);
   padding: 0.75rem;
-}
-
-.claims-page__applied-filter > span {
-  color: var(--aip-color-text-secondary);
-  font-size: var(--aip-font-size-sm);
-  font-weight: 700;
 }
 
 @media (max-width: 860px) {
@@ -471,10 +426,6 @@
 
   .claims-page__summary-grid {
     grid-template-columns: 1fr;
-  }
-
-  .summary-card {
-    min-height: 0;
   }
 
   .claim-row--header {
