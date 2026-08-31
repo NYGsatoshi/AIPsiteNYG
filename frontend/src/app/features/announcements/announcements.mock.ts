@@ -42,11 +42,7 @@ export const DEFAULT_ANNOUNCEMENTS: readonly AnnouncementViewModel[] = [
       isMarkingRead: false
     },
     capabilities: ['readAnnouncement'],
-    notificationTarget: 'announcementDetail',
-    attachment: {
-      mode: 'disabled',
-      label: '添付ファイルはP0モックでは無効です'
-    }
+    notificationTarget: 'announcementDetail'
   },
   {
     id: 'mock-announcement-003',
