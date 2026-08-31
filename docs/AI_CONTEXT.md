@@ -49,9 +49,11 @@ Do not infer that an entity, configuration property, controller route, or archiv
 - Cookie authentication: `src/AipPortal.Web/Program.cs`.
 - Angular browser UI source: `frontend/`; hosted build artifacts are copied to `src/AipPortal.Web/wwwroot/`.
 - xUnit tests: `tests/AipPortal.Tests/`.
-- Playwright and axe UI tests: `tests/ui/`, with static Angular/mock coverage
-  plus an isolated Compose-backed MVP0 real-backend smoke for cookie, CSRF, and
-  seeded workflow compatibility.
+- Playwright and axe UI tests: `tests/ui/`, with static Angular/mock coverage,
+  an isolated Compose-backed MVP0 real-backend smoke for cookie, CSRF, and
+  seeded workflow compatibility, and an Issue #481 protected public-HTTPS
+  deployment gate. The latter requires target-environment fixture configuration
+  and execution evidence; it is not satisfied by a local or Compose run.
 - Docker and Docker Compose: `Dockerfile`, `docker-compose*.yml`.
 
 ## Architecture
@@ -224,6 +226,8 @@ delivery contract. See `docs/verification/p2-message-follow-ups.md`.
 - Provisioning method used by any existing deployment.
 - Real Compose startup and target-environment behavior.
 - Reverse-proxy scheme/host handling.
+- First successful Issue #481 public-HTTPS deployment-gate execution against
+  the intended TLS/proxy route.
 - Latest CI status.
 - Backup retention and successful restore evidence.
 - Production data volume, performance, PostgreSQL version, and storage topology.

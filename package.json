@@ -14,6 +14,8 @@
     "test:ui:real-backend": "node tests/ui/run-real-backend-smoke-compose.mjs",
     "test:ui:real-backend:compose": "node tests/ui/run-real-backend-smoke-compose.mjs",
     "test:ui:real-backend:runner": "node --test tests/ui/real-backend-smoke-compose-helpers.node-test.mjs",
+    "test:ui:public-https": "node tests/ui/run-public-https-golden-path.mjs",
+    "test:ui:public-https:runner": "node --test tests/ui/public-https-golden-path-helpers.node-test.mjs",
     "lint:frontend": "npm --prefix tools/frontend-inspections run lint",
     "lint:frontend:verbose": "npm --prefix tools/frontend-inspections run lint:verbose",
     "lint:frontend:enforce": "npm --prefix tools/frontend-inspections run lint:enforce"
