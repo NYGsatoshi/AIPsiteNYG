@@ -48,7 +48,11 @@ public sealed class ArtifactReportSectionConfiguration : IEntityTypeConfiguratio
 {
     public void Configure(EntityTypeBuilder<ArtifactReportSection> builder)
     {
-        builder.ToTable("artifact_report_sections", t => t.ExcludeFromMigrations());
+        builder.ToTable("artifact_report_sections", t =>
+        {
+            t.ExcludeFromMigrations();
+            t.HasCheckConstraint("CK_artifact_report_sections_ordinal", "\"Ordinal\" > 0");
+        });
         builder.ConfigureAuditableEntity();
         builder.Property(x => x.Heading).HasMaxLength(512).IsRequired();
         builder.Property(x => x.BodyText).HasMaxLength(50000).IsRequired();
@@ -64,7 +68,7 @@ public sealed class ArtifactReportCitationConfiguration : IEntityTypeConfigurati
         builder.ToTable("artifact_report_citations", t =>
         {
             t.ExcludeFromMigrations();
-            t.HasCheckConstraint("CK_artifact_report_citations_anchor", "\"AnchorStartUtf16\" >= 0 AND \"AnchorLengthUtf16\" >= 0");
+            t.HasCheckConstraint("CK_artifact_report_citations_anchor", "\"Ordinal\" > 0 AND \"AnchorStartUtf16\" >= 0 AND \"AnchorLengthUtf16\" > 0");
         });
         builder.ConfigureAuditableEntity();
         builder.HasIndex(x => new { x.TenantId, x.ArtifactReportSectionId, x.Ordinal }).IsUnique();

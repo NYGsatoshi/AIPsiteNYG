@@ -15,6 +15,7 @@ public sealed class DbArtifactReportService(AppDbContext db, IArtifactRepository
     public async Task<Result<ArtifactReportAttachedResponse>> AttachAsync(Guid artifactVersionId, AttachArtifactReportRequest request, CancellationToken ct = default)
     {
         if (!User(out var userId)) return Fail<ArtifactReportAttachedResponse>();
+        if (request is null) return Validation<ArtifactReportAttachedResponse>();
         var version = await artifacts.GetVersionAsync(artifactVersionId, ct);
         if (version?.Artifact is null || version.DeletedAt.HasValue || version.Artifact.DeletedAt.HasValue || !await artifactAuthorization.CanUpdateArtifact(userId, version.ArtifactId, ct)) return Fail<ArtifactReportAttachedResponse>();
         if (await db.Set<ArtifactReportDocument>().AnyAsync(x => x.ArtifactVersionId == artifactVersionId, ct)) return Error<ArtifactReportAttachedResponse>("ReportAlreadyAttached", "A report is already attached to this immutable artifact version.");
@@ -32,7 +33,7 @@ public sealed class DbArtifactReportService(AppDbContext db, IArtifactRepository
             foreach (var citation in item.Citations.OrderBy(x => x.AnchorStartUtf16))
             {
                 citationCount++;
-                if (citationCount > MaxCitations || citation.Ordinal <= 0 || !ordinals.Add(citation.Ordinal) || citation.AnchorStartUtf16 < 0 || citation.AnchorLengthUtf16 < 0 || citation.AnchorStartUtf16 > item.BodyText.Length - citation.AnchorLengthUtf16 || !claims.TryGetValue(citation.ArtifactClaimId, out var claim) || ranges.Any(x => citation.AnchorStartUtf16 < x.End && citation.AnchorStartUtf16 + citation.AnchorLengthUtf16 > x.Start)) return Validation<ArtifactReportAttachedResponse>();
+                if (citationCount > MaxCitations || citation.Ordinal <= 0 || !ordinals.Add(citation.Ordinal) || citation.AnchorStartUtf16 < 0 || citation.AnchorLengthUtf16 <= 0 || citation.AnchorStartUtf16 > item.BodyText.Length - citation.AnchorLengthUtf16 || !claims.TryGetValue(citation.ArtifactClaimId, out var claim) || ranges.Any(x => citation.AnchorStartUtf16 < x.End && citation.AnchorStartUtf16 + citation.AnchorLengthUtf16 > x.Start)) return Validation<ArtifactReportAttachedResponse>();
                 ranges.Add((citation.AnchorStartUtf16, citation.AnchorStartUtf16 + citation.AnchorLengthUtf16));
                 section.Citations.Add(new ArtifactReportCitation { TenantId = version.TenantId, ArtifactReportSectionId = section.Id, Ordinal = citation.Ordinal, AnchorStartUtf16 = citation.AnchorStartUtf16, AnchorLengthUtf16 = citation.AnchorLengthUtf16, ArtifactClaimId = claim.Id, Section = section, Claim = claim });
             }
