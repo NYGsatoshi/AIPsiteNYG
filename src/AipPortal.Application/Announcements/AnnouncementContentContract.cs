@@ -151,7 +151,7 @@ public static class AnnouncementContentContract
             return false;
         }
 
-        if (value.StartsWith('/', StringComparison.Ordinal))
+        if (value.StartsWith("/", StringComparison.Ordinal))
         {
             if (value.StartsWith("//", StringComparison.Ordinal))
             {
