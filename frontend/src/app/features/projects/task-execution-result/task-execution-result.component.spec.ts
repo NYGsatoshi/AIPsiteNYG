@@ -1,6 +1,7 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
-import { ComponentFixture, TestBed, fakeAsync, tick } from '@angular/core/testing';
+import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { vi } from 'vitest';
 
 import { TaskExecutionResultComponent } from './task-execution-result.component';
 
@@ -23,6 +24,7 @@ describe('TaskExecutionResultComponent', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     http.verify({ ignoreCancelled: true });
     TestBed.resetTestingModule();
   });
@@ -41,7 +43,9 @@ describe('TaskExecutionResultComponent', () => {
     expect(native.textContent).toContain('Report SHA-256');
   });
 
-  it('polls non-terminal state and stops after a terminal response', fakeAsync(() => {
+  it('polls non-terminal state and stops after a terminal response', () => {
+    vi.useFakeTimers();
+
     http.expectOne(`/api/tasks/${TASK_ID}/execution-result`).flush({
       runId: 'run-463',
       status: 'Running',
@@ -55,14 +59,14 @@ describe('TaskExecutionResultComponent', () => {
     fixture.detectChanges();
     expect((fixture.nativeElement as HTMLElement).textContent).toContain('Authorized Project files are being analyzed.');
 
-    tick(1500);
+    vi.advanceTimersByTime(1500);
     http.expectOne(`/api/tasks/${TASK_ID}/execution-result`).flush(succeededResult('# Complete'));
     fixture.detectChanges();
-    tick(5000);
+    vi.advanceTimersByTime(5000);
 
     http.expectNone(`/api/tasks/${TASK_ID}/execution-result`);
     expect((fixture.nativeElement as HTMLElement).textContent).toContain('durable execution report is ready');
-  }));
+  });
 
   it('uses a redacted empty state for unauthorized or missing results', () => {
     http.expectOne(`/api/tasks/${TASK_ID}/execution-result`).flush(
