@@ -157,7 +157,7 @@ export class AuditClaimsEvidencePageComponent {
       return;
     }
 
-    void this.router.navigate(['/app/admin/audit'], {
+    void this.router.navigate(['/admin/audit'], {
       queryParams: { severity: 'warning' },
     });
   }
@@ -167,7 +167,7 @@ export class AuditClaimsEvidencePageComponent {
       return;
     }
 
-    void this.router.navigate(['/app/admin/audit'], {
+    void this.router.navigate(['/admin/audit'], {
       queryParams: { status: 'failed' },
     });
   }
