@@ -4,6 +4,29 @@ This document is the active API convention guide. For endpoint examples, use `do
 
 Implementation note: this document describes the intended contract. The current controllers do not consistently follow one error shape or HTTP status mapping. Global exceptions return `ErrorResponse(Code, Message, TraceId)`, while many controller failures return `{ "error": "..." }` and map authorization/not-found failures to `400`. TASK-V1-PR06 adds a narrow safe envelope for Gantt routes. WPC-01 now does the same for Workspace capabilities/create, their authentication/model-binding/CSRF/exception boundary, Project activation-transition conflicts, disabled legacy Project create, and masked Project detail. Neither change resolves the repository-wide mismatch. Track that broader mismatch in `docs/KNOWN_ISSUES.md`; exact controller/service findings are in `docs/BACKEND_LOGIC_AUDIT.md`.
 
+## #378 durable announcement draft delivery
+
+The Announcement editor’s production create path uses the durable
+`/api/announcement-drafts` workflow. These routes retain the legacy
+announcement controller’s redacted error style, so callers must not render
+raw `error` text. Missing, cross-Tenant, other-author, or currently revoked
+drafts are deliberately indistinguishable from not found.
+
+| Route | Request | Success |
+| --- | --- | --- |
+| `POST /api/announcement-drafts` | exact target/content plus required `Idempotency-Key` | 201 Draft response |
+| `PUT /api/announcement-drafts/{draftId}` | `expectedVersion`, target/content | 200 Draft response |
+| `POST /api/announcement-drafts/{draftId}/publish` | `expectedVersion` plus required `Idempotency-Key` | 200 **Scheduled** response due immediately |
+| `POST /api/announcement-drafts/{draftId}/schedule` | `expectedVersion`, local wall-clock time, IANA zone, optional valid overlap offset, and `Idempotency-Key` | 200 Scheduled response |
+| `GET /api/announcement-drafts` / `/{draftId}` | none | current authorized author’s Draft/Scheduled/Published response |
+
+The accepted lifecycle is `Draft -> Scheduled -> Published`. In particular,
+the publish route does not return an Announcement or claim delivery has
+completed. The due worker creates the Announcement after it reauthorizes the
+persisted selected target. Idempotency is Tenant/actor/operation scoped;
+unchanged lost-response replay reconciles one logical draft or transition,
+while payload/key mismatch and version conflicts return 409.
+
 ## WPC-02B canonical Workspace creation
 
 WPC-01 established the retry-safe transaction and error boundary. WPC-02B

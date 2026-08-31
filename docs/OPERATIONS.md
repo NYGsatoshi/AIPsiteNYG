@@ -83,6 +83,38 @@ SaaS checks:
 - Server firewall and reverse proxy configured.
 - Raw passwords, tokens, invite tokens, signed URLs, and message/file contents excluded from logs.
 
+## Durable announcement publication operations
+
+The #378 `AnnouncementPublisherWorker` is an in-process hosted worker. It is
+the only component that changes a due `AnnouncementDraft` from `Scheduled` to
+`Published` and creates the actual `Announcement`; an accepted **Publish now**
+request is first a due-now Scheduled record. PostgreSQL provides the durable
+claim boundary, so do not add a separate queue service for this workflow.
+
+The worker pages active Tenants, establishes each Tenant scope explicitly,
+claims a bounded batch with an expiring version-fenced lease, and processes
+each claim in a fresh DI scope. It reauthorizes the persisted author and
+audience immediately before the publish mutation. Lost authorization, invalid
+content, or an expired announcement remains Scheduled with a bounded retry
+code and delay; it must not create a partial Announcement or emit recipient
+notifications.
+
+`AnnouncementPublisher` configuration defaults are:
+
+| Setting | Default | Accepted range |
+| --- | ---: | --- |
+| `PollSeconds` | 30 | minimum 1 |
+| `TenantPageSize` | 25 | 1–100 |
+| `ClaimBatchSize` | 10 | 1–50 |
+| `ClaimTimeoutSeconds` | 120 | minimum 1 |
+| `RetrySeconds` | 300 | minimum 1 |
+
+Do not diagnose a delayed scheduled announcement from client UI state. Inspect
+the durable record under its authorized Tenant boundary, verify current
+author/audience authority, then check safe worker logs. Logs intentionally use
+fixed messages and omit draft IDs, names, recipients, bodies, claim tokens,
+and exception details.
+
 ## TASK-V1-PR07-C deadline-digest operations
 
 The deadline digest is an in-process hosted worker. It uses the dedicated

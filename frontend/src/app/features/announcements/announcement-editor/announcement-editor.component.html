@@ -237,6 +237,75 @@
     <span>既読確認</span>
   </label>
 
+  <fieldset class="announcement-editor__delivery announcement-editor__review" aria-describedby="announcement-delivery-help">
+    <legend>Delivery</legend>
+    <label class="announcement-editor__check announcement-editor__radio" for="announcement-delivery-now">
+      <input
+        id="announcement-delivery-now"
+        type="radio"
+        value="now"
+        formControlName="deliveryMode"
+        data-testid="announcement-editor-delivery-now"
+      />
+      <span>Publish immediately after confirmation</span>
+    </label>
+    <label class="announcement-editor__check announcement-editor__radio" for="announcement-delivery-scheduled">
+      <input
+        id="announcement-delivery-scheduled"
+        type="radio"
+        value="scheduled"
+        formControlName="deliveryMode"
+        data-testid="announcement-editor-delivery-scheduled"
+      />
+      <span>Schedule publication</span>
+    </label>
+    <small id="announcement-delivery-help">
+      The server resolves the selected local time and IANA time zone to one immutable UTC due time.
+    </small>
+
+    @if (form.controls.deliveryMode.value === 'scheduled') {
+      <div class="announcement-editor__row announcement-editor__schedule">
+        <label for="announcement-schedule-local-time">
+          <span>Local date and time <span aria-hidden="true">*</span></span>
+          <input
+            #scheduleInput
+            id="announcement-schedule-local-time"
+            type="datetime-local"
+            formControlName="scheduledLocalDateTime"
+            required
+            [attr.aria-invalid]="fieldError('scheduledLocalDateTime') ? 'true' : null"
+            [attr.aria-describedby]="fieldDescribedBy('scheduledLocalDateTime', 'announcement-schedule-local-time-help')"
+            data-testid="announcement-editor-schedule-local-time"
+          />
+          <small id="announcement-schedule-local-time-help">Use the local wall-clock time intended for this audience.</small>
+          @if (fieldError('scheduledLocalDateTime'); as error) {
+            <small
+              id="announcement-schedule-local-time-error"
+              class="announcement-editor__field-error"
+              role="alert"
+              data-testid="announcement-schedule-local-time-error"
+            >
+              {{ error }}
+            </small>
+          }
+        </label>
+        <label for="announcement-schedule-time-zone">
+          <span>IANA time zone <span aria-hidden="true">*</span></span>
+          <input
+            id="announcement-schedule-time-zone"
+            type="text"
+            formControlName="timeZoneId"
+            autocomplete="off"
+            required
+            placeholder="Asia/Tokyo"
+            data-testid="announcement-editor-schedule-time-zone"
+          />
+          <small>Examples: Asia/Tokyo, America/New_York, or UTC. The server rejects unsupported or ambiguous selections safely.</small>
+        </label>
+      </div>
+    }
+  </fieldset>
+
   <section class="announcement-editor__review" data-testid="announcement-review-summary">
     <h3>公開前の確認</h3>
     @if (selectedAudience(); as audience) {
@@ -269,12 +338,20 @@
 
   <div class="announcement-editor__actions">
     <button
+      type="button"
+      data-testid="announcement-save-draft-action"
+      [disabled]="!canSaveDraft || selectedAudience() === null || publishing"
+      (click)="saveDraft()"
+    >
+      Save draft
+    </button>
+    <button
       type="submit"
       class="announcement-editor__primary"
       data-testid="announcement-publish-action"
       [disabled]="!canPublish || selectedAudience() === null || publishing"
     >
-      Review publication
+      Review {{ form.controls.deliveryMode.value === 'scheduled' ? 'schedule' : 'publication' }}
     </button>
   </div>
   }
@@ -282,8 +359,8 @@
 
 <app-aip-dialog
   [open]="publicationReviewOpen()"
-  title="Confirm publication"
-  description="Review the authorized audience and delivery before publishing."
+  title="Confirm publication — Confirm delivery"
+  description="Review the authorized audience, recipient estimate, priority, and delivery timing before the server accepts this request."
   [confirmLabel]="confirmationLabel()"
   cancelLabel="Back to editing"
   [busy]="publicationConfirming() || publishing"
@@ -332,8 +409,8 @@
         </div>
       </dl>
       <p class="announcement-editor__audience-note">
-        The server rechecks this selected audience when publication is confirmed. This form publishes now;
-        scheduled delivery and saved drafts are not available here.
+        The server rechecks the selected audience when this delivery is accepted. A scheduled request stores
+        the local time, IANA time zone, and resolved UTC due instant; it is reauthorized again at due time.
       </p>
     </section>
   }

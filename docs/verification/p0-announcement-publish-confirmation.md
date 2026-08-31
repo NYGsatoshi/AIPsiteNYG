@@ -1,112 +1,133 @@
-# P0 announcement immediate-publish confirmation verification
+# P0 announcement publish confirmation and durable delivery verification
 
-Status: Issue #378 non-closing implementation candidate. This record covers
-only an explicit review and confirmation of an immediate Announcement create.
-It is not a scheduling, saved-draft, or delivery-worker design. The separate
-local-only editor preview is recorded in
-`docs/verification/p1-announcement-local-preview.md`.
+Status: implementation candidate for Issue #378. This supersedes the earlier
+immediate-only confirmation note. The local-only Preview surface remains the
+separate #382 contract in `p1-announcement-local-preview.md`.
 
-## Candidate boundary
+## Canonical lifecycle
 
-The maintained Announcement editor first validates its existing required title,
-body, priority, and server-authorized audience selection. A valid submit opens
-an accessible confirmation dialog rather than issuing the create request
-directly. The dialog presents the trimmed title and body, selected audience
-display name, estimated recipient count, mapped priority, and an explicit
-"publish immediately" delivery statement. Confirming emits the existing
-create submission once; Back, Escape, or backdrop cancellation returns to the
-same editable form without a mutation.
+The server owns one bounded `AnnouncementDraft` for the author, Tenant, and
+one exact persisted audience target. Its only delivery lifecycle is:
 
-The dialog is a browser review, not a source of authority. Its busy state and
-the facade's in-flight guard suppress duplicate simultaneous POSTs, but they do
-not provide a durable idempotency or replay guarantee. After a generic create
-failure the form remains editable in the current browser tab. A selected-scope
-authorization failure refreshes the server-authorized audience options and
-does not reveal names or counts for a newly unavailable scope.
+```text
+Draft -> Scheduled -> Published
+```
 
-## Current server contract
+`Save draft` stores or updates only `Draft` content. A reviewed **Publish now**
+command does not create an `Announcement` in the controller or browser; it
+records an immediate UTC `Scheduled` due time. A reviewed scheduled command
+records the supplied local wall-clock value and IANA zone, resolves the one
+UTC due instant server-side, and records `Scheduled`. The bounded in-process
+publisher is the only path that creates the real `Announcement` and changes
+the draft to `Published`.
 
-`GET /api/announcements/audiences` returns the current actor's authorized
-audience options only. Each option contains an opaque key, scope type, exact
-scope IDs, display name, and `estimatedRecipientCount`; it does not return
-recipient identities. The Angular adapter accepts only complete, valid option
-records and maps priority to the numeric `AnnouncementPriority` request value.
+The UI therefore distinguishes an accepted immediate request from completed
+publication: it reports **Publication queued** until the worker has
+reauthorized the saved audience and persisted the actual Announcement. It
+does not synthesize a list item, recipient delivery, or success state from a
+browser timeout.
 
-The immediate candidate sends the existing `POST /api/announcements` shape:
-selected `workspaceId`/`groupId`/`channelId`, title, body, numeric priority,
-`isPinned: false`, and `requiresReadConfirmation`. It intentionally sends no
-`publishedAt`, `expiresAt`, schedule, or timezone value. The cookie-authenticated
-POST remains CSRF-protected and currently succeeds through the shared
-controller mapper with HTTP 200 and an `AnnouncementDetailResponse`.
+## API and concurrency contract
 
-Immediately before creation, `AnnouncementsController` asks the audience
-service to re-resolve only the selected submitted scope. This checks current
-Tenant context, active parent lifecycle, and current scope authority without
-re-enumerating every available audience or recipient count. The service then
-performs its existing create validation and persistence. The browser must not
-treat a prior audience list or the confirmation dialog as an authorization
-decision.
+All routes are cookie-authenticated, CSRF-protected unsafe requests:
 
-A connected client that receives an authorization-state invalidation correctly
-clears protected editor and review state before it can submit. The
-real-backend stale-client regression deliberately prevents only the Hub
-transport in an isolated browser context; cookie, CSRF, DELETE, audience GET,
-and POST requests remain real. The final POST must independently reauthorize
-the selected scope, reject it without protected-name/count disclosure, and
-refresh the editor's authorized audience list.
+- `POST /api/announcement-drafts` requires `Idempotency-Key` and stores a
+  bounded Draft.
+- `PUT /api/announcement-drafts/{draftId}` accepts `expectedVersion` for an
+  editable Draft only.
+- `POST /api/announcement-drafts/{draftId}/publish` requires
+  `Idempotency-Key` and changes Draft to an immediate Scheduled record.
+- `POST /api/announcement-drafts/{draftId}/schedule` requires
+  `Idempotency-Key`, an IANA `timeZoneId`, an unspecified local datetime, and
+  `expectedVersion`.
+- `GET /api/announcement-drafts` and its exact-item read return only the
+  current authorized author’s drafts.
 
-## Explicit exclusions and Issue status
+Create, immediate queue, and schedule each have a Tenant/actor/operation
+scoped idempotency identity. Replaying the same normalized command returns
+the same logical draft even after its status has changed; reusing a key for a
+different payload is a conflict. `VersionNo` is an optimistic concurrency
+token for content updates and transition requests. PostgreSQL’s short worker
+lease is also fenced by that version, so competing hosts cannot successfully
+claim and publish the same Scheduled draft.
 
-Issue #378 remains open. This candidate has no:
+For an immediate request, the server records its own `UTC` local/time-zone
+representation and UTC due instant. For user scheduling, `TimeZoneInfo`
+resolves the IANA local wall-clock time once. Invalid zones, skipped local
+times, and unresolved/invalid DST-overlap offsets fail safely. The stored UTC
+instant is never recalculated by the worker.
 
-- schedule picker, timezone input, or approved scheduled-publication contract;
-- persistent or saved drafts; the retained editor state is current-tab only;
-- a server-backed or delivery-capable content preview; the confirmation review is not itself a preview feature;
-- `Idempotency-Key`, replay response, automatic retry, or unknown-outcome recovery;
-- scheduler, worker, deferred-delivery behavior, or delivery completion contract.
+## Authorization and durable publisher boundary
 
-The browser therefore must describe only immediate publication. A future
-scheduling or retry feature requires a separately approved persistent server
-contract and cannot be inferred from optional backend timestamp fields or UI
-view-model labels.
+Audience IDs in a request are a requested target, never authority. The server
+validates the canonical Workspace/Group/Channel shape and reauthorizes the
+author when creating, saving, and accepting either delivery command. Draft
+reads are author- and current-target-authorized; cross-Tenant, other-author,
+or revoked-target reads use the same redacted not-found path.
 
-## Recorded local verification
+At due time the worker establishes the draft Tenant context from its durable
+claim and resolves the persisted author and audience again. Lost membership,
+deleted/archived parents, or lost scope authority leave the record Scheduled,
+clear the lease, and record only a bounded safe retry code. No Announcement,
+recipient invalidation, raw exception, recipient identity, or formerly
+authorized display name/count is emitted in that case. Parent foreign keys
+are restrictive so physical deletion cannot turn a retained Workspace/Group/
+Channel target into a global target.
 
-- Focused Angular editor, facade, and API-adapter suites passed: 3 files / 32
-  tests under Node 24.19.0. They cover the review-before-POST boundary,
-  confirmation single-flight, command-settled recovery, preserved values,
-  selected-audience refresh, and exact immediate request mapping.
-- The production Angular build passed. This candidate introduces no new
-  Announcement-editor style-budget warning; existing repository bundle and
-  unrelated component-style warnings remain.
-- The focused static Playwright announcement scenario passed in Chromium
-  desktop and mobile at a forced 320-pixel viewport. It exercises validation,
-  the confirmation review, Escape/focus return, failure-preserved values,
-  successful HTTP-200 handling, no horizontal overflow, and axe checks. Its
-  API responses are mocked.
-- The real-backend P0 manifest/discovery verification passed locally and
-  selects the new Issue #378 title. It has not been executed locally because
-  the Compose frontend build requires the externally supplied Syncfusion
-  license secret; no credential was written or bypassed.
+On a successful reauthorization, the worker creates one normal `Announcement`,
+records the immutable draft-to-Announcement identity, audits the state change,
+and issues the existing authorized invalidation. It never exposes worker lease
+tokens, storage keys, credentials, or raw exception text to the browser.
 
-## Required final-head verification
+## Worker operation
 
-No real-backend confirmation result is recorded by this documentation patch.
-Before promoting this candidate, run and record on its exact integrated head:
+`AnnouncementPublisherWorker` is a small in-process hosted worker. PostgreSQL
+is the coordination boundary; no queue, SaaS dependency, or new service is
+introduced. It pages active Tenants in platform scope, claims a bounded due
+batch in each Tenant scope, and processes every claim through a fresh scoped
+service provider. A failed claim has a bounded retry time; a stale lease is
+reclaimable after expiry. Operator configuration is in the
+`AnnouncementPublisher` appsettings section:
 
-- focused Angular editor and facade tests for confirmation, cancellation,
-  preserved failures, selected-audience refresh, and duplicate-submit guard;
-- production Angular build plus a representative 320-pixel keyboard/focus and
-  accessibility browser check; mocked browser responses prove UI behavior only;
-- a Compose-backed real-browser check against ASP.NET Core and PostgreSQL for
-  cookie/CSRF handling, selected-scope reauthorization, the actual HTTP 200
-  create response, and persisted immediate publication;
-- the stale-client revocation proof with only `/hubs/app` transport
-  unavailable; it must not suppress server reauthorization or replace the
-  real POST with a mock;
-- relevant server authorization regression evidence for stale or revoked
-  Workspace, Group, and Channel scopes.
+| Setting | Default | Bound |
+| --- | ---: | --- |
+| `PollSeconds` | 30 | at least 1 second |
+| `TenantPageSize` | 25 | 1–100 |
+| `ClaimBatchSize` | 10 | 1–50 |
+| `ClaimTimeoutSeconds` | 120 | at least 1 second |
+| `RetrySeconds` | 300 | at least 1 second |
 
-A successful mocked test or a source inspection alone does not establish
-server authorization, persistence, recipient isolation, CSRF, or replay
-behavior.
+Worker logs use fixed safe messages only. They do not contain Tenant, author,
+scope, draft, lease, recipient, body, or exception details.
+
+## Deliberate non-goals
+
+This contract does not implement CTA/link payloads, attachment upload or
+delivery, cohorts, recipient delivery ledgers, analytics, recurring delivery,
+cancel/revoke UI, or new announcement campaign models. It does not alter #382
+local Preview, #383 attachment behavior, or #387 analytics.
+
+## Focused verification recorded on this candidate
+
+- `AnnouncementDraftServiceTests` (4/4) covers durable create and replay,
+  immediate Draft -> Scheduled -> worker Published, IANA `Asia/Tokyo`
+  resolution, scheduled worker publication, publish-time authorization loss,
+  optimistic stale edits, and Tenant/author redaction.
+- Angular editor tests (15/15) cover explicit Save draft, Preview, confirmation
+  of immediate versus scheduled delivery, required local time, focus-safe
+  review, and preserved form values.
+- Angular facade and API adapter tests cover server-owned Draft endpoints,
+  idempotency headers, queued immediate status rather than browser-synthesized
+  publication, and exact schedule request serialization.
+
+The branch was subsequently synchronized with the current Research Plan model.
+The reconciliation retains both independent dependency registrations, records
+the union EF target model through a no-op reconciliation migration, and keeps
+the intentionally removed Azure/on-prem workflow definitions absent. The
+synchronized branch builds successfully, has no pending EF model changes, and
+passes the focused announcement service verification before repository CI.
+
+Final-head promotion still requires the relevant PostgreSQL migration and
+concurrency gate plus repository-required CI. Mocked Angular tests prove only
+UI interaction; they are not evidence of server authorization or worker
+delivery.

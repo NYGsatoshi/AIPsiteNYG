@@ -980,7 +980,9 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
       const pathname = new URL(request.url()).pathname;
       if (
         request.method() === 'POST' &&
-        (pathname === '/api/announcements' || pathname.endsWith('/read'))
+        (pathname === '/api/announcements' ||
+        pathname.startsWith('/api/announcement-drafts') ||
+        pathname.endsWith('/read'))
       ) {
         previewSideEffects.push(`${request.method()} ${pathname}`);
       }
@@ -1044,7 +1046,7 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
 
     const failedResponse = page.waitForResponse((response) =>
       response.request().method() === 'POST' &&
-      new URL(response.url()).pathname === '/api/announcements'
+      new URL(response.url()).pathname.endsWith('/publish')
     );
     await dialog.getByRole('button', { name: /Publish to 24 recipients now/ }).click();
     expect((await failedResponse).status()).toBe(503);
@@ -1061,11 +1063,11 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await expect(dialog).toBeVisible();
     const succeededResponse = page.waitForResponse((response) =>
       response.request().method() === 'POST' &&
-      new URL(response.url()).pathname === '/api/announcements'
+      new URL(response.url()).pathname.endsWith('/publish')
     );
     await dialog.getByRole('button', { name: /Publish to 24 recipients now/ }).click();
     expect((await succeededResponse).status()).toBe(200);
-    await expect(page.getByText('お知らせを公開しました。')).toBeVisible();
+    await expect(page.getByText(/Publication queued/)).toBeVisible();
     expect(api.publishRequests).toHaveLength(2);
     await expectNoDocumentHorizontalOverflow(page);
     await expectNoAccessibilityViolations(page);
@@ -1175,10 +1177,10 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await expect(confirmationDialog).toBeVisible();
     const failedResponse = page.waitForResponse((response) =>
       response.request().method() === 'POST' &&
-      new URL(response.url()).pathname === '/api/announcements'
+      new URL(response.url()).pathname.endsWith('/publish')
     );
     await confirmationDialog.getByRole('button', { name: /Publish to 24 recipients now/ }).click();
-    expect((await failedResponse).status()).toBe(400);
+    expect((await failedResponse).status()).toBe(403);
     await api.audienceRefreshRequested;
 
     const submissionError = page.getByTestId('announcement-editor-submission-error');
@@ -4109,7 +4111,14 @@ async function installAnnouncementEditorApi(
   options: AnnouncementEditorApiOptions = {}
 ): Promise<AnnouncementEditorApiHarness> {
   const workspaceId = '38000000-0000-4000-8000-000000000001';
+  const draftId = '38000000-0000-4000-8000-000000000003';
   const publishRequests: Record<string, unknown>[] = [];
+  let persistedDraft = {
+    title: '',
+    body: '',
+    priority: 0,
+    requiresReadConfirmation: false
+  };
   let audienceRequestCount = 0;
   let releaseAudienceRefresh!: () => void;
   let notifyAudienceRefreshRequested!: () => void;
@@ -4118,6 +4127,31 @@ async function installAnnouncementEditorApi(
   });
   const audienceRefreshRequested = new Promise<void>((resolve) => {
     notifyAudienceRefreshRequested = resolve;
+  });
+
+  const draftResponse = (status: 'Draft' | 'Scheduled', version: number) => ({
+    id: draftId,
+    version,
+    status,
+    workspaceId,
+    groupId: null,
+    channelId: null,
+    title: persistedDraft.title,
+    body: persistedDraft.body,
+    priority: persistedDraft.priority === 2
+      ? 'Critical'
+      : persistedDraft.priority === 1
+        ? 'Important'
+        : 'Normal',
+    isPinned: false,
+    requiresReadConfirmation: persistedDraft.requiresReadConfirmation,
+    ...(status === 'Scheduled'
+      ? {
+          scheduledForUtc: '2026-08-24T10:00:00Z',
+          scheduleTimeZoneId: 'UTC',
+          scheduleLocalDateTime: '2026-08-24T10:00:00'
+        }
+      : {})
   });
 
   await page.route('**/api/announcements', async (route) => {
@@ -4131,41 +4165,63 @@ async function installAnnouncementEditorApi(
       return;
     }
 
-    if (request.method() !== 'POST') {
-      await route.fulfill({ status: 405 });
-      return;
-    }
+    await route.fulfill({ status: 405 });
+  });
 
-    publishRequests.push(request.postDataJSON() as Record<string, unknown>);
-    if (publishRequests.length === 1) {
+  await page.route('**/api/announcement-drafts**', async (route) => {
+    const request = route.request();
+    const pathname = new URL(request.url()).pathname;
+
+    if (pathname === '/api/announcement-drafts' && request.method() === 'POST') {
+      const payload = request.postDataJSON() as { content?: Record<string, unknown> };
+      const content = payload.content ?? {};
+      persistedDraft = {
+        title: typeof content['title'] === 'string' ? content['title'] : '',
+        body: typeof content['body'] === 'string' ? content['body'] : '',
+        priority: typeof content['priority'] === 'number' ? content['priority'] : 0,
+        requiresReadConfirmation: content['requiresReadConfirmation'] === true
+      };
       await route.fulfill({
-        status: options.firstPublishFailure === 'audienceAuthorization' ? 400 : 503,
+        status: 201,
         contentType: 'application/json; charset=utf-8',
-        body: JSON.stringify({
-          error: options.firstPublishFailure === 'audienceAuthorization'
-            ? 'Announcement audience is not authorized.'
-            : 'internal upstream detail'
-        })
+        body: JSON.stringify(draftResponse('Draft', 1))
       });
       return;
     }
 
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json; charset=utf-8',
-      body: JSON.stringify({
-        id: '38000000-0000-4000-8000-000000000002',
-        workspaceId,
-        groupId: null,
-        channelId: null,
-        title: 'Accessible announcement',
-        body: 'The draft must remain available after an API failure.',
-        priority: 0,
-        requiresReadConfirmation: false,
-        isRead: false,
-        publishedAt: '2026-08-24T10:00:00Z'
-      })
-    });
+    if (
+      pathname === `/api/announcement-drafts/${draftId}/publish` &&
+      request.method() === 'POST'
+    ) {
+      publishRequests.push(request.postDataJSON() as Record<string, unknown>);
+      if (publishRequests.length === 1) {
+        const audienceDenied = options.firstPublishFailure === 'audienceAuthorization';
+        await route.fulfill({
+          status: audienceDenied ? 403 : 503,
+          contentType: 'application/json; charset=utf-8',
+          body: JSON.stringify({
+            error: {
+              code: audienceDenied
+                ? 'ANNOUNCEMENT_DRAFT_AUDIENCE_DENIED'
+                : 'ANNOUNCEMENT_DRAFT_UNAVAILABLE',
+              message: audienceDenied
+                ? 'Announcement audience is not authorized.'
+                : 'internal upstream detail'
+            }
+          })
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json; charset=utf-8',
+        body: JSON.stringify(draftResponse('Scheduled', 2))
+      });
+      return;
+    }
+
+    await route.fulfill({ status: 405 });
   });
 
   await page.route('**/api/announcements/audiences', async (route) => {

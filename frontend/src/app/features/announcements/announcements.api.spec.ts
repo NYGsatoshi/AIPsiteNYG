@@ -1,8 +1,11 @@
 import {
   mapAnnouncementAudienceOption,
+  mapAnnouncementDraft,
   mapAnnouncementDetail,
   mapAnnouncementListItem,
   toCreateAnnouncementRequest,
+  toCreateAnnouncementDraftRequest,
+  toScheduleAnnouncementDraftRequest,
 } from './announcements.api';
 
 describe('announcement API adapters', () => {
@@ -113,5 +116,79 @@ describe('announcement API adapters', () => {
 
   it('accepts critical when the API adopts the new semantic name', () => {
     expect(mapAnnouncementListItem({ priority: 'Critical' }).priority).toBe('critical');
+  });
+
+  it('serializes only the reviewed authorized target into the durable draft workflow', () => {
+    const submission = {
+      title: 'Scheduled safety update',
+      body: 'Review the school closure details.',
+      priority: 'important' as const,
+      requiresReadConfirmation: true,
+      deliveryMode: 'scheduled' as const,
+      scheduledLocalDateTime: '2026-09-02T09:45',
+      timeZoneId: 'Asia/Tokyo',
+      audience: {
+        key: 'workspace:11111111-1111-1111-1111-111111111111',
+        scope: 'workspace' as const,
+        displayName: 'School Workspace',
+        recipientCount: 1248,
+        workspaceId: '11111111-1111-1111-1111-111111111111',
+      },
+    };
+
+    expect(toCreateAnnouncementDraftRequest(submission)).toEqual({
+      content: {
+        target: {
+          workspaceId: '11111111-1111-1111-1111-111111111111',
+          groupId: null,
+          channelId: null,
+        },
+        title: 'Scheduled safety update',
+        body: 'Review the school closure details.',
+        priority: 1,
+        isPinned: false,
+        requiresReadConfirmation: true,
+        expiresAt: null,
+      },
+    });
+    expect(toScheduleAnnouncementDraftRequest(7, submission)).toEqual({
+      expectedVersion: 7,
+      localDateTime: '2026-09-02T09:45',
+      timeZoneId: 'Asia/Tokyo',
+      ambiguousTimeOffsetMinutes: null,
+    });
+  });
+
+  it('maps a durable schedule only through a currently authorized audience option', () => {
+    const authorizedAudience = {
+      key: 'workspace:11111111-1111-1111-1111-111111111111',
+      scope: 'workspace' as const,
+      displayName: 'School Workspace',
+      recipientCount: 1248,
+      workspaceId: '11111111-1111-1111-1111-111111111111',
+    };
+    const dto = {
+      id: 'draft-1',
+      version: 3,
+      status: 'Scheduled',
+      workspaceId: authorizedAudience.workspaceId,
+      title: 'Scheduled safety update',
+      body: 'Review details.',
+      priority: 'Important',
+      requiresReadConfirmation: true,
+      scheduledForUtc: '2026-09-02T00:45:00Z',
+      scheduleLocalDateTime: '2026-09-02T09:45:00',
+      scheduleTimeZoneId: 'Asia/Tokyo',
+    };
+
+    expect(mapAnnouncementDraft(dto, [authorizedAudience])).toMatchObject({
+      id: 'draft-1',
+      version: 3,
+      audienceKey: authorizedAudience.key,
+      publicationState: 'scheduled',
+      scheduledLocalDateTime: '2026-09-02T09:45',
+      timeZoneId: 'Asia/Tokyo',
+    });
+    expect(mapAnnouncementDraft(dto, [])?.audienceKey).toBe('');
   });
 });

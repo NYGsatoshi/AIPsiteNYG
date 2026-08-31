@@ -68,6 +68,7 @@ builder.Services.AddAuthorization();
 builder.Services.AddSignalR();
 builder.Services.Configure<RealtimeOptions>(builder.Configuration.GetSection("Realtime"));
 builder.Services.Configure<TaskDeadlineDigestWorkerOptions>(builder.Configuration.GetSection("TaskDeadlineDigest"));
+builder.Services.Configure<AnnouncementPublisherWorkerOptions>(builder.Configuration.GetSection("AnnouncementPublisher"));
 builder.Services.AddSingleton<TaskDeadlineDigestDiagnostics>();
 builder.Services.AddScoped<ITaskDeadlineDigestScheduler, TaskDeadlineDigestScheduler>();
 builder.Services.AddScoped<ITaskDeadlineDigestGenerator, TaskDeadlineDigestGenerator>();
@@ -79,6 +80,7 @@ builder.Services.AddScoped<IHubSubscriptionAuthorizer, HubSubscriptionAuthorizer
 builder.Services.AddScoped<IRealtimeDispatchAuthorizer, RealtimeDispatchAuthorizer>();
 builder.Services.AddHostedService<OutboxDispatcher>();
 builder.Services.AddHostedService<TaskDeadlineDigestWorker>();
+builder.Services.AddHostedService<AnnouncementPublisherWorker>();
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;

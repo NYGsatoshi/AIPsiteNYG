@@ -259,6 +259,19 @@ public enum AnnouncementPriority
     Urgent = 2
 }
 
+/// <summary>
+/// Durable, server-owned publication state for an Announcement draft. A draft
+/// may be saved, scheduled for one resolved UTC instant, and then published
+/// exactly once. Publication failures are retained as safe diagnostics on the
+/// scheduled draft; they never produce a fake Published state.
+/// </summary>
+public enum AnnouncementDraftStatus
+{
+    Draft = 0,
+    Scheduled = 1,
+    Published = 2
+}
+
 public enum SourceType
 {
     User = 0,

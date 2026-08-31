@@ -1,6 +1,7 @@
 import {
   AnnouncementAudienceOption,
   AnnouncementAudienceScope,
+  AnnouncementEditorDraft,
   AnnouncementEditorSubmission,
   AnnouncementPriority,
   AnnouncementViewModel,
@@ -50,6 +51,59 @@ export interface CreateAnnouncementRequestDto {
   readonly requiresReadConfirmation: boolean;
 }
 
+export interface AnnouncementDraftResponseDto {
+  readonly id?: unknown;
+  readonly version?: unknown;
+  readonly status?: unknown;
+  readonly workspaceId?: unknown;
+  readonly groupId?: unknown;
+  readonly channelId?: unknown;
+  readonly title?: unknown;
+  readonly body?: unknown;
+  readonly priority?: unknown;
+  readonly isPinned?: unknown;
+  readonly requiresReadConfirmation?: unknown;
+  readonly scheduledForUtc?: unknown;
+  readonly scheduleTimeZoneId?: unknown;
+  readonly scheduleLocalDateTime?: unknown;
+  readonly publishedAnnouncementId?: unknown;
+  readonly publishedAtUtc?: unknown;
+}
+
+export interface AnnouncementDraftContentRequestDto {
+  readonly target: {
+    readonly workspaceId: string | null;
+    readonly groupId: string | null;
+    readonly channelId: string | null;
+  };
+  readonly title: string;
+  readonly body: string;
+  readonly priority: number;
+  readonly isPinned: boolean;
+  readonly requiresReadConfirmation: boolean;
+  readonly expiresAt: null;
+}
+
+export interface CreateAnnouncementDraftRequestDto {
+  readonly content: AnnouncementDraftContentRequestDto;
+}
+
+export interface SaveAnnouncementDraftRequestDto {
+  readonly expectedVersion: number;
+  readonly content: AnnouncementDraftContentRequestDto;
+}
+
+export interface PublishAnnouncementDraftRequestDto {
+  readonly expectedVersion: number;
+}
+
+export interface ScheduleAnnouncementDraftRequestDto {
+  readonly expectedVersion: number;
+  readonly localDateTime: string;
+  readonly timeZoneId: string;
+  readonly ambiguousTimeOffsetMinutes: null;
+}
+
 export function mapAnnouncementListItem(dto: AnnouncementListItemDto): AnnouncementViewModel {
   return toAnnouncement(dto, {
     body: '',
@@ -95,6 +149,97 @@ export function toCreateAnnouncementRequest(submission: AnnouncementEditorSubmis
     priority: priorityNumber(submission.priority),
     isPinned: false,
     requiresReadConfirmation: submission.requiresReadConfirmation,
+  };
+}
+
+export function toCreateAnnouncementDraftRequest(
+  submission: AnnouncementEditorSubmission,
+): CreateAnnouncementDraftRequestDto {
+  return { content: toAnnouncementDraftContentRequest(submission) };
+}
+
+export function toSaveAnnouncementDraftRequest(
+  submission: AnnouncementEditorSubmission,
+  expectedVersion: number,
+): SaveAnnouncementDraftRequestDto {
+  return {
+    expectedVersion,
+    content: toAnnouncementDraftContentRequest(submission),
+  };
+}
+
+export function toPublishAnnouncementDraftRequest(
+  expectedVersion: number,
+): PublishAnnouncementDraftRequestDto {
+  return { expectedVersion };
+}
+
+export function toScheduleAnnouncementDraftRequest(
+  expectedVersion: number,
+  submission: AnnouncementEditorSubmission,
+): ScheduleAnnouncementDraftRequestDto | null {
+  const localDateTime = submission.scheduledLocalDateTime?.trim();
+  const timeZoneId = submission.timeZoneId?.trim();
+  if (!localDateTime || !timeZoneId) {
+    return null;
+  }
+
+  return {
+    expectedVersion,
+    localDateTime,
+    timeZoneId,
+    ambiguousTimeOffsetMinutes: null,
+  };
+}
+
+/**
+ * The workflow response is mapped through current authorized audience options.
+ * A persisted raw target ID never becomes permission to render an audience
+ * name, count, or selectable scope after the user's authorization changed.
+ */
+export function mapAnnouncementDraft(
+  dto: AnnouncementDraftResponseDto,
+  audiences: readonly AnnouncementAudienceOption[],
+  previous?: AnnouncementEditorDraft,
+): AnnouncementEditorDraft | null {
+  const id = stringValue(dto.id);
+  const version = nonNegativeInteger(dto.version);
+  const title = stringValue(dto.title);
+  const body = stringValue(dto.body);
+  const status = announcementDraftStatus(dto.status);
+  if (!id || version === undefined || !title || body === undefined || status === null) {
+    return null;
+  }
+
+  const audience = audiences.find(
+    (candidate) =>
+      nullableString(candidate.workspaceId) === nullableString(dto.workspaceId) &&
+      nullableString(candidate.groupId) === nullableString(dto.groupId) &&
+      nullableString(candidate.channelId) === nullableString(dto.channelId),
+  );
+
+  const timeZoneId = stringValue(dto.scheduleTimeZoneId);
+  const scheduledLocalDateTime = localDateTimeValue(dto.scheduleLocalDateTime);
+  return {
+    id,
+    version,
+    createIdempotencyKey: previous?.createIdempotencyKey,
+    transitionIdempotencyKey: previous?.transitionIdempotencyKey,
+    title,
+    body,
+    priority: announcementPriority(dto.priority),
+    audienceKey: audience?.key ?? '',
+    availableAudiences: audiences,
+    requiresReadConfirmation: dto.requiresReadConfirmation === true,
+    deliveryMode: status === 'scheduled' ? 'scheduled' : 'now',
+    scheduledLocalDateTime,
+    timeZoneId,
+    publicationState: status,
+    scheduledAtLabel:
+      status === 'scheduled'
+        ? formatAcceptedSchedule(scheduledLocalDateTime, timeZoneId, dto.scheduledForUtc)
+        : undefined,
+    timeZoneLabel: timeZoneId,
   };
 }
 
@@ -246,4 +391,51 @@ function priorityNumber(priority: AnnouncementPriority): number {
     default:
       return 0;
   }
+}
+
+function toAnnouncementDraftContentRequest(
+  submission: AnnouncementEditorSubmission,
+): AnnouncementDraftContentRequestDto {
+  return {
+    target: {
+      workspaceId: submission.audience.workspaceId ?? null,
+      groupId: submission.audience.groupId ?? null,
+      channelId: submission.audience.channelId ?? null,
+    },
+    title: submission.title,
+    body: submission.body,
+    priority: priorityNumber(submission.priority),
+    isPinned: false,
+    requiresReadConfirmation: submission.requiresReadConfirmation,
+    expiresAt: null,
+  };
+}
+
+function announcementDraftStatus(value: unknown): AnnouncementEditorDraft['publicationState'] | null {
+  const normalized = String(value ?? '').toLowerCase();
+  if (normalized === '0' || normalized === 'draft') return 'draft';
+  if (normalized === '1' || normalized === 'scheduled') return 'scheduled';
+  if (normalized === '2' || normalized === 'published') return 'published';
+  return null;
+}
+
+function nullableString(value: unknown): string | null {
+  return stringValue(value) ?? null;
+}
+
+/** Retain local wall-clock semantics rather than parsing it as browser-local UTC. */
+function localDateTimeValue(value: unknown): string | undefined {
+  const raw = stringValue(value);
+  return raw && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(raw) ? raw.slice(0, 16) : undefined;
+}
+
+function formatAcceptedSchedule(
+  localDateTime: string | undefined,
+  timeZoneId: string | undefined,
+  dueAtUtc: unknown,
+): string {
+  if (localDateTime && timeZoneId) {
+    return `${localDateTime} (${timeZoneId})`;
+  }
+  return formatDate(dueAtUtc) || 'Scheduled time accepted';
 }

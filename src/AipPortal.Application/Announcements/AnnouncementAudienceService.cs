@@ -126,8 +126,33 @@ public sealed class AnnouncementAudienceService(
             return Result<bool>.Failure(contextError!);
         }
 
-        var isSystemAdmin = await IsSystemAdminAsync(userId, cancellationToken);
-        if (!isSystemAdmin && !await HasActiveTenantMembershipAsync(userId, cancellationToken))
+        return await IsAuthorizedForActorAsync(
+            userId,
+            workspaceId,
+            groupId,
+            channelId,
+            cancellationToken);
+    }
+
+    public async Task<Result<bool>> IsAuthorizedForActorAsync(
+        Guid actorUserId,
+        Guid? workspaceId,
+        Guid? groupId,
+        Guid? channelId,
+        CancellationToken cancellationToken = default)
+    {
+        if (actorUserId == Guid.Empty)
+        {
+            return Result<bool>.Success(false);
+        }
+
+        if (!currentTenant.IsAvailable || currentTenant.IsPlatformScope)
+        {
+            return Result<bool>.Failure("A tenant context is required to resolve announcement audiences.");
+        }
+
+        var isSystemAdmin = await IsSystemAdminAsync(actorUserId, cancellationToken);
+        if (!isSystemAdmin && !await HasActiveTenantMembershipAsync(actorUserId, cancellationToken))
         {
             return Result<bool>.Success(false);
         }
@@ -154,7 +179,7 @@ public sealed class AnnouncementAudienceService(
                 return Result<bool>.Success(false);
             }
 
-            return Result<bool>.Success(await channelAuthorization.CanManageChannel(userId, channelId.Value, cancellationToken));
+            return Result<bool>.Success(await channelAuthorization.CanManageChannel(actorUserId, channelId.Value, cancellationToken));
         }
 
         if (groupId.HasValue)
@@ -179,7 +204,7 @@ public sealed class AnnouncementAudienceService(
                 return Result<bool>.Success(false);
             }
 
-            return Result<bool>.Success(await CanCreateGroupAnnouncementAsync(userId, groupId.Value, cancellationToken));
+            return Result<bool>.Success(await CanCreateGroupAnnouncementAsync(actorUserId, groupId.Value, cancellationToken));
         }
 
         if (workspaceId.HasValue)
@@ -190,7 +215,7 @@ public sealed class AnnouncementAudienceService(
                 return Result<bool>.Success(false);
             }
 
-            return Result<bool>.Success(await CanCreateWorkspaceAnnouncementAsync(userId, workspaceId.Value, cancellationToken));
+            return Result<bool>.Success(await CanCreateWorkspaceAnnouncementAsync(actorUserId, workspaceId.Value, cancellationToken));
         }
 
         return Result<bool>.Success(isSystemAdmin);
