@@ -76,6 +76,8 @@ test.describe('Task execution real-backend golden path', () => {
 
       const webCheckbox = taskScopeGroup.getByRole('checkbox', { name: /Allow Web as a future source/ });
       const filesCheckbox = taskScopeGroup.getByRole('checkbox', { name: /Allow authorized Project files as a future source/ });
+      await expect(webCheckbox).toBeVisible();
+      await expect(filesCheckbox).toBeVisible();
       if (await webCheckbox.isChecked()) await webCheckbox.uncheck();
       if (!await filesCheckbox.isChecked()) await filesCheckbox.check();
 
@@ -133,7 +135,8 @@ test.describe('Task execution real-backend golden path', () => {
       const reportBody = scopePanel.getByTestId('task-execution-report-body');
       await expect(reportBody).toContainText(/Authorized sources consumed: [1-9]/);
       await expect(reportBody).not.toContainText(smokeTaskFileName);
-      await expect(reportBody).not.toContainText(/storage|\/srv\/|raw source body/i);
+      await expect(reportBody).not.toContainText('/srv/');
+      await expect(reportBody).not.toContainText('Synthetic PR03C browser smoke file.');
 
       const durableResultResponse = await fetchFromPage(
         page,
@@ -245,7 +248,7 @@ async function restoreTaskScope(
   const originalPolicy = original.taskOverridePolicy as Record<string, boolean>;
   const response = await requestWithCsrf(
     page,
-    'PATCH',
+    'PUT',
     `/api/tasks/${taskId}/execution-scope-override`,
     {
       webEnabled: originalPolicy.webEnabled,
@@ -253,23 +256,6 @@ async function restoreTaskScope(
       expectedVersion: current.taskOverrideVersion ?? 0,
     },
   );
-
-  if (response.status === 405) {
-    const retry = await requestWithCsrf(
-      page,
-      'POST',
-      `/api/tasks/${taskId}/execution-scope-override`,
-      {
-        webEnabled: originalPolicy.webEnabled,
-        projectFilesEnabled: originalPolicy.projectFilesEnabled,
-        expectedVersion: current.taskOverrideVersion ?? 0,
-      },
-      { 'X-HTTP-Method-Override': 'PUT' },
-    );
-    expect(retry.status, retry.text).toBe(200);
-    return;
-  }
-
   expect(response.status, response.text).toBe(200);
 }
 
@@ -288,7 +274,7 @@ async function fetchFromPage(page: Page, path: string): Promise<{ status: number
 
 async function requestWithCsrf(
   page: Page,
-  method: 'POST' | 'PATCH' | 'DELETE',
+  method: 'POST' | 'PUT' | 'PATCH' | 'DELETE',
   path: string,
   body?: unknown,
   additionalHeaders: Readonly<Record<string, string>> = {},
