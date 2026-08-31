@@ -1,4 +1,5 @@
 @let page = vm();
+@let summary = actionSummary();
 
 <section class="claims-page" data-testid="audit-claims-evidence-page">
   <header class="claims-page__header">
@@ -45,7 +46,13 @@
       @case ('notFound') { The requested artifact version is unavailable. }
       @case ('error') { Claims &amp; Evidence could not be loaded. }
       @case ('empty') { No claims are attached to this authorized artifact version. }
-      @case ('ready') { {{ page.claims.length }} claims are available for review. }
+      @case ('ready') {
+        @if (claimSupportFilter() === 'Unverified') {
+          {{ visibleClaims().length }} of {{ page.claims.length }} authorized claims match Support not verified.
+        } @else {
+          {{ page.claims.length }} claims are available for review.
+        }
+      }
       @default { Enter an artifact version ID to inspect its claims. }
     }
   </p>
@@ -73,46 +80,134 @@
       <p class="claims-page__version-id">Version ID: <code>{{ page.artifactVersionId }}</code></p>
     </section>
 
-    <div class="claims-page__matrix" role="region" aria-label="Claim verification matrix" data-testid="audit-claim-matrix">
-      <div class="claim-row claim-row--header" aria-hidden="true">
-        <span>Claim</span>
-        <span>Citation</span>
-        <span>Support</span>
-        <span>Review</span>
-      </div>
-      @for (claim of page.claims; track claim.id) {
+    <section
+      class="claims-page__summary"
+      aria-labelledby="audit-action-summary-title"
+      data-testid="audit-action-summary"
+    >
+      <header class="claims-page__summary-header">
+        <div>
+          <p class="claims-page__eyebrow">Start the next review</p>
+          <h2 id="audit-action-summary-title">Actionable checks</h2>
+        </div>
+        <p>Each card opens the corresponding authorized list with its filter shown.</p>
+      </header>
+
+      <div class="claims-page__summary-grid">
         <button
           type="button"
-          class="claim-row claim-row--button"
-          [class.claim-row--selected]="selectedClaimId() === claim.id"
-          [attr.aria-pressed]="selectedClaimId() === claim.id"
-          [attr.data-testid]="'audit-claim-' + claim.id"
-          (click)="selectClaim(claim)"
+          class="summary-card"
+          data-testid="audit-summary-unverified"
+          [attr.aria-pressed]="claimSupportFilter() === 'Unverified'"
+          (click)="activateUnverifiedClaims()"
         >
-          <span class="claim-row__cell claim-row__claim">
-            <span class="claim-row__label">Claim</span>
-            <strong>#{{ claim.ordinal }}</strong>
-            <span>{{ claim.text }}</span>
+          <span class="summary-card__count">{{ unverifiedClaimCount() }}</span>
+          <span class="summary-card__title">Unverified claims</span>
+          <span class="summary-card__description">
+            Claims in this authorized Artifact version whose support has not been verified.
           </span>
-          <span class="claim-row__cell">
-            <span class="claim-row__label">Citation</span>
-            <span class="status-pill" [attr.data-state]="claim.citationPresent ? 'present' : 'missing'">
-              {{ claim.citationPresent ? 'Citation present' : 'Citation missing' }}
-            </span>
-          </span>
-          <span class="claim-row__cell">
-            <span class="claim-row__label">Support</span>
-            <span class="status-pill" [attr.data-state]="claim.supportStatus.toLowerCase()">
-              {{ claim.supportLabel }}
-            </span>
-          </span>
-          <span class="claim-row__cell">
-            <span class="claim-row__label">Review</span>
-            <span class="status-pill">{{ claim.reviewStatus }}</span>
-          </span>
+          <span class="summary-card__action">Filter Claims &amp; Evidence</span>
         </button>
+
+        <button
+          type="button"
+          class="summary-card"
+          data-testid="audit-summary-warning"
+          [disabled]="summary.status !== 'ready'"
+          (click)="openWarningEvents()"
+        >
+          <span class="summary-card__count">{{ summary.status === 'ready' ? summary.warningCount : '—' }}</span>
+          <span class="summary-card__title">Warning events</span>
+          <span class="summary-card__description">
+            Events classified as Warning by the server in the current authorized Audit scope.
+          </span>
+          <span class="summary-card__action">Open Warning filter</span>
+        </button>
+
+        <button
+          type="button"
+          class="summary-card"
+          data-testid="audit-summary-error"
+          [disabled]="summary.status !== 'ready'"
+          (click)="openErrorEvents()"
+        >
+          <span class="summary-card__count">{{ summary.status === 'ready' ? summary.errorCount : '—' }}</span>
+          <span class="summary-card__title">Error events</span>
+          <span class="summary-card__description">
+            Events with a Failed result in the current authorized Audit scope.
+          </span>
+          <span class="summary-card__action">Open Failed status filter</span>
+        </button>
+      </div>
+
+      <p class="claims-page__summary-note">
+        A zero in one category does not mean the audit is complete. Review completion and export are separate actions.
+      </p>
+      @if (summary.status === 'loading') {
+        <p class="claims-page__summary-status" role="status">Loading authorized Warning and Error counts.</p>
+      } @else if (summary.status === 'permissionDenied' || summary.status === 'error') {
+        <p class="claims-page__summary-status" role="status">{{ summary.message }}</p>
       }
-    </div>
+    </section>
+
+    @if (claimSupportFilter() === 'Unverified') {
+      <section class="claims-page__applied-filter" aria-label="Applied Claims filters">
+        <span>Applied to Claims list</span>
+        <app-aip-filter-chip
+          label="Support"
+          value="Not verified"
+          (removed)="clearClaimFilter()"
+        />
+      </section>
+    }
+
+    @if (visibleClaims().length > 0) {
+      <div class="claims-page__matrix" role="region" aria-label="Claim verification matrix" data-testid="audit-claim-matrix">
+        <div class="claim-row claim-row--header" aria-hidden="true">
+          <span>Claim</span>
+          <span>Citation</span>
+          <span>Support</span>
+          <span>Review</span>
+        </div>
+        @for (claim of visibleClaims(); track claim.id) {
+          <button
+            type="button"
+            class="claim-row claim-row--button"
+            [class.claim-row--selected]="selectedClaimId() === claim.id"
+            [attr.aria-pressed]="selectedClaimId() === claim.id"
+            [attr.data-testid]="'audit-claim-' + claim.id"
+            (click)="selectClaim(claim)"
+          >
+            <span class="claim-row__cell claim-row__claim">
+              <span class="claim-row__label">Claim</span>
+              <strong>#{{ claim.ordinal }}</strong>
+              <span>{{ claim.text }}</span>
+            </span>
+            <span class="claim-row__cell">
+              <span class="claim-row__label">Citation</span>
+              <span class="status-pill" [attr.data-state]="claim.citationPresent ? 'present' : 'missing'">
+                {{ claim.citationPresent ? 'Citation present' : 'Citation missing' }}
+              </span>
+            </span>
+            <span class="claim-row__cell">
+              <span class="claim-row__label">Support</span>
+              <span class="status-pill" [attr.data-state]="claim.supportStatus.toLowerCase()">
+                {{ claim.supportLabel }}
+              </span>
+            </span>
+            <span class="claim-row__cell">
+              <span class="claim-row__label">Review</span>
+              <span class="status-pill">{{ claim.reviewStatus }}</span>
+            </span>
+          </button>
+        }
+      </div>
+    } @else {
+      <section class="claims-page__notice" data-testid="audit-claims-filter-empty">
+        <h2>No claims match the applied filter</h2>
+        <p>This authorized Artifact version has no Claims with Support not verified.</p>
+      </section>
+    }
 
     @if (selectedClaim(); as claim) {
       <section class="claims-page__comparison" aria-labelledby="claim-comparison-title" data-testid="audit-claim-comparison">
