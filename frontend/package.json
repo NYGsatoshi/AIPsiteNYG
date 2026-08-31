@@ -4,7 +4,7 @@
   "scripts": {
     "ng": "ng",
     "start": "ng serve --proxy-config proxy.conf.json",
-    "build": "ng build --configuration production",
+    "build": "ng build --configuration production && node scripts/sanitize-syncfusion-theme-css.mjs",
     "syncfusion:activate": "node scripts/require-syncfusion-license.mjs && syncfusion-license activate",
     "build:licensed": "npm run syncfusion:activate && npm run build",
     "build:hosted": "npm run build && node scripts/copy-hosted-output.mjs",
@@ -13,11 +13,11 @@
     "test": "ng test --watch=false",
     "test:watch": "ng test --watch",
     "check:architecture": "node scripts/check-architecture.mjs",
-    "test:architecture": "node --test scripts/check-architecture.node-test.mjs",
+    "test:architecture": "node --test scripts/check-architecture.node-test.mjs scripts/sanitize-syncfusion-theme-css.node-test.mjs",
     "test:syncfusion-license": "node --test scripts/require-syncfusion-license.node-test.mjs",
     "analyze:bundle": "node scripts/check-syncfusion-bundle.mjs",
     "storybook": "ng run frontend:storybook",
-    "build-storybook": "ng run frontend:build-storybook"
+    "build-storybook": "ng run frontend:build-storybook && node scripts/sanitize-syncfusion-theme-css.mjs storybook-static/assets/vendor/syncfusion"
   },
   "private": true,
   "packageManager": "npm@11.17.0",

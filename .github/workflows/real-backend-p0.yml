@@ -53,6 +53,10 @@ jobs:
       - name: Install smoke runner dependencies
         run: bash scripts/ci/npm-ci-retry.sh .
 
+      - name: Prune unused Docker networks
+        shell: bash
+        run: docker network prune --force
+
       - name: Run required real-backend P0 acceptance set
         if: github.event.pull_request.user.login != 'dependabot[bot]'
         env:

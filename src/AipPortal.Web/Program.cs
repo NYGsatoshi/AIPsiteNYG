@@ -118,7 +118,8 @@ builder.Services.AddRateLimiter(options =>
 
 if (ForwardedHeadersConfiguration.ShouldTrustForwardedHeaders(builder.Configuration))
 {
-    builder.Services.Configure<ForwardedHeadersOptions>(ForwardedHeadersConfiguration.Configure);
+    builder.Services.Configure<ForwardedHeadersOptions>(options =>
+        ForwardedHeadersConfiguration.Configure(options, builder.Configuration));
 }
 
 var app = builder.Build();

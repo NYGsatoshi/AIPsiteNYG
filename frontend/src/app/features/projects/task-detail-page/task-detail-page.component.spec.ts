@@ -15,6 +15,7 @@ describe('TaskDetailPageComponent local edit state', () => {
   let sections: WritableSignal<Record<string, { status: string; message?: string }>>;
   const setDetailEditing = vi.fn();
   const reloadTaskAfterConflict = vi.fn();
+  const loadActivity = vi.fn();
 
   beforeEach(async () => {
     params = new BehaviorSubject(convertToParamMap({ projectId: 'project-a', taskId: 'task-a' }));
@@ -26,7 +27,7 @@ describe('TaskDetailPageComponent local edit state', () => {
         { provide: ProjectsFacade, useValue: {
           getTaskDetail: () => ({ status: 'empty', detailState: 'ready', detailSectionState: sections()['detail'], dependencies: [], capabilities: [], transitionNote: { owner: 'backendAuthoritativeDuringApiWiring', message: '' } }),
           getTaskMutationState: () => ({ status: 'idle' }), getTaskConflictReloadState: () => 'idle', getDetailSectionState: (section: string) => sections()[section],
-          setDetailEditing, ensureTaskDetail: vi.fn(), releaseTaskDetail: vi.fn(), clearTaskMutationState: vi.fn(), reloadTaskAfterConflict
+          setDetailEditing, ensureTaskDetail: vi.fn(), releaseTaskDetail: vi.fn(), clearTaskMutationState: vi.fn(), reloadTaskAfterConflict, loadActivity
         } },
         { provide: FilesFacade, useValue: { pickerStateForTask: signal({ status: 'idle', workspaceId: null, files: [], page: 1, pageSize: 20, totalCount: 0, hasMore: false }), clearPickerFiles: vi.fn(), cancelAttachmentDownloads: vi.fn(), loadPickerFilesForWorkspace: vi.fn(), loadMorePickerFiles: vi.fn(), retryPickerFiles: vi.fn() } }
       ]
@@ -35,6 +36,7 @@ describe('TaskDetailPageComponent local edit state', () => {
     component = fixture.componentInstance;
     fixture.detectChanges();
     setDetailEditing.mockClear();
+    loadActivity.mockClear();
   });
 
   it('notifies the facade while a comment has an unsaved value', () => {
@@ -100,6 +102,12 @@ describe('TaskDetailPageComponent local edit state', () => {
 
     sections.update(current => ({ ...current, activity: { status: 'empty' } }));
     expect(component.activityHasConfirmedEmptyState()).toBe(true);
+  });
+
+  it('loads Activity from summary activation without depending on a details toggle event', () => {
+    component.loadActivity();
+
+    expect(loadActivity).toHaveBeenCalledWith('task-a');
   });
 
   it('notifies the facade that editing ended on destroy', () => {

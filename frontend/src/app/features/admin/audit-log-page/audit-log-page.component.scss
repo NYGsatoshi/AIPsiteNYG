@@ -100,7 +100,7 @@
   font-weight: 700;
   padding: 0.45rem 0.75rem;
 }
-.admin-page__apply { background: var(--aip-color-action-primary); color: var(--aip-color-text-on-action, #fff); }
+.admin-page__apply { background: var(--aip-color-action-primary); color: var(--aip-color-text-inverse); }
 .admin-page__clear:disabled,
 .admin-page__saved-row button:disabled { cursor: not-allowed; opacity: 0.55; }
 .admin-page__result-count { font-weight: 800; }

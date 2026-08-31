@@ -40,10 +40,6 @@ public static class DependencyInjection
         services.AddSingleton<CanonicalRedactionService>();
         services.AddSingleton<IRedactionService, CanonicalFileMetadataRedactionService>();
         services.AddScoped<ITenantAuthorizationService, TenantAuthorizationService>();
-        // AddApplication() is also used by minimal test/utility hosts that do not
-        // compose Infrastructure. Keep persistence-backed WPC dependencies fail
-        // closed there; AddInfrastructure() registers the real implementations
-        // later and therefore overrides these single-service fallbacks.
         services.AddScoped<ICapabilityGrantRepository, UnavailableCapabilityGrantRepository>();
         services.AddScoped<IMessageFollowUpRepository, UnavailableMessageFollowUpRepository>();
         services.AddScoped<IDefaultConversationStore, UnavailableDefaultConversationStore>();
@@ -52,6 +48,7 @@ public static class DependencyInjection
         services.AddScoped<IProjectActivationUnitOfWork, UnavailableProjectActivationUnitOfWork>();
         services.AddScoped<IArtifactEvidenceRepository, UnavailableArtifactEvidenceRepository>();
         services.AddScoped<IAnnouncementDraftRepository, UnavailableAnnouncementDraftRepository>();
+        services.AddScoped<ITaskExecutionResultRepository, UnavailableTaskExecutionResultRepository>();
         services.AddScoped<ICapabilityGrantEvaluator, CapabilityGrantEvaluator>();
         services.AddScoped<ICapabilityGrantService, CapabilityGrantService>();
         services.AddScoped<IAuditAuthorizationService, AuditAuthorizationService>();
@@ -119,15 +116,13 @@ public static class DependencyInjection
         services.AddScoped<IProjectActivationService, ProjectActivationService>();
         services.AddScoped<ProjectService>();
         services.AddScoped<IProjectService, CanonicalProjectService>();
-        // Minimal hosts may register only IUnitOfWork after AddApplication. Reuse that
-        // same scoped instance when it also supports the Task-specific save contract.
-        // Full Infrastructure registration supplies a later explicit binding and wins.
         services.AddScoped<ITaskCommandUnitOfWork>(provider =>
             provider.GetRequiredService<IUnitOfWork>() as ITaskCommandUnitOfWork
             ?? throw new InvalidOperationException("IUnitOfWork must implement ITaskCommandUnitOfWork for Task commands."));
         services.AddScoped<ITaskCommandService, TaskCommandService>();
         services.AddScoped<ITaskSubresourceService, TaskSubresourceService>();
         services.AddScoped<ITaskExecutionScopeService, TaskExecutionScopeService>();
+        services.AddScoped<ITaskExecutionResultService, TaskExecutionResultService>();
         services.AddScoped<ITaskWorkspaceTimeZoneResolver, TaskWorkspaceTimeZoneResolver>();
         services.AddScoped<IEventService, EventService>();
         services.AddScoped<IFormService, FormService>();

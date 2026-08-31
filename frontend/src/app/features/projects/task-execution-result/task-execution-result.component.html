@@ -1,0 +1,43 @@
+<section class="task-execution-result" aria-labelledby="task-execution-result-heading" data-testid="task-execution-result">
+  <header>
+    <p class="task-execution-result__eyebrow">Durable output</p>
+    <h3 id="task-execution-result-heading">Execution result</h3>
+  </header>
+
+  @if (result(); as current) {
+    <p class="task-execution-result__status" role="status" aria-live="polite" aria-atomic="true">
+      <span>Execution state</span>
+      <strong data-testid="task-execution-result-status">{{ current.status }}</strong>
+      <span>{{ statusMessage(current.status) }}</span>
+    </p>
+
+    @if (current.report; as report) {
+      <article class="task-execution-result__report" data-testid="task-execution-report">
+        <h4>{{ report.title }}</h4>
+        <p>Completed {{ report.completedAtUtc }}</p>
+        <pre data-testid="task-execution-report-body">{{ report.bodyMarkdown }}</pre>
+        <p class="task-execution-result__hash">Report SHA-256: <code>{{ report.contentSha256 }}</code></p>
+      </article>
+    } @else if (current.status === 'Failed') {
+      <p class="task-execution-result__failure" role="alert">
+        The server recorded a bounded failure state. No source names, paths, content, or internal diagnostics are exposed.
+        @if (current.failureCode) {
+          <code>{{ current.failureCode }}</code>
+        }
+      </p>
+    } @else {
+      <p class="task-execution-result__pending">This view refreshes from the server until the run reaches a terminal state.</p>
+    }
+  } @else if (loading()) {
+    <p role="status">Loading the execution result...</p>
+  } @else if (noResult()) {
+    <p data-testid="task-execution-result-empty">No authorized execution result is available.</p>
+  }
+
+  @if (error(); as message) {
+    <p class="task-execution-result__failure" role="alert">
+      {{ message }}
+      <button type="button" (click)="retry()">Retry</button>
+    </p>
+  }
+</section>
