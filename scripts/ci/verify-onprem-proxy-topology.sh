@@ -58,7 +58,9 @@ trycloudflare = load(trycloudflare_path)
 
 onprem_env = environment(onprem, "app")
 assert_loopback_only_origin(onprem, "app", 8080)
+assert_https_security(onprem_env)
 assert onprem_env["ReverseProxy__TrustForwardedHeaders"] == "false", onprem_env
+assert onprem_env["ReverseProxy__RequireHeaderSymmetry"] == "true", onprem_env
 assert "ReverseProxy__TrustedProxies__0" in onprem_env, onprem_env
 assert "ReverseProxy__TrustedNetworks__0" in onprem_env, onprem_env
 
