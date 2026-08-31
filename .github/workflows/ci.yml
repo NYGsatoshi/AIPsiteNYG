@@ -111,6 +111,9 @@ jobs:
 
       - name: Upload build restore log
         if: always()
+        # Diagnostic artifacts must not hide the actual build result when the
+        # repository's GitHub Actions storage quota is temporarily exhausted.
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: build-test-dotnet-restore-log
@@ -156,6 +159,7 @@ jobs:
 
       - name: Upload backend test results
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: backend-test-results
@@ -264,6 +268,7 @@ jobs:
 
       - name: Upload Gitleaks secret scan report
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: gitleaks-secret-scan-report
@@ -312,6 +317,7 @@ jobs:
 
       - name: Upload security restore log
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: security-dotnet-restore-log
@@ -343,6 +349,7 @@ jobs:
 
       - name: Upload .NET dependency scan reports
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: dotnet-dependency-scan-reports
@@ -468,6 +475,7 @@ jobs:
 
       - name: Upload Trivy image scan report
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: trivy-image-scan-report
@@ -575,6 +583,7 @@ jobs:
 
       - name: Upload Playwright artifacts
         if: failure()
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: playwright-ui-test-artifacts
