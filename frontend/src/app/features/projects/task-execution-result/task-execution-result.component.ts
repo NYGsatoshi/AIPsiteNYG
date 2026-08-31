@@ -6,6 +6,11 @@ import { normalizeApiError } from '../../../core/api/api-error.adapter';
 
 type RunStatus = 'Accepted' | 'Queued' | 'Running' | 'Succeeded' | 'Failed';
 
+interface ExecutionRunAcceptance {
+  readonly id: string;
+  readonly status: RunStatus;
+}
+
 interface ExecutionReport {
   readonly id: string;
   readonly schemaVersion: number;
@@ -34,9 +39,12 @@ interface ExecutionResultProjection {
 })
 export class TaskExecutionResultComponent implements OnChanges, OnDestroy {
   @Input({ required: true }) taskId = '';
+  @Input() allowExecutionStart = false;
+  @Input() loadExistingResult = true;
 
   private readonly http = inject(HttpClient, { optional: true });
   private request: Subscription | null = null;
+  private startRequest: Subscription | null = null;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
   private generation = 0;
 
@@ -44,10 +52,17 @@ export class TaskExecutionResultComponent implements OnChanges, OnDestroy {
   readonly loading = signal(false);
   readonly noResult = signal(false);
   readonly error = signal<string | null>(null);
+  readonly starting = signal(false);
+  readonly startError = signal<string | null>(null);
+  readonly startFeedback = signal<string | null>(null);
 
   ngOnChanges(changes: SimpleChanges): void {
-    if (changes['taskId']) {
-      this.reload();
+    if (changes['taskId'] || changes['loadExistingResult']) {
+      if (this.loadExistingResult) {
+        this.reload();
+      } else {
+        this.resetWithoutLoad();
+      }
     }
   }
 
@@ -58,6 +73,75 @@ export class TaskExecutionResultComponent implements OnChanges, OnDestroy {
 
   retry(): void {
     this.reload();
+  }
+
+  startExecution(): void {
+    const taskId = this.taskId.trim();
+    const http = this.http;
+    if (!this.allowExecutionStart || !taskId || !http || typeof http.post !== 'function' || this.starting()) {
+      return;
+    }
+
+    this.generation++;
+    const generation = this.generation;
+    this.cancelPending();
+    this.result.set(null);
+    this.noResult.set(false);
+    this.error.set(null);
+    this.startError.set(null);
+    this.startFeedback.set(null);
+    this.starting.set(true);
+
+    this.startRequest = http.post<unknown>(
+      `/api/tasks/${encodeURIComponent(taskId)}/execution-runs`,
+      {},
+      {
+        headers: { 'Idempotency-Key': createExecutionIdempotencyKey() },
+        withCredentials: true,
+      },
+    ).subscribe({
+      next: (response) => {
+        if (!this.isCurrent(generation, taskId)) {
+          return;
+        }
+
+        let accepted: ExecutionRunAcceptance;
+        try {
+          accepted = mapExecutionRunAcceptance(response);
+        } catch {
+          this.startRequest = null;
+          this.starting.set(false);
+          this.startError.set('The execution acceptance response was invalid.');
+          return;
+        }
+
+        this.startRequest = null;
+        this.starting.set(false);
+        this.startFeedback.set(startFeedbackMessage(accepted.status));
+        this.load(generation);
+      },
+      error: (error: unknown) => {
+        if (!this.isCurrent(generation, taskId)) {
+          return;
+        }
+
+        this.startRequest = null;
+        this.starting.set(false);
+        const normalized = normalizeApiError(error);
+        if (normalized.httpStatus === 401 || normalized.httpStatus === 403 || normalized.httpStatus === 404) {
+          this.result.set(null);
+          this.noResult.set(true);
+          this.startError.set('Task execution is unavailable in the current session.');
+          return;
+        }
+
+        this.startError.set(
+          normalized.httpStatus === 409
+            ? 'The execution request could not be reconciled. Start a new request.'
+            : 'Task execution could not be started. Try again.',
+        );
+      },
+    });
   }
 
   statusMessage(status: RunStatus): string {
@@ -72,11 +156,23 @@ export class TaskExecutionResultComponent implements OnChanges, OnDestroy {
 
   private reload(): void {
     this.generation++;
+    const generation = this.generation;
     this.cancelPending();
     this.result.set(null);
     this.noResult.set(false);
     this.error.set(null);
-    this.load(this.generation);
+    this.startError.set(null);
+    this.load(generation);
+  }
+
+  private resetWithoutLoad(): void {
+    this.generation++;
+    this.cancelPending();
+    this.result.set(null);
+    this.noResult.set(false);
+    this.error.set(null);
+    this.startError.set(null);
+    this.startFeedback.set(null);
   }
 
   private load(generation: number): void {
@@ -135,17 +231,44 @@ export class TaskExecutionResultComponent implements OnChanges, OnDestroy {
 
   private cancelPending(): void {
     this.request?.unsubscribe();
+    this.startRequest?.unsubscribe();
     this.request = null;
+    this.startRequest = null;
     if (this.pollTimer !== null) {
       clearTimeout(this.pollTimer);
       this.pollTimer = null;
     }
     this.loading.set(false);
+    this.starting.set(false);
   }
 
   private isCurrent(generation: number, taskId: string): boolean {
     return generation === this.generation && taskId === this.taskId.trim();
   }
+}
+
+function mapExecutionRunAcceptance(value: unknown): ExecutionRunAcceptance {
+  const record = requiredRecord(value, 'Task execution acceptance');
+  return {
+    id: requiredString(record['id'], 'Run identity'),
+    status: requiredStatus(record['status']),
+  };
+}
+
+function startFeedbackMessage(status: RunStatus): string {
+  switch (status) {
+    case 'Accepted': return 'Execution request accepted. The durable result will refresh from the server.';
+    case 'Queued': return 'Execution queued. The durable result will refresh from the server.';
+    case 'Running': return 'Execution started. The durable result will refresh from the server.';
+    case 'Succeeded': return 'Execution completed. The durable report is loading from the server.';
+    case 'Failed': return 'Execution completed with a bounded server failure state.';
+  }
+}
+
+function createExecutionIdempotencyKey(): string {
+  const randomId = globalThis.crypto?.randomUUID?.()
+    ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return `task-execution-ui-${randomId}`;
 }
 
 function mapExecutionResult(value: unknown): ExecutionResultProjection {
