@@ -154,7 +154,8 @@ jobs:
           docker compose -p aipsite-dependabot-p0 -f docker-compose.real-backend-smoke.yml config --quiet
 
       - name: Upload Playwright artifacts
-        if: always()
+        if: failure()
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: real-backend-p0-acceptance-artifacts
