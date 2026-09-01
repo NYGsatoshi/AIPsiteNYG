@@ -22,6 +22,19 @@ public sealed class FileFolder : SoftDeletableEntity, ITenantEntity
 }
 
 /// <summary>
+/// Optimistic concurrency state for the Workspace root container. Absence of
+/// a row is the initial root state at logical version 0.
+/// </summary>
+public sealed class FileFolderRootState : AuditableEntity, ITenantEntity
+{
+    public Guid TenantId { get; set; }
+    public Guid WorkspaceId { get; set; }
+    public long Version { get; set; } = 1;
+
+    public Workspace? Workspace { get; set; }
+}
+
+/// <summary>
 /// Logical placement of a canonical FileObject in the Workspace folder tree.
 /// Absence of a row means the file is at Workspace root with logical version 0.
 /// </summary>
