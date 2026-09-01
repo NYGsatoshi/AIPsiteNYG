@@ -9,6 +9,11 @@ summary_file="${GITHUB_STEP_SUMMARY:-}"
 
 keys=(
   backend
+  backend_ef
+  backend_tests
+  backend_pr07b
+  backend_pr07c
+  backend_pr07d
   frontend
   frontend_build
   frontend_unit
@@ -38,6 +43,8 @@ route_all() {
   for key in "${keys[@]}"; do
     write_output "$key" "true"
   done
+  write_output "backend_test_scope" "full"
+  write_output "backend_test_filter" ""
   write_output "frontend_unit_scope" "full"
   write_output "frontend_unit_features" ""
   if [[ -n "$summary_file" ]]; then
@@ -56,6 +63,13 @@ changed_file_list="${RUNNER_TEMP:-/tmp}/ci-changed-files.txt"
 git diff --name-only "$base_sha" "$head_sha" > "$changed_file_list"
 
 backend=false
+backend_ef=false
+backend_tests=false
+backend_test_full=false
+backend_pr07b=false
+backend_pr07c=false
+backend_pr07d=false
+backend_scopes=()
 frontend=false
 frontend_build=false
 frontend_unit=false
@@ -71,13 +85,205 @@ security_migration=false
 security_image=false
 frontend_features=()
 
+add_unique() {
+  local value="$1"
+  shift
+  local existing
+  for existing in "$@"; do
+    [[ "$existing" == "$value" ]] && return 1
+  done
+  return 0
+}
+
+add_backend_scope() {
+  local scope="$1"
+  backend=true
+  backend_tests=true
+
+  if [[ "$backend_test_full" == "true" ]]; then
+    return 0
+  fi
+
+  if [[ ! -d "tests/AipPortal.Tests/$scope" ]]; then
+    backend_test_full=true
+    return 0
+  fi
+
+  if add_unique "$scope" "${backend_scopes[@]:-}"; then
+    backend_scopes+=("$scope")
+  fi
+}
+
+mark_backend_full() {
+  backend=true
+  backend_tests=true
+  backend_test_full=true
+}
+
+mark_backend_scope_name() {
+  local name="$1"
+  case "$name" in
+    Communication|Messaging)
+      add_backend_scope "Messaging"
+      ;;
+    Planning|Projects|TaskExecution)
+      add_backend_scope "Projects"
+      if [[ -d tests/AipPortal.Tests/Performance ]]; then
+        add_backend_scope "Performance"
+      fi
+      ;;
+    UiShell)
+      if [[ -d tests/AipPortal.Tests/UiShell ]]; then
+        add_backend_scope "UiShell"
+      else
+        add_backend_scope "Workspaces"
+      fi
+      ;;
+    *)
+      add_backend_scope "$name"
+      ;;
+  esac
+}
+
+mark_pr07_from_text() {
+  local text="$1"
+
+  if grep -Eiq '(TaskSubresource|TaskComment|CommentAuthor|Mention|Assignee|Reviewer|Collaborator|Assignment|ImportantOnly|SignificanceSafety|RelationshipTarget)' <<< "$text"; then
+    backend_pr07b=true
+  fi
+
+  if grep -Eiq '(DeadlineDigest|TaskDeadline|TaskWatch|WatchRepository|DigestCandidate|NotificationSchedule|ScheduledDiagnostic|WorkspaceTimeZone|CommitFence)' <<< "$text"; then
+    backend_pr07c=true
+  fi
+
+  if grep -Eiq '(AuthorizedDelivery|NotificationCreated|NotificationReadState|OpenTaskNotification|OpenDigestNotification|TaskInvalidation|OutboxDispatcher|OutboxReplay|ArtifactNotification|ProjectMessageNotification|Realtime.*Notification)' <<< "$text"; then
+    backend_pr07d=true
+  fi
+}
+
+mark_backend_content_domains() {
+  local text="$1"
+  local matched=false
+
+  if grep -Eiq '(Announcement|DistributionTarget)' <<< "$text"; then
+    add_backend_scope "Announcements"
+    matched=true
+  fi
+  if grep -Eiq '(ArtifactFinding|ArtifactClaim|AuditEvent|AuditLog|Evidence|SourceProvenance)' <<< "$text"; then
+    add_backend_scope "Audit"
+    matched=true
+  fi
+  if grep -Eiq '(FileObject|FileFolder|FileGrant|FileStorage|FileAssociation)' <<< "$text"; then
+    add_backend_scope "Files"
+    matched=true
+  fi
+  if grep -Eiq '(Conversation|DirectMessage|ChannelMessage|MessageFollowUp|MessageNotification)' <<< "$text"; then
+    add_backend_scope "Messaging"
+    matched=true
+  fi
+  if grep -Eiq '(Notification|Outbox|DeadlineDigest)' <<< "$text"; then
+    add_backend_scope "Notifications"
+    matched=true
+  fi
+  if grep -Eiq '(Project|Task|Planning|Kanban|Gantt|WorkItem|Milestone)' <<< "$text"; then
+    add_backend_scope "Projects"
+    matched=true
+  fi
+  if grep -Eiq '(Workspace|CapabilityGrant)' <<< "$text"; then
+    add_backend_scope "Workspaces"
+    matched=true
+  fi
+
+  mark_pr07_from_text "$text"
+
+  if grep -Eiq '(Invite|Session|Authentication|Authorization|CurrentTenant|TenantUser|SystemRole|Security|Csrf|UserRepository)' <<< "$text"; then
+    mark_backend_full
+    matched=true
+  fi
+
+  if [[ "$matched" != "true" ]]; then
+    mark_backend_full
+  fi
+}
+
+changed_lines_for() {
+  local path="$1"
+  git diff --unified=0 "$base_sha" "$head_sha" -- "$path" \
+    | sed -n '/^[+-][^+-]/s/^[+-]//p'
+}
+
+mark_backend_file_by_name() {
+  local path="$1"
+  local name
+  name="$(basename "$path")"
+  local matched=false
+
+  case "$name" in
+    *Announcement*) add_backend_scope "Announcements"; matched=true ;;
+  esac
+  case "$name" in
+    *Audit*|*Artifact*|*Evidence*) add_backend_scope "Audit"; matched=true ;;
+  esac
+  case "$name" in
+    *File*) add_backend_scope "Files"; matched=true ;;
+  esac
+  case "$name" in
+    *Conversation*|*Message*) add_backend_scope "Messaging"; matched=true ;;
+  esac
+  case "$name" in
+    *Notification*|*Outbox*|*Digest*) add_backend_scope "Notifications"; matched=true ;;
+  esac
+  case "$name" in
+    *Project*|*Task*|*Planning*|*Kanban*|*Gantt*) add_backend_scope "Projects"; matched=true ;;
+  esac
+  case "$name" in
+    *Workspace*) add_backend_scope "Workspaces"; matched=true ;;
+  esac
+
+  mark_pr07_from_text "$path"
+
+  case "$name" in
+    *Auth*|*Invite*|*Session*|*Tenant*|*Security*|*User*|*CapabilityGrant*)
+      mark_backend_full
+      matched=true
+      ;;
+  esac
+
+  if [[ "$matched" != "true" ]]; then
+    mark_backend_content_domains "$(changed_lines_for "$path")"
+  fi
+}
+
+mark_backend_test_file() {
+  local path="$1"
+  backend=true
+
+  if [[ "$path" =~ ^tests/AipPortal\.Tests/([^/]+)/ ]]; then
+    local scope="${BASH_REMATCH[1]}"
+    if [[ "$scope" == "Support" ]]; then
+      mark_backend_full
+    else
+      add_backend_scope "$scope"
+    fi
+  else
+    mark_backend_full
+  fi
+
+  local trait_text=""
+  if [[ -f "$path" ]]; then
+    trait_text="$(grep -E 'TaskV1PR07[B-D]' "$path" 2>/dev/null || true)"
+  fi
+  trait_text+=$'\n'"$(changed_lines_for "$path")"
+  [[ "$trait_text" == *TaskV1PR07B* ]] && backend_pr07b=true
+  [[ "$trait_text" == *TaskV1PR07C* ]] && backend_pr07c=true
+  [[ "$trait_text" == *TaskV1PR07D* ]] && backend_pr07d=true
+}
+
 add_frontend_feature() {
   local feature="$1"
-  local existing
-  for existing in "${frontend_features[@]:-}"; do
-    [[ "$existing" == "$feature" ]] && return 0
-  done
-  frontend_features+=("$feature")
+  if add_unique "$feature" "${frontend_features[@]:-}"; then
+    frontend_features+=("$feature")
+  fi
 }
 
 mark_unit_for_path() {
@@ -129,6 +335,12 @@ while IFS= read -r path; do
   case "$path" in
     .github/workflows/ci.yml|scripts/ci/route-main-ci-changes.sh)
       backend=true
+      backend_ef=true
+      backend_tests=true
+      backend_test_full=true
+      backend_pr07b=true
+      backend_pr07c=true
+      backend_pr07d=true
       frontend=true
       frontend_build=true
       frontend_unit=true
@@ -146,12 +358,120 @@ while IFS= read -r path; do
       ;;
   esac
 
+  # Backend compile/test routing.
   case "$path" in
-    AipPortal.slnx|global.json|NuGet.config|Directory.Build.*|Directory.Packages.*|.config/*|src/*|tests/AipPortal.Tests/*|scripts/ci/configure-persistent-caches.sh|scripts/ci/verify-trx-results.sh|scripts/ci/task-pr07b-required-tests.txt|scripts/ci/task-pr07c-required-tests.txt|scripts/ci/task-pr07d-required-tests.txt)
+    AipPortal.slnx|global.json|NuGet.config|Directory.Build.*|Directory.Packages.*|.config/*|tests/AipPortal.Tests/AipPortal.Tests.csproj|src/*.csproj)
+      mark_backend_full
+      backend_ef=true
+      ;;
+    scripts/ci/configure-persistent-caches.sh|scripts/ci/verify-trx-results.sh)
+      mark_backend_full
+      ;;
+    scripts/ci/task-pr07b-required-tests.txt)
       backend=true
+      backend_pr07b=true
+      ;;
+    scripts/ci/task-pr07c-required-tests.txt)
+      backend=true
+      backend_pr07c=true
+      ;;
+    scripts/ci/task-pr07d-required-tests.txt)
+      backend=true
+      backend_pr07d=true
+      ;;
+    tests/AipPortal.Tests/*)
+      mark_backend_test_file "$path"
+      ;;
+    src/AipPortal.Application/DependencyInjection.cs|src/AipPortal.Application/Common/*|src/AipPortal.Application/Security/*|src/AipPortal.Application/Tenancy/*)
+      mark_backend_full
+      mark_pr07_from_text "$path $(changed_lines_for "$path")"
+      ;;
+    src/AipPortal.Application/*)
+      backend=true
+      if [[ "$path" =~ ^src/AipPortal\.Application/([^/]+)/ ]]; then
+        mark_backend_scope_name "${BASH_REMATCH[1]}"
+      else
+        mark_backend_full
+      fi
+      mark_pr07_from_text "$path $(changed_lines_for "$path")"
+      ;;
+    src/AipPortal.Domain/Entities/IdentityEntities.cs|src/AipPortal.Domain/Common/*)
+      mark_backend_full
+      backend_ef=true
+      mark_pr07_from_text "$path $(changed_lines_for "$path")"
+      ;;
+    src/AipPortal.Domain/Entities/MessagingEntities.cs|src/AipPortal.Domain/Entities/CommunicationEntities.cs)
+      backend=true
+      backend_ef=true
+      add_backend_scope "Messaging"
+      add_backend_scope "PostgreSql"
+      mark_pr07_from_text "$path $(changed_lines_for "$path")"
+      ;;
+    src/AipPortal.Domain/Entities/*|src/AipPortal.Domain/Enums/*)
+      backend=true
+      backend_ef=true
+      add_backend_scope "PostgreSql"
+      mark_backend_content_domains "$(changed_lines_for "$path")"
+      ;;
+    src/AipPortal.Infrastructure/Persistence/Migrations/*)
+      backend=true
+      backend_ef=true
+      add_backend_scope "PostgreSql"
+      mark_backend_file_by_name "$path"
+      ;;
+    src/AipPortal.Infrastructure/Persistence/AppDbContext.cs|src/AipPortal.Infrastructure/Persistence/Configurations/*)
+      backend=true
+      backend_ef=true
+      add_backend_scope "PostgreSql"
+      mark_backend_content_domains "$(changed_lines_for "$path")"
+      ;;
+    src/AipPortal.Infrastructure/DependencyInjection.cs)
+      backend=true
+      mark_backend_content_domains "$(changed_lines_for "$path")"
+      ;;
+    src/AipPortal.Infrastructure/Persistence/*)
+      backend=true
+      add_backend_scope "PostgreSql"
+      mark_backend_file_by_name "$path"
+      ;;
+    src/AipPortal.Infrastructure/Files/*|src/AipPortal.Infrastructure/FileStorage/*)
+      add_backend_scope "Files"
+      ;;
+    src/AipPortal.Infrastructure/BackgroundJobs/*)
+      add_backend_scope "Notifications"
+      mark_pr07_from_text "$path $(changed_lines_for "$path")"
+      ;;
+    src/AipPortal.Infrastructure/TaskExecution/*)
+      add_backend_scope "Projects"
+      mark_pr07_from_text "$path $(changed_lines_for "$path")"
+      ;;
+    src/AipPortal.Infrastructure/Security/*)
+      mark_backend_full
+      ;;
+    src/AipPortal.Infrastructure/*)
+      mark_backend_full
+      mark_pr07_from_text "$path $(changed_lines_for "$path")"
+      ;;
+    src/AipPortal.Web/Controllers/AuthController.cs|src/AipPortal.Web/Controllers/InvitesController.cs|src/AipPortal.Web/Controllers/SecurityController.cs|src/AipPortal.Web/Controllers/AdminController.cs|src/AipPortal.Web/Program.cs|src/AipPortal.Web/Security/*|src/AipPortal.Web/Tenancy/*)
+      mark_backend_full
+      mark_pr07_from_text "$path $(changed_lines_for "$path")"
+      ;;
+    src/AipPortal.Web/Controllers/*)
+      backend=true
+      mark_backend_file_by_name "$path"
+      ;;
+    src/AipPortal.Web/Hubs/*)
+      add_backend_scope "Realtime"
+      add_backend_scope "Messaging"
+      mark_pr07_from_text "$path $(changed_lines_for "$path")"
+      ;;
+    src/AipPortal.Web/*)
+      mark_backend_full
+      mark_pr07_from_text "$path $(changed_lines_for "$path")"
       ;;
   esac
 
+  # Frontend routing.
   case "$path" in
     frontend/package.json|frontend/package-lock.json|frontend/.npmrc|frontend/angular.json|frontend/tsconfig*.json)
       frontend=true
@@ -221,6 +541,7 @@ while IFS= read -r path; do
       ;;
   esac
 
+  # Security routing.
   case "$path" in
     AipPortal.slnx|global.json|NuGet.config|Directory.Build.*|Directory.Packages.*|.config/*|src/*.csproj|tests/AipPortal.Tests/*.csproj)
       security=true
@@ -250,6 +571,21 @@ while IFS= read -r path; do
   esac
 done < "$changed_file_list"
 
+backend_test_scope="none"
+backend_test_filter=""
+if [[ "$backend_tests" == "true" ]]; then
+  if [[ "$backend_test_full" == "true" || "${#backend_scopes[@]}" -eq 0 ]]; then
+    backend_test_scope="full"
+  else
+    backend_test_scope="scoped"
+    filters=()
+    for scope in "${backend_scopes[@]}"; do
+      filters+=("FullyQualifiedName~AipPortal.Tests.${scope}")
+    done
+    backend_test_filter="$(IFS='|'; echo "${filters[*]}")"
+  fi
+fi
+
 frontend_unit_scope="none"
 frontend_unit_features=""
 if [[ "$frontend_unit" == "true" ]]; then
@@ -264,6 +600,8 @@ fi
 for key in "${keys[@]}"; do
   write_output "$key" "${!key}"
 done
+write_output "backend_test_scope" "$backend_test_scope"
+write_output "backend_test_filter" "$backend_test_filter"
 write_output "frontend_unit_scope" "$frontend_unit_scope"
 write_output "frontend_unit_features" "$frontend_unit_features"
 
@@ -271,6 +609,11 @@ if [[ -n "$summary_file" ]]; then
   {
     echo "### CI routing"
     echo "- backend: $backend"
+    echo "  - EF migration/model validation: $backend_ef"
+    echo "  - main tests: $backend_tests ($backend_test_scope${backend_test_filter:+: $backend_test_filter})"
+    echo "  - TASK-V1-PR07-B: $backend_pr07b"
+    echo "  - TASK-V1-PR07-C: $backend_pr07c"
+    echo "  - TASK-V1-PR07-D: $backend_pr07d"
     echo "- frontend: $frontend"
     echo "  - build: $frontend_build"
     echo "  - unit: $frontend_unit ($frontend_unit_scope${frontend_unit_features:+: $frontend_unit_features})"
