@@ -88,13 +88,22 @@ public sealed class AnnouncementRepository(
                 notification.RelatedEntityId == announcement.Id &&
                 notification.LogicalKey == deliveryLogicalKey)
             .Select(notification => notification.UserId);
+        var hasFrozenCohort = await dbContext.AuditLogs
+            .AsNoTracking()
+            .AnyAsync(log =>
+                log.TenantId == announcement.TenantId &&
+                log.Action == AnnouncementDistributionContract.FrozenCohortAuditAction &&
+                log.EntityType == "Announcement" &&
+                log.EntityId == announcement.Id,
+                cancellationToken);
 
-        if (await frozenRecipientIds.AnyAsync(cancellationToken))
+        if (hasFrozenCohort)
         {
-            // #388 freezes the de-duplicated recipient cohort at dispatch.
-            // Soft-deleting the visible notification does not remove the row,
-            // so read-status and reminders cannot silently drift to new scope
-            // members after publication.
+            // #388 freezes the de-duplicated recipient cohort at dispatch. The
+            // audit marker exists even for an empty cohort; recipient rows are
+            // the per-user membership ledger. Soft-deleting the visible
+            // notification does not remove the row, so read-status/reminders
+            // cannot drift to users who join a scope after publication.
             userIds = frozenRecipientIds;
         }
         else if (announcement.ChannelId.HasValue)
