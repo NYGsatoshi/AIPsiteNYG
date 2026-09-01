@@ -217,14 +217,14 @@ while IFS= read -r path; do
   esac
 
   case "$path" in
-    src/AipPortal.Infrastructure/Migrations/*|docker-compose.onprem.yml|docker-compose.onprem.ci.yml|global.json|NuGet.config|Directory.Packages.*|.config/*|src/*.csproj)
+    src/AipPortal.Infrastructure/Migrations/*|docker-compose.onprem.yml|docker-compose.onprem.ci.yml|global.json|NuGet.config|Directory.Build.*|Directory.Packages.*|.config/*|src/*.csproj)
       security=true
       security_migration=true
       ;;
   esac
 
   case "$path" in
-    .dockerignore|.env|.env.*|.env.example|Dockerfile|Dockerfile.*|package.json|package-lock.json|frontend/package.json|frontend/package-lock.json|global.json|NuGet.config|Directory.Packages.*|src/*.csproj|*/syncfusion-license.txt|syncfusion-license.txt)
+    .dockerignore|.env|.env.*|.env.example|Dockerfile|Dockerfile.*|frontend/package.json|frontend/package-lock.json|frontend/.npmrc|global.json|NuGet.config|Directory.Build.*|Directory.Packages.*|src/*.csproj|*/syncfusion-license.txt|syncfusion-license.txt)
       security=true
       security_image=true
       ;;
