@@ -75,13 +75,12 @@ test.describe('Workspace Needs attention', () => {
       () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
     );
     expect(hasHorizontalOverflow).toBe(false);
+    await expectNoAccessibilityViolations(page);
 
     const firstTarget = page.getByTestId('workspace-needs-attention-link').first();
     await firstTarget.focus();
     await expect(firstTarget).toBeFocused();
     await page.keyboard.press('Enter');
     await expect(page).toHaveURL(new RegExp(`/app/projects/${projectId}/tasks/${reviewTaskId}$`, 'u'));
-
-    await expectNoAccessibilityViolations(page);
   });
 });
