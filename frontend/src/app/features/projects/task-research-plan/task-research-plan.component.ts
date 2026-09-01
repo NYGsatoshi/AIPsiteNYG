@@ -391,19 +391,23 @@ function mapStep(value: unknown): PlanStep | null {
 
 function mapProposedStep(value: unknown): ProposedStep | null {
   if (!isRecord(value) || typeof value['position'] !== 'number' || typeof value['title'] !== 'string' || typeof value['objective'] !== 'string' || typeof value['scopeSummary'] !== 'string' || !isStepStatus(value['status'])) return null;
-  const baseStepId = value['baseStepId'];
-  if (baseStepId !== null && typeof baseStepId !== 'string') return null;
+  const rawBaseStepId = value['baseStepId'];
+  if (rawBaseStepId !== null && typeof rawBaseStepId !== 'string') return null;
+  const baseStepId: string | null = typeof rawBaseStepId === 'string' ? rawBaseStepId : null;
   return { baseStepId, position: value['position'], title: value['title'], objective: value['objective'], scopeSummary: value['scopeSummary'], status: value['status'] };
 }
 
 function mapDiff(value: unknown): StepDiff | null {
   if (!isRecord(value) || !Array.isArray(value['kinds']) || !value['kinds'].every(kind => typeof kind === 'string') || !Array.isArray(value['changedFields']) || !value['changedFields'].every(field => typeof field === 'string')) return null;
-  const baseStepId = value['baseStepId'];
-  const beforePosition = value['beforePosition'];
-  const afterPosition = value['afterPosition'];
-  if (baseStepId !== null && typeof baseStepId !== 'string') return null;
-  if (beforePosition !== null && typeof beforePosition !== 'number') return null;
-  if (afterPosition !== null && typeof afterPosition !== 'number') return null;
+  const rawBaseStepId = value['baseStepId'];
+  const rawBeforePosition = value['beforePosition'];
+  const rawAfterPosition = value['afterPosition'];
+  if (rawBaseStepId !== null && typeof rawBaseStepId !== 'string') return null;
+  if (rawBeforePosition !== null && typeof rawBeforePosition !== 'number') return null;
+  if (rawAfterPosition !== null && typeof rawAfterPosition !== 'number') return null;
+  const baseStepId: string | null = typeof rawBaseStepId === 'string' ? rawBaseStepId : null;
+  const beforePosition: number | null = typeof rawBeforePosition === 'number' ? rawBeforePosition : null;
+  const afterPosition: number | null = typeof rawAfterPosition === 'number' ? rawAfterPosition : null;
   const before = value['before'] === null ? null : mapStep(value['before']);
   const after = value['after'] === null ? null : mapProposedStep(value['after']);
   if (value['before'] !== null && before === null) return null;
@@ -415,8 +419,9 @@ function mapImpact(value: unknown): ImpactSummary | null {
   if (!isRecord(value) || typeof value['beforeStepCount'] !== 'number' || typeof value['afterStepCount'] !== 'number' || typeof value['executionStepCountChanged'] !== 'boolean' || typeof value['executionOrderChanged'] !== 'boolean' || typeof value['sourceScopeGuidanceChanged'] !== 'boolean' || typeof value['deliverableAlignmentReviewRequired'] !== 'boolean' || !Array.isArray(value['items'])) return null;
   const items = value['items'].map(item => {
     if (!isRecord(item) || typeof item['kind'] !== 'string' || typeof item['message'] !== 'string') return null;
-    const stepPosition = item['stepPosition'];
-    if (stepPosition !== null && typeof stepPosition !== 'number') return null;
+    const rawStepPosition = item['stepPosition'];
+    if (rawStepPosition !== null && typeof rawStepPosition !== 'number') return null;
+    const stepPosition: number | null = typeof rawStepPosition === 'number' ? rawStepPosition : null;
     return { kind: item['kind'], message: item['message'], stepPosition } satisfies ImpactItem;
   });
   if (!items.every((item): item is ImpactItem => item !== null)) return null;
@@ -433,10 +438,12 @@ function mapImpact(value: unknown): ImpactSummary | null {
 
 function mapPreview(value: unknown): PlanPreview | null {
   if (!isRecord(value) || typeof value['baseVersion'] !== 'number' || typeof value['fingerprint'] !== 'string' || !Array.isArray(value['proposedSteps']) || !Array.isArray(value['changes'])) return null;
-  const baseRevisionId = value['baseRevisionId'];
-  const baseRevisionNumber = value['baseRevisionNumber'];
-  if (baseRevisionId !== null && typeof baseRevisionId !== 'string') return null;
-  if (baseRevisionNumber !== null && typeof baseRevisionNumber !== 'number') return null;
+  const rawBaseRevisionId = value['baseRevisionId'];
+  const rawBaseRevisionNumber = value['baseRevisionNumber'];
+  if (rawBaseRevisionId !== null && typeof rawBaseRevisionId !== 'string') return null;
+  if (rawBaseRevisionNumber !== null && typeof rawBaseRevisionNumber !== 'number') return null;
+  const baseRevisionId: string | null = typeof rawBaseRevisionId === 'string' ? rawBaseRevisionId : null;
+  const baseRevisionNumber: number | null = typeof rawBaseRevisionNumber === 'number' ? rawBaseRevisionNumber : null;
   const proposedSteps = value['proposedSteps'].map(mapProposedStep);
   const changes = value['changes'].map(mapDiff);
   const impact = mapImpact(value['impact']);
