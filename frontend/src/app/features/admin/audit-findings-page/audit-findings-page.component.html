@@ -242,6 +242,31 @@
           @if (page.canReview) {
             <section class="finding-detail__actions" aria-labelledby="finding-actions-title">
               <h3 id="finding-actions-title">Triage</h3>
+
+              <label for="finding-owner">
+                <span>Owner</span>
+                <select
+                  id="finding-owner"
+                  data-testid="audit-finding-owner"
+                  [value]="selectedOwnerUserId()"
+                  (change)="updateOwner($any($event.target).value)"
+                >
+                  <option value="">Unassigned</option>
+                  @for (owner of page.eligibleOwners; track owner.userId) {
+                    <option [value]="owner.userId">{{ owner.displayName }}</option>
+                  }
+                </select>
+              </label>
+              <button
+                type="button"
+                class="finding-detail__owner-action"
+                data-testid="audit-finding-save-owner"
+                [disabled]="saving() || selectedOwnerUserId() === (finding.ownerUserId || '')"
+                (click)="saveOwner()"
+              >
+                Save owner
+              </button>
+
               <label for="finding-reason">
                 <span>Reason</span>
                 <textarea
@@ -278,15 +303,6 @@
                 }
               </div>
 
-              <button
-                type="button"
-                class="finding-detail__owner-action"
-                data-testid="audit-finding-take-ownership"
-                [disabled]="saving()"
-                (click)="takeOwnership()"
-              >
-                Take ownership
-              </button>
               <p class="finding-detail__help">
                 Status changes and owner assignment are server-authorized with <code>audit.review</code>.
               </p>
