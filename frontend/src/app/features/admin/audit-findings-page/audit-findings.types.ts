@@ -9,6 +9,11 @@ export type AuditFindingsPageStatus =
   | 'permissionDenied'
   | 'error';
 
+export interface AuditFindingOwnerViewModel {
+  readonly userId: string;
+  readonly displayName: string;
+}
+
 export interface AuditFindingHistoryViewModel {
   readonly fromStatus: AuditFindingStatus | null;
   readonly toStatus: AuditFindingStatus;
@@ -43,6 +48,7 @@ export interface AuditFindingsViewModel {
   readonly artifactVersionNumber: number | null;
   readonly artifactTitle: string | null;
   readonly canReview: boolean;
+  readonly eligibleOwners: readonly AuditFindingOwnerViewModel[];
   readonly findings: readonly AuditFindingViewModel[];
   readonly message?: string;
 }
