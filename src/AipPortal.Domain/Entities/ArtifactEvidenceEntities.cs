@@ -57,7 +57,7 @@ public sealed class ArtifactReportCitation : AuditableEntity, ITenantEntity
 }
 
 /// <summary>
-/// Immutable, bounded source passage snapshot attached to a claim.
+/// Immutable, bounded source passage and provenance snapshot attached to a claim.
 /// The SourceReference is opaque and never authorizes retrieval by itself.
 /// </summary>
 public sealed class ArtifactEvidence : AuditableEntity, ITenantEntity
@@ -68,6 +68,14 @@ public sealed class ArtifactEvidence : AuditableEntity, ITenantEntity
     public ArtifactEvidenceSourceKind SourceKind { get; set; }
     public string SourceReference { get; set; } = string.Empty;
     public string? SourceTitleSnapshot { get; set; }
+    public string? SourcePublisherSnapshot { get; set; }
+    public string? SourceTypeSnapshot { get; set; }
+    public ArtifactEvidenceSourceClassification SourceClassification { get; set; } = ArtifactEvidenceSourceClassification.Unknown;
+    public DateTimeOffset? PublishedAtSnapshot { get; set; }
+    public DateTimeOffset? RetrievedAtSnapshot { get; set; }
+    public string? ContentHashSnapshot { get; set; }
+    public string? SourceVersionSnapshot { get; set; }
+    public ArtifactEvidenceVerificationStatus VerificationStatus { get; set; } = ArtifactEvidenceVerificationStatus.Unverified;
     public string PassageSnapshot { get; set; } = string.Empty;
     public string? LocationSnapshot { get; set; }
     public Guid? SourceEventAuditId { get; set; }
