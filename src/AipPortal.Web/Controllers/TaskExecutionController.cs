@@ -1,5 +1,6 @@
 using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
+using AipPortal.Application.Files;
 using AipPortal.Application.Projects;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -17,11 +18,20 @@ public sealed class TaskExecutionController(
     ITaskExecutionScopeService executionScopes,
     ITaskExecutionRuntime? runtime = null,
     ICurrentTenant? currentTenant = null,
-    ITaskExecutionResultService? executionResults = null) : ControllerBase
+    ITaskExecutionResultService? executionResults = null,
+    ITaskExecutionScopeRepository? executionScopeRepository = null,
+    IFileAuthorizationService? fileAuthorization = null,
+    ICurrentUser? currentUser = null) : ControllerBase
 {
     [HttpGet("api/projects/{projectId:guid}/execution-scope")]
-    public async Task<IActionResult> GetProjectScope(Guid projectId, CancellationToken cancellationToken) =>
-        ToActionResult(await executionScopes.GetProjectScopeAsync(projectId, cancellationToken));
+    public async Task<IActionResult> GetProjectScope(Guid projectId, CancellationToken cancellationToken)
+    {
+        var result = await executionScopes.GetProjectScopeAsync(projectId, cancellationToken);
+        if (!result.IsSuccess || result.Value is not { } response)
+            return ToActionResult(result);
+
+        return Ok(await RedactUnauthorizedProjectFileRulesAsync(projectId, response, cancellationToken));
+    }
 
     [HttpPut("api/projects/{projectId:guid}/execution-scope")]
     public async Task<IActionResult> UpdateProjectScope(
@@ -99,6 +109,71 @@ public sealed class TaskExecutionController(
         }
 
         return StatusCode(StatusCodes.Status201Created, response);
+    }
+
+    private async Task<ProjectExecutionScopeResponse> RedactUnauthorizedProjectFileRulesAsync(
+        Guid projectId,
+        ProjectExecutionScopeResponse response,
+        CancellationToken cancellationToken)
+    {
+        var policy = response.Policy.PolicyV2;
+        if (policy is null || !policy.Items.Any(rule => rule.Kind == TaskExecutionSourceKind.ProjectFile))
+            return response;
+
+        // Missing optional security collaborators must fail closed rather than
+        // allowing stable ProjectFile identifiers to escape through a policy
+        // response. Production DI provides all three collaborators.
+        if (executionScopeRepository is null || fileAuthorization is null ||
+            currentUser is not { IsAuthenticated: true, UserId: { } actor } || actor == Guid.Empty)
+        {
+            return RedactProjectFileRules(response, policy, [], canManage: false);
+        }
+
+        var visibleSourceIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var attachment in await executionScopeRepository.ListProjectSourceAttachmentsAsync(projectId, cancellationToken))
+        {
+            if (attachment.FileObject is not { } fileObject)
+                continue;
+            if (!await fileAuthorization.CanViewAttachment(actor, attachment, cancellationToken))
+                continue;
+
+            visibleSourceIds.Add(TaskExecutionSourcePolicyV2.ProjectFileSourceId(fileObject.Id));
+        }
+
+        var allProjectFileRulesVisible = policy.Items
+            .Where(rule => rule.Kind == TaskExecutionSourceKind.ProjectFile)
+            .All(rule => visibleSourceIds.Contains(rule.SourceId));
+
+        return RedactProjectFileRules(
+            response,
+            policy,
+            visibleSourceIds,
+            canManage: response.CanManage && allProjectFileRulesVisible);
+    }
+
+    private static ProjectExecutionScopeResponse RedactProjectFileRules(
+        ProjectExecutionScopeResponse response,
+        TaskExecutionSourcePolicyV2 policy,
+        IReadOnlySet<string> visibleSourceIds,
+        bool canManage)
+    {
+        var redactedPolicy = policy with
+        {
+            Items = policy.Items
+                .Where(rule => rule.Kind != TaskExecutionSourceKind.ProjectFile || visibleSourceIds.Contains(rule.SourceId))
+                .ToList()
+        };
+
+        return response with
+        {
+            CanManage = canManage,
+            Policy = response.Policy with
+            {
+                WebEnabled = redactedPolicy.WebEnabled,
+                ProjectFilesEnabled = redactedPolicy.ProjectFilesEnabled,
+                PolicyV2 = redactedPolicy
+            }
+        };
     }
 
     private IActionResult ResultUnavailable() =>
