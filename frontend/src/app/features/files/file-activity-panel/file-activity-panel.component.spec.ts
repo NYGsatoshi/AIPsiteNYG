@@ -34,6 +34,17 @@ async function render(): Promise<ComponentFixture<FileActivityPanelComponent>> {
   return fixture;
 }
 
+function browserTextBlob(text: string, type: string): Blob {
+  const blob = new Blob([text], { type });
+  if (typeof blob.text !== 'function') {
+    Object.defineProperty(blob, 'text', {
+      configurable: true,
+      value: () => Promise.resolve(text),
+    });
+  }
+  return blob;
+}
+
 describe('FileActivityPanelComponent issue #363', () => {
   beforeEach(() => window.localStorage.setItem('aip.locale', 'en'));
 
@@ -143,11 +154,13 @@ describe('FileActivityPanelComponent issue #363', () => {
     expect(versionRequest.request.method).toBe('GET');
     expect(versionRequest.request.withCredentials).toBe(true);
     http.expectNone('https://attacker.invalid/should-not-be-used');
-    versionRequest.flush(new Blob(['version two'], { type: 'text/plain' }));
+    versionRequest.flush(browserTextBlob('version two', 'text/plain'));
     await fixture.whenStable();
     fixture.detectChanges();
 
-    expect((fixture.nativeElement as HTMLElement).textContent).toContain('Version 2');
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('Version 2');
+    expect(text).toContain('version two');
   });
 
   it('fails closed when activity access is revoked', async () => {
