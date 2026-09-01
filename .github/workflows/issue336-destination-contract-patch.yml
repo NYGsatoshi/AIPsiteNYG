@@ -13,7 +13,7 @@ jobs:
   patch:
     name: Patch Files page destination contract
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 6
     steps:
       - uses: actions/checkout@v5
         with:
