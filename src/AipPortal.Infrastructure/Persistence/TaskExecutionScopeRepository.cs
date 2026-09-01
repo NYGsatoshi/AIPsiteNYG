@@ -22,35 +22,26 @@ public sealed class TaskExecutionScopeRepository(AppDbContext dbContext) : ITask
     private readonly HashSet<(TaskExecutionSourcePolicyOwnerType Type, Guid Id)> pendingDeletes = [];
 
     public Task<ProjectExecutionScope?> GetProjectScopeAsync(Guid projectId, CancellationToken cancellationToken = default) =>
-        dbContext.ProjectExecutionScopes
-            .AsNoTracking()
-            .SingleOrDefaultAsync(scope => scope.ProjectId == projectId, cancellationToken);
+        dbContext.ProjectExecutionScopes.AsNoTracking().SingleOrDefaultAsync(scope => scope.ProjectId == projectId, cancellationToken);
 
     public Task<ProjectExecutionScope?> GetProjectScopeForUpdateAsync(Guid projectId, CancellationToken cancellationToken = default) =>
-        dbContext.ProjectExecutionScopes
-            .SingleOrDefaultAsync(scope => scope.ProjectId == projectId, cancellationToken);
+        dbContext.ProjectExecutionScopes.SingleOrDefaultAsync(scope => scope.ProjectId == projectId, cancellationToken);
 
     public Task<TaskExecutionScopeOverride?> GetTaskOverrideAsync(Guid taskItemId, CancellationToken cancellationToken = default) =>
-        dbContext.TaskExecutionScopeOverrides
-            .AsNoTracking()
-            .SingleOrDefaultAsync(scope => scope.TaskItemId == taskItemId, cancellationToken);
+        dbContext.TaskExecutionScopeOverrides.AsNoTracking().SingleOrDefaultAsync(scope => scope.TaskItemId == taskItemId, cancellationToken);
 
     public Task<TaskExecutionScopeOverride?> GetTaskOverrideForUpdateAsync(Guid taskItemId, CancellationToken cancellationToken = default) =>
-        dbContext.TaskExecutionScopeOverrides
-            .SingleOrDefaultAsync(scope => scope.TaskItemId == taskItemId, cancellationToken);
+        dbContext.TaskExecutionScopeOverrides.SingleOrDefaultAsync(scope => scope.TaskItemId == taskItemId, cancellationToken);
 
     public Task<TaskExecutionRun?> GetLatestRunAsync(Guid taskItemId, CancellationToken cancellationToken = default) =>
-        dbContext.TaskExecutionRuns
-            .AsNoTracking()
+        dbContext.TaskExecutionRuns.AsNoTracking()
             .Where(run => run.TaskItemId == taskItemId)
             .OrderByDescending(run => run.RequestedAtUtc)
             .ThenByDescending(run => run.Id)
             .FirstOrDefaultAsync(cancellationToken);
 
     public Task<TaskExecutionRun?> GetRunAsync(Guid runId, CancellationToken cancellationToken = default) =>
-        dbContext.TaskExecutionRuns
-            .AsNoTracking()
-            .SingleOrDefaultAsync(run => run.Id == runId, cancellationToken);
+        dbContext.TaskExecutionRuns.AsNoTracking().SingleOrDefaultAsync(run => run.Id == runId, cancellationToken);
 
     public Task AddProjectScopeAsync(ProjectExecutionScope scope, CancellationToken cancellationToken = default)
     {
@@ -70,35 +61,20 @@ public sealed class TaskExecutionScopeRepository(AppDbContext dbContext) : ITask
         return Task.CompletedTask;
     }
 
-    public void RemoveTaskOverride(TaskExecutionScopeOverride scope) =>
-        dbContext.TaskExecutionScopeOverrides.Remove(scope);
+    public void RemoveTaskOverride(TaskExecutionScopeOverride scope) => dbContext.TaskExecutionScopeOverrides.Remove(scope);
 
     public async Task<TaskExecutionSourcePolicyDocument?> GetSourcePolicyDocumentAsync(
         TaskExecutionSourcePolicyOwnerType ownerType,
         Guid ownerId,
         CancellationToken cancellationToken = default)
     {
-        if (pendingDeletes.Contains((ownerType, ownerId)))
-        {
-            return null;
-        }
-
-        if (pendingUpserts.TryGetValue((ownerType, ownerId), out var staged))
-        {
-            return staged;
-        }
-
-        if (!UsesPostgreSql() || ownerId == Guid.Empty)
-        {
-            return null;
-        }
+        if (pendingDeletes.Contains((ownerType, ownerId))) return null;
+        if (pendingUpserts.TryGetValue((ownerType, ownerId), out var staged)) return staged;
+        if (!UsesPostgreSql() || ownerId == Guid.Empty) return null;
 
         var connection = dbContext.Database.GetDbConnection();
         var shouldClose = connection.State != ConnectionState.Open;
-        if (shouldClose)
-        {
-            await connection.OpenAsync(cancellationToken);
-        }
+        if (shouldClose) await connection.OpenAsync(cancellationToken);
 
         try
         {
@@ -114,18 +90,12 @@ public sealed class TaskExecutionScopeRepository(AppDbContext dbContext) : ITask
             AddParameter(command, "ownerId", ownerId);
 
             await using var reader = await command.ExecuteReaderAsync(CommandBehavior.SingleRow, cancellationToken);
-            if (!await reader.ReadAsync(cancellationToken))
-            {
-                return null;
-            }
+            if (!await reader.ReadAsync(cancellationToken)) return null;
 
-            var policyJson = reader.GetString(6);
-            var policy = JsonSerializer.Deserialize<TaskExecutionSourcePolicyV2>(policyJson, PolicyJsonOptions)
+            var policy = JsonSerializer.Deserialize<TaskExecutionSourcePolicyV2>(reader.GetString(6), PolicyJsonOptions)
                 ?? throw new InvalidDataException("Stored Task execution source policy is missing.");
             if (!policy.TryNormalize(out policy, out _, out _))
-            {
                 throw new InvalidDataException("Stored Task execution source policy is invalid.");
-            }
 
             return new TaskExecutionSourcePolicyDocument(
                 ownerType,
@@ -140,10 +110,7 @@ public sealed class TaskExecutionScopeRepository(AppDbContext dbContext) : ITask
         }
         finally
         {
-            if (shouldClose)
-            {
-                await connection.CloseAsync();
-            }
+            if (shouldClose) await connection.CloseAsync();
         }
     }
 
@@ -151,25 +118,18 @@ public sealed class TaskExecutionScopeRepository(AppDbContext dbContext) : ITask
     {
         ArgumentNullException.ThrowIfNull(document);
         if (document.OwnerId == Guid.Empty || document.TenantId == Guid.Empty || document.WorkspaceId == Guid.Empty || document.ProjectId == Guid.Empty)
-        {
             throw new ArgumentException("Source-policy scope identifiers must be non-empty.", nameof(document));
-        }
         if (!document.Policy.TryNormalize(out var normalized, out _, out _))
-        {
             throw new ArgumentException("Source-policy document is invalid.", nameof(document));
-        }
 
-        var normalizedDocument = document with { Policy = normalized };
         pendingDeletes.Remove((document.OwnerType, document.OwnerId));
-        pendingUpserts[(document.OwnerType, document.OwnerId)] = normalizedDocument;
+        pendingUpserts[(document.OwnerType, document.OwnerId)] = document with { Policy = normalized };
     }
 
     public void StageSourcePolicyDocumentDelete(TaskExecutionSourcePolicyOwnerType ownerType, Guid ownerId)
     {
         if (ownerType == TaskExecutionSourcePolicyOwnerType.Run)
-        {
             throw new InvalidOperationException("Run source-policy snapshots are immutable.");
-        }
         pendingUpserts.Remove((ownerType, ownerId));
         pendingDeletes.Add((ownerType, ownerId));
     }
@@ -178,13 +138,7 @@ public sealed class TaskExecutionScopeRepository(AppDbContext dbContext) : ITask
 
     public async Task FlushPendingSourcePolicyDocumentsAsync(CancellationToken cancellationToken = default)
     {
-        if (!HasPendingSourcePolicyDocuments)
-        {
-            return;
-        }
-
-        // Existing provider-neutral unit tests use non-PostgreSQL stores and
-        // exercise the legacy projection. Production persistence is PostgreSQL.
+        if (!HasPendingSourcePolicyDocuments) return;
         if (!UsesPostgreSql())
         {
             ClearPendingSourcePolicyDocuments();
@@ -192,10 +146,7 @@ public sealed class TaskExecutionScopeRepository(AppDbContext dbContext) : ITask
         }
 
         var connection = dbContext.Database.GetDbConnection();
-        if (connection.State != ConnectionState.Open)
-        {
-            await connection.OpenAsync(cancellationToken);
-        }
+        if (connection.State != ConnectionState.Open) await connection.OpenAsync(cancellationToken);
 
         foreach (var key in pendingDeletes.OrderBy(item => item.Type).ThenBy(item => item.Id))
         {
@@ -214,8 +165,7 @@ public sealed class TaskExecutionScopeRepository(AppDbContext dbContext) : ITask
         {
             await using var command = connection.CreateCommand();
             command.Transaction = dbContext.Database.CurrentTransaction?.GetDbTransaction();
-            var isRun = document.OwnerType == TaskExecutionSourcePolicyOwnerType.Run;
-            command.CommandText = isRun
+            command.CommandText = document.OwnerType == TaskExecutionSourcePolicyOwnerType.Run
                 ? """
                     INSERT INTO task_execution_source_policy_documents
                         ("OwnerType", "OwnerId", "TenantId", "WorkspaceId", "ProjectId", "TaskItemId",
@@ -232,15 +182,12 @@ public sealed class TaskExecutionScopeRepository(AppDbContext dbContext) : ITask
                         (@ownerType, @ownerId, @tenantId, @workspaceId, @projectId, @taskItemId,
                          @schemaVersion, @projectScopeVersion, @taskOverrideVersion, CAST(@policyJson AS jsonb))
                     ON CONFLICT ("OwnerType", "OwnerId") DO UPDATE SET
-                        "TenantId" = EXCLUDED."TenantId",
-                        "WorkspaceId" = EXCLUDED."WorkspaceId",
-                        "ProjectId" = EXCLUDED."ProjectId",
-                        "TaskItemId" = EXCLUDED."TaskItemId",
+                        "TenantId" = EXCLUDED."TenantId", "WorkspaceId" = EXCLUDED."WorkspaceId",
+                        "ProjectId" = EXCLUDED."ProjectId", "TaskItemId" = EXCLUDED."TaskItemId",
                         "PolicySchemaVersion" = EXCLUDED."PolicySchemaVersion",
                         "ProjectScopeVersion" = EXCLUDED."ProjectScopeVersion",
                         "TaskOverrideVersion" = EXCLUDED."TaskOverrideVersion",
-                        "PolicyJson" = EXCLUDED."PolicyJson",
-                        "UpdatedAt" = NOW()
+                        "PolicyJson" = EXCLUDED."PolicyJson", "UpdatedAt" = NOW()
                     """;
             AddParameter(command, "ownerType", document.OwnerType.ToString());
             AddParameter(command, "ownerId", document.OwnerId);
@@ -263,6 +210,24 @@ public sealed class TaskExecutionScopeRepository(AppDbContext dbContext) : ITask
         pendingUpserts.Clear();
         pendingDeletes.Clear();
     }
+
+    public async Task<IReadOnlyList<Attachment>> ListProjectSourceAttachmentsAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default) =>
+        await dbContext.Set<Attachment>()
+            .AsNoTracking()
+            .Include(attachment => attachment.FileObject)
+            .Where(attachment =>
+                attachment.OwnerType == AttachmentOwnerType.TaskItem &&
+                !attachment.DeletedAt.HasValue &&
+                attachment.ScanStatus == FileScanStatus.Clean &&
+                attachment.FileObject != null &&
+                attachment.FileObject.ProjectId == projectId &&
+                !attachment.FileObject.DeletedAt.HasValue &&
+                attachment.FileObject.Status == FileObjectStatus.Active)
+            .OrderBy(attachment => attachment.CreatedAt)
+            .ThenBy(attachment => attachment.Id)
+            .ToListAsync(cancellationToken);
 
     public async Task<IReadOnlyList<Attachment>> ListTaskSourceAttachmentsAsync(
         Guid taskItemId,
