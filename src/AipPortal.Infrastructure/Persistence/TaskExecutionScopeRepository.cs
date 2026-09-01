@@ -1,11 +1,26 @@
+using System.Data;
+using System.Data.Common;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using AipPortal.Application.Common.Interfaces;
+using AipPortal.Application.Projects;
 using AipPortal.Domain.Entities;
+using AipPortal.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 
 namespace AipPortal.Infrastructure.Persistence;
 
 public sealed class TaskExecutionScopeRepository(AppDbContext dbContext) : ITaskExecutionScopeRepository
 {
+    private static readonly JsonSerializerOptions PolicyJsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        Converters = { new JsonStringEnumConverter() }
+    };
+
+    private readonly Dictionary<(TaskExecutionSourcePolicyOwnerType Type, Guid Id), TaskExecutionSourcePolicyDocument> pendingUpserts = [];
+    private readonly HashSet<(TaskExecutionSourcePolicyOwnerType Type, Guid Id)> pendingDeletes = [];
+
     public Task<ProjectExecutionScope?> GetProjectScopeAsync(Guid projectId, CancellationToken cancellationToken = default) =>
         dbContext.ProjectExecutionScopes
             .AsNoTracking()
@@ -57,4 +72,233 @@ public sealed class TaskExecutionScopeRepository(AppDbContext dbContext) : ITask
 
     public void RemoveTaskOverride(TaskExecutionScopeOverride scope) =>
         dbContext.TaskExecutionScopeOverrides.Remove(scope);
+
+    public async Task<TaskExecutionSourcePolicyDocument?> GetSourcePolicyDocumentAsync(
+        TaskExecutionSourcePolicyOwnerType ownerType,
+        Guid ownerId,
+        CancellationToken cancellationToken = default)
+    {
+        if (pendingDeletes.Contains((ownerType, ownerId)))
+        {
+            return null;
+        }
+
+        if (pendingUpserts.TryGetValue((ownerType, ownerId), out var staged))
+        {
+            return staged;
+        }
+
+        if (!UsesPostgreSql() || ownerId == Guid.Empty)
+        {
+            return null;
+        }
+
+        var connection = dbContext.Database.GetDbConnection();
+        var shouldClose = connection.State != ConnectionState.Open;
+        if (shouldClose)
+        {
+            await connection.OpenAsync(cancellationToken);
+        }
+
+        try
+        {
+            await using var command = connection.CreateCommand();
+            command.Transaction = dbContext.Database.CurrentTransaction?.GetDbTransaction();
+            command.CommandText = """
+                SELECT "TenantId", "WorkspaceId", "ProjectId", "TaskItemId",
+                       "ProjectScopeVersion", "TaskOverrideVersion", "PolicyJson"::text
+                FROM task_execution_source_policy_documents
+                WHERE "OwnerType" = @ownerType AND "OwnerId" = @ownerId
+                """;
+            AddParameter(command, "ownerType", ownerType.ToString());
+            AddParameter(command, "ownerId", ownerId);
+
+            await using var reader = await command.ExecuteReaderAsync(CommandBehavior.SingleRow, cancellationToken);
+            if (!await reader.ReadAsync(cancellationToken))
+            {
+                return null;
+            }
+
+            var policyJson = reader.GetString(6);
+            var policy = JsonSerializer.Deserialize<TaskExecutionSourcePolicyV2>(policyJson, PolicyJsonOptions)
+                ?? throw new InvalidDataException("Stored Task execution source policy is missing.");
+            if (!policy.TryNormalize(out policy, out _, out _))
+            {
+                throw new InvalidDataException("Stored Task execution source policy is invalid.");
+            }
+
+            return new TaskExecutionSourcePolicyDocument(
+                ownerType,
+                ownerId,
+                reader.GetGuid(0),
+                reader.GetGuid(1),
+                reader.GetGuid(2),
+                reader.IsDBNull(3) ? null : reader.GetGuid(3),
+                reader.GetInt64(4),
+                reader.IsDBNull(5) ? null : reader.GetInt64(5),
+                policy);
+        }
+        finally
+        {
+            if (shouldClose)
+            {
+                await connection.CloseAsync();
+            }
+        }
+    }
+
+    public void StageSourcePolicyDocument(TaskExecutionSourcePolicyDocument document)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        if (document.OwnerId == Guid.Empty || document.TenantId == Guid.Empty || document.WorkspaceId == Guid.Empty || document.ProjectId == Guid.Empty)
+        {
+            throw new ArgumentException("Source-policy scope identifiers must be non-empty.", nameof(document));
+        }
+        if (!document.Policy.TryNormalize(out var normalized, out _, out _))
+        {
+            throw new ArgumentException("Source-policy document is invalid.", nameof(document));
+        }
+
+        var normalizedDocument = document with { Policy = normalized };
+        pendingDeletes.Remove((document.OwnerType, document.OwnerId));
+        pendingUpserts[(document.OwnerType, document.OwnerId)] = normalizedDocument;
+    }
+
+    public void StageSourcePolicyDocumentDelete(TaskExecutionSourcePolicyOwnerType ownerType, Guid ownerId)
+    {
+        if (ownerType == TaskExecutionSourcePolicyOwnerType.Run)
+        {
+            throw new InvalidOperationException("Run source-policy snapshots are immutable.");
+        }
+        pendingUpserts.Remove((ownerType, ownerId));
+        pendingDeletes.Add((ownerType, ownerId));
+    }
+
+    public bool HasPendingSourcePolicyDocuments => pendingUpserts.Count > 0 || pendingDeletes.Count > 0;
+
+    public async Task FlushPendingSourcePolicyDocumentsAsync(CancellationToken cancellationToken = default)
+    {
+        if (!HasPendingSourcePolicyDocuments)
+        {
+            return;
+        }
+
+        // Existing provider-neutral unit tests use non-PostgreSQL stores and
+        // exercise the legacy projection. Production persistence is PostgreSQL.
+        if (!UsesPostgreSql())
+        {
+            ClearPendingSourcePolicyDocuments();
+            return;
+        }
+
+        var connection = dbContext.Database.GetDbConnection();
+        if (connection.State != ConnectionState.Open)
+        {
+            await connection.OpenAsync(cancellationToken);
+        }
+
+        foreach (var key in pendingDeletes.OrderBy(item => item.Type).ThenBy(item => item.Id))
+        {
+            await using var command = connection.CreateCommand();
+            command.Transaction = dbContext.Database.CurrentTransaction?.GetDbTransaction();
+            command.CommandText = """
+                DELETE FROM task_execution_source_policy_documents
+                WHERE "OwnerType" = @ownerType AND "OwnerId" = @ownerId
+                """;
+            AddParameter(command, "ownerType", key.Type.ToString());
+            AddParameter(command, "ownerId", key.Id);
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        foreach (var document in pendingUpserts.Values.OrderBy(item => item.OwnerType).ThenBy(item => item.OwnerId))
+        {
+            await using var command = connection.CreateCommand();
+            command.Transaction = dbContext.Database.CurrentTransaction?.GetDbTransaction();
+            var isRun = document.OwnerType == TaskExecutionSourcePolicyOwnerType.Run;
+            command.CommandText = isRun
+                ? """
+                    INSERT INTO task_execution_source_policy_documents
+                        ("OwnerType", "OwnerId", "TenantId", "WorkspaceId", "ProjectId", "TaskItemId",
+                         "PolicySchemaVersion", "ProjectScopeVersion", "TaskOverrideVersion", "PolicyJson")
+                    VALUES
+                        (@ownerType, @ownerId, @tenantId, @workspaceId, @projectId, @taskItemId,
+                         @schemaVersion, @projectScopeVersion, @taskOverrideVersion, CAST(@policyJson AS jsonb))
+                    """
+                : """
+                    INSERT INTO task_execution_source_policy_documents
+                        ("OwnerType", "OwnerId", "TenantId", "WorkspaceId", "ProjectId", "TaskItemId",
+                         "PolicySchemaVersion", "ProjectScopeVersion", "TaskOverrideVersion", "PolicyJson")
+                    VALUES
+                        (@ownerType, @ownerId, @tenantId, @workspaceId, @projectId, @taskItemId,
+                         @schemaVersion, @projectScopeVersion, @taskOverrideVersion, CAST(@policyJson AS jsonb))
+                    ON CONFLICT ("OwnerType", "OwnerId") DO UPDATE SET
+                        "TenantId" = EXCLUDED."TenantId",
+                        "WorkspaceId" = EXCLUDED."WorkspaceId",
+                        "ProjectId" = EXCLUDED."ProjectId",
+                        "TaskItemId" = EXCLUDED."TaskItemId",
+                        "PolicySchemaVersion" = EXCLUDED."PolicySchemaVersion",
+                        "ProjectScopeVersion" = EXCLUDED."ProjectScopeVersion",
+                        "TaskOverrideVersion" = EXCLUDED."TaskOverrideVersion",
+                        "PolicyJson" = EXCLUDED."PolicyJson",
+                        "UpdatedAt" = NOW()
+                    """;
+            AddParameter(command, "ownerType", document.OwnerType.ToString());
+            AddParameter(command, "ownerId", document.OwnerId);
+            AddParameter(command, "tenantId", document.TenantId);
+            AddParameter(command, "workspaceId", document.WorkspaceId);
+            AddParameter(command, "projectId", document.ProjectId);
+            AddParameter(command, "taskItemId", document.TaskItemId);
+            AddParameter(command, "schemaVersion", TaskExecutionSourcePolicyV2.CurrentSchemaVersion);
+            AddParameter(command, "projectScopeVersion", document.ProjectScopeVersion);
+            AddParameter(command, "taskOverrideVersion", document.TaskOverrideVersion);
+            AddParameter(command, "policyJson", JsonSerializer.Serialize(document.Policy, PolicyJsonOptions));
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        ClearPendingSourcePolicyDocuments();
+    }
+
+    public void ClearPendingSourcePolicyDocuments()
+    {
+        pendingUpserts.Clear();
+        pendingDeletes.Clear();
+    }
+
+    public async Task<IReadOnlyList<Attachment>> ListTaskSourceAttachmentsAsync(
+        Guid taskItemId,
+        CancellationToken cancellationToken = default) =>
+        await dbContext.Set<Attachment>()
+            .AsNoTracking()
+            .Include(attachment => attachment.FileObject)
+            .Where(attachment =>
+                attachment.OwnerType == AttachmentOwnerType.TaskItem &&
+                attachment.OwnerId == taskItemId &&
+                !attachment.DeletedAt.HasValue &&
+                attachment.ScanStatus == FileScanStatus.Clean &&
+                attachment.FileObject != null &&
+                !attachment.FileObject.DeletedAt.HasValue &&
+                attachment.FileObject.Status == FileObjectStatus.Active)
+            .OrderBy(attachment => attachment.CreatedAt)
+            .ThenBy(attachment => attachment.Id)
+            .ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<IntegrationAccount>> ListActiveIntegrationAccountsAsync(
+        CancellationToken cancellationToken = default) =>
+        await dbContext.Set<IntegrationAccount>()
+            .AsNoTracking()
+            .Where(account => account.DeletedAt == null && account.Status != IntegrationAccountStatus.Deleted)
+            .OrderBy(account => account.DisplayName)
+            .ThenBy(account => account.Id)
+            .ToListAsync(cancellationToken);
+
+    private bool UsesPostgreSql() =>
+        dbContext.Database.ProviderName?.Contains("Npgsql", StringComparison.OrdinalIgnoreCase) == true;
+
+    private static void AddParameter(DbCommand command, string name, object? value)
+    {
+        var parameter = command.CreateParameter();
+        parameter.ParameterName = name;
+        parameter.Value = value ?? DBNull.Value;
+        command.Parameters.Add(parameter);
+    }
 }
