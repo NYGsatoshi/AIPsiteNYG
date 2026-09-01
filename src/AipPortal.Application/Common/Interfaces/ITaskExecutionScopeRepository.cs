@@ -32,6 +32,10 @@ public interface ITaskExecutionScopeRepository
     Task FlushPendingSourcePolicyDocumentsAsync(CancellationToken cancellationToken = default);
     void ClearPendingSourcePolicyDocuments();
 
+    Task<IReadOnlyList<Attachment>> ListProjectSourceAttachmentsAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<Attachment>> ListTaskSourceAttachmentsAsync(
         Guid taskItemId,
         CancellationToken cancellationToken = default);
