@@ -1,4 +1,4 @@
-import { Component, EventEmitter, Input, OnChanges, Output, SimpleChanges, computed, inject, signal } from '@angular/core';
+import { Component, EventEmitter, Input, OnChanges, Output, SimpleChanges, inject, signal } from '@angular/core';
 import { Subscription } from 'rxjs';
 
 import { I18nService } from '../../../core/i18n/i18n.service';
@@ -25,7 +25,6 @@ interface DestinationOption {
       [confirmDisabled]="busy() || !hasMoveTarget()"
       focusReturnFallbackId="files-contextual-toolbar"
       (confirm)="confirmMove()"
-      (cancel)="cancelMove()"
       (closed)="cancelMove()"
     >
       <div class="move-dialog" [attr.aria-busy]="busy()">
@@ -69,20 +68,6 @@ export class FileMoveDialogComponent implements OnChanges {
   readonly destinationFolderId = signal<string | null>(null);
   readonly busy = signal(false);
   readonly errorMessage = signal('');
-  readonly hasMoveTarget = computed(() =>
-    this.folderId !== null || this.fileObjectIds.some((id) => id.length > 0));
-  readonly destinationOptions = computed<readonly DestinationOption[]>(() => {
-    const sourceFolderId = this.folderId;
-    const excluded = sourceFolderId ? descendantIds(this.folders.folders(), sourceFolderId) : new Set<string>();
-    if (sourceFolderId) {
-      excluded.add(sourceFolderId);
-    }
-    return flattenFolders(this.folders.folders()).map(({ folder, depth }) => ({
-      id: folder.id,
-      label: `${'  '.repeat(Math.max(0, depth - 1))}${folder.name}`,
-      disabled: excluded.has(folder.id),
-    }));
-  });
 
   private request: Subscription | null = null;
 
@@ -94,6 +79,24 @@ export class FileMoveDialogComponent implements OnChanges {
       this.errorMessage.set('');
       this.busy.set(false);
     }
+  }
+
+  hasMoveTarget(): boolean {
+    return this.folderId !== null || this.fileObjectIds.some((id) => id.length > 0);
+  }
+
+  destinationOptions(): readonly DestinationOption[] {
+    const sourceFolderId = this.folderId;
+    const folders = this.folders.folders();
+    const excluded = sourceFolderId ? descendantIds(folders, sourceFolderId) : new Set<string>();
+    if (sourceFolderId) {
+      excluded.add(sourceFolderId);
+    }
+    return flattenFolders(folders).map(({ folder, depth }) => ({
+      id: folder.id,
+      label: `${'  '.repeat(Math.max(0, depth - 1))}${folder.name}`,
+      disabled: excluded.has(folder.id),
+    }));
   }
 
   selectDestination(event: Event): void {
