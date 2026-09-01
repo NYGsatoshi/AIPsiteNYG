@@ -35,8 +35,10 @@ public sealed class AuditFindingHistoryConfiguration : IEntityTypeConfiguration<
     public void Configure(EntityTypeBuilder<AuditFindingHistory> builder)
     {
         builder.ToTable("audit_finding_history", table => table.ExcludeFromMigrations());
-        builder.ConfigureAuditableEntity();
-        builder.Property(history => history.FromStatus).HasEnumStringConversion().HasMaxLength(32);
+        // The shared helper is intentionally constrained to non-nullable enums.
+        // FromStatus is null for the initial Open history entry, so let EF Core's
+        // built-in nullable enum-to-string converter preserve that null value.
+        builder.Property(history => history.FromStatus).HasConversion<string>().HasMaxLength(32);
         builder.Property(history => history.ToStatus).HasEnumStringConversion().HasMaxLength(32).IsRequired();
         builder.Property(history => history.Reason).HasMaxLength(1000);
         builder.HasIndex(history => new { history.TenantId, history.ArtifactFindingId, history.CreatedAt });
