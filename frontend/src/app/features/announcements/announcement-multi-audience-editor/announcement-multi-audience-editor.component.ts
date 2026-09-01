@@ -201,6 +201,11 @@ export class AnnouncementMultiAudienceEditorComponent implements OnChanges {
     }
 
     this.localError.set(undefined);
+    if (this.selectedAudiences().length === 1) {
+      this.publishRequested.emit(augmented);
+      return;
+    }
+
     this.pendingPublication.set(augmented);
     this.finalReviewOpen.set(true);
   }
