@@ -18,7 +18,15 @@ public sealed record ArtifactEvidenceManifestItem(
     string? SourceTitleSnapshot,
     string PassageSnapshot,
     string? LocationSnapshot,
-    Guid? SourceEventAuditId);
+    Guid? SourceEventAuditId,
+    string? SourcePublisherSnapshot = null,
+    string? SourceTypeSnapshot = null,
+    string? SourceClassification = null,
+    DateTimeOffset? PublishedAtSnapshot = null,
+    DateTimeOffset? RetrievedAtSnapshot = null,
+    string? ContentHashSnapshot = null,
+    string? SourceVersionSnapshot = null,
+    string? VerificationStatus = null);
 
 public sealed record ArtifactEvidenceManifestResponse(
     Guid ArtifactVersionId,
