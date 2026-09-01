@@ -21,3 +21,17 @@ public enum ArtifactEvidenceSourceKind
     FileAttachment = 1,
     ArtifactVersion = 2
 }
+
+public enum ArtifactEvidenceSourceClassification
+{
+    Unknown = 0,
+    Primary = 1,
+    Secondary = 2
+}
+
+public enum ArtifactEvidenceVerificationStatus
+{
+    Unverified = 0,
+    Verified = 1,
+    Rejected = 2
+}
