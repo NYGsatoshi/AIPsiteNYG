@@ -48,7 +48,10 @@ public sealed class AddTaskExecutionSourcePolicyV2 : Migration
                 IF OLD."OwnerType" = 'Run' THEN
                     RAISE EXCEPTION 'Task execution run source-policy snapshots are immutable';
                 END IF;
-                RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+                IF TG_OP = 'DELETE' THEN
+                    RETURN OLD;
+                END IF;
+                RETURN NEW;
             END;
             $$ LANGUAGE plpgsql;
 
