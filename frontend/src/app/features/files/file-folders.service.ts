@@ -45,7 +45,10 @@ export class FileFolderStore {
       !force &&
       normalizedWorkspaceId !== null &&
       normalizedWorkspaceId === this.workspaceId &&
-      (untracked(() => this.loadingState()) || this.loadedWorkspaceId === normalizedWorkspaceId)
+      (
+        untracked(() => this.loadingState() || this.errorState()) ||
+        this.loadedWorkspaceId === normalizedWorkspaceId
+      )
     ) {
       return;
     }
