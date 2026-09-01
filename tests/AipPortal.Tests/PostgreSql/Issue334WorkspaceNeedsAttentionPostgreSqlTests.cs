@@ -173,8 +173,8 @@ public sealed class Issue334WorkspaceNeedsAttentionPostgreSqlTests
                 Assert.NotNull(card.NeedsAttentionItems);
                 Assert.Collection(
                     card.NeedsAttentionItems!,
-                    item => Assert.Equal(WorkspaceNeedsAttentionKind.ReviewRequired, item.Kind),
-                    item => Assert.Equal(WorkspaceNeedsAttentionKind.ResearchFailed, item.Kind));
+                    item => Assert.Equal(WorkspaceNeedsAttentionKind.ResearchFailed, item.Kind),
+                    item => Assert.Equal(WorkspaceNeedsAttentionKind.ReviewRequired, item.Kind));
                 Assert.All(card.NeedsAttentionItems!, item =>
                 {
                     Assert.StartsWith($"/projects/{project.Id:D}/tasks/", item.TargetRoute);
