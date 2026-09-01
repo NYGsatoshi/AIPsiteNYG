@@ -4,6 +4,7 @@ import { inject, Injectable, signal } from '@angular/core';
 import {
   AuditFindingFilters,
   AuditFindingHistoryViewModel,
+  AuditFindingOwnerViewModel,
   AuditFindingSeverity,
   AuditFindingStatus,
   AuditFindingViewModel,
@@ -16,7 +17,13 @@ interface AuditFindingsDto {
   readonly artifactVersionNumber: number;
   readonly artifactTitle: string;
   readonly canReview: boolean;
+  readonly eligibleOwners?: readonly AuditFindingOwnerDto[];
   readonly findings?: readonly AuditFindingDto[];
+}
+
+interface AuditFindingOwnerDto {
+  readonly userId: string;
+  readonly displayName: string;
 }
 
 interface AuditFindingDto {
@@ -111,6 +118,9 @@ export class AuditFindingsFacade {
             artifactVersionNumber: response.artifactVersionNumber,
             artifactTitle: response.artifactTitle,
             canReview: response.canReview === true,
+            eligibleOwners: response.canReview === true
+              ? (response.eligibleOwners ?? []).map(toOwnerViewModel)
+              : [],
             findings,
             message: findings.length === 0
               ? 'No authorized findings match the current triage filters.'
@@ -153,7 +163,8 @@ export class AuditFindingsFacade {
     findingId: string,
     status: AuditFindingStatus,
     reason: string | null,
-    takeOwnership = true,
+    ownerUserId: string | null = null,
+    assignOwner = false,
   ): void {
     if (this.savingState()) {
       return;
@@ -164,7 +175,7 @@ export class AuditFindingsFacade {
     this.http
       .patch<void>(
         `/api/admin/audit/findings/${encodeURIComponent(findingId)}/triage`,
-        { status, reason, takeOwnership },
+        { status, reason, ownerUserId, assignOwner },
         { withCredentials: true },
       )
       .subscribe({
@@ -182,7 +193,9 @@ export class AuditFindingsFacade {
               ? 'Audit review permission is required to change finding triage.'
               : error.status === 404
                 ? 'The finding is no longer available in the current authorized scope.'
-                : 'The finding triage change could not be saved.',
+                : error.status === 400 && assignOwner
+                  ? 'The selected owner is no longer eligible for this finding.'
+                  : 'The finding triage change could not be saved.',
           );
         },
       });
@@ -197,7 +210,15 @@ function emptyState(status: AuditFindingsViewModel['status']): AuditFindingsView
     artifactVersionNumber: null,
     artifactTitle: null,
     canReview: false,
+    eligibleOwners: [],
     findings: [],
+  };
+}
+
+function toOwnerViewModel(dto: AuditFindingOwnerDto): AuditFindingOwnerViewModel {
+  return {
+    userId: dto.userId.trim(),
+    displayName: dto.displayName.trim() || 'Unnamed member',
   };
 }
 
