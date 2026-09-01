@@ -6,12 +6,14 @@ const findingId = '22222222-2222-4222-8222-222222222222';
 const claimId = '33333333-3333-4333-8333-333333333333';
 const evidenceId = '44444444-4444-4444-8444-444444444444';
 const eventId = '55555555-5555-4555-8555-555555555555';
+const ownerId = '66666666-6666-4666-8666-666666666666';
 
 test.describe('Audit findings triage', () => {
-  test('prioritizes unresolved risk, requires reasons, records ownership, and exposes trace links', async ({ page }) => {
+  test('prioritizes unresolved risk, requires reasons, configures ownership, and exposes trace links', async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 800 });
 
     let status = 'Open';
+    let ownerUserId: string | null = null;
     let ownerDisplayName: string | null = null;
     let resolutionReason: string | null = null;
     let patchCount = 0;
@@ -28,18 +30,22 @@ test.describe('Audit findings triage', () => {
         const body = route.request().postDataJSON() as {
           status: string;
           reason: string | null;
-          takeOwnership: boolean;
+          ownerUserId: string | null;
+          assignOwner: boolean;
         };
         history.unshift({
           fromStatus: status,
           toStatus: body.status,
-          reason: body.reason,
-          changedAt: '2026-09-01T03:20:00Z',
+          reason: body.status === status ? null : body.reason,
+          changedAt: `2026-09-01T03:${20 + patchCount}:00Z`,
         });
-        status = body.status;
-        resolutionReason = body.reason;
-        if (body.takeOwnership) {
-          ownerDisplayName = 'Authorized reviewer';
+        if (body.status !== status) {
+          status = body.status;
+          resolutionReason = body.reason;
+        }
+        if (body.assignOwner) {
+          ownerUserId = body.ownerUserId;
+          ownerDisplayName = body.ownerUserId === ownerId ? 'Authorized reviewer' : null;
         }
         await route.fulfill({ status: 204, body: '' });
         return;
@@ -54,6 +60,9 @@ test.describe('Audit findings triage', () => {
           artifactVersionNumber: 7,
           artifactTitle: 'Policy review report',
           canReview: true,
+          eligibleOwners: [
+            { userId: ownerId, displayName: 'Authorized reviewer' },
+          ],
           findings: [
             {
               findingId,
@@ -65,11 +74,11 @@ test.describe('Audit findings triage', () => {
               detectorKey: 'policy.conflict',
               policyVersion: 'policy-2026.09',
               status,
-              ownerUserId: ownerDisplayName ? '66666666-6666-4666-8666-666666666666' : null,
+              ownerUserId,
               ownerDisplayName,
               resolutionReason,
               createdAt: '2026-09-01T02:00:00Z',
-              updatedAt: ownerDisplayName ? '2026-09-01T03:20:00Z' : null,
+              updatedAt: ownerDisplayName ? '2026-09-01T03:21:00Z' : null,
               relatedEvidenceId: evidenceId,
               relatedEventId: eventId,
               history,
@@ -120,13 +129,18 @@ test.describe('Audit findings triage', () => {
       `/app/admin/audit?event=${eventId}`,
     );
 
+    await page.getByTestId('audit-finding-owner').selectOption(ownerId);
+    await page.getByTestId('audit-finding-save-owner').click();
+    await expect.poll(() => patchCount).toBe(1);
+    await expect(page.getByTestId('audit-finding-detail')).toContainText('Authorized reviewer');
+
     await page.getByTestId('audit-finding-status-FalsePositive').click();
     await expect(page.getByRole('alert')).toContainText('A reason is required');
-    expect(patchCount).toBe(0);
+    expect(patchCount).toBe(1);
 
     await page.getByTestId('audit-finding-reason').fill('Detector matched a quoted example.');
     await page.getByTestId('audit-finding-status-FalsePositive').click();
-    await expect.poll(() => patchCount).toBe(1);
+    await expect.poll(() => patchCount).toBe(2);
     await expect(page.getByTestId('audit-finding-detail')).toContainText('False Positive');
     await expect(page.getByTestId('audit-finding-detail')).toContainText('Authorized reviewer');
     await expect(page.getByTestId('audit-finding-detail')).toContainText('Detector matched a quoted example.');
