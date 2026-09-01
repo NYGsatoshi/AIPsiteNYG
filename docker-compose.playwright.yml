@@ -15,6 +15,7 @@ services:
       CI: "true"
       PLAYWRIGHT_SKIP_BUILD: "1"
       NPM_CI_ATTEMPTS: "2"
+      AIP_PLAYWRIGHT_REUSE_HOST_BUILD: "${AIP_PLAYWRIGHT_REUSE_HOST_BUILD:-false}"
     volumes:
       - .:/work
       - playwright-root-node-modules:/work/node_modules
@@ -23,8 +24,11 @@ services:
       - playwright-angular-cache:/work/frontend/.angular/cache
     command: >
       bash -lc "bash scripts/ci/npm-ci-retry.sh . &&
-      bash scripts/ci/npm-ci-retry.sh frontend &&
-      npm --prefix frontend run build &&
+      if [ \"$${AIP_PLAYWRIGHT_REUSE_HOST_BUILD}\" != \"true\" ]; then
+        bash scripts/ci/npm-ci-retry.sh frontend &&
+        npm --prefix frontend run build;
+      fi &&
+      test -f frontend/dist/aipportal-web/index.html &&
       npm run test:ui:angular"
 
 volumes:
