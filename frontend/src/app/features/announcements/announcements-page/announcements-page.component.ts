@@ -4,7 +4,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 
 import { AnnouncementDetailComponent } from '../announcement-detail/announcement-detail.component';
-import { AnnouncementEditorComponent } from '../announcement-editor/announcement-editor.component';
+import { AnnouncementMultiAudienceEditorComponent } from '../announcement-multi-audience-editor/announcement-multi-audience-editor.component';
 import { AnnouncementListComponent } from '../announcement-list/announcement-list.component';
 import { AnnouncementNavigationStateService } from '../announcement-navigation-state.service';
 import { AnnouncementsFacade } from '../announcements.facade';
@@ -21,7 +21,7 @@ import {
   imports: [
     FormsModule,
     AnnouncementDetailComponent,
-    AnnouncementEditorComponent,
+    AnnouncementMultiAudienceEditorComponent,
     AnnouncementListComponent,
   ],
   templateUrl: './announcements-page.component.html',
@@ -97,6 +97,7 @@ export class AnnouncementsPageComponent implements OnDestroy {
       body: announcement.body,
       priority: announcement.priority,
       audienceKey,
+      audienceKeys: audienceKey ? [audienceKey] : [],
       availableAudiences,
       requiresReadConfirmation: announcement.readState.requiresReadConfirmation,
       publicationState: announcement.publicationState,
