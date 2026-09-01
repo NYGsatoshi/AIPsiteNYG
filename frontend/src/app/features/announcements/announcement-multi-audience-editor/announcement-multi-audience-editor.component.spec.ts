@@ -103,6 +103,24 @@ describe('AnnouncementMultiAudienceEditorComponent', () => {
     expect(fixture.componentInstance.selectedKeys()).toEqual([groupAudience.key]);
   });
 
+  it('invalidates unsaved create and transition replay identities when the target set changes', async () => {
+    const fixture = await render(
+      draft({
+        createIdempotencyKey: 'announcement-draft-create-old-key',
+        transitionIdempotencyKey: 'announcement-draft-transition-old-key',
+      }),
+    );
+    const emitted: AnnouncementEditorDraft[] = [];
+    fixture.componentInstance.draftChanged.subscribe((value) => emitted.push(value));
+
+    fixture.componentInstance.toggleAudience(channelAudience.key, true);
+
+    const changed = emitted.at(-1);
+    expect(changed?.audienceKeys).toEqual([groupAudience.key, channelAudience.key]);
+    expect(changed?.createIdempotencyKey).toBeUndefined();
+    expect(changed?.transitionIdempotencyKey).toBeUndefined();
+  });
+
   it('does not emit publication until the all-target review is explicitly confirmed', async () => {
     const fixture = await render();
     fixture.componentInstance.toggleAudience(channelAudience.key, true);
