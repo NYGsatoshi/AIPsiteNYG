@@ -36,6 +36,20 @@ export class AuditClaimsEvidencePageComponent {
     ),
     { initialValue: normalizeClaimSupport(this.route.snapshot.queryParamMap.get('support')) },
   );
+  private readonly routeClaimId = toSignal(
+    this.route.queryParamMap.pipe(
+      map((params) => params.get('claim')),
+      distinctUntilChanged(),
+    ),
+    { initialValue: this.route.snapshot.queryParamMap.get('claim') },
+  );
+  private readonly routeEvidenceId = toSignal(
+    this.route.queryParamMap.pipe(
+      map((params) => params.get('evidence')),
+      distinctUntilChanged(),
+    ),
+    { initialValue: this.route.snapshot.queryParamMap.get('evidence') },
+  );
 
   readonly vm = this.facade.viewModel;
   readonly actionSummary = this.facade.actionSummary;
@@ -92,6 +106,8 @@ export class AuditClaimsEvidencePageComponent {
     effect(() => {
       const page = this.vm();
       const claims = this.visibleClaims();
+      const requestedClaimId = this.routeClaimId();
+      const requestedEvidenceId = this.routeEvidenceId();
       if (page.status !== 'ready' || claims.length === 0) {
         untracked(() => {
           this.selectedClaimId.set(null);
@@ -101,8 +117,15 @@ export class AuditClaimsEvidencePageComponent {
       }
 
       untracked(() => {
+        const requested = requestedClaimId
+          ? claims.find((claim) => claim.id === requestedClaimId)
+          : null;
         const current = claims.find((claim) => claim.id === this.selectedClaimId());
-        this.selectClaim(current ?? claims[0]);
+        this.selectClaim(requested ?? current ?? claims[0]);
+        const selected = this.selectedClaim();
+        if (selected && requestedEvidenceId && selected.evidence.some((evidence) => evidence.id === requestedEvidenceId)) {
+          this.selectedEvidenceId.set(requestedEvidenceId);
+        }
       });
     });
   }
@@ -129,7 +152,7 @@ export class AuditClaimsEvidencePageComponent {
 
     void this.router.navigate([], {
       relativeTo: this.route,
-      queryParams: { artifactVersion: versionId },
+      queryParams: { artifactVersion: versionId, claim: null, evidence: null },
       queryParamsHandling: 'merge',
     });
   }
