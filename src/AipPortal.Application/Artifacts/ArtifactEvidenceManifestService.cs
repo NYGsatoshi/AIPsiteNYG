@@ -69,6 +69,7 @@ public sealed class ArtifactEvidenceManifestService(
 
         var claimOrdinals = new HashSet<int>();
         var claims = new List<ArtifactClaim>(request.Claims.Count);
+        var provenanceBySource = new Dictionary<(ArtifactEvidenceSourceKind Kind, string Reference), SourceProvenanceContract>();
         foreach (var item in request.Claims)
         {
             if (item.Ordinal <= 0 || !claimOrdinals.Add(item.Ordinal))
@@ -161,6 +162,26 @@ public sealed class ArtifactEvidenceManifestService(
                 {
                     return Failure("ValidationFailed", "Evidence published time cannot be after its retrieved time.");
                 }
+
+                var provenance = new SourceProvenanceContract(
+                    sourceTitle,
+                    sourcePublisher,
+                    sourceType,
+                    sourceClassification,
+                    evidenceItem.PublishedAtSnapshot,
+                    evidenceItem.RetrievedAtSnapshot,
+                    contentHash,
+                    sourceVersion,
+                    verificationStatus);
+                var sourceKey = (sourceKind, sourceReference);
+                if (provenanceBySource.TryGetValue(sourceKey, out var existingProvenance) &&
+                    existingProvenance != provenance)
+                {
+                    return Failure(
+                        "ValidationFailed",
+                        "Repeated references to the same evidence source must use identical source-level provenance metadata.");
+                }
+                provenanceBySource[sourceKey] = provenance;
 
                 if (!await CanAttachSourceAsync(userId, sourceKind, sourceReference, cancellationToken))
                 {
@@ -282,4 +303,15 @@ public sealed class ArtifactEvidenceManifestService(
 
     private static Result<ArtifactEvidenceManifestResponse> Failure(string code, string message) =>
         Result<ArtifactEvidenceManifestResponse>.Failure(new ApplicationErrorDetail(code, message));
+
+    private sealed record SourceProvenanceContract(
+        string? SourceTitle,
+        string? Publisher,
+        string? SourceType,
+        ArtifactEvidenceSourceClassification Classification,
+        DateTimeOffset? PublishedAt,
+        DateTimeOffset? RetrievedAt,
+        string? ContentHash,
+        string? SourceVersion,
+        ArtifactEvidenceVerificationStatus VerificationStatus);
 }
