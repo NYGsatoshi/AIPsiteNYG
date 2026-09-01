@@ -136,6 +136,23 @@ assert_eq true "$(value_of "$output" backend_pr07b)" "PR07-B route"
 assert_eq false "$(value_of "$output" backend_pr07c)" "PR07-C isolation"
 assert_eq false "$(value_of "$output" backend_pr07d)" "PR07-D isolation"
 
+# Ordinary backend test files often have no PR07 traits. Routing them must stay
+# successful under `set -e` while retaining the domain-local test scope.
+repo="$tmp_root/plain-backend-test"
+init_repo "$repo" Workspaces
+mkdir -p "$repo/tests/AipPortal.Tests/Workspaces"
+printf 'public sealed class WorkspaceContractTests {}\n' > "$repo/tests/AipPortal.Tests/Workspaces/WorkspaceContractTests.cs"
+base="$(commit_all "$repo" base)"
+printf 'public sealed class WorkspaceContractTests { public int Version => 2; }\n' > "$repo/tests/AipPortal.Tests/Workspaces/WorkspaceContractTests.cs"
+head="$(commit_all "$repo" head)"
+output="$(route_repo "$repo" "$base" "$head")"
+assert_eq true "$(value_of "$output" backend)" "plain backend test routing"
+assert_eq scoped "$(value_of "$output" backend_test_scope)" "plain backend test scope"
+assert_contains "$(value_of "$output" backend_test_filter)" 'AipPortal.Tests.Workspaces' "plain backend test filter"
+assert_eq false "$(value_of "$output" backend_pr07b)" "plain backend test PR07-B"
+assert_eq false "$(value_of "$output" backend_pr07c)" "plain backend test PR07-C"
+assert_eq false "$(value_of "$output" backend_pr07d)" "plain backend test PR07-D"
+
 # Cross-cutting Common changes intentionally fail safe to the full backend suite.
 repo="$tmp_root/common"
 init_repo "$repo" Announcements
