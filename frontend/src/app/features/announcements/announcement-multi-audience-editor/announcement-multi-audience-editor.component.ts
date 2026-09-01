@@ -82,15 +82,20 @@ export class AnnouncementMultiAudienceEditorComponent implements OnChanges {
       authorized.length > 0 ? authorized : [this.draft.audienceKey],
       this.draft.availableAudiences,
     );
+    const authorizationChangedSelection =
+      explicitIncoming !== undefined && !this.sameSelection(explicitIncoming, normalized);
+    const nextDraft = authorizationChangedSelection
+      ? this.invalidateSelectionReplayIdentity(this.draft)
+      : this.draft;
 
     this.selectedKeys.set(normalized);
     this.innerDraft.set({
-      ...this.draft,
+      ...nextDraft,
       audienceKey: normalized[0] ?? '',
       audienceKeys: normalized,
     });
 
-    if (explicitIncoming && explicitIncoming.some((key) => !authorizedKeys.has(key))) {
+    if (authorizationChangedSelection) {
       this.localError.set(
         '一部の配信対象への権限が変更されたため、その対象を選択から外しました。公開前に対象を再確認してください。',
       );
@@ -149,19 +154,24 @@ export class AnnouncementMultiAudienceEditorComponent implements OnChanges {
   }
 
   onInnerDraftChanged(nextDraft: AnnouncementEditorDraft): void {
-    const previousPrimary = this.selectedKeys()[0];
+    const previousSelection = this.selectedKeys();
+    const previousPrimary = previousSelection[0];
     const candidateKeys = [
       nextDraft.audienceKey,
-      ...this.selectedKeys().filter((key) => key !== previousPrimary && key !== nextDraft.audienceKey),
+      ...previousSelection.filter((key) => key !== previousPrimary && key !== nextDraft.audienceKey),
     ];
     const normalized = this.normalizeSelection(
       nextDraft.audienceKey,
       candidateKeys,
       nextDraft.availableAudiences,
     );
+    const selectionChanged = !this.sameSelection(previousSelection, normalized);
+    const identitySafeDraft = selectionChanged
+      ? this.invalidateSelectionReplayIdentity(nextDraft)
+      : nextDraft;
     this.selectedKeys.set(normalized);
     const enriched: AnnouncementEditorDraft = {
-      ...nextDraft,
+      ...identitySafeDraft,
       audienceKey: normalized[0] ?? '',
       audienceKeys: normalized,
     };
@@ -234,7 +244,7 @@ export class AnnouncementMultiAudienceEditorComponent implements OnChanges {
     this.localError.set(undefined);
     this.closeFinalReview();
     const enriched: AnnouncementEditorDraft = {
-      ...draft,
+      ...this.invalidateSelectionReplayIdentity(draft),
       audienceKey: keys[0] ?? '',
       audienceKeys: keys,
     };
@@ -305,6 +315,18 @@ export class AnnouncementMultiAudienceEditorComponent implements OnChanges {
       }
     }
     return result;
+  }
+
+  private sameSelection(left: readonly string[], right: readonly string[]): boolean {
+    return left.length === right.length && left.every((key, index) => key === right[index]);
+  }
+
+  private invalidateSelectionReplayIdentity(draft: AnnouncementEditorDraft): AnnouncementEditorDraft {
+    return {
+      ...draft,
+      createIdempotencyKey: draft.id ? draft.createIdempotencyKey : undefined,
+      transitionIdempotencyKey: undefined,
+    };
   }
 }
 
