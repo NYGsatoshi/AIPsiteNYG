@@ -88,7 +88,6 @@ public sealed class FileFolderService(
         var sortOrder = await NextSortOrderAsync(request.WorkspaceId, request.ParentFolderId, cancellationToken);
         var folder = new FileFolder
         {
-            Id = Guid.NewGuid(),
             TenantId = currentTenant.TenantId,
             WorkspaceId = request.WorkspaceId,
             ParentFolderId = request.ParentFolderId,
@@ -179,7 +178,6 @@ public sealed class FileFolderService(
             {
                 placement = new FileFolderPlacement
                 {
-                    Id = Guid.NewGuid(),
                     TenantId = currentTenant.TenantId,
                     WorkspaceId = workspaceId,
                     FileObjectId = fileObjectId,
