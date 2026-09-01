@@ -315,7 +315,7 @@ describe('ProjectCreateFacade', () => {
     );
   });
 
-  it('keeps committed recovery when own-command authorization invalidation wins the navigation race', async () => {
+  it('keeps committed navigation alive when own-command authorization invalidation wins the navigation race', async () => {
     await loadOptions();
     let resolveNavigation!: (value: boolean) => void;
     router.navigate.mockReturnValueOnce(
@@ -334,20 +334,20 @@ describe('ProjectCreateFacade', () => {
     expect(router.navigate).toHaveBeenCalledOnce();
 
     protectedClearer?.('authorization');
-    resolveNavigation(true);
-    await expect(create).resolves.toBe(false);
     expect(facade.options().status).toBe('idle');
-    expect(facade.createState().status).toBe('committedPendingNavigation');
+    expect(facade.createState().status).toBe('submitting');
+    resolveNavigation(true);
+    await expect(create).resolves.toBe(true);
+    expect(facade.createState()).toMatchObject({
+      status: 'succeeded',
+      createdProjectId: projectId,
+      requestId: 'request-create',
+    });
+    expect(router.navigate).toHaveBeenCalledTimes(1);
     http.expectNone(
       (request) =>
         request.url === `/api/workspaces/${workspaceId}/projects` && request.method === 'POST',
     );
-
-    router.navigate.mockResolvedValueOnce(true);
-    const retry = facade.retryCreatedProjectNavigation();
-    http.expectOne(`/api/projects/${projectId}`).flush(projectConfirmation);
-    await expect(retry).resolves.toBe(true);
-    expect(router.navigate).toHaveBeenCalledTimes(2);
   });
 
   it('keeps a dispatched create alive when authorization invalidation precedes the strict 201', async () => {
@@ -507,7 +507,7 @@ describe('ProjectCreateFacade', () => {
     await expect(finalRetry).resolves.toBe(true);
   });
 
-  it('preserves an authorization-race commit even if another clearer already hid ActiveWorkspace, then destroys it on the actual Workspace boundary', async () => {
+  it('keeps committed navigation alive even if another clearer already hid ActiveWorkspace, then destroys it on the actual Workspace boundary', async () => {
     await loadOptions();
     let resolveNavigation!: (value: boolean) => void;
     router.navigate.mockReturnValueOnce(
@@ -526,12 +526,13 @@ describe('ProjectCreateFacade', () => {
 
     // Protected clearers can run in a different registration order. The
     // authorization callback must not depend on another facade still exposing
-    // ActiveWorkspace.
+    // ActiveWorkspace, and the already-authorized navigation may finish.
     activeWorkspace.set(null);
     protectedClearer?.('authorization');
+    expect(facade.createState().status).toBe('submitting');
     resolveNavigation(true);
-    await expect(create).resolves.toBe(false);
-    expect(facade.createState().status).toBe('committedPendingNavigation');
+    await expect(create).resolves.toBe(true);
+    expect(facade.createState().status).toBe('succeeded');
 
     protectedClearer?.('workspace');
     expect(facade.createState().status).toBe('idle');
