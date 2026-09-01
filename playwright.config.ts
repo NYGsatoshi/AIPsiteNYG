@@ -10,6 +10,14 @@ const snapshotPathTemplate = process.env.CI
   ? "{testDir}/__angular_snapshots__/linux/{testFilePath}/{arg}{ext}"
   : "{testDir}/__angular_snapshots__/{testFilePath}/{arg}{ext}";
 
+// Issue #361 replaced the embedded two-boolean source-scope smoke with the
+// dedicated four-kind tri-state smoke in task-execution-source-policy-v2.spec.ts.
+// Keep the obsolete V1 scenario out of the suite rather than asserting a UI
+// contract the product no longer exposes; equivalent V2 browser coverage runs
+// in both Chromium projects below.
+const supersededSourcePolicyV1Smoke =
+  /keeps the server-authorized Task execution policy responsive without offering a runtime action$/;
+
 // Existing Playwright acceptance assertions and screenshot baselines are English.
 // Pin that locale explicitly so the product's Japanese default does not rewrite
 // unrelated acceptance contracts; locale-specific behavior is tested separately.
@@ -34,6 +42,7 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: 1,
+  grepInvert: supersededSourcePolicyV1Smoke,
   // The public deployment gate intentionally emits no trace, video, screenshot,
   // HTML, or JUnit artifact. Browser-network artifacts can contain session or
   // CSRF material even when the test code never logs those values.

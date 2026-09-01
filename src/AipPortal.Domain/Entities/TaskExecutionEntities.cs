@@ -4,8 +4,9 @@ using AipPortal.Domain.Enums;
 namespace AipPortal.Domain.Entities;
 
 /// <summary>
-/// The Project-owned default source policy. It deliberately contains no source
-/// identifiers, file metadata, URLs, credentials, or content.
+/// The Project-owned default source policy. The legacy booleans are the V1
+/// compatibility projection; item identities are stored by the V2 policy
+/// document boundary rather than on this aggregate row.
 /// </summary>
 public sealed class ProjectExecutionScope : AuditableEntity, ITenantEntity
 {
@@ -42,19 +43,20 @@ public sealed class TaskExecutionScopeOverride : AuditableEntity, ITenantEntity
 }
 
 /// <summary>
-/// An immutable, server-owned Task execution request. The provider identity,
-/// runtime contract, ownership chain, and source-policy snapshot never change.
-/// Materialization is added by #462 and the normal durable result by #463.
+/// An immutable, server-owned Task execution request. V3 stores its itemized
+/// policy in the immutable source-policy document table while these columns
+/// retain the V1/V2 compatibility projection.
 /// </summary>
 public sealed class TaskExecutionRun : Entity, ITenantEntity
 {
     public const int SnapshotSchemaVersion1 = 1;
     public const int SnapshotSchemaVersion2 = 2;
+    public const int SnapshotSchemaVersion3 = 3;
     /// <summary>
-    /// The newest immutable run snapshot shape. Version 2 adds the optional
-    /// Task Research Plan revision reference while preserving V1 runs.
+    /// Version 2 adds the optional Research Plan revision. Version 3 adds an
+    /// immutable Source Policy V2 document keyed by the Run id.
     /// </summary>
-    public const int CurrentSnapshotSchemaVersion = SnapshotSchemaVersion2;
+    public const int CurrentSnapshotSchemaVersion = SnapshotSchemaVersion3;
     public const int RuntimeContractVersion1 = 1;
 
     public Guid TenantId { get; set; }
@@ -62,7 +64,6 @@ public sealed class TaskExecutionRun : Entity, ITenantEntity
     public Guid ProjectId { get; set; }
     public Guid TaskItemId { get; set; }
     public Guid RequestedByUserId { get; set; }
-    /// <summary>The durable acceptance timestamp for this idempotent request.</summary>
     public DateTimeOffset RequestedAtUtc { get; set; }
     public DateTimeOffset? QueuedAtUtc { get; set; }
     public DateTimeOffset? StartedAtUtc { get; set; }
@@ -79,12 +80,6 @@ public sealed class TaskExecutionRun : Entity, ITenantEntity
     public long? SnapshotTaskOverrideVersion { get; set; }
     public bool SnapshotWebEnabled { get; set; }
     public bool SnapshotProjectFilesEnabled { get; set; }
-    /// <summary>
-    /// Optional immutable reference to the exact Task-owned Research Plan
-    /// revision that was current when this run was accepted. The revision's
-    /// append-only content is the execution-start plan; no plan body is
-    /// duplicated onto the run.
-    /// </summary>
     public Guid? SnapshotResearchPlanRevisionId { get; set; }
     public long? SnapshotResearchPlanRevisionNo { get; set; }
 

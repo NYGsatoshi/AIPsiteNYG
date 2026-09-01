@@ -92,26 +92,28 @@ public sealed class SessionRepository(AppDbContext dbContext) : ISessionReposito
     }
 }
 
-public sealed class EfUnitOfWork(AppDbContext dbContext) : IUnitOfWork, ITaskCommandUnitOfWork
+public sealed class EfUnitOfWork(
+    AppDbContext dbContext,
+    ITaskExecutionScopeRepository? taskExecutionScopes = null) : IUnitOfWork, ITaskCommandUnitOfWork
 {
-    public void ClearTaskCommandTracking() => dbContext.ChangeTracker.Clear();
-
-    public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    public void ClearTaskCommandTracking()
     {
-        return dbContext.SaveChangesAsync(cancellationToken);
+        dbContext.ChangeTracker.Clear();
+        taskExecutionScopes?.ClearPendingSourcePolicyDocuments();
     }
+
+    public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) =>
+        SaveWithPolicyDocumentsAsync(cancellationToken);
 
     public async Task<TaskCommandSaveOutcome> SaveTaskCommandAsync(CancellationToken cancellationToken = default)
     {
         try
         {
-            await dbContext.SaveChangesAsync(cancellationToken);
+            await SaveWithPolicyDocumentsAsync(cancellationToken);
             return TaskCommandSaveResult.Saved;
         }
         catch (DbUpdateConcurrencyException)
         {
-            // A failed EF save leaves original values and Added audit/outbox rows tracked.
-            // This context is request-scoped, but clearing also makes a same-request retry safe.
             ClearTaskCommandTracking();
             return TaskCommandSaveResult.ConcurrencyConflict;
         }
@@ -120,10 +122,50 @@ public sealed class EfUnitOfWork(AppDbContext dbContext) : IUnitOfWork, ITaskCom
                 SqlState: PostgresErrorCodes.UniqueViolation
             } postgres)
         {
-            // A concurrent create can race a unique Task subresource constraint.
-            // Nothing from the attempted command, audit, or outbox may remain tracked.
             ClearTaskCommandTracking();
             return new TaskCommandSaveOutcome(TaskCommandSaveResult.UniqueConflict, postgres.ConstraintName);
+        }
+        catch
+        {
+            taskExecutionScopes?.ClearPendingSourcePolicyDocuments();
+            throw;
+        }
+    }
+
+    private async Task<int> SaveWithPolicyDocumentsAsync(CancellationToken cancellationToken)
+    {
+        if (taskExecutionScopes?.HasPendingSourcePolicyDocuments != true)
+        {
+            return await dbContext.SaveChangesAsync(cancellationToken);
+        }
+
+        if (!dbContext.Database.IsRelational())
+        {
+            var nonRelationalCount = await dbContext.SaveChangesAsync(cancellationToken);
+            await taskExecutionScopes.FlushPendingSourcePolicyDocumentsAsync(cancellationToken);
+            return nonRelationalCount;
+        }
+
+        if (dbContext.Database.CurrentTransaction is not null)
+        {
+            var nestedCount = await dbContext.SaveChangesAsync(cancellationToken);
+            await taskExecutionScopes.FlushPendingSourcePolicyDocumentsAsync(cancellationToken);
+            return nestedCount;
+        }
+
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            var count = await dbContext.SaveChangesAsync(cancellationToken);
+            await taskExecutionScopes.FlushPendingSourcePolicyDocumentsAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return count;
+        }
+        catch
+        {
+            await transaction.RollbackAsync(CancellationToken.None);
+            taskExecutionScopes.ClearPendingSourcePolicyDocuments();
+            throw;
         }
     }
 }

@@ -6,7 +6,9 @@ using Microsoft.EntityFrameworkCore;
 
 namespace AipPortal.Infrastructure.Persistence;
 
-public sealed class EfCreateIdempotencyCoordinator(AppDbContext dbContext) : ICreateIdempotencyCoordinator
+public sealed class EfCreateIdempotencyCoordinator(
+    AppDbContext dbContext,
+    ITaskExecutionScopeRepository? taskExecutionScopes = null) : ICreateIdempotencyCoordinator
 {
     public async Task<IdempotentCreateResult<T>> ExecuteAsync<T>(
         CreateIdempotencyContext context,
@@ -41,15 +43,13 @@ public sealed class EfCreateIdempotencyCoordinator(AppDbContext dbContext) : ICr
 
         try
         {
-            // Persist the claim inside the still-uncommitted business transaction.
-            // A concurrent caller with the same logical identity blocks here and
-            // then loses the unique-key race after the winner commits.
             await dbContext.SaveChangesAsync(cancellationToken);
         }
         catch (DbUpdateException exception)
         {
             await transaction.RollbackAsync(cancellationToken);
             dbContext.ChangeTracker.Clear();
+            taskExecutionScopes?.ClearPendingSourcePolicyDocuments();
 
             var winner = await FindAsync(context, keyHash, cancellationToken);
             if (winner is null)
@@ -66,6 +66,10 @@ public sealed class EfCreateIdempotencyCoordinator(AppDbContext dbContext) : ICr
         {
             var value = await stageCreation(cancellationToken);
             await dbContext.SaveChangesAsync(cancellationToken);
+            if (taskExecutionScopes?.HasPendingSourcePolicyDocuments == true)
+            {
+                await taskExecutionScopes.FlushPendingSourcePolicyDocumentsAsync(cancellationToken);
+            }
             await transaction.CommitAsync(cancellationToken);
             return new IdempotentCreateResult<T>(IdempotentCreateDisposition.Created, value);
         }
@@ -73,6 +77,7 @@ public sealed class EfCreateIdempotencyCoordinator(AppDbContext dbContext) : ICr
         {
             await transaction.RollbackAsync(cancellationToken);
             dbContext.ChangeTracker.Clear();
+            taskExecutionScopes?.ClearPendingSourcePolicyDocuments();
             throw;
         }
     }
@@ -96,11 +101,16 @@ public sealed class EfCreateIdempotencyCoordinator(AppDbContext dbContext) : ICr
         {
             var value = await stageCreation(cancellationToken);
             await dbContext.SaveChangesAsync(cancellationToken);
+            if (taskExecutionScopes?.HasPendingSourcePolicyDocuments == true)
+            {
+                await taskExecutionScopes.FlushPendingSourcePolicyDocumentsAsync(cancellationToken);
+            }
             return new IdempotentCreateResult<T>(IdempotentCreateDisposition.Created, value);
         }
         catch
         {
             dbContext.ChangeTracker.Clear();
+            taskExecutionScopes?.ClearPendingSourcePolicyDocuments();
             throw;
         }
     }

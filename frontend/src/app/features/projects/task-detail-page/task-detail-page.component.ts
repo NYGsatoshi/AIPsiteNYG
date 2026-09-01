@@ -48,6 +48,7 @@ export class TaskDetailPageComponent implements OnDestroy {
   private routeSubscription: Subscription | null = null;
   private readonly projectId = signal<string | undefined>(undefined);
   private readonly taskId = signal<string | undefined>(undefined);
+  private readonly activityRequested = signal(false);
 
   readonly page = computed(() =>
     this.facade.getTaskDetail(
@@ -117,6 +118,18 @@ export class TaskDetailPageComponent implements OnDestroy {
     // Test/story doubles from before the Task-body/subresource split may not expose
     // this additive facade method yet.
     effect(() => (this.facade as unknown as { setTaskBodyEditing?: (editing: boolean) => void }).setTaskBodyEditing?.(this.taskEditorDirty()));
+    // Authorization loss intentionally clears all protected Task projections and
+    // invalidates in-flight Activity responses. Preserve only the local fact that
+    // this mounted route requested Activity, then re-read page one after the same
+    // Task is authoritatively rehydrated under the new authorization generation.
+    effect(() => {
+      const requested = this.activityRequested();
+      const taskId = this.taskId();
+      const vm = this.page();
+      const activityState = this.sectionState('activity')().status;
+      if (!requested || !taskId || !vm.task || !vm.detail || vm.task.id !== taskId || activityState !== 'idle') return;
+      this.facade.loadActivity(taskId);
+    });
     this.routeSubscription = this.route.paramMap.subscribe((params) => {
       const projectId = params.get('projectId') ?? undefined;
       const taskId = params.get('taskId') ?? undefined;
@@ -162,7 +175,9 @@ export class TaskDetailPageComponent implements OnDestroy {
    */
   loadActivity(): void {
     const taskId = this.taskId();
-    if (taskId) this.facade.loadActivity(taskId);
+    if (!taskId) return;
+    this.activityRequested.set(true);
+    this.facade.loadActivity(taskId);
   }
   loadMore(section: 'activity' | 'subtasks' | 'comments' | 'files'): void { const taskId = this.taskId(); if (!taskId) return; if (section === 'activity') this.facade.loadMoreActivity(taskId); else if (section === 'subtasks') this.facade.loadMoreSubtasks(taskId); else if (section === 'comments') this.facade.loadMoreComments(taskId); else this.facade.loadMoreFiles(taskId); }
   phaseStateLabel(category: TaskStageCategory | undefined, status: TaskStatus, isBlocked: boolean | undefined): string {
@@ -257,6 +272,7 @@ export class TaskDetailPageComponent implements OnDestroy {
   }
 
   private resetLocalTaskDraftState(): void {
+    this.activityRequested.set(false);
     this.subtaskTitle.set(''); this.checklistText.set(''); this.editingChecklistId.set(null); this.editingChecklistText.set(''); this.originalChecklistText.set(''); this.taskEditorDirty.set(false); this.researchPlanDirty.set(false);
     this.commentBody.set(''); this.commentImportant.set(false); this.cancelEditComment();
     this.selectedLabelId.set(''); this.newLabelName.set(''); this.cancelEditLabel(); this.selectedAttachmentId.set(''); this.fileDownloadMessage.set('');

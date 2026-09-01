@@ -1,33 +1,35 @@
 using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
+using AipPortal.Application.Files;
 using AipPortal.Application.Projects;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AipPortal.Web.Controllers;
 
-/// <summary>
-/// Server-authoritative Task execution-policy, durable acceptance, and normal
-/// result-read boundary. It never accepts browser authority for sources and
-/// never starts a runtime before the accepted run has committed.
-/// </summary>
 [ApiController]
 [Authorize]
 public sealed class TaskExecutionController(
     ITaskExecutionScopeService executionScopes,
     ITaskExecutionRuntime? runtime = null,
     ICurrentTenant? currentTenant = null,
-    ITaskExecutionResultService? executionResults = null) : ControllerBase
+    ITaskExecutionResultService? executionResults = null,
+    ITaskExecutionScopeRepository? executionScopeRepository = null,
+    IFileAuthorizationService? fileAuthorization = null,
+    ICurrentUser? currentUser = null) : ControllerBase
 {
     [HttpGet("api/projects/{projectId:guid}/execution-scope")]
-    public async Task<IActionResult> GetProjectScope(Guid projectId, CancellationToken cancellationToken) =>
-        ToActionResult(await executionScopes.GetProjectScopeAsync(projectId, cancellationToken));
+    public async Task<IActionResult> GetProjectScope(Guid projectId, CancellationToken cancellationToken)
+    {
+        var result = await executionScopes.GetProjectScopeAsync(projectId, cancellationToken);
+        if (!result.IsSuccess || result.Value is not { } response)
+            return ToActionResult(result);
+
+        return Ok(await RedactUnauthorizedProjectFileRulesAsync(projectId, response, cancellationToken));
+    }
 
     [HttpPut("api/projects/{projectId:guid}/execution-scope")]
-    public async Task<IActionResult> UpdateProjectScope(
-        Guid projectId,
-        UpdateProjectExecutionScopeRequest request,
-        CancellationToken cancellationToken) =>
+    public async Task<IActionResult> UpdateProjectScope(Guid projectId, UpdateProjectExecutionScopeRequest request, CancellationToken cancellationToken) =>
         ToActionResult(await executionScopes.UpdateProjectScopeAsync(projectId, request, cancellationToken));
 
     [HttpGet("api/tasks/{taskItemId:guid}/execution-scope")]
@@ -35,35 +37,20 @@ public sealed class TaskExecutionController(
         ToActionResult(await executionScopes.GetTaskScopeAsync(taskItemId, cancellationToken));
 
     [HttpPut("api/tasks/{taskItemId:guid}/execution-scope-override")]
-    public async Task<IActionResult> UpdateTaskOverride(
-        Guid taskItemId,
-        UpdateTaskExecutionScopeOverrideRequest request,
-        CancellationToken cancellationToken) =>
+    public async Task<IActionResult> UpdateTaskOverride(Guid taskItemId, UpdateTaskExecutionScopeOverrideRequest request, CancellationToken cancellationToken) =>
         ToActionResult(await executionScopes.UpdateTaskOverrideAsync(taskItemId, request, cancellationToken));
 
     [HttpDelete("api/tasks/{taskItemId:guid}/execution-scope-override")]
-    public async Task<IActionResult> ClearTaskOverride(
-        Guid taskItemId,
-        ClearTaskExecutionScopeOverrideRequest request,
-        CancellationToken cancellationToken) =>
+    public async Task<IActionResult> ClearTaskOverride(Guid taskItemId, ClearTaskExecutionScopeOverrideRequest request, CancellationToken cancellationToken) =>
         ToActionResult(await executionScopes.ClearTaskOverrideAsync(taskItemId, request, cancellationToken));
 
     [HttpGet("api/tasks/{taskItemId:guid}/execution-result")]
-    public async Task<IActionResult> GetLatestResult(
-        Guid taskItemId,
-        CancellationToken cancellationToken) =>
-        executionResults is null
-            ? ResultUnavailable()
-            : ToActionResult(await executionResults.GetLatestAsync(taskItemId, cancellationToken));
+    public async Task<IActionResult> GetLatestResult(Guid taskItemId, CancellationToken cancellationToken) =>
+        executionResults is null ? ResultUnavailable() : ToActionResult(await executionResults.GetLatestAsync(taskItemId, cancellationToken));
 
     [HttpGet("api/tasks/{taskItemId:guid}/execution-runs/{runId:guid}/result")]
-    public async Task<IActionResult> GetResult(
-        Guid taskItemId,
-        Guid runId,
-        CancellationToken cancellationToken) =>
-        executionResults is null
-            ? ResultUnavailable()
-            : ToActionResult(await executionResults.GetAsync(taskItemId, runId, cancellationToken));
+    public async Task<IActionResult> GetResult(Guid taskItemId, Guid runId, CancellationToken cancellationToken) =>
+        executionResults is null ? ResultUnavailable() : ToActionResult(await executionResults.GetAsync(taskItemId, runId, cancellationToken));
 
     [HttpPost("api/tasks/{taskItemId:guid}/execution-runs")]
     public async Task<IActionResult> RequestRun(
@@ -75,9 +62,7 @@ public sealed class TaskExecutionController(
         _ = request;
         var result = await executionScopes.RequestRunAsync(taskItemId, idempotencyKey, cancellationToken);
         if (!result.IsSuccess || result.Value is not { } accepted)
-        {
             return ToActionResult(result);
-        }
 
         var response = accepted;
         if (runtime is not null &&
@@ -90,15 +75,74 @@ public sealed class TaskExecutionController(
                 accepted.RuntimeContractVersion), CancellationToken.None);
 
             var refreshed = await executionScopes.GetTaskScopeAsync(taskItemId, CancellationToken.None);
-            if (refreshed.IsSuccess &&
-                refreshed.Value is { LatestRun: { } latest } &&
-                latest.Id == accepted.Id)
-            {
+            if (refreshed.IsSuccess && refreshed.Value is { LatestRun: { } latest } && latest.Id == accepted.Id)
                 response = latest;
-            }
         }
 
         return StatusCode(StatusCodes.Status201Created, response);
+    }
+
+    private async Task<ProjectExecutionScopeResponse> RedactUnauthorizedProjectFileRulesAsync(
+        Guid projectId,
+        ProjectExecutionScopeResponse response,
+        CancellationToken cancellationToken)
+    {
+        var policy = response.Policy.PolicyV2;
+        if (policy is null || !policy.Items.Any(rule => rule.Kind == TaskExecutionSourceKind.ProjectFile))
+            return response;
+
+        if (executionScopeRepository is null || fileAuthorization is null ||
+            currentUser is not { IsAuthenticated: true, UserId: { } actor } || actor == Guid.Empty)
+        {
+            return RedactProjectFileRules(response, policy, [], canManage: false);
+        }
+
+        var visibleSourceIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var attachment in await executionScopeRepository.ListProjectSourceAttachmentsAsync(projectId, cancellationToken))
+        {
+            if (attachment.FileObject is not { } fileObject)
+                continue;
+            if (!await fileAuthorization.CanViewAttachment(actor, attachment, cancellationToken))
+                continue;
+
+            visibleSourceIds.Add(TaskExecutionSourcePolicyV2.ProjectFileSourceId(fileObject.Id));
+        }
+
+        var allProjectFileRulesVisible = policy.Items
+            .Where(rule => rule.Kind == TaskExecutionSourceKind.ProjectFile)
+            .All(rule => visibleSourceIds.Contains(rule.SourceId));
+
+        return RedactProjectFileRules(
+            response,
+            policy,
+            visibleSourceIds,
+            canManage: response.CanManage && allProjectFileRulesVisible);
+    }
+
+    private static ProjectExecutionScopeResponse RedactProjectFileRules(
+        ProjectExecutionScopeResponse response,
+        TaskExecutionSourcePolicyV2 policy,
+        IReadOnlyCollection<string> visibleSourceIds,
+        bool canManage)
+    {
+        var visible = visibleSourceIds.ToHashSet(StringComparer.Ordinal);
+        var redactedPolicy = policy with
+        {
+            Items = policy.Items
+                .Where(rule => rule.Kind != TaskExecutionSourceKind.ProjectFile || visible.Contains(rule.SourceId))
+                .ToList()
+        };
+
+        return response with
+        {
+            CanManage = canManage,
+            Policy = response.Policy with
+            {
+                WebEnabled = redactedPolicy.WebEnabled,
+                ProjectFilesEnabled = redactedPolicy.ProjectFilesEnabled,
+                PolicyV2 = redactedPolicy
+            }
+        };
     }
 
     private IActionResult ResultUnavailable() =>
