@@ -25,6 +25,13 @@ jobs:
     timeout-minutes: 5
     outputs:
       backend: ${{ steps.classify.outputs.backend }}
+      backend_ef: ${{ steps.classify.outputs.backend_ef }}
+      backend_tests: ${{ steps.classify.outputs.backend_tests }}
+      backend_test_scope: ${{ steps.classify.outputs.backend_test_scope }}
+      backend_test_filter: ${{ steps.classify.outputs.backend_test_filter }}
+      backend_pr07b: ${{ steps.classify.outputs.backend_pr07b }}
+      backend_pr07c: ${{ steps.classify.outputs.backend_pr07c }}
+      backend_pr07d: ${{ steps.classify.outputs.backend_pr07d }}
       frontend: ${{ steps.classify.outputs.frontend }}
       frontend_build: ${{ steps.classify.outputs.frontend_build }}
       frontend_unit: ${{ steps.classify.outputs.frontend_unit }}
@@ -196,12 +203,15 @@ jobs:
         run: '"$DOTNET_CMD" build AipPortal.slnx --configuration Release --no-restore --disable-build-servers -m:1'
 
       - name: Restore .NET tools
+        if: needs.changes.outputs.backend_ef == 'true'
         run: '"$DOTNET_CMD" tool restore'
 
       - name: Apply PostgreSQL migrations
+        if: needs.changes.outputs.backend_ef == 'true'
         run: '"$DOTNET_CMD" ef database update --project src/AipPortal.Infrastructure --startup-project src/AipPortal.Web --configuration Release'
 
       - name: Verify EF Core model has no pending changes
+        if: needs.changes.outputs.backend_ef == 'true'
         shell: bash
         run: |
           "$DOTNET_CMD" ef migrations has-pending-model-changes \
@@ -210,24 +220,116 @@ jobs:
             --configuration Release \
             --no-build
 
-      - name: Test
-        run: >-
-          "$DOTNET_CMD" test AipPortal.slnx
-          --configuration Release
-          --no-build
-          --disable-build-servers
-          -m:1
-          --verbosity normal
-          --logger "trx;LogFileName=backend-tests.trx"
-          --results-directory artifacts/test-results
-
-      - name: Verify full backend test results
+      - name: Run routed backend tests
+        if: needs.changes.outputs.backend_tests == 'true'
+        env:
+          BACKEND_TEST_SCOPE: ${{ needs.changes.outputs.backend_test_scope }}
+          BACKEND_TEST_FILTER: ${{ needs.changes.outputs.backend_test_filter }}
         shell: bash
         run: |
+          set -euo pipefail
+          target="AipPortal.slnx"
+          filter_args=()
+          if [[ "$BACKEND_TEST_SCOPE" == "scoped" ]]; then
+            test -n "$BACKEND_TEST_FILTER"
+            target="tests/AipPortal.Tests/AipPortal.Tests.csproj"
+            filter_args+=(--filter "$BACKEND_TEST_FILTER")
+          fi
+
+          "$DOTNET_CMD" test "$target" \
+            --configuration Release \
+            --no-build \
+            --disable-build-servers \
+            -m:1 \
+            --verbosity normal \
+            "${filter_args[@]}" \
+            --logger "trx;LogFileName=backend-tests.trx" \
+            --results-directory artifacts/test-results
+
+      - name: Verify routed backend test results
+        if: needs.changes.outputs.backend_tests == 'true'
+        env:
+          BACKEND_TEST_SCOPE: ${{ needs.changes.outputs.backend_test_scope }}
+        shell: bash
+        run: |
+          label="Scoped backend"
+          [[ "$BACKEND_TEST_SCOPE" == "full" ]] && label="Full backend"
           bash scripts/ci/verify-trx-results.sh \
             artifacts/test-results/backend-tests.trx \
             --minimum-total 1 \
-            --label "Full backend"
+            --label "$label"
+
+      - name: Run routed TASK-V1-PR07 acceptance tests
+        if: >-
+          needs.changes.outputs.backend_test_scope != 'full' &&
+          (needs.changes.outputs.backend_pr07b == 'true' ||
+           needs.changes.outputs.backend_pr07c == 'true' ||
+           needs.changes.outputs.backend_pr07d == 'true')
+        env:
+          RUN_PR07B: ${{ needs.changes.outputs.backend_pr07b }}
+          RUN_PR07C: ${{ needs.changes.outputs.backend_pr07c }}
+          RUN_PR07D: ${{ needs.changes.outputs.backend_pr07d }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          filters=()
+          [[ "$RUN_PR07B" == "true" ]] && filters+=("Scope=TaskV1PR07B")
+          [[ "$RUN_PR07C" == "true" ]] && filters+=("Scope=TaskV1PR07C")
+          [[ "$RUN_PR07D" == "true" ]] && filters+=("Scope=TaskV1PR07D")
+          test "${#filters[@]}" -gt 0
+          filter="$(IFS='|'; echo "${filters[*]}")"
+
+          "$DOTNET_CMD" test tests/AipPortal.Tests/AipPortal.Tests.csproj \
+            --configuration Release \
+            --no-build \
+            --disable-build-servers \
+            -m:1 \
+            --verbosity normal \
+            --filter "$filter" \
+            --logger "trx;LogFileName=backend-pr07-tests.trx" \
+            --results-directory artifacts/test-results
+
+      - name: Verify TASK-V1-PR07-B acceptance results
+        if: needs.changes.outputs.backend_test_scope == 'full' || needs.changes.outputs.backend_pr07b == 'true'
+        env:
+          BACKEND_TEST_SCOPE: ${{ needs.changes.outputs.backend_test_scope }}
+        shell: bash
+        run: |
+          trx="artifacts/test-results/backend-pr07-tests.trx"
+          [[ "$BACKEND_TEST_SCOPE" == "full" ]] && trx="artifacts/test-results/backend-tests.trx"
+          bash scripts/ci/verify-trx-results.sh \
+            "$trx" \
+            --minimum-total 1 \
+            --required-tests scripts/ci/task-pr07b-required-tests.txt \
+            --label "TASK-V1-PR07-B"
+
+      - name: Verify TASK-V1-PR07-C acceptance results
+        if: needs.changes.outputs.backend_test_scope == 'full' || needs.changes.outputs.backend_pr07c == 'true'
+        env:
+          BACKEND_TEST_SCOPE: ${{ needs.changes.outputs.backend_test_scope }}
+        shell: bash
+        run: |
+          trx="artifacts/test-results/backend-pr07-tests.trx"
+          [[ "$BACKEND_TEST_SCOPE" == "full" ]] && trx="artifacts/test-results/backend-tests.trx"
+          bash scripts/ci/verify-trx-results.sh \
+            "$trx" \
+            --minimum-total 1 \
+            --required-tests scripts/ci/task-pr07c-required-tests.txt \
+            --label "TASK-V1-PR07-C"
+
+      - name: Verify TASK-V1-PR07-D acceptance results
+        if: needs.changes.outputs.backend_test_scope == 'full' || needs.changes.outputs.backend_pr07d == 'true'
+        env:
+          BACKEND_TEST_SCOPE: ${{ needs.changes.outputs.backend_test_scope }}
+        shell: bash
+        run: |
+          trx="artifacts/test-results/backend-pr07-tests.trx"
+          [[ "$BACKEND_TEST_SCOPE" == "full" ]] && trx="artifacts/test-results/backend-tests.trx"
+          bash scripts/ci/verify-trx-results.sh \
+            "$trx" \
+            --minimum-total 1 \
+            --required-tests scripts/ci/task-pr07d-required-tests.txt \
+            --label "TASK-V1-PR07-D"
 
       - name: Upload backend test results
         if: failure()
@@ -237,33 +339,6 @@ jobs:
           name: backend-test-results
           path: artifacts/test-results
           if-no-files-found: warn
-
-      - name: Verify TASK-V1-PR07-B acceptance results
-        shell: bash
-        run: |
-          bash scripts/ci/verify-trx-results.sh \
-            artifacts/test-results/backend-tests.trx \
-            --minimum-total 1 \
-            --required-tests scripts/ci/task-pr07b-required-tests.txt \
-            --label "TASK-V1-PR07-B"
-
-      - name: Verify TASK-V1-PR07-C acceptance results
-        shell: bash
-        run: |
-          bash scripts/ci/verify-trx-results.sh \
-            artifacts/test-results/backend-tests.trx \
-            --minimum-total 1 \
-            --required-tests scripts/ci/task-pr07c-required-tests.txt \
-            --label "TASK-V1-PR07-C"
-
-      - name: Verify TASK-V1-PR07-D acceptance results
-        shell: bash
-        run: |
-          bash scripts/ci/verify-trx-results.sh \
-            artifacts/test-results/backend-tests.trx \
-            --minimum-total 1 \
-            --required-tests scripts/ci/task-pr07d-required-tests.txt \
-            --label "TASK-V1-PR07-D"
 
       - name: Report backend cache and host resources on failure
         if: failure()
