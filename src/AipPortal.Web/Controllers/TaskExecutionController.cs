@@ -7,11 +7,6 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace AipPortal.Web.Controllers;
 
-/// <summary>
-/// Server-authoritative Task execution-policy, durable acceptance, and normal
-/// result-read boundary. It never accepts browser authority for sources and
-/// never starts a runtime before the accepted run has committed.
-/// </summary>
 [ApiController]
 [Authorize]
 public sealed class TaskExecutionController(
@@ -34,10 +29,7 @@ public sealed class TaskExecutionController(
     }
 
     [HttpPut("api/projects/{projectId:guid}/execution-scope")]
-    public async Task<IActionResult> UpdateProjectScope(
-        Guid projectId,
-        UpdateProjectExecutionScopeRequest request,
-        CancellationToken cancellationToken) =>
+    public async Task<IActionResult> UpdateProjectScope(Guid projectId, UpdateProjectExecutionScopeRequest request, CancellationToken cancellationToken) =>
         ToActionResult(await executionScopes.UpdateProjectScopeAsync(projectId, request, cancellationToken));
 
     [HttpGet("api/tasks/{taskItemId:guid}/execution-scope")]
@@ -45,35 +37,20 @@ public sealed class TaskExecutionController(
         ToActionResult(await executionScopes.GetTaskScopeAsync(taskItemId, cancellationToken));
 
     [HttpPut("api/tasks/{taskItemId:guid}/execution-scope-override")]
-    public async Task<IActionResult> UpdateTaskOverride(
-        Guid taskItemId,
-        UpdateTaskExecutionScopeOverrideRequest request,
-        CancellationToken cancellationToken) =>
+    public async Task<IActionResult> UpdateTaskOverride(Guid taskItemId, UpdateTaskExecutionScopeOverrideRequest request, CancellationToken cancellationToken) =>
         ToActionResult(await executionScopes.UpdateTaskOverrideAsync(taskItemId, request, cancellationToken));
 
     [HttpDelete("api/tasks/{taskItemId:guid}/execution-scope-override")]
-    public async Task<IActionResult> ClearTaskOverride(
-        Guid taskItemId,
-        ClearTaskExecutionScopeOverrideRequest request,
-        CancellationToken cancellationToken) =>
+    public async Task<IActionResult> ClearTaskOverride(Guid taskItemId, ClearTaskExecutionScopeOverrideRequest request, CancellationToken cancellationToken) =>
         ToActionResult(await executionScopes.ClearTaskOverrideAsync(taskItemId, request, cancellationToken));
 
     [HttpGet("api/tasks/{taskItemId:guid}/execution-result")]
-    public async Task<IActionResult> GetLatestResult(
-        Guid taskItemId,
-        CancellationToken cancellationToken) =>
-        executionResults is null
-            ? ResultUnavailable()
-            : ToActionResult(await executionResults.GetLatestAsync(taskItemId, cancellationToken));
+    public async Task<IActionResult> GetLatestResult(Guid taskItemId, CancellationToken cancellationToken) =>
+        executionResults is null ? ResultUnavailable() : ToActionResult(await executionResults.GetLatestAsync(taskItemId, cancellationToken));
 
     [HttpGet("api/tasks/{taskItemId:guid}/execution-runs/{runId:guid}/result")]
-    public async Task<IActionResult> GetResult(
-        Guid taskItemId,
-        Guid runId,
-        CancellationToken cancellationToken) =>
-        executionResults is null
-            ? ResultUnavailable()
-            : ToActionResult(await executionResults.GetAsync(taskItemId, runId, cancellationToken));
+    public async Task<IActionResult> GetResult(Guid taskItemId, Guid runId, CancellationToken cancellationToken) =>
+        executionResults is null ? ResultUnavailable() : ToActionResult(await executionResults.GetAsync(taskItemId, runId, cancellationToken));
 
     [HttpPost("api/tasks/{taskItemId:guid}/execution-runs")]
     public async Task<IActionResult> RequestRun(
@@ -85,9 +62,7 @@ public sealed class TaskExecutionController(
         _ = request;
         var result = await executionScopes.RequestRunAsync(taskItemId, idempotencyKey, cancellationToken);
         if (!result.IsSuccess || result.Value is not { } accepted)
-        {
             return ToActionResult(result);
-        }
 
         var response = accepted;
         if (runtime is not null &&
@@ -100,12 +75,8 @@ public sealed class TaskExecutionController(
                 accepted.RuntimeContractVersion), CancellationToken.None);
 
             var refreshed = await executionScopes.GetTaskScopeAsync(taskItemId, CancellationToken.None);
-            if (refreshed.IsSuccess &&
-                refreshed.Value is { LatestRun: { } latest } &&
-                latest.Id == accepted.Id)
-            {
+            if (refreshed.IsSuccess && refreshed.Value is { LatestRun: { } latest } && latest.Id == accepted.Id)
                 response = latest;
-            }
         }
 
         return StatusCode(StatusCodes.Status201Created, response);
@@ -120,9 +91,6 @@ public sealed class TaskExecutionController(
         if (policy is null || !policy.Items.Any(rule => rule.Kind == TaskExecutionSourceKind.ProjectFile))
             return response;
 
-        // Missing optional security collaborators must fail closed rather than
-        // allowing stable ProjectFile identifiers to escape through a policy
-        // response. Production DI provides all three collaborators.
         if (executionScopeRepository is null || fileAuthorization is null ||
             currentUser is not { IsAuthenticated: true, UserId: { } actor } || actor == Guid.Empty)
         {
@@ -154,13 +122,14 @@ public sealed class TaskExecutionController(
     private static ProjectExecutionScopeResponse RedactProjectFileRules(
         ProjectExecutionScopeResponse response,
         TaskExecutionSourcePolicyV2 policy,
-        IReadOnlySet<string> visibleSourceIds,
+        IReadOnlyCollection<string> visibleSourceIds,
         bool canManage)
     {
+        var visible = visibleSourceIds.ToHashSet(StringComparer.Ordinal);
         var redactedPolicy = policy with
         {
             Items = policy.Items
-                .Where(rule => rule.Kind != TaskExecutionSourceKind.ProjectFile || visibleSourceIds.Contains(rule.SourceId))
+                .Where(rule => rule.Kind != TaskExecutionSourceKind.ProjectFile || visible.Contains(rule.SourceId))
                 .ToList()
         };
 
