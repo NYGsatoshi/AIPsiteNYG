@@ -1,6 +1,8 @@
 using System.Data;
 using System.Text.Json;
 using AipPortal.Application.Announcements;
+using AipPortal.Application.Common.Interfaces;
+using AipPortal.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 
@@ -13,7 +15,7 @@ namespace AipPortal.Infrastructure.Persistence;
 /// second content aggregate. This follows the repository's existing sidecar
 /// persistence pattern (for example MessageNotificationPreferenceStore).
 /// </summary>
-public sealed class AnnouncementDistributionStore(AppDbContext dbContext) : IAnnouncementDistributionStore
+public sealed class AnnouncementDistributionStore(AppDbContext dbContext, IClock clock) : IAnnouncementDistributionStore
 {
     private readonly Dictionary<Guid, IReadOnlyList<AnnouncementDraftTargetRequest>> inMemoryDraftTargets = [];
     private readonly Dictionary<Guid, IReadOnlyList<AnnouncementDraftTargetRequest>> inMemoryAnnouncementTargets = [];
@@ -124,6 +126,7 @@ public sealed class AnnouncementDistributionStore(AppDbContext dbContext) : IAnn
         if (!UsesPostgreSql())
         {
             await stagePublication(cancellationToken);
+            StageFrozenCohortMarker(tenantId, announcementId);
             await dbContext.SaveChangesAsync(cancellationToken);
             inMemoryAnnouncementTargets[announcementId] = Copy(targets);
             return;
@@ -136,10 +139,11 @@ public sealed class AnnouncementDistributionStore(AppDbContext dbContext) : IAnn
         try
         {
             await stagePublication(cancellationToken);
+            StageFrozenCohortMarker(tenantId, announcementId);
             // A logical-notification implementation may already have flushed
             // tracked rows while remaining inside this transaction. This final
-            // save is intentionally idempotent and persists zero-recipient
-            // publications too.
+            // save persists the cohort marker even when dispatch resolved zero
+            // recipients, so an empty cohort cannot later drift with membership.
             await dbContext.SaveChangesAsync(cancellationToken);
             await UpdateTargetJsonAsync(
                 "announcements",
@@ -161,6 +165,35 @@ public sealed class AnnouncementDistributionStore(AppDbContext dbContext) : IAnn
             dbContext.ChangeTracker.Clear();
             throw;
         }
+    }
+
+    private void StageFrozenCohortMarker(Guid tenantId, Guid announcementId)
+    {
+        if (dbContext.AuditLogs.Local.Any(log =>
+                log.TenantId == tenantId &&
+                log.EntityId == announcementId &&
+                log.Action == AnnouncementDistributionContract.FrozenCohortAuditAction))
+        {
+            return;
+        }
+
+        var announcement = dbContext.Announcements.Local.FirstOrDefault(item =>
+            item.Id == announcementId && item.TenantId == tenantId);
+        if (announcement is null)
+        {
+            throw new InvalidOperationException("The announcement must be tracked before its delivery cohort is frozen.");
+        }
+
+        dbContext.AuditLogs.Add(new AuditLog
+        {
+            TenantId = tenantId,
+            ActorUserId = announcement.AuthorUserId,
+            Action = AnnouncementDistributionContract.FrozenCohortAuditAction,
+            EntityType = "Announcement",
+            EntityId = announcementId,
+            Summary = "Announcement delivery cohort frozen.",
+            CreatedAt = clock.UtcNow
+        });
     }
 
     private bool UsesPostgreSql() =>
