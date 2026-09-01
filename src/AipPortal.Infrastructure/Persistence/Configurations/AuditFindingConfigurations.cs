@@ -1,0 +1,48 @@
+using AipPortal.Domain.Entities;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+
+namespace AipPortal.Infrastructure.Persistence.Configurations;
+
+public sealed class ArtifactFindingConfiguration : IEntityTypeConfiguration<ArtifactFinding>
+{
+    public void Configure(EntityTypeBuilder<ArtifactFinding> builder)
+    {
+        builder.ToTable("artifact_findings", table =>
+        {
+            table.ExcludeFromMigrations();
+            table.HasCheckConstraint(
+                "CK_artifact_findings_confidence",
+                "\"ConfidencePercent\" >= 0 AND \"ConfidencePercent\" <= 100");
+        });
+        builder.ConfigureAuditableEntity();
+        builder.Property(finding => finding.Severity).HasEnumStringConversion().HasMaxLength(32).IsRequired();
+        builder.Property(finding => finding.DetectorKey).HasMaxLength(128).IsRequired();
+        builder.Property(finding => finding.PolicyVersion).HasMaxLength(128).IsRequired();
+        builder.Property(finding => finding.Status).HasEnumStringConversion().HasMaxLength(32).IsRequired();
+        builder.Property(finding => finding.ResolutionReason).HasMaxLength(1000);
+        builder.HasIndex(finding => finding.ArtifactClaimId).IsUnique();
+        builder.HasIndex(finding => new { finding.TenantId, finding.Status, finding.Severity });
+        builder.HasOne(finding => finding.ArtifactClaim)
+            .WithOne(claim => claim.Finding)
+            .HasForeignKey<ArtifactFinding>(finding => finding.ArtifactClaimId)
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+public sealed class AuditFindingHistoryConfiguration : IEntityTypeConfiguration<AuditFindingHistory>
+{
+    public void Configure(EntityTypeBuilder<AuditFindingHistory> builder)
+    {
+        builder.ToTable("audit_finding_history", table => table.ExcludeFromMigrations());
+        builder.ConfigureAuditableEntity();
+        builder.Property(history => history.FromStatus).HasEnumStringConversion().HasMaxLength(32);
+        builder.Property(history => history.ToStatus).HasEnumStringConversion().HasMaxLength(32).IsRequired();
+        builder.Property(history => history.Reason).HasMaxLength(1000);
+        builder.HasIndex(history => new { history.TenantId, history.ArtifactFindingId, history.CreatedAt });
+        builder.HasOne(history => history.Finding)
+            .WithMany(finding => finding.History)
+            .HasForeignKey(history => history.ArtifactFindingId)
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+}
