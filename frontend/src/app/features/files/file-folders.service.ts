@@ -31,6 +31,7 @@ export class FileFolderStore {
   private readonly errorState = signal(false);
   private generation = 0;
   private workspaceId: string | null = null;
+  private loadedWorkspaceId: string | null = null;
 
   readonly folders = this.folderState.asReadonly();
   readonly rootVersion = this.rootVersionState.asReadonly();
@@ -38,11 +39,25 @@ export class FileFolderStore {
   readonly failed = this.errorState.asReadonly();
   readonly tree = computed<readonly FileFolderTreeNode[]>(() => buildFolderTree(this.folderState()));
 
-  load(workspaceId: string | null | undefined): void {
+  load(workspaceId: string | null | undefined, force = false): void {
+    const normalizedWorkspaceId = workspaceId || null;
+    if (
+      !force &&
+      normalizedWorkspaceId !== null &&
+      normalizedWorkspaceId === this.workspaceId &&
+      (this.loadingState() || this.loadedWorkspaceId === normalizedWorkspaceId)
+    ) {
+      return;
+    }
+
     const generation = ++this.generation;
-    this.workspaceId = workspaceId || null;
+    if (normalizedWorkspaceId !== this.workspaceId) {
+      this.loadedWorkspaceId = null;
+    }
+    this.workspaceId = normalizedWorkspaceId;
     this.errorState.set(false);
     if (!workspaceId) {
+      this.loadedWorkspaceId = null;
       this.folderState.set([]);
       this.rootVersionState.set(0);
       this.loadingState.set(false);
@@ -64,6 +79,7 @@ export class FileFolderStore {
         return;
       }
       if (!navigation) {
+        this.loadedWorkspaceId = null;
         this.folderState.set([]);
         this.rootVersionState.set(0);
         this.errorState.set(true);
@@ -71,6 +87,7 @@ export class FileFolderStore {
       }
       this.folderState.set(navigation.folders);
       this.rootVersionState.set(navigation.rootVersion);
+      this.loadedWorkspaceId = workspaceId;
     });
   }
 
@@ -96,7 +113,7 @@ export class FileFolderStore {
         { withCredentials: true },
       )),
       map(() => undefined),
-      finalize(() => this.load(workspaceId)),
+      finalize(() => this.load(workspaceId, true)),
     );
   }
 
@@ -121,7 +138,7 @@ export class FileFolderStore {
       { withCredentials: true },
     ).pipe(
       map(() => undefined),
-      finalize(() => this.load(workspaceId)),
+      finalize(() => this.load(workspaceId, true)),
     );
   }
 
