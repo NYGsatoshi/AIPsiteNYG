@@ -91,7 +91,7 @@ permissions:
 jobs:
   changes:
     name: MBJ-02 change routing
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
       run: ${{ steps.route.outputs.run }}
