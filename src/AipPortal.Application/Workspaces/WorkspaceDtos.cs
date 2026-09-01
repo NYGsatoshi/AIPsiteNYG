@@ -19,6 +19,19 @@ public enum WorkspaceDashboardAccessSource
     SystemAdmin = 1
 }
 
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum WorkspaceNeedsAttentionKind
+{
+    ReviewRequired = 0,
+    ResearchFailed = 1
+}
+
+public sealed record WorkspaceNeedsAttentionItemResponse(
+    Guid Id,
+    WorkspaceNeedsAttentionKind Kind,
+    string TargetRoute,
+    DateTimeOffset OccurredAt);
+
 public sealed record WorkspaceDashboardListItemResponse(
     Guid Id,
     string Name,
@@ -45,7 +58,9 @@ public sealed record WorkspaceDashboardListItemResponse(
     int? ExternalShareCount = null,
     bool CanInspectSharing = false,
     bool CanManageSharing = false,
-    IReadOnlyList<WorkspaceMemberPreviewResponse>? MemberPreview = null);
+    IReadOnlyList<WorkspaceMemberPreviewResponse>? MemberPreview = null,
+    int NeedsAttentionCount = 0,
+    IReadOnlyList<WorkspaceNeedsAttentionItemResponse>? NeedsAttentionItems = null);
 
 public sealed record WorkspaceMemberPreviewResponse(Guid UserId, string DisplayName);
 
