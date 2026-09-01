@@ -229,6 +229,9 @@ public sealed class AuditFindingsServiceTests
                 DisplayName = "Audit tenant",
                 Status = TenantStatus.Active,
             };
+            context.Tenants.Add(tenant);
+            await context.SaveChangesAsync();
+
             var user = new User
             {
                 Id = userId,
@@ -238,7 +241,6 @@ public sealed class AuditFindingsServiceTests
                 PasswordHash = "test",
                 Status = UserStatus.Active,
             };
-            context.Tenants.Add(tenant);
             context.Users.Add(user);
             context.TenantUsers.Add(new TenantUser
             {
