@@ -30,34 +30,39 @@ describe('FileFolderStore', () => {
     TestBed.resetTestingModule();
   });
 
-  it('loads a Workspace-scoped hierarchy and builds nested tree nodes', () => {
+  it('loads a Workspace-scoped hierarchy and root version', () => {
     store.load(WORKSPACE_ID);
 
     const request = http.expectOne((candidate) =>
       candidate.url === '/api/file-folders' && candidate.method === 'GET');
     expect(request.request.params.get('workspaceId')).toBe(WORKSPACE_ID);
     expect(request.request.withCredentials).toBe(true);
-    request.flush([
-      {
-        id: CHILD_FOLDER_ID,
-        workspaceId: WORKSPACE_ID,
-        parentFolderId: ROOT_FOLDER_ID,
-        name: 'Child',
-        sortOrder: 0,
-        version: 2,
-      },
-      {
-        id: ROOT_FOLDER_ID,
-        workspaceId: WORKSPACE_ID,
-        parentFolderId: null,
-        name: 'Root',
-        sortOrder: 0,
-        version: 1,
-      },
-    ]);
+    request.flush({
+      workspaceId: WORKSPACE_ID,
+      rootVersion: 5,
+      folders: [
+        {
+          id: CHILD_FOLDER_ID,
+          workspaceId: WORKSPACE_ID,
+          parentFolderId: ROOT_FOLDER_ID,
+          name: 'Child',
+          sortOrder: 0,
+          version: 2,
+        },
+        {
+          id: ROOT_FOLDER_ID,
+          workspaceId: WORKSPACE_ID,
+          parentFolderId: null,
+          name: 'Root',
+          sortOrder: 0,
+          version: 1,
+        },
+      ],
+    });
 
     expect(store.failed()).toBe(false);
     expect(store.loading()).toBe(false);
+    expect(store.rootVersion()).toBe(5);
     expect(store.tree()).toEqual([
       {
         id: ROOT_FOLDER_ID,
@@ -67,21 +72,25 @@ describe('FileFolderStore', () => {
     ]);
   });
 
-  it('moves a canonical file with the server location version and refreshes folders', () => {
+  it('moves a canonical file with both source and destination versions', () => {
     store.load(WORKSPACE_ID);
-    http.expectOne((candidate) => candidate.url === '/api/file-folders').flush([
-      {
-        id: ROOT_FOLDER_ID,
-        workspaceId: WORKSPACE_ID,
-        parentFolderId: null,
-        name: 'Root',
-        sortOrder: 0,
-        version: 4,
-      },
-    ]);
+    http.expectOne((candidate) => candidate.url === '/api/file-folders').flush({
+      workspaceId: WORKSPACE_ID,
+      rootVersion: 9,
+      folders: [
+        {
+          id: ROOT_FOLDER_ID,
+          workspaceId: WORKSPACE_ID,
+          parentFolderId: null,
+          name: 'Root',
+          sortOrder: 0,
+          version: 4,
+        },
+      ],
+    });
 
     let completed = false;
-    store.moveFiles([FILE_OBJECT_ID], ROOT_FOLDER_ID).subscribe(() => {
+    store.moveFile(FILE_OBJECT_ID, ROOT_FOLDER_ID).subscribe(() => {
       completed = true;
     });
 
@@ -101,6 +110,7 @@ describe('FileFolderStore', () => {
     expect(move.request.body).toEqual({
       destinationFolderId: ROOT_FOLDER_ID,
       expectedVersion: 3,
+      expectedDestinationVersion: 4,
     });
     move.flush({
       fileObjectId: FILE_OBJECT_ID,
@@ -111,33 +121,37 @@ describe('FileFolderStore', () => {
 
     const refresh = http.expectOne((candidate) =>
       candidate.url === '/api/file-folders' && candidate.method === 'GET');
-    refresh.flush([]);
+    refresh.flush({ workspaceId: WORKSPACE_ID, rootVersion: 10, folders: [] });
     expect(completed).toBe(true);
   });
 
-  it('moves a folder with its loaded optimistic version', () => {
+  it('uses the root version when moving a folder to Workspace root', () => {
     store.load(WORKSPACE_ID);
-    http.expectOne((candidate) => candidate.url === '/api/file-folders').flush([
-      {
-        id: ROOT_FOLDER_ID,
-        workspaceId: WORKSPACE_ID,
-        parentFolderId: null,
-        name: 'Root',
-        sortOrder: 0,
-        version: 7,
-      },
-      {
-        id: CHILD_FOLDER_ID,
-        workspaceId: WORKSPACE_ID,
-        parentFolderId: null,
-        name: 'Destination',
-        sortOrder: 1,
-        version: 2,
-      },
-    ]);
+    http.expectOne((candidate) => candidate.url === '/api/file-folders').flush({
+      workspaceId: WORKSPACE_ID,
+      rootVersion: 11,
+      folders: [
+        {
+          id: ROOT_FOLDER_ID,
+          workspaceId: WORKSPACE_ID,
+          parentFolderId: CHILD_FOLDER_ID,
+          name: 'Source',
+          sortOrder: 0,
+          version: 7,
+        },
+        {
+          id: CHILD_FOLDER_ID,
+          workspaceId: WORKSPACE_ID,
+          parentFolderId: null,
+          name: 'Current parent',
+          sortOrder: 1,
+          version: 2,
+        },
+      ],
+    });
 
     let completed = false;
-    store.moveFolder(ROOT_FOLDER_ID, CHILD_FOLDER_ID).subscribe(() => {
+    store.moveFolder(ROOT_FOLDER_ID, null).subscribe(() => {
       completed = true;
     });
 
@@ -145,19 +159,24 @@ describe('FileFolderStore', () => {
     expect(move.request.method).toBe('POST');
     expect(move.request.withCredentials).toBe(true);
     expect(move.request.body).toEqual({
-      destinationParentFolderId: CHILD_FOLDER_ID,
+      destinationParentFolderId: null,
       expectedVersion: 7,
+      expectedDestinationVersion: 11,
     });
     move.flush({
       id: ROOT_FOLDER_ID,
       workspaceId: WORKSPACE_ID,
-      parentFolderId: CHILD_FOLDER_ID,
-      name: 'Root',
+      parentFolderId: null,
+      name: 'Source',
       sortOrder: 0,
       version: 8,
     });
 
-    http.expectOne((candidate) => candidate.url === '/api/file-folders').flush([]);
+    http.expectOne((candidate) => candidate.url === '/api/file-folders').flush({
+      workspaceId: WORKSPACE_ID,
+      rootVersion: 12,
+      folders: [],
+    });
     expect(completed).toBe(true);
   });
 });
