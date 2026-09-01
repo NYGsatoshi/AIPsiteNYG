@@ -163,6 +163,12 @@ public sealed class TaskExecutionScopeRepository(AppDbContext dbContext) : ITask
 
         foreach (var document in pendingUpserts.Values.OrderBy(item => item.OwnerType).ThenBy(item => item.OwnerId))
         {
+            if (document.OwnerType != TaskExecutionSourcePolicyOwnerType.Run &&
+                !await ItemIdentitiesBelongToPolicyScopeAsync(document, cancellationToken))
+            {
+                throw new InvalidOperationException("One or more source-policy item identities are outside the authorized policy scope.");
+            }
+
             await using var command = connection.CreateCommand();
             command.Transaction = dbContext.Database.CurrentTransaction?.GetDbTransaction();
             command.CommandText = document.OwnerType == TaskExecutionSourcePolicyOwnerType.Run
@@ -255,6 +261,81 @@ public sealed class TaskExecutionScopeRepository(AppDbContext dbContext) : ITask
             .OrderBy(account => account.DisplayName)
             .ThenBy(account => account.Id)
             .ToListAsync(cancellationToken);
+
+    private async Task<bool> ItemIdentitiesBelongToPolicyScopeAsync(
+        TaskExecutionSourcePolicyDocument document,
+        CancellationToken cancellationToken)
+    {
+        foreach (var rule in document.Policy.Items)
+        {
+            switch (rule.Kind)
+            {
+                case TaskExecutionSourceKind.ProjectFile:
+                    if (!TaskExecutionSourcePolicyV2.TryParseProjectFileSourceId(rule.SourceId, out var fileId))
+                        return false;
+
+                    if (document.OwnerType == TaskExecutionSourcePolicyOwnerType.Task)
+                    {
+                        if (!document.TaskItemId.HasValue) return false;
+                        var taskOwnsFile = await dbContext.Set<Attachment>()
+                            .AsNoTracking()
+                            .AnyAsync(attachment =>
+                                attachment.TenantId == document.TenantId &&
+                                attachment.WorkspaceId == document.WorkspaceId &&
+                                attachment.OwnerType == AttachmentOwnerType.TaskItem &&
+                                attachment.OwnerId == document.TaskItemId.Value &&
+                                attachment.FileObjectId == fileId &&
+                                !attachment.DeletedAt.HasValue &&
+                                attachment.ScanStatus == FileScanStatus.Clean &&
+                                attachment.FileObject != null &&
+                                attachment.FileObject.TenantId == document.TenantId &&
+                                attachment.FileObject.WorkspaceId == document.WorkspaceId &&
+                                attachment.FileObject.ProjectId == document.ProjectId &&
+                                !attachment.FileObject.DeletedAt.HasValue &&
+                                attachment.FileObject.Status == FileObjectStatus.Active,
+                                cancellationToken);
+                        if (!taskOwnsFile) return false;
+                    }
+                    else
+                    {
+                        var projectOwnsFile = await dbContext.Set<FileObject>()
+                            .AsNoTracking()
+                            .AnyAsync(file =>
+                                file.Id == fileId &&
+                                file.TenantId == document.TenantId &&
+                                file.WorkspaceId == document.WorkspaceId &&
+                                file.ProjectId == document.ProjectId &&
+                                !file.DeletedAt.HasValue &&
+                                file.Status == FileObjectStatus.Active,
+                                cancellationToken);
+                        if (!projectOwnsFile) return false;
+                    }
+                    break;
+
+                case TaskExecutionSourceKind.ConnectedApp:
+                    if (!TaskExecutionSourcePolicyV2.TryParseConnectedAppSourceId(rule.SourceId, out var accountId))
+                        return false;
+                    var accountExists = await dbContext.Set<IntegrationAccount>()
+                        .AsNoTracking()
+                        .AnyAsync(account =>
+                            account.Id == accountId &&
+                            account.TenantId == document.TenantId &&
+                            account.DeletedAt == null &&
+                            account.Status != IntegrationAccountStatus.Deleted,
+                            cancellationToken);
+                    if (!accountExists) return false;
+                    break;
+
+                case TaskExecutionSourceKind.Web:
+                case TaskExecutionSourceKind.WebSite:
+                    break;
+                default:
+                    return false;
+            }
+        }
+
+        return true;
+    }
 
     private bool UsesPostgreSql() =>
         dbContext.Database.ProviderName?.Contains("Npgsql", StringComparison.OrdinalIgnoreCase) == true;
