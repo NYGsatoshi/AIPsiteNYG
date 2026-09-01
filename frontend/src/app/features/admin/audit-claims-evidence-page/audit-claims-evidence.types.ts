@@ -23,6 +23,8 @@ export type AuditClaimSupportStatus =
 export type AuditClaimSupportFilter = '' | 'Unverified';
 export type AuditClaimReviewStatus = 'Unreviewed' | 'Reviewed';
 export type AuditEvidenceSourceKind = 'WebSnapshot' | 'FileAttachment' | 'ArtifactVersion' | 'Source';
+export type AuditEvidenceSourceClassification = 'Unknown' | 'Primary' | 'Secondary';
+export type AuditEvidenceVerificationStatus = 'Unverified' | 'Verified' | 'Rejected';
 
 export interface AuditActionSummaryViewModel {
   readonly status: AuditActionSummaryStatus;
@@ -40,6 +42,15 @@ export interface AuditEvidenceViewModel {
   readonly passage: string;
   readonly location: string | null;
   readonly sourceEventAuditId: string | null;
+  readonly sourceId: string | null;
+  readonly sourcePublisher: string | null;
+  readonly sourceType: string | null;
+  readonly sourceClassification: AuditEvidenceSourceClassification;
+  readonly publishedAt: string | null;
+  readonly retrievedAt: string | null;
+  readonly contentHash: string | null;
+  readonly sourceVersion: string | null;
+  readonly verificationStatus: AuditEvidenceVerificationStatus;
 }
 
 export interface AuditClaimViewModel {
