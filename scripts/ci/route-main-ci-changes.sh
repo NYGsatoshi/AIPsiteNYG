@@ -277,6 +277,7 @@ mark_backend_test_file() {
   [[ "$trait_text" == *TaskV1PR07B* ]] && backend_pr07b=true
   [[ "$trait_text" == *TaskV1PR07C* ]] && backend_pr07c=true
   [[ "$trait_text" == *TaskV1PR07D* ]] && backend_pr07d=true
+  return 0
 }
 
 add_frontend_feature() {
