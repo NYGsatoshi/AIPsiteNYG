@@ -58,7 +58,7 @@ interface DestinationOption {
 })
 export class FileMoveDialogComponent implements OnChanges {
   @Input() open = false;
-  @Input() fileObjectIds: readonly string[] = [];
+  @Input() fileObjectId: string | null = null;
   @Input() folderId: string | null = null;
   @Output() readonly moved = new EventEmitter<void>();
   @Output() readonly dismissed = new EventEmitter<void>();
@@ -82,7 +82,7 @@ export class FileMoveDialogComponent implements OnChanges {
   }
 
   hasMoveTarget(): boolean {
-    return this.folderId !== null || this.fileObjectIds.some((id) => id.length > 0);
+    return this.folderId !== null || !!this.fileObjectId;
   }
 
   destinationOptions(): readonly DestinationOption[] {
@@ -114,7 +114,7 @@ export class FileMoveDialogComponent implements OnChanges {
     const destination = this.destinationFolderId();
     const operation = this.folderId
       ? this.folders.moveFolder(this.folderId, destination)
-      : this.folders.moveFiles(this.fileObjectIds, destination);
+      : this.folders.moveFile(this.fileObjectId!, destination);
 
     this.request?.unsubscribe();
     this.request = operation.subscribe({
