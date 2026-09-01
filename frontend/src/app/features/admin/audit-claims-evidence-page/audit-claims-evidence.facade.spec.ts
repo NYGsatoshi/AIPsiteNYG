@@ -21,7 +21,7 @@ describe('AuditClaimsEvidenceFacade', () => {
     TestBed.resetTestingModule();
   });
 
-  it('keeps citation presence separate from support verification and maps explicit support states', () => {
+  it('keeps citation presence separate from support verification and maps authorized source provenance', () => {
     facade.load('11111111-1111-4111-8111-111111111111');
 
     const request = http.expectOne((candidate) =>
@@ -51,6 +51,15 @@ describe('AuditClaimsEvidenceFacade', () => {
               passage: 'The authorized source passage.',
               location: 'Section 2',
               sourceEventAuditId: '22222222-2222-4222-8222-222222222222',
+              sourceId: 'src_0123456789abcdef01234567',
+              sourcePublisher: 'Example Publisher',
+              sourceType: 'Research report',
+              sourceClassification: 'Primary',
+              publishedAt: '2026-08-01T00:00:00Z',
+              retrievedAt: '2026-08-10T12:00:00Z',
+              contentHash: 'sha256:abc123',
+              sourceVersion: 'v3',
+              verificationStatus: 'Verified',
             },
           ],
         },
@@ -87,6 +96,15 @@ describe('AuditClaimsEvidenceFacade', () => {
       sourceTitle: 'Example source',
       passage: 'The authorized source passage.',
       sourceEventAuditId: '22222222-2222-4222-8222-222222222222',
+      sourceId: 'src_0123456789abcdef01234567',
+      sourcePublisher: 'Example Publisher',
+      sourceType: 'Research report',
+      sourceClassification: 'Primary',
+      publishedAt: '2026-08-01T00:00:00Z',
+      retrievedAt: '2026-08-10T12:00:00Z',
+      contentHash: 'sha256:abc123',
+      sourceVersion: 'v3',
+      verificationStatus: 'Verified',
     }));
     expect(view.claims[1].supportLabel).toBe('Insufficient evidence');
     expect(view.claims[2]).toEqual(expect.objectContaining({
@@ -148,7 +166,7 @@ describe('AuditClaimsEvidenceFacade', () => {
     expect(JSON.stringify(facade.actionSummary())).not.toContain('protected count detail');
   });
 
-  it('fails closed for unknown wire classifications instead of rendering server text', () => {
+  it('fails closed for unknown wire classifications and provenance values instead of rendering server text', () => {
     facade.load('11111111-1111-4111-8111-111111111111');
     http.expectOne((candidate) => candidate.url === '/api/admin/audit/claims-evidence').flush({
       artifactId: 'artifact-1',
@@ -173,6 +191,15 @@ describe('AuditClaimsEvidenceFacade', () => {
               passage: 'Passage',
               location: null,
               sourceEventAuditId: null,
+              sourceId: 'server-secret-source-id',
+              sourcePublisher: 42,
+              sourceType: false,
+              sourceClassification: 'server-secret-classification',
+              publishedAt: 'server-secret-published',
+              retrievedAt: {},
+              contentHash: [],
+              sourceVersion: 9,
+              verificationStatus: 'server-secret-verification',
             },
           ],
         },
@@ -182,7 +209,18 @@ describe('AuditClaimsEvidenceFacade', () => {
     const claim = facade.viewModel().claims[0];
     expect(claim.supportStatus).toBe('Unverified');
     expect(claim.reviewStatus).toBe('Unreviewed');
-    expect(claim.evidence[0].sourceKind).toBe('Source');
+    expect(claim.evidence[0]).toEqual(expect.objectContaining({
+      sourceKind: 'Source',
+      sourceId: null,
+      sourcePublisher: null,
+      sourceType: null,
+      sourceClassification: 'Unknown',
+      publishedAt: null,
+      retrievedAt: null,
+      contentHash: null,
+      sourceVersion: null,
+      verificationStatus: 'Unverified',
+    }));
     expect(JSON.stringify(facade.viewModel())).not.toContain('server-secret');
   });
 

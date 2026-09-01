@@ -112,7 +112,16 @@ public sealed class DbAuditClaimsEvidenceService(
                         evidence.LocationSnapshot,
                         evidence.SourceEventAuditId.HasValue && authorizedEventIds.Contains(evidence.SourceEventAuditId.Value)
                             ? evidence.SourceEventAuditId
-                            : null))
+                            : null,
+                        AuditSourceIdentity.Create(evidence.SourceKind, evidence.SourceReference),
+                        evidence.SourcePublisherSnapshot,
+                        evidence.SourceTypeSnapshot,
+                        ToWire(evidence.SourceClassification),
+                        evidence.PublishedAtSnapshot,
+                        evidence.RetrievedAtSnapshot,
+                        evidence.ContentHashSnapshot,
+                        evidence.SourceVersionSnapshot,
+                        ToWire(evidence.VerificationStatus)))
                     .ToList()))
             .ToList();
 

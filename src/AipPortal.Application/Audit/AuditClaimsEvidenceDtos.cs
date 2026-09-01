@@ -24,4 +24,13 @@ public sealed record AuditEvidenceResponse(
     string? SourceTitle,
     string Passage,
     string? Location,
-    Guid? SourceEventAuditId);
+    Guid? SourceEventAuditId,
+    string SourceId = "",
+    string? SourcePublisher = null,
+    string? SourceType = null,
+    string SourceClassification = "Unknown",
+    DateTimeOffset? PublishedAt = null,
+    DateTimeOffset? RetrievedAt = null,
+    string? ContentHash = null,
+    string? SourceVersion = null,
+    string VerificationStatus = "Unverified");

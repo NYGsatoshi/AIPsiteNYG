@@ -90,6 +90,12 @@ public sealed class ArtifactEvidenceConfiguration : IEntityTypeConfiguration<Art
         builder.Property(evidence => evidence.SourceKind).HasEnumStringConversion().IsRequired();
         builder.Property(evidence => evidence.SourceReference).HasMaxLength(2048).IsRequired();
         builder.Property(evidence => evidence.SourceTitleSnapshot).HasMaxLength(512);
+        builder.Property(evidence => evidence.SourcePublisherSnapshot).HasMaxLength(512);
+        builder.Property(evidence => evidence.SourceTypeSnapshot).HasMaxLength(128);
+        builder.Property(evidence => evidence.SourceClassification).HasEnumStringConversion().IsRequired();
+        builder.Property(evidence => evidence.ContentHashSnapshot).HasMaxLength(256);
+        builder.Property(evidence => evidence.SourceVersionSnapshot).HasMaxLength(256);
+        builder.Property(evidence => evidence.VerificationStatus).HasEnumStringConversion().IsRequired();
         builder.Property(evidence => evidence.PassageSnapshot).HasMaxLength(4000).IsRequired();
         builder.Property(evidence => evidence.LocationSnapshot).HasMaxLength(512);
         builder.HasIndex(evidence => new { evidence.TenantId, evidence.ArtifactClaimId, evidence.Ordinal }).IsUnique();
