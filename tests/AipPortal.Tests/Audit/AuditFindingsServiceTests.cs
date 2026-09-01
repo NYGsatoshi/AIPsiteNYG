@@ -29,6 +29,9 @@ public sealed class AuditFindingsServiceTests
         Assert.Equal("Critical", result.Value.Findings[0].Severity);
         Assert.Equal(40, result.Value.Findings[0].ConfidencePercent);
         Assert.True(result.Value.CanReview);
+        var owner = Assert.Single(result.Value.EligibleOwners);
+        Assert.Equal(fixture.UserId, owner.UserId);
+        Assert.Equal("Audit Reviewer", owner.DisplayName);
     }
 
     [Fact]
@@ -74,7 +77,7 @@ public sealed class AuditFindingsServiceTests
     }
 
     [Fact]
-    public async Task FalsePositiveAssignsOwnerAndAppendsHistoryWithoutCopyingReasonToAuditLog()
+    public async Task FalsePositiveAssignsSelectedOwnerAndAppendsHistoryWithoutCopyingReasonToAuditLog()
     {
         await using var fixture = await Fixture.CreateAsync();
         var finding = fixture.AddFinding(AuditFindingTriageStatus.Open, AuditFindingSeverity.Medium, 62, 1);
@@ -82,7 +85,11 @@ public sealed class AuditFindingsServiceTests
 
         var result = await fixture.Service.UpdateTriageAsync(
             finding.Id,
-            new UpdateAuditFindingTriageRequest("FalsePositive", "Detector matched a quoted example."));
+            new UpdateAuditFindingTriageRequest(
+                "FalsePositive",
+                "Detector matched a quoted example.",
+                fixture.UserId,
+                AssignOwner: true));
 
         Assert.True(result.IsSuccess, result.Error ?? result.ErrorDetail?.Message);
         Assert.Equal(AuditFindingTriageStatus.FalsePositive, finding.Status);
@@ -92,6 +99,7 @@ public sealed class AuditFindingsServiceTests
         Assert.Equal(AuditFindingTriageStatus.Open, history.FromStatus);
         Assert.Equal(AuditFindingTriageStatus.FalsePositive, history.ToStatus);
         Assert.Equal(fixture.UserId, history.ChangedByUserId);
+        Assert.Equal(fixture.UserId, history.OwnerUserId);
         Assert.Equal("Detector matched a quoted example.", history.Reason);
 
         var audit = Assert.Single(fixture.Audit.Entries);
@@ -102,6 +110,51 @@ public sealed class AuditFindingsServiceTests
             "Detector matched a quoted example.",
             System.Text.Json.JsonSerializer.Serialize(audit),
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ActiveTenantMemberCanBeAssignedWithoutChangingStatus()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var ownerId = await fixture.AddTenantMemberAsync("Finding Owner", TenantUserStatus.Active);
+        var finding = fixture.AddFinding(AuditFindingTriageStatus.Reviewing, AuditFindingSeverity.High, 80, 1);
+        await fixture.Context.SaveChangesAsync();
+
+        var result = await fixture.Service.UpdateTriageAsync(
+            finding.Id,
+            new UpdateAuditFindingTriageRequest(
+                "Reviewing",
+                OwnerUserId: ownerId,
+                AssignOwner: true));
+
+        Assert.True(result.IsSuccess, result.Error ?? result.ErrorDetail?.Message);
+        Assert.Equal(ownerId, finding.OwnerUserId);
+        var history = Assert.Single(fixture.Context.Set<AuditFindingHistory>());
+        Assert.Equal(AuditFindingTriageStatus.Reviewing, history.FromStatus);
+        Assert.Equal(AuditFindingTriageStatus.Reviewing, history.ToStatus);
+        Assert.Equal(ownerId, history.OwnerUserId);
+        Assert.Null(history.Reason);
+    }
+
+    [Fact]
+    public async Task SuspendedTenantMemberCannotBeAssigned()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var suspendedOwnerId = await fixture.AddTenantMemberAsync("Suspended Owner", TenantUserStatus.Suspended);
+        var finding = fixture.AddFinding(AuditFindingTriageStatus.Open, AuditFindingSeverity.Low, 20, 1);
+        await fixture.Context.SaveChangesAsync();
+
+        var result = await fixture.Service.UpdateTriageAsync(
+            finding.Id,
+            new UpdateAuditFindingTriageRequest(
+                "Open",
+                OwnerUserId: suspendedOwnerId,
+                AssignOwner: true));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("OwnerNotEligible", result.ErrorDetail?.Code);
+        Assert.Null(finding.OwnerUserId);
+        Assert.Empty(fixture.Context.Set<AuditFindingHistory>());
     }
 
     [Fact]
@@ -124,12 +177,13 @@ public sealed class AuditFindingsServiceTests
 
     private sealed class Fixture : IAsyncDisposable
     {
-        private int claimOrdinal;
+        private readonly Tenant tenant;
 
         private Fixture(
             Guid tenantId,
             Guid userId,
             Guid artifactVersionId,
+            Tenant tenant,
             AppDbContext context,
             StubClaimsEvidenceService claims,
             StubAuditAuthorization authorization,
@@ -139,6 +193,7 @@ public sealed class AuditFindingsServiceTests
             TenantId = tenantId;
             UserId = userId;
             ArtifactVersionId = artifactVersionId;
+            this.tenant = tenant;
             Context = context;
             Claims = claims;
             Authorization = authorization;
@@ -211,11 +266,39 @@ public sealed class AuditFindingsServiceTests
                 tenantId,
                 userId,
                 artifactVersionId,
+                tenant,
                 context,
                 claims,
                 authorization,
                 audit,
                 service);
+        }
+
+        public async Task<Guid> AddTenantMemberAsync(string displayName, TenantUserStatus status)
+        {
+            var userId = Guid.NewGuid();
+            var user = new User
+            {
+                Id = userId,
+                DisplayName = displayName,
+                Email = $"{userId:N}@example.invalid",
+                NormalizedEmail = $"{userId:N}@EXAMPLE.INVALID".ToUpperInvariant(),
+                PasswordHash = "test",
+                Status = UserStatus.Active,
+            };
+            Context.Users.Add(user);
+            Context.TenantUsers.Add(new TenantUser
+            {
+                TenantId = TenantId,
+                UserId = userId,
+                Role = TenantUserRole.Member,
+                Status = status,
+                JoinedAt = DateTimeOffset.UtcNow,
+                Tenant = tenant,
+                User = user,
+            });
+            await Context.SaveChangesAsync();
+            return userId;
         }
 
         public ArtifactFinding AddFinding(
@@ -224,7 +307,6 @@ public sealed class AuditFindingsServiceTests
             int confidence,
             int ordinal)
         {
-            claimOrdinal = Math.Max(claimOrdinal, ordinal);
             var claim = new ArtifactClaim
             {
                 TenantId = TenantId,
