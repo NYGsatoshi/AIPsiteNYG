@@ -3,6 +3,7 @@ using System;
 using AipPortal.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace AipPortal.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260901030115_AddAuthoritativeFileFolders")]
+    partial class AddAuthoritativeFileFolders
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -2293,44 +2296,6 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                     b.HasIndex("TenantId", "WorkspaceId", "FolderId");
 
                     b.ToTable("file_folder_placements", (string)null);
-                });
-
-            modelBuilder.Entity("AipPortal.Domain.Entities.FileFolderRootState", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<long>("Version")
-                        .IsConcurrencyToken()
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint")
-                        .HasDefaultValue(1L);
-
-                    b.Property<Guid>("WorkspaceId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CreatedAt");
-
-                    b.HasIndex("TenantId");
-
-                    b.HasIndex("WorkspaceId")
-                        .IsUnique();
-
-                    b.HasIndex("TenantId", "WorkspaceId");
-
-                    b.ToTable("file_folder_root_states", (string)null);
                 });
 
             modelBuilder.Entity("AipPortal.Domain.Entities.FileObject", b =>
@@ -7202,17 +7167,6 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                     b.Navigation("FileObject");
 
                     b.Navigation("Folder");
-
-                    b.Navigation("Workspace");
-                });
-
-            modelBuilder.Entity("AipPortal.Domain.Entities.FileFolderRootState", b =>
-                {
-                    b.HasOne("AipPortal.Domain.Entities.Workspace", "Workspace")
-                        .WithMany()
-                        .HasForeignKey("WorkspaceId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
 
                     b.Navigation("Workspace");
                 });

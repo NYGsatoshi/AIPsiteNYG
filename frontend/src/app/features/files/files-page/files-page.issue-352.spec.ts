@@ -34,6 +34,15 @@ const backendFile = (fileObjectId: string, originalFileName: string, contentType
   sharingVersion: 1,
 });
 
+const flushFolderNavigation = (http: HttpTestingController): void => {
+  const requests = http.match((request) => request.url === '/api/file-folders' && request.method === 'GET');
+  for (const request of requests) {
+    expect(request.request.params.get('workspaceId')).toBe(WORKSPACE_ID);
+    expect(request.request.withCredentials).toBe(true);
+    request.flush({ workspaceId: WORKSPACE_ID, rootVersion: 0, folders: [] });
+  }
+};
+
 const renderLiveFilesPage = async (
   items: readonly unknown[],
 ): Promise<{ fixture: ComponentFixture<FilesPageComponent>; http: HttpTestingController }> => {
@@ -53,6 +62,7 @@ const renderLiveFilesPage = async (
   const list = http.expectOne((request) => request.url === '/api/files' && request.method === 'GET');
   list.flush({ items, page: 1, pageSize: 50, totalCount: items.length, hasMore: false });
   fixture.detectChanges();
+  flushFolderNavigation(http);
   return { fixture, http };
 };
 
@@ -71,6 +81,7 @@ const renderMockFilesPage = async (
   const fixture = TestBed.createComponent(FilesPageComponent);
   const http = TestBed.inject(HttpTestingController);
   fixture.detectChanges();
+  flushFolderNavigation(http);
   return { fixture, http };
 };
 

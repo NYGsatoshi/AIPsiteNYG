@@ -66,9 +66,17 @@ const renderLiveFilesPage = async (
   const fixture = TestBed.createComponent(FilesPageComponent);
   const http = TestBed.inject(HttpTestingController);
   fixture.detectChanges();
+  flushFolderList(http);
   flushFileList(http, items);
   fixture.detectChanges();
   return { fixture, http };
+};
+
+const flushFolderList = (http: HttpTestingController): void => {
+  const request = http.expectOne((candidate) => candidate.url === '/api/file-folders' && candidate.method === 'GET');
+  expect(request.request.params.get('workspaceId')).toBe(WORKSPACE_ID);
+  expect(request.request.withCredentials).toBe(true);
+  request.flush([]);
 };
 
 const flushFileList = (http: HttpTestingController, items: readonly unknown[]): void => {

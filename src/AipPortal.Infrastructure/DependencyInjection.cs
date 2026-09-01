@@ -73,6 +73,7 @@ public static class DependencyInjection
         services.AddScoped<IFileAccessGrantRepository, FileAccessGrantRepository>();
         services.AddScoped<IFileDownloadGrantRepository, FileDownloadGrantRepository>();
         services.AddScoped<AipPortal.Application.Files.IFileSelectionSnapshotService, FileSelectionSnapshotService>();
+        services.AddScoped<IFileFolderService, FileFolderService>();
         services.AddScoped<ITenantPlanRepository, TenantPlanRepository>();
         services.AddScoped<IArtifactRepository, ArtifactRepository>();
         services.AddScoped<IArtifactEvidenceRepository, ArtifactEvidenceRepository>();
