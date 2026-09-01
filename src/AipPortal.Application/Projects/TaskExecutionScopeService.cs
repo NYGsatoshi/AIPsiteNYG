@@ -41,9 +41,10 @@ public sealed class TaskExecutionScopeService(
 
         var scope = await executionScopes.GetProjectScopeAsync(project.Id, cancellationToken);
         var canManage = await CanManageAsync(project.Id, cancellationToken);
+        var canManageConnectedApps = canManage && await CanManageTenantAsync(project.TenantId, cancellationToken);
         var policy = await ProjectPolicyAsync(scope, cancellationToken);
         return Result<ProjectExecutionScopeResponse>.Success(
-            ToProjectResponse(scope, RedactProjectPolicy(policy, canManage), canManage));
+            ToProjectResponse(scope, RedactProjectPolicy(policy, canManage, canManageConnectedApps), canManage));
     }
 
     public async Task<Result<ProjectExecutionScopeResponse>> UpdateProjectScopeAsync(
@@ -61,7 +62,7 @@ public sealed class TaskExecutionScopeService(
         if (project is null)
             return NotFound<ProjectExecutionScopeResponse>();
 
-        if (!await CanUseConnectedAppRulesAsync(project.TenantId, requestedPolicy, cancellationToken))
+        if (!await CanUseProjectItemRulesAsync(project, requestedPolicy, cancellationToken))
             return Invalid<ProjectExecutionScopeResponse>("policyV2.items", "One or more source rules are not available in the current authorization scope.");
 
         var actor = Actor();
@@ -110,8 +111,9 @@ public sealed class TaskExecutionScopeService(
         if (!save.IsSaved)
             return Stale<ProjectExecutionScopeResponse>();
 
+        var canManageConnectedApps = await CanManageTenantAsync(project.TenantId, cancellationToken);
         return Result<ProjectExecutionScopeResponse>.Success(
-            ToProjectResponse(scope, RedactProjectPolicy(requestedPolicy, true), true));
+            ToProjectResponse(scope, RedactProjectPolicy(requestedPolicy, true, canManageConnectedApps), true));
     }
 
     public async Task<Result<TaskExecutionScopeResponse>> GetTaskScopeAsync(
@@ -412,7 +414,7 @@ public sealed class TaskExecutionScopeService(
             }
         }
 
-        if (tenantAuthorization is not null && await tenantAuthorization.CanManageTenantAsync(actor, task.TenantId, cancellationToken))
+        if (await CanManageTenantAsync(task.TenantId, cancellationToken))
         {
             var integrations = await executionScopes.ListActiveIntegrationAccountsAsync(cancellationToken);
             result.AddRange(integrations.Select(account => new TaskExecutionSourceInventoryItemResponse(
@@ -422,6 +424,37 @@ public sealed class TaskExecutionScopeService(
         }
 
         return result;
+    }
+
+    private async Task<bool> CanUseProjectItemRulesAsync(
+        Project project,
+        TaskExecutionSourcePolicyV2 policy,
+        CancellationToken cancellationToken)
+    {
+        if (!TryActor(out var actor))
+            return false;
+
+        var projectFileRules = policy.Items.Where(rule => rule.Kind == TaskExecutionSourceKind.ProjectFile).ToList();
+        if (projectFileRules.Count > 0)
+        {
+            if (fileAuthorization is null)
+                return false;
+
+            var allowedFileIds = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var attachment in await executionScopes.ListProjectSourceAttachmentsAsync(project.Id, cancellationToken))
+            {
+                if (attachment.FileObject is { } fileObject &&
+                    await fileAuthorization.CanViewAttachment(actor, attachment, cancellationToken))
+                {
+                    allowedFileIds.Add(TaskExecutionSourcePolicyV2.ProjectFileSourceId(fileObject.Id));
+                }
+            }
+
+            if (projectFileRules.Any(rule => !allowedFileIds.Contains(rule.SourceId)))
+                return false;
+        }
+
+        return await CanUseConnectedAppRulesAsync(project.TenantId, policy, cancellationToken);
     }
 
     private async Task<bool> CanUseTaskItemRulesAsync(
@@ -461,17 +494,23 @@ public sealed class TaskExecutionScopeService(
         CancellationToken cancellationToken)
     {
         var connectedRules = policy.Items.Where(rule => rule.Kind == TaskExecutionSourceKind.ConnectedApp).ToList();
+        var requiresTenantAdmin = policy.ConnectedApp != TaskExecutionSourceState.Exclude || connectedRules.Count > 0;
+        if (!requiresTenantAdmin)
+            return true;
+        if (!await CanManageTenantAsync(tenantId, cancellationToken))
+            return false;
         if (connectedRules.Count == 0)
             return true;
-        if (!TryActor(out var actor) || tenantAuthorization is null ||
-            !await tenantAuthorization.CanManageTenantAsync(actor, tenantId, cancellationToken))
-            return false;
 
         var activeIds = (await executionScopes.ListActiveIntegrationAccountsAsync(cancellationToken))
             .Select(account => TaskExecutionSourcePolicyV2.ConnectedAppSourceId(account.Id))
             .ToHashSet(StringComparer.Ordinal);
         return connectedRules.All(rule => activeIds.Contains(rule.SourceId));
     }
+
+    private async Task<bool> CanManageTenantAsync(Guid tenantId, CancellationToken cancellationToken) =>
+        TryActor(out var actor) && tenantAuthorization is not null &&
+        await tenantAuthorization.CanManageTenantAsync(actor, tenantId, cancellationToken);
 
     private async Task<TaskExecutionSourcePolicyV2> ProjectPolicyAsync(
         ProjectExecutionScope? scope,
@@ -652,8 +691,21 @@ public sealed class TaskExecutionScopeService(
     private static TaskExecutionSourcePolicyResponse ToPolicyResponse(TaskExecutionSourcePolicyV2 policy) =>
         new(policy.WebEnabled, policy.ProjectFilesEnabled, policy);
 
-    private static TaskExecutionSourcePolicyV2 RedactProjectPolicy(TaskExecutionSourcePolicyV2 policy, bool canManage) =>
-        canManage ? policy : policy with { Items = [] };
+    private static TaskExecutionSourcePolicyV2 RedactProjectPolicy(
+        TaskExecutionSourcePolicyV2 policy,
+        bool canManage,
+        bool canManageConnectedApps)
+    {
+        if (!canManage)
+            return policy with { Items = [] };
+        if (canManageConnectedApps)
+            return policy;
+        return policy with
+        {
+            ConnectedApp = TaskExecutionSourceState.Exclude,
+            Items = policy.Items.Where(rule => rule.Kind != TaskExecutionSourceKind.ConnectedApp).ToList()
+        };
+    }
 
     private static TaskExecutionSourcePolicyV2 RedactTaskPolicy(
         TaskExecutionSourcePolicyV2 policy,
