@@ -53,6 +53,7 @@ export class AuditFindingsPageComponent {
   readonly versionInput = signal(this.route.snapshot.queryParamMap.get('artifactVersion') ?? '');
   readonly inputError = signal<string | null>(null);
   readonly selectedFindingId = signal<string | null>(null);
+  readonly selectedOwnerUserId = signal('');
   readonly reason = signal('');
   readonly reasonError = signal<string | null>(null);
 
@@ -167,8 +168,27 @@ export class AuditFindingsPageComponent {
     }
 
     this.selectedFindingId.set(finding.id);
+    this.selectedOwnerUserId.set(finding.ownerUserId ?? '');
     this.reason.set(finding.resolutionReason ?? '');
     this.reasonError.set(null);
+  }
+
+  updateOwner(value: string): void {
+    this.selectedOwnerUserId.set(value.trim());
+  }
+
+  saveOwner(): void {
+    const finding = this.selectedFinding();
+    if (!finding || !this.vm().canReview || this.saving()) {
+      return;
+    }
+
+    const ownerUserId = this.selectedOwnerUserId() || null;
+    if (ownerUserId === finding.ownerUserId) {
+      return;
+    }
+
+    this.facade.updateTriage(finding.id, finding.status, null, ownerUserId, true);
   }
 
   updateReason(value: string): void {
@@ -191,16 +211,7 @@ export class AuditFindingsPageComponent {
     }
 
     this.reasonError.set(null);
-    this.facade.updateTriage(finding.id, status, reason || null, true);
-  }
-
-  takeOwnership(): void {
-    const finding = this.selectedFinding();
-    if (!finding || !this.vm().canReview || this.saving()) {
-      return;
-    }
-
-    this.facade.updateTriage(finding.id, finding.status, null, true);
+    this.facade.updateTriage(finding.id, status, reason || null);
   }
 
   statusLabel(status: AuditFindingStatus): string {
@@ -242,6 +253,7 @@ export class AuditFindingsPageComponent {
 
   private clearSelection(): void {
     this.selectedFindingId.set(null);
+    this.selectedOwnerUserId.set('');
     this.reason.set('');
     this.reasonError.set(null);
   }
