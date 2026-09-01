@@ -154,10 +154,24 @@ public sealed class Issue334WorkspaceNeedsAttentionPostgreSqlTests
                     failedTask.Id,
                     actor.Id,
                     Now.AddMinutes(-15),
-                    TaskExecutionRunStatus.Failed);
+                    TaskExecutionRunStatus.Accepted);
+                dbContext.TaskExecutionRuns.Add(failedRun);
+                await dbContext.SaveChangesAsync();
+
+                failedRun.Status = TaskExecutionRunStatus.Queued;
+                failedRun.QueuedAtUtc = Now.AddMinutes(-14).AddSeconds(-50);
+                failedRun.VersionNo++;
+                await dbContext.SaveChangesAsync();
+
+                failedRun.Status = TaskExecutionRunStatus.Running;
+                failedRun.StartedAtUtc = Now.AddMinutes(-14).AddSeconds(-40);
+                failedRun.VersionNo++;
+                await dbContext.SaveChangesAsync();
+
+                failedRun.Status = TaskExecutionRunStatus.Failed;
                 failedRun.FinishedAtUtc = Now.AddMinutes(-14);
                 failedRun.FailureCode = "SENSITIVE_INTERNAL_FAILURE_CODE";
-                dbContext.TaskExecutionRuns.Add(failedRun);
+                failedRun.VersionNo++;
                 await dbContext.SaveChangesAsync();
                 dbContext.ChangeTracker.Clear();
 
