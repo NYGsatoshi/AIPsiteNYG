@@ -15,7 +15,7 @@
   </header>
 
   <p class="claims-page__policy">
-    Citation presence and support verification are separate states. Only evidence passages authorized for the current user are returned; hidden sources are not counted or named.
+    Citation presence and support verification are separate states. Only evidence passages and source provenance authorized for the current user are returned; hidden sources are not counted or named.
   </p>
 
   <form class="claims-page__loader" (submit)="$event.preventDefault(); openVersion()">
@@ -255,25 +255,93 @@
             }
 
             @if (selectedEvidence(); as evidence) {
-              <dl class="evidence-meta">
-                <div><dt>Source type</dt><dd>{{ sourceKindLabel(evidence.sourceKind) }}</dd></div>
+              <dl class="evidence-meta" data-testid="audit-source-provenance">
+                <div><dt>Stored as</dt><dd>{{ sourceKindLabel(evidence.sourceKind) }}</dd></div>
                 @if (evidence.sourceTitle) {
                   <div><dt>Source</dt><dd>{{ evidence.sourceTitle }}</dd></div>
                 }
+                @if (evidence.sourceId) {
+                  <div><dt>Source ID</dt><dd><code>{{ evidence.sourceId }}</code></dd></div>
+                }
+                @if (evidence.sourcePublisher) {
+                  <div><dt>Publisher</dt><dd>{{ evidence.sourcePublisher }}</dd></div>
+                }
+                @if (evidence.sourceType) {
+                  <div><dt>Source type</dt><dd>{{ evidence.sourceType }}</dd></div>
+                }
+                <div><dt>Classification</dt><dd>{{ sourceClassificationLabel(evidence.sourceClassification) }}</dd></div>
+                <div>
+                  <dt>Verification</dt>
+                  <dd>
+                    <span class="status-pill" [attr.data-state]="evidence.verificationStatus.toLowerCase()">
+                      {{ verificationLabel(evidence.verificationStatus) }}
+                    </span>
+                  </dd>
+                </div>
+                @if (evidence.publishedAt) {
+                  <div><dt>Published</dt><dd><time [attr.datetime]="evidence.publishedAt">{{ formatTimestamp(evidence.publishedAt) }}</time></dd></div>
+                }
+                @if (evidence.retrievedAt) {
+                  <div><dt>Retrieved</dt><dd><time [attr.datetime]="evidence.retrievedAt">{{ formatTimestamp(evidence.retrievedAt) }}</time></dd></div>
+                }
+                @if (evidence.sourceVersion) {
+                  <div><dt>Version</dt><dd><code>{{ evidence.sourceVersion }}</code></dd></div>
+                }
+                @if (evidence.contentHash) {
+                  <div><dt>Content hash</dt><dd><code>{{ evidence.contentHash }}</code></dd></div>
+                }
                 @if (evidence.location) {
-                  <div><dt>Location</dt><dd>{{ evidence.location }}</dd></div>
+                  <div><dt>Citation location</dt><dd>{{ evidence.location }}</dd></div>
                 }
-                <div><dt>Reference</dt><dd><code>{{ evidence.sourceReference }}</code></dd></div>
+                <div><dt>URL / reference</dt><dd><code>{{ evidence.sourceReference }}</code></dd></div>
               </dl>
+
               <blockquote class="evidence-passage">{{ evidence.passage }}</blockquote>
-              <ol class="evidence-trace" aria-label="Evidence trace">
-                <li>Claim #{{ claim.ordinal }}</li>
-                <li>Evidence {{ evidence.ordinal }}</li>
-                <li>{{ evidence.sourceTitle || sourceKindLabel(evidence.sourceKind) }}</li>
-                @if (evidence.sourceEventAuditId) {
-                  <li><a [href]="'/app/admin/audit?event=' + evidence.sourceEventAuditId">Related audit event</a></li>
-                }
-              </ol>
+
+              @if (evidence.sourceId) {
+                <section class="source-usage" aria-labelledby="source-usage-title" data-testid="audit-source-usage">
+                  <header class="source-usage__header">
+                    <div>
+                      <h4 id="source-usage-title">Authorized source usage</h4>
+                      <p>{{ selectedSourceClaimCount() }} referencing claim(s), {{ selectedSourceReferences().length }} citation occurrence(s).</p>
+                    </div>
+                    @if (selectedSourceReferences().length > 1) {
+                      <span class="status-pill" data-state="duplicate">Duplicate reference</span>
+                    }
+                  </header>
+                  <ul>
+                    @for (reference of selectedSourceReferences(); track reference.evidenceId) {
+                      <li>
+                        Claim #{{ reference.claimOrdinal }} · Evidence {{ reference.evidenceOrdinal }}
+                        @if (reference.location) { · {{ reference.location }} }
+                      </li>
+                    }
+                  </ul>
+                  <p class="source-usage__note">Only source usages already authorized in this Artifact version are counted.</p>
+                </section>
+              }
+
+              <button
+                type="button"
+                class="provenance-toggle"
+                data-testid="audit-trace-provenance"
+                [attr.aria-expanded]="traceExpanded()"
+                aria-controls="evidence-provenance-trace"
+                (click)="toggleTrace()"
+              >
+                {{ traceExpanded() ? 'Hide provenance trace' : 'Trace provenance' }}
+              </button>
+
+              @if (traceExpanded()) {
+                <ol id="evidence-provenance-trace" class="evidence-trace" aria-label="Evidence provenance trace">
+                  <li>Claim #{{ claim.ordinal }}</li>
+                  <li>Evidence {{ evidence.ordinal }}</li>
+                  <li>{{ evidence.sourceId || evidence.sourceTitle || sourceKindLabel(evidence.sourceKind) }}</li>
+                  @if (evidence.sourceEventAuditId) {
+                    <li><a [href]="'/app/admin/audit?event=' + evidence.sourceEventAuditId">Related audit event</a></li>
+                  }
+                </ol>
+              }
             } @else {
               <p class="comparison__empty">No authorized evidence passage is available for this claim.</p>
             }
