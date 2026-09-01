@@ -55,6 +55,7 @@ public static class AnnouncementDistributionContract
 {
     public const int MaximumTargetCount = 20;
     public const string DeliveryLogicalKeyPrefix = "announcement-delivery:";
+    public const string FrozenCohortAuditAction = "AnnouncementDeliveryCohortFrozen";
 
     public static string DeliveryLogicalKey(Guid announcementId) =>
         $"{DeliveryLogicalKeyPrefix}{announcementId:N}";
