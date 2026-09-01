@@ -11,7 +11,12 @@
   </header>
 
   <div class="files-page__grid files-page__grid--browser">
-    <app-file-browser-sidebar [folders]="browserFolders" [activeShortcut]="browserShortcut()" (shortcutSelected)="selectBrowserShortcut($event)" />
+    <app-file-browser-sidebar
+      [folders]="browserFolders()"
+      [activeShortcut]="browserShortcut()"
+      (shortcutSelected)="selectBrowserShortcut($event)"
+      (folderMoveRequested)="openFolderMoveDialog($event)"
+    />
     <div class="files-page__main">
       <app-aip-file-uploader
         id="upload"
@@ -187,6 +192,7 @@
           </div>
         } @else {
           <div
+            id="files-contextual-toolbar"
             class="files-page__toolbar files-page__toolbar--contextual"
             role="toolbar"
             [attr.aria-label]="i18n.translate('files.actions.ariaLabel')"
@@ -200,7 +206,12 @@
             } @else {
               <span class="files-page__no-actions">{{ i18n.translate('files.selection.thisPage') }}</span>
             }
-            <button type="button" disabled [title]="i18n.translate('files.actions.moveUnavailable')">{{ i18n.translate('files.actions.move') }}</button>
+            <button
+              type="button"
+              [disabled]="!canMoveSelection()"
+              (click)="openFileMoveDialog()"
+              data-testid="files-selected-move"
+            >{{ i18n.translate('files.actions.move') }}</button>
             <button
               type="button"
               [disabled]="!downloadableSelection()"
@@ -520,6 +531,14 @@
     </aside>
   </div>
 </section>
+
+<app-file-move-dialog
+  [open]="moveDialogOpen()"
+  [fileObjectIds]="moveFolderId() ? [] : moveFileObjectIds()"
+  [folderId]="moveFolderId()"
+  (moved)="handleMoveCompleted()"
+  (dismissed)="closeMoveDialog()"
+/>
 
 <app-aip-dialog
   [open]="deleteDialogOpen()"
