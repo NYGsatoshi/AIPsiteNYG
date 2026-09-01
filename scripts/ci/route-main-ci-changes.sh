@@ -153,7 +153,7 @@ while IFS= read -r path; do
   esac
 
   case "$path" in
-    frontend/package.json|frontend/package-lock.json|frontend/angular.json|frontend/tsconfig*.json)
+    frontend/package.json|frontend/package-lock.json|frontend/.npmrc|frontend/angular.json|frontend/tsconfig*.json)
       frontend=true
       frontend_build=true
       frontend_unit=true
@@ -177,6 +177,13 @@ while IFS= read -r path; do
       frontend_license_guard=true
       frontend_storybook=true
       ;;
+    frontend/scripts/*)
+      frontend=true
+      frontend_build=true
+      frontend_architecture=true
+      frontend_storybook=true
+      frontend_playwright=true
+      ;;
     frontend/src/*.spec.ts)
       frontend=true
       mark_unit_for_path "$path"
@@ -188,6 +195,16 @@ while IFS= read -r path; do
     frontend/src/*)
       mark_frontend_runtime "$path"
       ;;
+    frontend/*)
+      frontend=true
+      frontend_build=true
+      frontend_unit=true
+      frontend_unit_full=true
+      frontend_architecture=true
+      frontend_license_guard=true
+      frontend_storybook=true
+      frontend_playwright=true
+      ;;
     package.json|package-lock.json|.npmrc)
       frontend=true
       frontend_playwright=true
@@ -196,7 +213,9 @@ while IFS= read -r path; do
       frontend=true
       frontend_playwright=true
       ;;
-    tests/ui/angular-smoke.spec.ts|tests/ui/message-mobile-navigation.spec.ts|tests/ui/message-search-filters.spec.ts|tests/ui/message-actions.spec.ts|tests/ui/audit-claims-evidence.spec.ts|tests/ui/message-thread-context.spec.ts|tests/ui/message-follow-ups.spec.ts|tests/ui/app.spec.ts|tests/ui/run-angular-playwright.mjs|tests/ui/run-angular-playwright-compose.mjs|tests/ui/serve-static.mjs)
+    tests/ui/*real-backend*|tests/ui/mbj*|tests/ui/run-mbj*|tests/ui/*public-https*|tests/ui/*u22*|tests/ui/wpc*)
+      ;;
+    tests/ui/angular-smoke.spec.ts|tests/ui/message-mobile-navigation.spec.ts|tests/ui/message-search-filters.spec.ts|tests/ui/message-actions.spec.ts|tests/ui/audit-claims-evidence.spec.ts|tests/ui/message-thread-context.spec.ts|tests/ui/message-follow-ups.spec.ts|tests/ui/app.spec.ts|tests/ui/run-angular-playwright.mjs|tests/ui/run-angular-playwright-compose.mjs|tests/ui/serve-static.mjs|tests/ui/*)
       frontend=true
       frontend_playwright=true
       ;;
