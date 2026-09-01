@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using AipPortal.Application.Artifacts;
 using AipPortal.Application.Audit;
 using AipPortal.Application.Common;
@@ -112,7 +114,16 @@ public sealed class DbAuditClaimsEvidenceService(
                         evidence.LocationSnapshot,
                         evidence.SourceEventAuditId.HasValue && authorizedEventIds.Contains(evidence.SourceEventAuditId.Value)
                             ? evidence.SourceEventAuditId
-                            : null))
+                            : null,
+                        BuildSourceId(evidence.SourceKind, evidence.SourceReference),
+                        evidence.SourcePublisherSnapshot,
+                        evidence.SourceTypeSnapshot,
+                        ToWire(evidence.SourceClassification),
+                        evidence.PublishedAtSnapshot,
+                        evidence.RetrievedAtSnapshot,
+                        evidence.ContentHashSnapshot,
+                        evidence.SourceVersionSnapshot,
+                        ToWire(evidence.VerificationStatus)))
                     .ToList()))
             .ToList();
 
@@ -154,6 +165,20 @@ public sealed class DbAuditClaimsEvidenceService(
         return attachment is not null &&
             !attachment.DeletedAt.HasValue &&
             await fileAuthorization.CanViewAttachment(userId, attachment, cancellationToken);
+    }
+
+    private static string BuildSourceId(ArtifactEvidenceSourceKind sourceKind, string sourceReference)
+    {
+        var canonicalReference = sourceReference.Trim();
+        if (sourceKind != ArtifactEvidenceSourceKind.WebSnapshot &&
+            Guid.TryParse(canonicalReference, out var sourceGuid) && sourceGuid != Guid.Empty)
+        {
+            canonicalReference = sourceGuid.ToString("D");
+        }
+
+        var identity = $"{sourceKind}\n{canonicalReference}";
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(identity));
+        return $"src_{Convert.ToHexString(hash.AsSpan(0, 12)).ToLowerInvariant()}";
     }
 
     private static string ToWire<TEnum>(TEnum value) where TEnum : struct, Enum =>
