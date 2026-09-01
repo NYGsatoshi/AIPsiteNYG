@@ -166,7 +166,7 @@
                 @for (row of projectRuleRows(); track row.kind + ':' + row.sourceId) {
                   @if (row.kind !== 'Web') {
                     <div class="task-execution-scope__rule-row">
-                      <span><strong>{{ row.label }}</strong><small>{{ row.kind }} · {{ row.sourceId }}</small></span>
+                      <span><strong>Source: {{ row.label }}</strong><small>{{ row.kind }} · {{ row.sourceId }}</small></span>
                       <select [value]="itemState('project', row.kind, row.sourceId)" (change)="setItemState('project', row.kind, row.sourceId, $event)" [attr.aria-label]="'Project rule for ' + row.label">
                         @for (state of sourceStates; track state) { <option [value]="state">{{ state }}</option> }
                       </select>
@@ -217,7 +217,7 @@
                     @for (row of overrideRuleRows(); track row.kind + ':' + row.sourceId) {
                       @if (row.kind !== 'Web') {
                         <div class="task-execution-scope__rule-row">
-                          <span><strong>{{ row.label }}</strong><small>{{ row.kind }} · {{ row.sourceId }}</small></span>
+                          <span><strong>Source: {{ row.label }}</strong><small>{{ row.kind }} · {{ row.sourceId }}</small></span>
                           <select [value]="itemState('task', row.kind, row.sourceId)" (change)="setItemState('task', row.kind, row.sourceId, $event)" [attr.aria-label]="'Task rule for ' + row.label">
                             @for (state of sourceStates; track state) { <option [value]="state">{{ state }}</option> }
                           </select>
