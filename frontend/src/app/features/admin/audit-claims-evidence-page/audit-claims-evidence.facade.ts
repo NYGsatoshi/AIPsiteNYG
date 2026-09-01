@@ -8,7 +8,9 @@ import {
   AuditClaimSupportStatus,
   AuditClaimViewModel,
   AuditClaimsEvidenceViewModel,
+  AuditEvidenceSourceClassification,
   AuditEvidenceSourceKind,
+  AuditEvidenceVerificationStatus,
   AuditEvidenceViewModel,
 } from './audit-claims-evidence.types';
 
@@ -39,6 +41,15 @@ interface AuditEvidenceDto {
   readonly passage: string;
   readonly location?: string | null;
   readonly sourceEventAuditId?: string | null;
+  readonly sourceId?: unknown;
+  readonly sourcePublisher?: unknown;
+  readonly sourceType?: unknown;
+  readonly sourceClassification?: unknown;
+  readonly publishedAt?: unknown;
+  readonly retrievedAt?: unknown;
+  readonly contentHash?: unknown;
+  readonly sourceVersion?: unknown;
+  readonly verificationStatus?: unknown;
 }
 
 interface PagedResponseDto {
@@ -238,6 +249,15 @@ function toEvidenceViewModel(dto: AuditEvidenceDto): AuditEvidenceViewModel {
     passage: dto.passage,
     location: dto.location?.trim() || null,
     sourceEventAuditId: dto.sourceEventAuditId?.trim() || null,
+    sourceId: toSourceId(dto.sourceId),
+    sourcePublisher: toNullableText(dto.sourcePublisher),
+    sourceType: toNullableText(dto.sourceType),
+    sourceClassification: toSourceClassification(dto.sourceClassification),
+    publishedAt: toIsoTimestamp(dto.publishedAt),
+    retrievedAt: toIsoTimestamp(dto.retrievedAt),
+    contentHash: toNullableText(dto.contentHash),
+    sourceVersion: toNullableText(dto.sourceVersion),
+    verificationStatus: toVerificationStatus(dto.verificationStatus),
   };
 }
 
@@ -258,6 +278,40 @@ function toSourceKind(value: unknown): AuditEvidenceSourceKind {
   return value === 'WebSnapshot' || value === 'FileAttachment' || value === 'ArtifactVersion'
     ? value
     : 'Source';
+}
+
+function toSourceClassification(value: unknown): AuditEvidenceSourceClassification {
+  return value === 'Primary' || value === 'Secondary' ? value : 'Unknown';
+}
+
+function toVerificationStatus(value: unknown): AuditEvidenceVerificationStatus {
+  return value === 'Verified' || value === 'Rejected' ? value : 'Unverified';
+}
+
+function toSourceId(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const normalized = value.trim();
+  return /^src_[0-9a-f]{24}$/.test(normalized) ? normalized : null;
+}
+
+function toNullableText(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  return value.trim() || null;
+}
+
+function toIsoTimestamp(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const normalized = value.trim();
+  return normalized && !Number.isNaN(Date.parse(normalized)) ? normalized : null;
 }
 
 function safeOrdinal(value: number): number {
