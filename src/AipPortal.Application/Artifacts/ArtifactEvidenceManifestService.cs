@@ -212,7 +212,8 @@ public sealed class ArtifactEvidenceManifestService(
             {
                 ["claimCount"] = claims.Count,
                 ["findingCount"] = findingCount,
-                ["schema"] = "artifact-claims-evidence-v1+audit-findings-v1"
+                ["schema"] = "artifact-claims-evidence-v1",
+                ["findingSchema"] = "audit-findings-v1"
             }), cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
