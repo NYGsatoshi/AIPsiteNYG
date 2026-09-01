@@ -17,13 +17,6 @@ export interface FileFolderTreeNode {
   readonly children: readonly FileFolderTreeNode[];
 }
 
-interface FileLocationDto {
-  readonly fileObjectId?: unknown;
-  readonly workspaceId?: unknown;
-  readonly folderId?: unknown;
-  readonly version?: unknown;
-}
-
 @Injectable({ providedIn: 'root' })
 export class FileFolderStore {
   private readonly http = inject(HttpClient);

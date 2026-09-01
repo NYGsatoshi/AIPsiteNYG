@@ -294,7 +294,8 @@ public sealed class FileFolderService(
 
         var attachment = await dbContext.Set<Attachment>()
             .Include(candidate => candidate.FileObject)
-            .SingleOrDefaultAsync(candidate =>
+            .OrderBy(candidate => candidate.Id)
+            .FirstOrDefaultAsync(candidate =>
                 candidate.TenantId == currentTenant.TenantId &&
                 candidate.FileObjectId == fileObjectId &&
                 candidate.OwnerType == AttachmentOwnerType.Workspace &&
