@@ -8,9 +8,11 @@ namespace AipPortal.Infrastructure.Persistence;
 /// <summary>
 /// Canonical SQL-translatable Announcement list/detail/search scope. Legacy
 /// announcements continue to use their live single-scope authorization. A
-/// durable #388 publication instead has one logical Announcement notification
-/// per dispatch-time recipient; that logical identity is the immutable cohort
-/// membership even if the recipient later soft-deletes the notification.
+/// durable #388 publication records an atomic frozen-cohort audit marker and
+/// one logical Announcement notification per dispatch-time recipient. The
+/// notification is immutable cohort membership even if the recipient later
+/// soft-deletes its visible notification; the marker also represents an empty
+/// cohort without allowing future scope members to drift into it.
 /// Tenant membership remains a hard outer boundary.
 /// </summary>
 public static class AnnouncementReadScope
@@ -52,15 +54,13 @@ public static class AnnouncementReadScope
                     member.Status == MembershipStatus.Active))
             .Select(workspace => workspace.Id);
 
-        var frozenCohortAnnouncementIds = dbContext.Notifications
+        var frozenCohortAnnouncementIds = dbContext.AuditLogs
             .AsNoTracking()
-            .Where(notification =>
-                notification.NotificationType == NotificationType.Announcement &&
-                notification.RelatedEntityType == "Announcement" &&
-                notification.RelatedEntityId.HasValue &&
-                notification.LogicalKey != null &&
-                notification.LogicalKey.StartsWith(AnnouncementDistributionContract.DeliveryLogicalKeyPrefix))
-            .Select(notification => notification.RelatedEntityId!.Value);
+            .Where(log =>
+                log.Action == AnnouncementDistributionContract.FrozenCohortAuditAction &&
+                log.EntityType == "Announcement" &&
+                log.EntityId.HasValue)
+            .Select(log => log.EntityId!.Value);
 
         var deliveredAnnouncementIds = dbContext.Notifications
             .AsNoTracking()
