@@ -10,6 +10,11 @@ public sealed record FileFolderResponse(
     int SortOrder,
     long Version);
 
+public sealed record FileFolderNavigationResponse(
+    Guid WorkspaceId,
+    long RootVersion,
+    IReadOnlyList<FileFolderResponse> Folders);
+
 public sealed record FileFolderCreateRequest(
     Guid WorkspaceId,
     Guid? ParentFolderId,
@@ -23,11 +28,13 @@ public sealed record FileLocationResponse(
 
 public sealed record FileMoveRequest(
     Guid? DestinationFolderId,
-    long ExpectedVersion);
+    long ExpectedVersion,
+    long ExpectedDestinationVersion);
 
 public sealed record FileFolderMoveRequest(
     Guid? DestinationParentFolderId,
-    long ExpectedVersion);
+    long ExpectedVersion,
+    long ExpectedDestinationVersion);
 
 /// <summary>
 /// Authoritative Workspace-scoped folder hierarchy and logical placement.
@@ -35,7 +42,7 @@ public sealed record FileFolderMoveRequest(
 /// </summary>
 public interface IFileFolderService
 {
-    Task<Result<IReadOnlyList<FileFolderResponse>>> ListAsync(
+    Task<Result<FileFolderNavigationResponse>> ListAsync(
         Guid workspaceId,
         CancellationToken cancellationToken = default);
 
