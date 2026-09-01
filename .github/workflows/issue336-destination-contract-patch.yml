@@ -1,0 +1,95 @@
+name: Issue336 Destination Contract Patch
+
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/issue336-destination-contract-patch.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    name: Patch Files page destination contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: feat/336-authoritative-folder-move
+          fetch-depth: 0
+
+      - name: Patch page and fixtures
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          ts = Path('frontend/src/app/features/files/files-page/files-page.component.ts')
+          text = ts.read_text()
+          old = """  readonly moveFileObjectIds = computed<readonly string[]>(() =>
+    this.selectedFiles()
+      .map((file) => file.canonicalFileId)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0));
+  readonly canMoveSelection = computed(() => {
+    if (this.hasSearchResultsSelection()) {
+      return false;
+    }
+    const selected = this.selectedFiles();
+    return selected.length > 0 && this.moveFileObjectIds().length === selected.length;
+  });
+"""
+          new = """  readonly moveFileObjectId = computed<string | null>(() => {
+    if (this.hasSearchResultsSelection()) {
+      return null;
+    }
+    const selected = this.selectedFiles();
+    const fileObjectId = selected.length === 1 ? selected[0]?.canonicalFileId : null;
+    return typeof fileObjectId === 'string' && fileObjectId.length > 0 ? fileObjectId : null;
+  });
+  readonly canMoveSelection = computed(() => this.moveFileObjectId() !== null);
+"""
+          if old not in text:
+              raise SystemExit('FilesPage move selection block not found')
+          ts.write_text(text.replace(old, new, 1))
+
+          html = Path('frontend/src/app/features/files/files-page/files-page.component.html')
+          text = html.read_text()
+          old = '  [fileObjectIds]="moveFolderId() ? [] : moveFileObjectIds()"\n'
+          new = '  [fileObjectId]="moveFolderId() ? null : moveFileObjectId()"\n'
+          if old not in text:
+              raise SystemExit('FileMoveDialog input marker not found')
+          html.write_text(text.replace(old, new, 1))
+
+          spec = Path('frontend/src/app/features/files/files-page/files-page.component.spec.ts')
+          text = spec.read_text()
+          old = """const flushFolderList = (http: HttpTestingController): void => {
+  const request = http.expectOne((candidate) => candidate.url === '/api/file-folders' && candidate.method === 'GET');
+  expect(request.request.params.get('workspaceId')).toBe(WORKSPACE_ID);
+  expect(request.request.withCredentials).toBe(true);
+  request.flush([]);
+};
+"""
+          new = """const flushFolderList = (http: HttpTestingController): void => {
+  const request = http.expectOne((candidate) => candidate.url === '/api/file-folders' && candidate.method === 'GET');
+  expect(request.request.params.get('workspaceId')).toBe(WORKSPACE_ID);
+  expect(request.request.withCredentials).toBe(true);
+  request.flush({ workspaceId: WORKSPACE_ID, rootVersion: 0, folders: [] });
+};
+"""
+          if old not in text:
+              raise SystemExit('flushFolderList block not found')
+          spec.write_text(text.replace(old, new, 1))
+          PY
+
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/app/features/files/files-page/files-page.component.ts \
+                  frontend/src/app/features/files/files-page/files-page.component.html \
+                  frontend/src/app/features/files/files-page/files-page.component.spec.ts
+          git commit -m "fix(files): align page with destination-version moves"
+          git push origin HEAD:feat/336-authoritative-folder-move
