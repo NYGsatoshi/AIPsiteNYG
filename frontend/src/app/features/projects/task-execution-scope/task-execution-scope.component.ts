@@ -124,9 +124,6 @@ export class TaskExecutionScopeComponent implements OnChanges, OnDestroy {
   readonly feedback = signal<string | null>(null);
   readonly saving = signal<'project' | 'task' | null>(null);
 
-  // V1 compatibility signals are retained because callers/tests may still use
-  // them. V2 selectors update them automatically; direct V1 changes are
-  // reconciled to Allow/Exclude immediately before a save.
   readonly projectWebEnabled = signal(false);
   readonly projectFilesEnabled = signal(false);
   readonly overrideWebEnabled = signal(false);
@@ -264,7 +261,6 @@ export class TaskExecutionScopeComponent implements OnChanges, OnDestroy {
   }
 
   kindState(target: EditorTarget, kind: SourceKind): SourceState { return this.stateSignal(target, kind)(); }
-
   policyState(policy: SourcePolicy, kind: SourceKind): SourceState { return policyDefault(policy.policyV2, kind); }
 
   stateMeaning(state: SourceState): string {
@@ -678,7 +674,9 @@ function kindHasEligibleSource(policy: SourcePolicyV2, kind: SourceKind): boolea
     || policy.items.some((rule) => rule.kind === kind && rule.state !== 'Exclude');
 }
 function ruleRows(rules: readonly SourceRule[], inventory: readonly SourceInventoryItem[]) {
-  const inventoryMap = new Map(inventory.map((item) => [`${item.kind}:${item.sourceId}`, item] as const));
+  const inventoryMap = new Map<string, SourceInventoryItem>(
+    inventory.map((item) => [`${item.kind}:${item.sourceId}`, item]),
+  );
   const keys = new Set<string>();
   const rows: Array<SourceInventoryItem & { configured: boolean }> = [];
   for (const item of inventory) {
