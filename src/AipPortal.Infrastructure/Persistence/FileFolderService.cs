@@ -17,7 +17,7 @@ public sealed class FileFolderService(
 {
     private const int MaxHierarchyDepth = 256;
 
-    public async Task<Result<IReadOnlyList<FileFolderResponse>>> ListAsync(
+    public async Task<Result<FileFolderNavigationResponse>> ListAsync(
         Guid workspaceId,
         CancellationToken cancellationToken = default)
     {
@@ -25,7 +25,7 @@ public sealed class FileFolderService(
         if (workspaceId == Guid.Empty || userId is null || !CurrentTenantAvailable() ||
             !await workspaceAuthorization.CanViewWorkspace(userId.Value, workspaceId, cancellationToken))
         {
-            return Result<IReadOnlyList<FileFolderResponse>>.Failure("Workspace not found.");
+            return Result<FileFolderNavigationResponse>.Failure("Workspace not found.");
         }
 
         var folders = await dbContext.Set<FileFolder>()
@@ -47,7 +47,18 @@ public sealed class FileFolderService(
                 folder.Version))
             .ToListAsync(cancellationToken);
 
-        return Result<IReadOnlyList<FileFolderResponse>>.Success(folders);
+        var rootVersion = await dbContext.Set<FileFolderRootState>()
+            .AsNoTracking()
+            .Where(root =>
+                root.TenantId == currentTenant.TenantId &&
+                root.WorkspaceId == workspaceId)
+            .Select(root => root.Version)
+            .SingleOrDefaultAsync(cancellationToken);
+
+        return Result<FileFolderNavigationResponse>.Success(new FileFolderNavigationResponse(
+            workspaceId,
+            rootVersion,
+            folders));
     }
 
     public async Task<Result<FileFolderResponse>> CreateAsync(
@@ -62,13 +73,13 @@ public sealed class FileFolderService(
             return Result<FileFolderResponse>.Failure("Workspace not found.");
         }
 
-        if (name.Length is < 1 or > 180)
+        if (name.Length is < 1 or > 180 || name.Any(char.IsControl) || name.Contains('/') || name.Contains('\\'))
         {
-            return Result<FileFolderResponse>.Failure("Folder name must be between 1 and 180 characters.");
+            return Result<FileFolderResponse>.Failure("Folder name is invalid.");
         }
 
-        if (request.ParentFolderId.HasValue &&
-            !await DestinationFolderExistsAsync(request.WorkspaceId, request.ParentFolderId.Value, cancellationToken))
+        var parentContainer = await ResolveContainerAsync(request.WorkspaceId, request.ParentFolderId, cancellationToken);
+        if (parentContainer is null)
         {
             return Result<FileFolderResponse>.Failure("Destination folder not found.");
         }
@@ -96,7 +107,20 @@ public sealed class FileFolderService(
             Version = 1,
         };
         dbContext.Set<FileFolder>().Add(folder);
-        await dbContext.SaveChangesAsync(cancellationToken);
+        parentContainer.Advance(dbContext, currentTenant.TenantId);
+
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return Result<FileFolderResponse>.Failure("Folder hierarchy changed. Refresh and try again.");
+        }
+        catch (DbUpdateException)
+        {
+            return Result<FileFolderResponse>.Failure("Folder hierarchy changed. Refresh and try again.");
+        }
 
         return Result<FileFolderResponse>.Success(ToResponse(folder));
     }
@@ -131,9 +155,9 @@ public sealed class FileFolderService(
         FileMoveRequest request,
         CancellationToken cancellationToken = default)
     {
-        if (request.ExpectedVersion < 0)
+        if (request.ExpectedVersion < 0 || request.ExpectedDestinationVersion < 0)
         {
-            return Result<FileLocationResponse>.Failure("Invalid file location version.");
+            return Result<FileLocationResponse>.Failure("Invalid file move version.");
         }
 
         var authorized = await ResolveAuthorizedWorkspaceFileAsync(fileObjectId, requireContribution: true, cancellationToken);
@@ -143,12 +167,6 @@ public sealed class FileFolderService(
         }
 
         var workspaceId = authorized.Value.WorkspaceId;
-        if (request.DestinationFolderId.HasValue &&
-            !await DestinationFolderExistsAsync(workspaceId, request.DestinationFolderId.Value, cancellationToken))
-        {
-            return Result<FileLocationResponse>.Failure("Destination folder not found.");
-        }
-
         var placement = await dbContext.Set<FileFolderPlacement>()
             .SingleOrDefaultAsync(candidate =>
                 candidate.TenantId == currentTenant.TenantId &&
@@ -163,6 +181,16 @@ public sealed class FileFolderService(
             return Result<FileLocationResponse>.Failure("File location changed. Refresh and choose the destination again.");
         }
 
+        var destination = await ResolveContainerAsync(workspaceId, request.DestinationFolderId, cancellationToken);
+        if (destination is null)
+        {
+            return Result<FileLocationResponse>.Failure("Destination folder not found.");
+        }
+        if (destination.Version != request.ExpectedDestinationVersion)
+        {
+            return Result<FileLocationResponse>.Failure("Destination changed. Refresh and choose the destination again.");
+        }
+
         if (currentFolderId == request.DestinationFolderId)
         {
             return Result<FileLocationResponse>.Success(new FileLocationResponse(
@@ -172,37 +200,46 @@ public sealed class FileFolderService(
                 currentVersion));
         }
 
+        var sourceContainer = await ResolveContainerAsync(workspaceId, currentFolderId, cancellationToken);
+        if (sourceContainer is null)
+        {
+            return Result<FileLocationResponse>.Failure("File location changed. Refresh and choose the destination again.");
+        }
+
+        sourceContainer.Advance(dbContext, currentTenant.TenantId);
+        destination.Advance(dbContext, currentTenant.TenantId);
+
+        if (placement is null)
+        {
+            placement = new FileFolderPlacement
+            {
+                TenantId = currentTenant.TenantId,
+                WorkspaceId = workspaceId,
+                FileObjectId = fileObjectId,
+                FolderId = request.DestinationFolderId,
+                Version = 1,
+            };
+            dbContext.Set<FileFolderPlacement>().Add(placement);
+        }
+        else
+        {
+            placement.FolderId = request.DestinationFolderId;
+            placement.Version = checked(placement.Version + 1);
+        }
+
         try
         {
-            if (placement is null)
-            {
-                placement = new FileFolderPlacement
-                {
-                    TenantId = currentTenant.TenantId,
-                    WorkspaceId = workspaceId,
-                    FileObjectId = fileObjectId,
-                    FolderId = request.DestinationFolderId,
-                    Version = 1,
-                };
-                dbContext.Set<FileFolderPlacement>().Add(placement);
-            }
-            else
-            {
-                placement.FolderId = request.DestinationFolderId;
-                placement.Version += 1;
-            }
-
             await dbContext.SaveChangesAsync(cancellationToken);
         }
         catch (DbUpdateConcurrencyException)
         {
-            return Result<FileLocationResponse>.Failure("File location changed. Refresh and choose the destination again.");
+            return Result<FileLocationResponse>.Failure("File location or destination changed. Refresh and choose the destination again.");
         }
         catch (DbUpdateException)
         {
-            // The first move from logical version 0 races on the unique
-            // FileObject placement key. Fail closed rather than overwriting it.
-            return Result<FileLocationResponse>.Failure("File location changed. Refresh and choose the destination again.");
+            // Root-state and first-placement rows both use unique keys. A race
+            // on either one is a stale move and must never overwrite the winner.
+            return Result<FileLocationResponse>.Failure("File location or destination changed. Refresh and choose the destination again.");
         }
 
         return Result<FileLocationResponse>.Success(new FileLocationResponse(
@@ -217,7 +254,7 @@ public sealed class FileFolderService(
         FileFolderMoveRequest request,
         CancellationToken cancellationToken = default)
     {
-        if (folderId == Guid.Empty || request.ExpectedVersion < 1)
+        if (folderId == Guid.Empty || request.ExpectedVersion < 1 || request.ExpectedDestinationVersion < 0)
         {
             return Result<FileFolderResponse>.Failure("Folder not found.");
         }
@@ -239,35 +276,52 @@ public sealed class FileFolderService(
             return Result<FileFolderResponse>.Failure("Folder not found.");
         }
 
-        // Source is reauthorized above. Destination must resolve inside the
-        // exact same Tenant/Workspace, never through a storage path or key.
-        if (request.DestinationParentFolderId == folder.Id)
-        {
-            return Result<FileFolderResponse>.Failure("A folder cannot be moved into itself.");
-        }
-        if (request.DestinationParentFolderId.HasValue &&
-            !await DestinationFolderExistsAsync(folder.WorkspaceId, request.DestinationParentFolderId.Value, cancellationToken))
-        {
-            return Result<FileFolderResponse>.Failure("Destination folder not found.");
-        }
         if (folder.Version != request.ExpectedVersion)
         {
             return Result<FileFolderResponse>.Failure("Folder changed. Refresh and choose the destination again.");
         }
-        if (folder.ParentFolderId == request.DestinationParentFolderId)
+        if (request.DestinationParentFolderId == folder.Id)
         {
-            return Result<FileFolderResponse>.Success(ToResponse(folder));
+            return Result<FileFolderResponse>.Failure("A folder cannot be moved into itself.");
         }
-
         if (request.DestinationParentFolderId.HasValue &&
             await WouldCreateCycleAsync(folder, request.DestinationParentFolderId.Value, cancellationToken))
         {
             return Result<FileFolderResponse>.Failure("A folder cannot be moved into one of its descendants.");
         }
 
+        // Source and destination are resolved from authoritative Folder/root
+        // metadata inside the same Tenant/Workspace. Storage paths never take
+        // part in Move authorization or concurrency.
+        var destination = await ResolveContainerAsync(
+            folder.WorkspaceId,
+            request.DestinationParentFolderId,
+            cancellationToken);
+        if (destination is null)
+        {
+            return Result<FileFolderResponse>.Failure("Destination folder not found.");
+        }
+        if (destination.Version != request.ExpectedDestinationVersion)
+        {
+            return Result<FileFolderResponse>.Failure("Destination changed. Refresh and choose the destination again.");
+        }
+
+        if (folder.ParentFolderId == request.DestinationParentFolderId)
+        {
+            return Result<FileFolderResponse>.Success(ToResponse(folder));
+        }
+
+        var sourceContainer = await ResolveContainerAsync(folder.WorkspaceId, folder.ParentFolderId, cancellationToken);
+        if (sourceContainer is null)
+        {
+            return Result<FileFolderResponse>.Failure("Folder hierarchy changed. Refresh and choose the destination again.");
+        }
+
+        sourceContainer.Advance(dbContext, currentTenant.TenantId);
+        destination.Advance(dbContext, currentTenant.TenantId);
         folder.ParentFolderId = request.DestinationParentFolderId;
         folder.SortOrder = await NextSortOrderAsync(folder.WorkspaceId, request.DestinationParentFolderId, cancellationToken);
-        folder.Version += 1;
+        folder.Version = checked(folder.Version + 1);
 
         try
         {
@@ -275,7 +329,11 @@ public sealed class FileFolderService(
         }
         catch (DbUpdateConcurrencyException)
         {
-            return Result<FileFolderResponse>.Failure("Folder changed. Refresh and choose the destination again.");
+            return Result<FileFolderResponse>.Failure("Folder or destination changed. Refresh and choose the destination again.");
+        }
+        catch (DbUpdateException)
+        {
+            return Result<FileFolderResponse>.Failure("Folder or destination changed. Refresh and choose the destination again.");
         }
 
         return Result<FileFolderResponse>.Success(ToResponse(folder));
@@ -324,16 +382,28 @@ public sealed class FileFolderService(
         return (attachment.WorkspaceId, attachment);
     }
 
-    private async Task<bool> DestinationFolderExistsAsync(
+    private async Task<ContainerState?> ResolveContainerAsync(
         Guid workspaceId,
-        Guid folderId,
-        CancellationToken cancellationToken) =>
-        await dbContext.Set<FileFolder>().AnyAsync(folder =>
-            folder.Id == folderId &&
-            folder.TenantId == currentTenant.TenantId &&
-            folder.WorkspaceId == workspaceId &&
-            folder.DeletedAt == null,
+        Guid? folderId,
+        CancellationToken cancellationToken)
+    {
+        if (folderId.HasValue)
+        {
+            var folder = await dbContext.Set<FileFolder>().SingleOrDefaultAsync(candidate =>
+                candidate.Id == folderId.Value &&
+                candidate.TenantId == currentTenant.TenantId &&
+                candidate.WorkspaceId == workspaceId &&
+                candidate.DeletedAt == null,
+                cancellationToken);
+            return folder is null ? null : new ContainerState(workspaceId, folder, root: null);
+        }
+
+        var root = await dbContext.Set<FileFolderRootState>().SingleOrDefaultAsync(candidate =>
+            candidate.TenantId == currentTenant.TenantId &&
+            candidate.WorkspaceId == workspaceId,
             cancellationToken);
+        return new ContainerState(workspaceId, folder: null, root);
+    }
 
     private async Task<int> NextSortOrderAsync(
         Guid workspaceId,
@@ -348,7 +418,7 @@ public sealed class FileFolderService(
                 folder.DeletedAt == null)
             .Select(folder => (int?)folder.SortOrder)
             .MaxAsync(cancellationToken);
-        return (max ?? -1) + 1;
+        return checked((max ?? -1) + 1);
     }
 
     private async Task<bool> WouldCreateCycleAsync(
@@ -398,4 +468,34 @@ public sealed class FileFolderService(
         folder.Name,
         folder.SortOrder,
         folder.Version);
+
+    private sealed class ContainerState(Guid workspaceId, FileFolder? folder, FileFolderRootState? root)
+    {
+        public long Version => folder?.Version ?? Root?.Version ?? 0;
+
+        private FileFolderRootState? Root { get; set; } = root;
+
+        public void Advance(AppDbContext context, Guid tenantId)
+        {
+            if (folder is not null)
+            {
+                folder.Version = checked(folder.Version + 1);
+                return;
+            }
+
+            if (Root is not null)
+            {
+                Root.Version = checked(Root.Version + 1);
+                return;
+            }
+
+            Root = new FileFolderRootState
+            {
+                TenantId = tenantId,
+                WorkspaceId = workspaceId,
+                Version = 1,
+            };
+            context.Set<FileFolderRootState>().Add(Root);
+        }
+    }
 }
