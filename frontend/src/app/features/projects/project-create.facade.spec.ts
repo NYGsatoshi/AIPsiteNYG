@@ -350,38 +350,34 @@ describe('ProjectCreateFacade', () => {
     expect(router.navigate).toHaveBeenCalledTimes(2);
   });
 
-  it('reuses the same key when authorization invalidation precedes the committed HTTP response', async () => {
+  it('keeps a dispatched create alive when authorization invalidation precedes the strict 201', async () => {
     await loadOptions();
 
-    const first = facade.createProject(workspaceId, input);
-    const firstPost = http.expectOne(`/api/workspaces/${workspaceId}/projects`);
-    const firstKey = firstPost.request.headers.get('Idempotency-Key');
+    const create = facade.createProject(workspaceId, input);
+    const post = http.expectOne(`/api/workspaces/${workspaceId}/projects`);
 
-    // The command may already be committed server-side even though its 201 is
-    // still in flight. Authorization invalidation must cancel this response
-    // without converting an unchanged retry into a new create identity.
+    // An own-command authorization refresh can arrive after browser dispatch
+    // but before the strict 201. Aborting here cannot undo a server commit, so
+    // this exact invocation stays alive while protected options are cleared.
     protectedClearer?.('authorization');
-    await expect(first).resolves.toBe(false);
-    expect(firstPost.cancelled).toBe(true);
-    expect(facade.options().status).toBe('error');
-    expect(facade.createState().message).toContain('may have been created');
-    expect(router.navigate).not.toHaveBeenCalled();
+    expect(post.cancelled).toBe(false);
+    expect(facade.options()).toMatchObject({ status: 'error', workspaceId });
+    expect(facade.createState().status).toBe('submitting');
 
-    const optionsReload = facade.loadOptions(workspaceId);
-    http.expectOne(`/api/workspaces/${workspaceId}/projects/create-options`).flush(optionsEnvelope);
-    await expect(optionsReload).resolves.toBe(true);
+    post.flush(successEnvelope, { status: 201, statusText: 'Created' });
+    await Promise.resolve();
+    http.expectOne(`/api/projects/${projectId}`).flush(projectConfirmation);
+    await expect(create).resolves.toBe(true);
+    expect(router.navigate).toHaveBeenCalledWith(['/projects', projectId]);
+    expect(facade.createState()).toMatchObject({
+      status: 'succeeded',
+      createdProjectId: projectId,
+      requestId: 'request-create',
+    });
     http.expectNone(
       (request) =>
         request.url === `/api/workspaces/${workspaceId}/projects` && request.method === 'POST',
     );
-
-    const retry = facade.createProject(workspaceId, { ...input, title: ` ${input.title} ` });
-    const retryPost = http.expectOne(`/api/workspaces/${workspaceId}/projects`);
-    expect(retryPost.request.headers.get('Idempotency-Key')).toBe(firstKey);
-    retryPost.flush(successEnvelope, { status: 201, statusText: 'Created' });
-    await Promise.resolve();
-    http.expectOne(`/api/projects/${projectId}`).flush(projectConfirmation);
-    await expect(retry).resolves.toBe(true);
   });
 
   it('requires options reauthorization when the registered authorization clearer stops create during a delayed CSRF preflight', async () => {
@@ -462,9 +458,8 @@ describe('ProjectCreateFacade', () => {
     const first = facade.createProject(workspaceId, input);
     const firstPost = http.expectOne(`/api/workspaces/${workspaceId}/projects`);
     const firstKey = firstPost.request.headers.get('Idempotency-Key');
-    protectedClearer?.('authorization');
+    firstPost.flush(null, { status: 503, statusText: 'Service Unavailable' });
     await expect(first).resolves.toBe(false);
-    expect(firstPost.cancelled).toBe(true);
     expect(facade.createState().message).toContain('may have been created');
 
     const firstOptionsReload = facade.loadOptions(workspaceId);
@@ -485,6 +480,9 @@ describe('ProjectCreateFacade', () => {
       }),
     );
 
+    // The key is historically uncertain, but this retry has not dispatched.
+    // Authorization invalidation must therefore cancel this invocation without
+    // downgrading the key's server-commit uncertainty.
     const stoppedRetry = facade.createProject(workspaceId, input);
     protectedClearer?.('authorization');
     await expect(stoppedRetry).resolves.toBe(false);
