@@ -106,6 +106,43 @@ public sealed class TaskExecutionControllerTests
     }
 
     [Fact]
+    [Trait("Scope", "Issue361")]
+    public async Task ProjectScopeFailsClosedWhenProjectFileRuleAuthorizationCannotBeRevalidated()
+    {
+        var fileId = Guid.NewGuid();
+        var policy = new TaskExecutionSourcePolicyV2(
+            TaskExecutionSourcePolicyV2.CurrentSchemaVersion,
+            TaskExecutionSourceState.Exclude,
+            TaskExecutionSourceState.Exclude,
+            TaskExecutionSourceState.Exclude,
+            TaskExecutionSourceState.Exclude,
+            [new TaskExecutionSourceRule(
+                TaskExecutionSourceKind.ProjectFile,
+                TaskExecutionSourcePolicyV2.ProjectFileSourceId(fileId),
+                TaskExecutionSourceState.Allow)]);
+        var service = new StubTaskExecutionScopeService
+        {
+            ProjectResult = Result<ProjectExecutionScopeResponse>.Success(new ProjectExecutionScopeResponse(
+                new TaskExecutionSourcePolicyResponse(
+                    WebEnabled: false,
+                    ProjectFilesEnabled: true,
+                    PolicyV2: policy),
+                Version: 3,
+                CanManage: true))
+        };
+        var controller = Controller(service);
+
+        var action = await controller.GetProjectScope(Guid.NewGuid(), CancellationToken.None);
+
+        var ok = Assert.IsType<OkObjectResult>(action);
+        var body = Assert.IsType<ProjectExecutionScopeResponse>(ok.Value);
+        Assert.False(body.CanManage);
+        Assert.NotNull(body.Policy.PolicyV2);
+        Assert.Empty(body.Policy.PolicyV2!.Items);
+        Assert.False(body.Policy.ProjectFilesEnabled);
+    }
+
+    [Fact]
     [Trait("Scope", "Issue357")]
     public async Task TaskOverrideConflictMapsToConflictAndTheEndpointRequiresAuthentication()
     {

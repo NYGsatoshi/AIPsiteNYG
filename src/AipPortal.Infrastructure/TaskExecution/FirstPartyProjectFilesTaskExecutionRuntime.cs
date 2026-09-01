@@ -11,9 +11,9 @@ using Microsoft.EntityFrameworkCore.Storage;
 namespace AipPortal.Infrastructure.TaskExecution;
 
 /// <summary>
-/// Post-commit, server-owned FirstPartyProjectFilesRuntimeV1 worker. It derives
-/// every source from the durable run and current database state; the opaque
-/// runtime handle is never source authority.
+/// Post-commit, server-owned FirstPartyProjectFilesRuntimeV1 worker. Source
+/// Policy V2 is enforced before materialization: Exclude never reaches storage
+/// and Prioritize participates in the bounded candidate ordering.
 /// </summary>
 public sealed class FirstPartyProjectFilesTaskExecutionRuntime(
     AppDbContext dbContext,
@@ -22,21 +22,19 @@ public sealed class FirstPartyProjectFilesTaskExecutionRuntime(
     IFileAuthorizationService fileAuthorization,
     IFileStorageService storage,
     IClock clock,
-    IAuditLogger audit) : ITaskExecutionRuntime
+    IAuditLogger audit,
+    ITaskExecutionScopeRepository? executionScopes = null) : ITaskExecutionRuntime
 {
     private const string GenericFailureCode = "TASK_EXECUTION_MATERIALIZATION_FAILED";
     private const string MissingSourceFailureCode = "TASK_EXECUTION_NO_AUTHORIZED_TEXT_SOURCES";
     private const string IntegrityFailureCode = "TASK_EXECUTION_SOURCE_INTEGRITY_FAILED";
     private const string IncompleteFailureCode = "TASK_EXECUTION_MATERIALIZATION_INCOMPLETE";
+    private const string PolicySnapshotFailureCode = "TASK_EXECUTION_POLICY_SNAPSHOT_INVALID";
+    private const string UnsupportedSourceFailureCode = "TASK_EXECUTION_SOURCE_KIND_UNSUPPORTED";
 
-    public async Task ExecuteAsync(
-        TaskExecutionRuntimeHandle handle,
-        CancellationToken cancellationToken = default)
+    public async Task ExecuteAsync(TaskExecutionRuntimeHandle handle, CancellationToken cancellationToken = default)
     {
-        if (!IsCurrentTenant(handle) || handle.RunId == Guid.Empty)
-        {
-            return;
-        }
+        if (!IsCurrentTenant(handle) || handle.RunId == Guid.Empty) return;
 
         try
         {
@@ -52,9 +50,7 @@ public sealed class FirstPartyProjectFilesTaskExecutionRuntime(
         }
     }
 
-    private async Task ExecuteCoreAsync(
-        TaskExecutionRuntimeHandle handle,
-        CancellationToken cancellationToken)
+    private async Task ExecuteCoreAsync(TaskExecutionRuntimeHandle handle, CancellationToken cancellationToken)
     {
         await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
         var run = await LockRunAsync(handle.RunId, cancellationToken);
@@ -73,11 +69,7 @@ public sealed class FirstPartyProjectFilesTaskExecutionRuntime(
         var hasMaterialization = await HasMaterializationAsync(run.Id, cancellationToken);
         if (run.Status == TaskExecutionRunStatus.Running)
         {
-            if (!hasMaterialization)
-            {
-                await FailRunAsync(run, IncompleteFailureCode, cancellationToken);
-            }
-
+            if (!hasMaterialization) await FailRunAsync(run, IncompleteFailureCode, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return;
         }
@@ -103,9 +95,24 @@ public sealed class FirstPartyProjectFilesTaskExecutionRuntime(
         await AuditLifecycleAsync(run, "TaskExecutionRunStarted", cancellationToken);
         await dbContext.SaveChangesAsync(cancellationToken);
 
+        var policy = await ResolveRunPolicyAsync(run, cancellationToken);
+        if (policy is null)
+        {
+            await FailRunAsync(run, PolicySnapshotFailureCode, cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return;
+        }
+
+        if (policy.HasUnsupportedExecutableSources)
+        {
+            await FailRunAsync(run, UnsupportedSourceFailureCode, cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return;
+        }
+
         var eligibility = FirstPartyProjectFilesRuntimeV1.EvaluateScope(
-            run.SnapshotWebEnabled,
-            run.SnapshotProjectFilesEnabled);
+            policy.WebEnabled,
+            policy.ProjectFilesEnabled);
         if (!eligibility.IsEligible)
         {
             await FailRunAsync(run, eligibility.FailureCode ?? GenericFailureCode, cancellationToken);
@@ -120,7 +127,7 @@ public sealed class FirstPartyProjectFilesTaskExecutionRuntime(
             return;
         }
 
-        var outcome = await MaterializeAsync(run, cancellationToken);
+        var outcome = await MaterializeAsync(run, policy, cancellationToken);
         if (outcome.FailureCode is not null)
         {
             await FailRunAsync(run, outcome.FailureCode, cancellationToken);
@@ -135,10 +142,6 @@ public sealed class FirstPartyProjectFilesTaskExecutionRuntime(
             return;
         }
 
-        // Consume the bounded server materialization inside the selected
-        // runtime. #463 persists the normal report produced from this batch;
-        // this boundary persists metadata-only provenance and leaves the run
-        // Running until that durable result transaction completes.
         ValidateRuntimeBatch(outcome.Batch);
         await PersistProvenanceAsync(outcome.Provenance, cancellationToken);
         await audit.LogAsync(new AuditLogEntry(
@@ -152,6 +155,7 @@ public sealed class FirstPartyProjectFilesTaskExecutionRuntime(
             Metadata: new Dictionary<string, object?>
             {
                 ["materializationSchemaVersion"] = FirstPartyProjectFilesMaterializationV1.SchemaVersion,
+                ["sourcePolicySchemaVersion"] = policy.SchemaVersion,
                 ["runtimeProvider"] = run.RuntimeProvider.ToString(),
                 ["runtimeContractVersion"] = run.RuntimeContractVersion
             }), cancellationToken);
@@ -159,11 +163,69 @@ public sealed class FirstPartyProjectFilesTaskExecutionRuntime(
         await transaction.CommitAsync(cancellationToken);
     }
 
-    private async Task<MaterializationOutcome> MaterializeAsync(
+    private async Task<TaskExecutionSourcePolicyV2?> ResolveRunPolicyAsync(
         TaskExecutionRun run,
         CancellationToken cancellationToken)
     {
-        var candidates = await dbContext.Set<Attachment>()
+        if (run.SnapshotSchemaVersion < TaskExecutionRun.SnapshotSchemaVersion3)
+        {
+            return TaskExecutionSourcePolicyV2.FromLegacy(run.SnapshotWebEnabled, run.SnapshotProjectFilesEnabled);
+        }
+
+        if (executionScopes is null)
+        {
+            return null;
+        }
+
+        var document = await executionScopes.GetSourcePolicyDocumentAsync(
+            TaskExecutionSourcePolicyOwnerType.Run,
+            run.Id,
+            cancellationToken);
+        if (document is null ||
+            document.OwnerType != TaskExecutionSourcePolicyOwnerType.Run ||
+            document.TenantId != run.TenantId ||
+            document.WorkspaceId != run.WorkspaceId ||
+            document.ProjectId != run.ProjectId ||
+            document.TaskItemId != run.TaskItemId ||
+            document.ProjectScopeVersion != run.SnapshotProjectScopeVersion ||
+            document.TaskOverrideVersion != run.SnapshotTaskOverrideVersion)
+        {
+            return null;
+        }
+
+        return document.Policy;
+    }
+
+    private async Task<MaterializationOutcome> MaterializeAsync(
+        TaskExecutionRun run,
+        TaskExecutionSourcePolicyV2 policy,
+        CancellationToken cancellationToken)
+    {
+        var projectFileRules = policy.Items
+            .Where(rule => rule.Kind == TaskExecutionSourceKind.ProjectFile)
+            .ToList();
+        var excludedIds = projectFileRules
+            .Where(rule => rule.State == TaskExecutionSourceState.Exclude)
+            .Select(rule => ParseProjectFileId(rule.SourceId))
+            .Where(id => id != Guid.Empty)
+            .ToArray();
+        var explicitlyAllowedIds = projectFileRules
+            .Where(rule => rule.State != TaskExecutionSourceState.Exclude)
+            .Select(rule => ParseProjectFileId(rule.SourceId))
+            .Where(id => id != Guid.Empty)
+            .ToArray();
+        var prioritizedIds = projectFileRules
+            .Where(rule => rule.State == TaskExecutionSourceState.Prioritize)
+            .Select(rule => ParseProjectFileId(rule.SourceId))
+            .Where(id => id != Guid.Empty)
+            .ToArray();
+        var explicitAllowIds = projectFileRules
+            .Where(rule => rule.State == TaskExecutionSourceState.Allow)
+            .Select(rule => ParseProjectFileId(rule.SourceId))
+            .Where(id => id != Guid.Empty)
+            .ToArray();
+
+        var candidatesQuery = dbContext.Set<Attachment>()
             .AsNoTracking()
             .Include(attachment => attachment.FileObject)
             .Where(attachment =>
@@ -178,8 +240,27 @@ public sealed class FirstPartyProjectFilesTaskExecutionRuntime(
                 attachment.FileObject.WorkspaceId == run.WorkspaceId &&
                 attachment.FileObject.ProjectId == run.ProjectId &&
                 !attachment.FileObject.DeletedAt.HasValue &&
-                attachment.FileObject.Status == FileObjectStatus.Active)
-            .OrderBy(attachment => attachment.CreatedAt)
+                attachment.FileObject.Status == FileObjectStatus.Active);
+
+        // Item rules override the ProjectFile kind default. Filtering happens
+        // before Take and, critically, before any storage.OpenReadAsync call.
+        if (policy.ProjectFile == TaskExecutionSourceState.Exclude)
+        {
+            candidatesQuery = candidatesQuery.Where(attachment => explicitlyAllowedIds.Contains(attachment.FileObjectId));
+        }
+        else if (excludedIds.Length > 0)
+        {
+            candidatesQuery = candidatesQuery.Where(attachment => !excludedIds.Contains(attachment.FileObjectId));
+        }
+
+        var defaultPrioritized = policy.ProjectFile == TaskExecutionSourceState.Prioritize;
+        var candidates = await candidatesQuery
+            .OrderBy(attachment => prioritizedIds.Contains(attachment.FileObjectId)
+                ? 0
+                : explicitAllowIds.Contains(attachment.FileObjectId)
+                    ? 1
+                    : defaultPrioritized ? 0 : 1)
+            .ThenBy(attachment => attachment.CreatedAt)
             .ThenBy(attachment => attachment.Id)
             .Take(FirstPartyProjectFilesMaterializationV1.MaxSourceCount)
             .ToListAsync(cancellationToken);
@@ -190,28 +271,13 @@ public sealed class FirstPartyProjectFilesTaskExecutionRuntime(
 
         foreach (var candidate in candidates)
         {
-            if (remainingBytes <= 0 || candidate.FileObject is not { } fileObject)
-            {
-                break;
-            }
+            if (remainingBytes <= 0 || candidate.FileObject is not { } fileObject) break;
 
-            var mediaType = FirstPartyProjectFilesMaterializationV1
-                .NormalizeSupportedMediaType(fileObject.ContentType);
-            var maximumForSource = Math.Min(
-                FirstPartyProjectFilesMaterializationV1.MaxSourceBytes,
-                remainingBytes);
-            if (mediaType is null || fileObject.SizeBytes < 0 || fileObject.SizeBytes > maximumForSource)
-            {
-                continue;
-            }
+            var mediaType = FirstPartyProjectFilesMaterializationV1.NormalizeSupportedMediaType(fileObject.ContentType);
+            var maximumForSource = Math.Min(FirstPartyProjectFilesMaterializationV1.MaxSourceBytes, remainingBytes);
+            if (mediaType is null || fileObject.SizeBytes < 0 || fileObject.SizeBytes > maximumForSource) continue;
 
-            if (!await fileAuthorization.CanViewAttachment(
-                    run.RequestedByUserId,
-                    candidate,
-                    cancellationToken))
-            {
-                continue;
-            }
+            if (!await fileAuthorization.CanViewAttachment(run.RequestedByUserId, candidate, cancellationToken)) continue;
 
             TaskExecutionMaterializedText? materialized;
             try
@@ -236,26 +302,17 @@ public sealed class FirstPartyProjectFilesTaskExecutionRuntime(
                 continue;
             }
 
-            if (materialized is null)
-            {
-                continue;
-            }
+            if (materialized is null) continue;
 
             if (!string.IsNullOrWhiteSpace(fileObject.HashSha256) &&
-                !string.Equals(
-                    fileObject.HashSha256.Trim(),
-                    materialized.ContentSha256,
-                    StringComparison.OrdinalIgnoreCase))
+                !string.Equals(fileObject.HashSha256.Trim(), materialized.ContentSha256, StringComparison.OrdinalIgnoreCase))
             {
                 return MaterializationOutcome.Failed(IntegrityFailureCode);
             }
 
             var current = await CurrentCandidateAsync(candidate.Id, run, cancellationToken);
             if (current?.FileObject is not { } currentFile ||
-                !await fileAuthorization.CanViewAttachment(
-                    run.RequestedByUserId,
-                    current,
-                    cancellationToken) ||
+                !await fileAuthorization.CanViewAttachment(run.RequestedByUserId, current, cancellationToken) ||
                 current.FileObjectId != fileObject.Id ||
                 !string.Equals(currentFile.StorageKey, fileObject.StorageKey, StringComparison.Ordinal) ||
                 currentFile.SizeBytes != fileObject.SizeBytes ||
@@ -293,16 +350,13 @@ public sealed class FirstPartyProjectFilesTaskExecutionRuntime(
             remainingBytes -= checked((int)materialized.ByteCount);
         }
 
-        return MaterializationOutcome.Succeeded(new TaskExecutionMaterializationBatch(
-            run.Id,
-            run.TenantId,
-            content), provenance);
+        return MaterializationOutcome.Succeeded(new TaskExecutionMaterializationBatch(run.Id, run.TenantId, content), provenance);
     }
 
-    private Task<Attachment?> CurrentCandidateAsync(
-        Guid attachmentId,
-        TaskExecutionRun run,
-        CancellationToken cancellationToken) =>
+    private static Guid ParseProjectFileId(string sourceId) =>
+        TaskExecutionSourcePolicyV2.TryParseProjectFileSourceId(sourceId, out var id) ? id : Guid.Empty;
+
+    private Task<Attachment?> CurrentCandidateAsync(Guid attachmentId, TaskExecutionRun run, CancellationToken cancellationToken) =>
         dbContext.Set<Attachment>()
             .AsNoTracking()
             .Include(attachment => attachment.FileObject)
@@ -322,9 +376,7 @@ public sealed class FirstPartyProjectFilesTaskExecutionRuntime(
                 attachment.FileObject.Status == FileObjectStatus.Active,
                 cancellationToken);
 
-    private async Task<bool> IsCurrentRunScopeAuthorizedAsync(
-        TaskExecutionRun run,
-        CancellationToken cancellationToken)
+    private async Task<bool> IsCurrentRunScopeAuthorizedAsync(TaskExecutionRun run, CancellationToken cancellationToken)
     {
         var projectExists = await dbContext.Set<Project>()
             .AsNoTracking()
@@ -334,10 +386,7 @@ public sealed class FirstPartyProjectFilesTaskExecutionRuntime(
                 project.WorkspaceId == run.WorkspaceId &&
                 !project.DeletedAt.HasValue,
                 cancellationToken);
-        if (!projectExists)
-        {
-            return false;
-        }
+        if (!projectExists) return false;
 
         var taskExists = await dbContext.Set<TaskItem>()
             .AsNoTracking()
@@ -349,15 +398,10 @@ public sealed class FirstPartyProjectFilesTaskExecutionRuntime(
                 !task.DeletedAt.HasValue,
                 cancellationToken);
 
-        return taskExists && await projectAuthorization.CanViewProject(
-            run.RequestedByUserId,
-            run.ProjectId,
-            cancellationToken);
+        return taskExists && await projectAuthorization.CanViewProject(run.RequestedByUserId, run.ProjectId, cancellationToken);
     }
 
-    private async Task<TaskExecutionRun?> LockRunAsync(
-        Guid runId,
-        CancellationToken cancellationToken)
+    private async Task<TaskExecutionRun?> LockRunAsync(Guid runId, CancellationToken cancellationToken)
     {
         if (dbContext.Database.ProviderName?.Contains("Npgsql", StringComparison.OrdinalIgnoreCase) == true)
         {
@@ -366,27 +410,19 @@ public sealed class FirstPartyProjectFilesTaskExecutionRuntime(
                 cancellationToken);
         }
 
-        return await dbContext.Set<TaskExecutionRun>()
-            .SingleOrDefaultAsync(run => run.Id == runId, cancellationToken);
+        return await dbContext.Set<TaskExecutionRun>().SingleOrDefaultAsync(run => run.Id == runId, cancellationToken);
     }
 
-    private async Task<bool> HasMaterializationAsync(
-        Guid runId,
-        CancellationToken cancellationToken)
+    private async Task<bool> HasMaterializationAsync(Guid runId, CancellationToken cancellationToken)
     {
         var connection = dbContext.Database.GetDbConnection();
-        if (connection.State != ConnectionState.Open)
-        {
-            await connection.OpenAsync(cancellationToken);
-        }
+        if (connection.State != ConnectionState.Open) await connection.OpenAsync(cancellationToken);
 
         await using var command = connection.CreateCommand();
         command.Transaction = dbContext.Database.CurrentTransaction?.GetDbTransaction();
         command.CommandText = """
             SELECT EXISTS (
-                SELECT 1
-                FROM task_execution_materialized_sources
-                WHERE "TaskExecutionRunId" = @runId
+                SELECT 1 FROM task_execution_materialized_sources WHERE "TaskExecutionRunId" = @runId
             );
             """;
         var parameter = command.CreateParameter();
@@ -405,45 +441,20 @@ public sealed class FirstPartyProjectFilesTaskExecutionRuntime(
         {
             await dbContext.Database.ExecuteSqlInterpolatedAsync($"""
                 INSERT INTO task_execution_materialized_sources (
-                    "Id",
-                    "TenantId",
-                    "WorkspaceId",
-                    "ProjectId",
-                    "TaskItemId",
-                    "TaskExecutionRunId",
-                    "FileObjectId",
-                    "AttachmentId",
-                    "SchemaVersion",
-                    "ContentSha256",
-                    "MediaType",
-                    "MaterializedByteCount",
-                    "MaterializedAtUtc")
+                    "Id", "TenantId", "WorkspaceId", "ProjectId", "TaskItemId", "TaskExecutionRunId",
+                    "FileObjectId", "AttachmentId", "SchemaVersion", "ContentSha256", "MediaType",
+                    "MaterializedByteCount", "MaterializedAtUtc")
                 VALUES (
-                    {source.Id},
-                    {source.TenantId},
-                    {source.WorkspaceId},
-                    {source.ProjectId},
-                    {source.TaskItemId},
-                    {source.TaskExecutionRunId},
-                    {source.FileObjectId},
-                    {source.AttachmentId},
-                    {source.SchemaVersion},
-                    {source.ContentSha256},
-                    {source.MediaType},
-                    {source.MaterializedByteCount},
-                    {source.MaterializedAtUtc});
+                    {source.Id}, {source.TenantId}, {source.WorkspaceId}, {source.ProjectId}, {source.TaskItemId},
+                    {source.TaskExecutionRunId}, {source.FileObjectId}, {source.AttachmentId}, {source.SchemaVersion},
+                    {source.ContentSha256}, {source.MediaType}, {source.MaterializedByteCount}, {source.MaterializedAtUtc});
                 """, cancellationToken);
         }
     }
 
-    private async Task FailAfterUnexpectedErrorAsync(
-        TaskExecutionRuntimeHandle handle,
-        CancellationToken cancellationToken)
+    private async Task FailAfterUnexpectedErrorAsync(TaskExecutionRuntimeHandle handle, CancellationToken cancellationToken)
     {
-        if (!IsCurrentTenant(handle))
-        {
-            return;
-        }
+        if (!IsCurrentTenant(handle)) return;
 
         try
         {
@@ -475,43 +486,29 @@ public sealed class FirstPartyProjectFilesTaskExecutionRuntime(
             }
 
             if (run.Status == TaskExecutionRunStatus.Running)
-            {
                 await FailRunAsync(run, GenericFailureCode, cancellationToken);
-            }
 
             await transaction.CommitAsync(cancellationToken);
         }
         catch
         {
-            // The accepted run remains durable. Do not surface a provider,
-            // source, storage, or database diagnostic through the HTTP call.
+            // Accepted state remains durable; provider/source diagnostics are never surfaced through HTTP.
         }
     }
 
-    private async Task FailRunAsync(
-        TaskExecutionRun run,
-        string failureCode,
-        CancellationToken cancellationToken)
+    private async Task FailRunAsync(TaskExecutionRun run, string failureCode, CancellationToken cancellationToken)
     {
-        if (run.Status != TaskExecutionRunStatus.Running)
-        {
-            return;
-        }
+        if (run.Status != TaskExecutionRunStatus.Running) return;
 
         run.Status = TaskExecutionRunStatus.Failed;
-        run.FailureCode = failureCode.Length <= 100
-            ? failureCode
-            : GenericFailureCode;
+        run.FailureCode = failureCode.Length <= 100 ? failureCode : GenericFailureCode;
         run.FinishedAtUtc = clock.UtcNow;
         run.VersionNo++;
         await AuditLifecycleAsync(run, "TaskExecutionRunFailed", cancellationToken);
         await dbContext.SaveChangesAsync(cancellationToken);
     }
 
-    private Task AuditLifecycleAsync(
-        TaskExecutionRun run,
-        string action,
-        CancellationToken cancellationToken) =>
+    private Task AuditLifecycleAsync(TaskExecutionRun run, string action, CancellationToken cancellationToken) =>
         audit.LogAsync(new AuditLogEntry(
             run.RequestedByUserId,
             action,
@@ -528,14 +525,10 @@ public sealed class FirstPartyProjectFilesTaskExecutionRuntime(
             }), cancellationToken);
 
     private bool IsCurrentTenant(TaskExecutionRuntimeHandle handle) =>
-        currentTenant.IsAvailable &&
-        !currentTenant.IsPlatformScope &&
-        currentTenant.TenantId != Guid.Empty &&
+        currentTenant.IsAvailable && !currentTenant.IsPlatformScope && currentTenant.TenantId != Guid.Empty &&
         currentTenant.TenantId == handle.TenantId;
 
-    private static bool MatchesHandle(
-        TaskExecutionRun? run,
-        TaskExecutionRuntimeHandle handle) =>
+    private static bool MatchesHandle(TaskExecutionRun? run, TaskExecutionRuntimeHandle handle) =>
         run is not null &&
         run.Id == handle.RunId &&
         run.TenantId == handle.TenantId &&
@@ -564,8 +557,7 @@ public sealed class FirstPartyProjectFilesTaskExecutionRuntime(
     {
         public static MaterializationOutcome Succeeded(
             TaskExecutionMaterializationBatch batch,
-            IReadOnlyList<TaskExecutionMaterializedSource> provenance) =>
-            new(batch, provenance, null);
+            IReadOnlyList<TaskExecutionMaterializedSource> provenance) => new(batch, provenance, null);
 
         public static MaterializationOutcome Failed(string failureCode) =>
             new(null, Array.Empty<TaskExecutionMaterializedSource>(), failureCode);
