@@ -3,9 +3,10 @@ import { expectNoAccessibilityViolations } from './a11y';
 
 const versionId = '11111111-1111-4111-8111-111111111111';
 const eventId = '22222222-2222-4222-8222-222222222222';
+const sourceId = 'src_0123456789abcdef01234567';
 
 test.describe('Audit Claims & Evidence workspace', () => {
-  test('drills actionable counts into visible filters without horizontal overflow at 320px', async ({ page }) => {
+  test('audits source provenance on demand without horizontal overflow at 320px', async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 800 });
     await page.route('**/api/admin/audit/claims-evidence**', async (route) => {
       await route.fulfill({
@@ -33,7 +34,16 @@ test.describe('Audit Claims & Evidence workspace', () => {
                   sourceTitle: 'Authorized source',
                   passage: 'This bounded passage is visible next to the selected claim and contradicts it.',
                   location: 'Section 2, paragraph 3',
-                  sourceEventAuditId: eventId
+                  sourceEventAuditId: eventId,
+                  sourceId,
+                  sourcePublisher: 'Example Publisher',
+                  sourceType: 'Research report',
+                  sourceClassification: 'Primary',
+                  publishedAt: '2026-08-01T00:00:00Z',
+                  retrievedAt: '2026-08-10T12:00:00Z',
+                  contentHash: 'sha256:abc123',
+                  sourceVersion: 'v4',
+                  verificationStatus: 'Verified'
                 }
               ]
             },
@@ -53,7 +63,27 @@ test.describe('Audit Claims & Evidence workspace', () => {
               citationPresent: true,
               supportStatus: 'Unverified',
               reviewStatus: 'Unreviewed',
-              evidence: []
+              evidence: [
+                {
+                  evidenceId: '99999999-9999-4999-8999-999999999999',
+                  ordinal: 1,
+                  sourceKind: 'WebSnapshot',
+                  sourceReference: 'https://example.invalid/research/source/with/a/long/reference',
+                  sourceTitle: 'Authorized source',
+                  passage: 'The same authorized source is cited at another location.',
+                  location: 'Section 5, paragraph 1',
+                  sourceEventAuditId: null,
+                  sourceId,
+                  sourcePublisher: 'Example Publisher',
+                  sourceType: 'Research report',
+                  sourceClassification: 'Primary',
+                  publishedAt: '2026-08-01T00:00:00Z',
+                  retrievedAt: '2026-08-10T12:00:00Z',
+                  contentHash: 'sha256:abc123',
+                  sourceVersion: 'v4',
+                  verificationStatus: 'Verified'
+                }
+              ]
             }
           ]
         })
@@ -110,6 +140,27 @@ test.describe('Audit Claims & Evidence workspace', () => {
     await expect(page.getByTestId('audit-claim-comparison')).toContainText(
       'This bounded passage is visible next to the selected claim and contradicts it.'
     );
+
+    const provenance = page.getByTestId('audit-source-provenance');
+    await expect(provenance).toContainText(sourceId);
+    await expect(provenance).toContainText('Example Publisher');
+    await expect(provenance).toContainText('Research report');
+    await expect(provenance).toContainText('Primary source');
+    await expect(provenance).toContainText('Verified');
+    await expect(provenance).toContainText('2026-08-01T00:00:00.000Z');
+    await expect(provenance).toContainText('2026-08-10T12:00:00.000Z');
+    await expect(provenance).toContainText('sha256:abc123');
+    await expect(provenance).toContainText('v4');
+    await expect(page.getByTestId('audit-source-usage')).toContainText('2 referencing claim(s), 2 citation occurrence(s).');
+    await expect(page.getByTestId('audit-source-usage')).toContainText('Duplicate reference');
+    await expect(page.getByTestId('audit-source-usage')).toContainText('Claim #3 · Evidence 1 · Section 5, paragraph 1');
+
+    await expect(page.getByRole('link', { name: 'Related audit event' })).toHaveCount(0);
+    const traceButton = page.getByTestId('audit-trace-provenance');
+    await expect(traceButton).toHaveAttribute('aria-expanded', 'false');
+    await traceButton.focus();
+    await page.keyboard.press('Enter');
+    await expect(traceButton).toHaveAttribute('aria-expanded', 'true');
     await expect(page.getByRole('link', { name: 'Related audit event' })).toHaveAttribute(
       'href',
       `/app/admin/audit?event=${eventId}`

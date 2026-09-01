@@ -50,12 +50,8 @@
   gap: 0.5rem;
 }
 
-.claims-page__views a,
-.evidence-trace a {
-  color: var(--aip-color-action-primary);
-}
-
 .claims-page__views a {
+  color: var(--aip-color-action-primary);
   border: 1px solid var(--aip-color-border-default);
   border-radius: var(--aip-radius-md);
   min-height: var(--aip-control-height);
@@ -105,7 +101,8 @@
 
 .claims-page__loader input,
 .claims-page__loader button,
-.evidence-tabs button {
+.evidence-tabs button,
+.provenance-toggle {
   min-height: var(--aip-control-height);
   border: 1px solid var(--aip-color-border-default);
   border-radius: var(--aip-radius-md);
@@ -120,7 +117,8 @@
 }
 
 .claims-page__loader button,
-.evidence-tabs button {
+.evidence-tabs button,
+.provenance-toggle {
   cursor: pointer;
   font-weight: 700;
   padding: 0.45rem 0.75rem;
@@ -131,8 +129,8 @@
 .claim-row--button:focus-visible,
 .evidence-tabs button:focus-visible,
 .claims-page__views a:focus-visible,
-.evidence-trace a:focus-visible,
-.summary-card:focus-visible {
+.summary-card:focus-visible,
+.provenance-toggle:focus-visible {
   outline: var(--aip-focus-outline);
   outline-offset: var(--aip-focus-offset);
 }
@@ -300,7 +298,7 @@
 
 .evidence-meta div {
   display: grid;
-  grid-template-columns: minmax(6.5rem, 0.35fr) minmax(0, 1fr);
+  grid-template-columns: minmax(7.5rem, 0.35fr) minmax(0, 1fr);
   gap: 0.75rem;
 }
 
@@ -321,19 +319,28 @@
   padding: 0.9rem 1rem;
 }
 
-.evidence-trace {
-  display: flex;
-  flex-wrap: wrap;
+.source-usage {
+  display: grid;
   gap: 0.5rem;
-  list-style: none;
-  margin: 0;
-  padding: 0;
+  border-top: 1px solid var(--aip-color-border-default);
+  padding-top: 0.75rem;
 }
 
-.evidence-trace li:not(:last-child)::after {
-  content: '→';
-  margin-left: 0.5rem;
-  color: var(--aip-color-text-muted);
+.source-usage__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.source-usage h4,
+.source-usage p,
+.source-usage ul {
+  margin: 0;
+}
+
+.source-usage__note {
+  color: var(--aip-color-text-secondary);
+  font-size: var(--aip-font-size-sm);
 }
 
 .comparison__empty,
@@ -413,7 +420,8 @@
   .claims-page__header,
   .claims-page__version,
   .comparison__header,
-  .claims-page__summary-header {
+  .claims-page__summary-header,
+  .source-usage__header {
     display: grid;
   }
 
@@ -458,7 +466,8 @@
 
   .claims-page__loader button,
   .evidence-tabs button,
-  .summary-card {
+  .summary-card,
+  .provenance-toggle {
     min-height: var(--aip-touch-target);
   }
 

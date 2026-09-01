@@ -24,6 +24,10 @@ public sealed class ArtifactEvidenceManifestService(
     private const int MaxClaimText = 4000;
     private const int MaxSourceReference = 2048;
     private const int MaxSourceTitle = 512;
+    private const int MaxSourcePublisher = 512;
+    private const int MaxSourceType = 128;
+    private const int MaxContentHash = 256;
+    private const int MaxSourceVersion = 256;
     private const int MaxPassage = 4000;
     private const int MaxLocation = 512;
 
@@ -65,6 +69,7 @@ public sealed class ArtifactEvidenceManifestService(
 
         var claimOrdinals = new HashSet<int>();
         var claims = new List<ArtifactClaim>(request.Claims.Count);
+        var provenanceBySource = new Dictionary<(ArtifactEvidenceSourceKind Kind, string Reference), SourceProvenanceContract>();
         foreach (var item in request.Claims)
         {
             if (item.Ordinal <= 0 || !claimOrdinals.Add(item.Ordinal))
@@ -120,16 +125,63 @@ public sealed class ArtifactEvidenceManifestService(
                     return Failure("ValidationFailed", "Evidence source kind is invalid.");
                 }
 
+                if (!TryParseOptionalEnum(
+                        evidenceItem.SourceClassification,
+                        ArtifactEvidenceSourceClassification.Unknown,
+                        out ArtifactEvidenceSourceClassification sourceClassification) ||
+                    !TryParseOptionalEnum(
+                        evidenceItem.VerificationStatus,
+                        ArtifactEvidenceVerificationStatus.Unverified,
+                        out ArtifactEvidenceVerificationStatus verificationStatus))
+                {
+                    return Failure("ValidationFailed", "Evidence provenance classification/status is invalid.");
+                }
+
                 var sourceReference = NormalizeRequired(evidenceItem.SourceReference);
                 var passage = NormalizeRequired(evidenceItem.PassageSnapshot);
                 var sourceTitle = NormalizeOptional(evidenceItem.SourceTitleSnapshot);
+                var sourcePublisher = NormalizeOptional(evidenceItem.SourcePublisherSnapshot);
+                var sourceType = NormalizeOptional(evidenceItem.SourceTypeSnapshot);
+                var contentHash = NormalizeOptional(evidenceItem.ContentHashSnapshot);
+                var sourceVersion = NormalizeOptional(evidenceItem.SourceVersionSnapshot);
                 var location = NormalizeOptional(evidenceItem.LocationSnapshot);
                 if (sourceReference is null || sourceReference.Length > MaxSourceReference ||
                     passage is null || passage.Length > MaxPassage ||
-                    sourceTitle?.Length > MaxSourceTitle || location?.Length > MaxLocation)
+                    sourceTitle?.Length > MaxSourceTitle ||
+                    sourcePublisher?.Length > MaxSourcePublisher ||
+                    sourceType?.Length > MaxSourceType ||
+                    contentHash?.Length > MaxContentHash ||
+                    sourceVersion?.Length > MaxSourceVersion ||
+                    location?.Length > MaxLocation)
                 {
                     return Failure("ValidationFailed", "Evidence snapshot fields exceed their bounded contract.");
                 }
+
+                if (evidenceItem.PublishedAtSnapshot.HasValue && evidenceItem.RetrievedAtSnapshot.HasValue &&
+                    evidenceItem.PublishedAtSnapshot.Value > evidenceItem.RetrievedAtSnapshot.Value)
+                {
+                    return Failure("ValidationFailed", "Evidence published time cannot be after its retrieved time.");
+                }
+
+                var provenance = new SourceProvenanceContract(
+                    sourceTitle,
+                    sourcePublisher,
+                    sourceType,
+                    sourceClassification,
+                    evidenceItem.PublishedAtSnapshot,
+                    evidenceItem.RetrievedAtSnapshot,
+                    contentHash,
+                    sourceVersion,
+                    verificationStatus);
+                var sourceKey = (sourceKind, sourceReference);
+                if (provenanceBySource.TryGetValue(sourceKey, out var existingProvenance) &&
+                    existingProvenance != provenance)
+                {
+                    return Failure(
+                        "ValidationFailed",
+                        "Repeated references to the same evidence source must use identical source-level provenance metadata.");
+                }
+                provenanceBySource[sourceKey] = provenance;
 
                 if (!await CanAttachSourceAsync(userId, sourceKind, sourceReference, cancellationToken))
                 {
@@ -144,6 +196,14 @@ public sealed class ArtifactEvidenceManifestService(
                     SourceKind = sourceKind,
                     SourceReference = sourceReference,
                     SourceTitleSnapshot = sourceTitle,
+                    SourcePublisherSnapshot = sourcePublisher,
+                    SourceTypeSnapshot = sourceType,
+                    SourceClassification = sourceClassification,
+                    PublishedAtSnapshot = evidenceItem.PublishedAtSnapshot,
+                    RetrievedAtSnapshot = evidenceItem.RetrievedAtSnapshot,
+                    ContentHashSnapshot = contentHash,
+                    SourceVersionSnapshot = sourceVersion,
+                    VerificationStatus = verificationStatus,
                     PassageSnapshot = passage,
                     LocationSnapshot = location,
                     SourceEventAuditId = evidenceItem.SourceEventAuditId,
@@ -211,6 +271,19 @@ public sealed class ArtifactEvidenceManifestService(
         where TEnum : struct, Enum =>
         Enum.TryParse(value?.Trim(), ignoreCase: true, out parsed) && Enum.IsDefined(parsed);
 
+    private static bool TryParseOptionalEnum<TEnum>(string? value, TEnum defaultValue, out TEnum parsed)
+        where TEnum : struct, Enum
+    {
+        var normalized = NormalizeOptional(value);
+        if (normalized is null)
+        {
+            parsed = defaultValue;
+            return true;
+        }
+
+        return TryParseEnum(normalized, out parsed);
+    }
+
     private static string? NormalizeRequired(string? value)
     {
         var normalized = value?.Trim();
@@ -230,4 +303,15 @@ public sealed class ArtifactEvidenceManifestService(
 
     private static Result<ArtifactEvidenceManifestResponse> Failure(string code, string message) =>
         Result<ArtifactEvidenceManifestResponse>.Failure(new ApplicationErrorDetail(code, message));
+
+    private sealed record SourceProvenanceContract(
+        string? SourceTitle,
+        string? Publisher,
+        string? SourceType,
+        ArtifactEvidenceSourceClassification Classification,
+        DateTimeOffset? PublishedAt,
+        DateTimeOffset? RetrievedAt,
+        string? ContentHash,
+        string? SourceVersion,
+        ArtifactEvidenceVerificationStatus VerificationStatus);
 }

@@ -8,7 +8,9 @@ import { AuditClaimsEvidenceFacade } from './audit-claims-evidence.facade';
 import {
   AuditClaimSupportFilter,
   AuditClaimViewModel,
+  AuditEvidenceSourceClassification,
   AuditEvidenceSourceKind,
+  AuditEvidenceVerificationStatus,
 } from './audit-claims-evidence.types';
 
 @Component({
@@ -43,6 +45,7 @@ export class AuditClaimsEvidencePageComponent {
   readonly inputError = signal<string | null>(null);
   readonly selectedClaimId = signal<string | null>(null);
   readonly selectedEvidenceId = signal<string | null>(null);
+  readonly traceExpanded = signal(false);
   readonly claimSupportFilter = signal<AuditClaimSupportFilter>(
     normalizeClaimSupport(this.route.snapshot.queryParamMap.get('support')),
   );
@@ -72,6 +75,43 @@ export class AuditClaimsEvidencePageComponent {
     return claim.evidence.find((evidence) => evidence.id === evidenceId) ?? claim.evidence[0] ?? null;
   });
 
+  readonly selectedSourceReferences = computed(() => {
+    const evidence = this.selectedEvidence();
+    if (!evidence?.sourceId) {
+      return [];
+    }
+
+    const references: Array<{
+      claimId: string;
+      claimOrdinal: number;
+      evidenceId: string;
+      evidenceOrdinal: number;
+      location: string | null;
+    }> = [];
+
+    for (const claim of this.vm().claims) {
+      for (const candidate of claim.evidence) {
+        if (candidate.sourceId !== evidence.sourceId) {
+          continue;
+        }
+
+        references.push({
+          claimId: claim.id,
+          claimOrdinal: claim.ordinal,
+          evidenceId: candidate.id,
+          evidenceOrdinal: candidate.ordinal,
+          location: candidate.location,
+        });
+      }
+    }
+
+    return references;
+  });
+
+  readonly selectedSourceClaimCount = computed(() =>
+    new Set(this.selectedSourceReferences().map((reference) => reference.claimId)).size,
+  );
+
   constructor() {
     this.facade.loadActionSummary();
 
@@ -86,6 +126,7 @@ export class AuditClaimsEvidencePageComponent {
         this.claimSupportFilter.set(support);
         this.selectedClaimId.set(null);
         this.selectedEvidenceId.set(null);
+        this.traceExpanded.set(false);
       });
     });
 
@@ -96,6 +137,7 @@ export class AuditClaimsEvidencePageComponent {
         untracked(() => {
           this.selectedClaimId.set(null);
           this.selectedEvidenceId.set(null);
+          this.traceExpanded.set(false);
         });
         return;
       }
@@ -142,6 +184,7 @@ export class AuditClaimsEvidencePageComponent {
     this.claimSupportFilter.set('Unverified');
     this.selectedClaimId.set(null);
     this.selectedEvidenceId.set(null);
+    this.traceExpanded.set(false);
     void this.updateClaimFilter('Unverified');
   }
 
@@ -149,6 +192,7 @@ export class AuditClaimsEvidencePageComponent {
     this.claimSupportFilter.set('');
     this.selectedClaimId.set(null);
     this.selectedEvidenceId.set(null);
+    this.traceExpanded.set(false);
     void this.updateClaimFilter('');
   }
 
@@ -178,12 +222,21 @@ export class AuditClaimsEvidencePageComponent {
     }
     this.selectedClaimId.set(claim.id);
     this.selectedEvidenceId.set(claim.evidence[0]?.id ?? null);
+    this.traceExpanded.set(false);
   }
 
   selectEvidence(evidenceId: string): void {
     if (this.selectedClaim()?.evidence.some((evidence) => evidence.id === evidenceId)) {
       this.selectedEvidenceId.set(evidenceId);
+      this.traceExpanded.set(false);
     }
+  }
+
+  toggleTrace(): void {
+    if (!this.selectedEvidence()) {
+      return;
+    }
+    this.traceExpanded.update((expanded) => !expanded);
   }
 
   sourceKindLabel(kind: AuditEvidenceSourceKind): string {
@@ -193,6 +246,31 @@ export class AuditClaimsEvidencePageComponent {
       case 'ArtifactVersion': return 'Artifact version';
       default: return 'Source';
     }
+  }
+
+  sourceClassificationLabel(classification: AuditEvidenceSourceClassification): string {
+    switch (classification) {
+      case 'Primary': return 'Primary source';
+      case 'Secondary': return 'Secondary source';
+      default: return 'Not classified';
+    }
+  }
+
+  verificationLabel(status: AuditEvidenceVerificationStatus): string {
+    switch (status) {
+      case 'Verified': return 'Verified';
+      case 'Rejected': return 'Rejected';
+      default: return 'Not verified';
+    }
+  }
+
+  formatTimestamp(value: string | null): string {
+    if (!value) {
+      return 'Not recorded';
+    }
+
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? 'Not recorded' : parsed.toISOString();
   }
 
   private async updateClaimFilter(filter: AuditClaimSupportFilter): Promise<void> {
@@ -206,6 +284,7 @@ export class AuditClaimsEvidencePageComponent {
   private loadFromRoute(versionId: string | null): void {
     this.selectedClaimId.set(null);
     this.selectedEvidenceId.set(null);
+    this.traceExpanded.set(false);
     this.versionInput.set(versionId ?? '');
 
     if (!versionId) {
