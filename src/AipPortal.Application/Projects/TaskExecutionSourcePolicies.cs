@@ -87,7 +87,7 @@ public sealed record TaskExecutionSourcePolicyV2(
         WebSite != TaskExecutionSourceState.Exclude ||
         ConnectedApp != TaskExecutionSourceState.Exclude ||
         Items.Any(rule =>
-            rule.Kind is TaskExecutionSourceKind.Web or TaskExecutionSourceKind.WebSite or TaskExecutionSourceKind.ConnectedApp &&
+            (rule.Kind is TaskExecutionSourceKind.Web or TaskExecutionSourceKind.WebSite or TaskExecutionSourceKind.ConnectedApp) &&
             rule.State != TaskExecutionSourceState.Exclude);
 
     public bool TryNormalize(out TaskExecutionSourcePolicyV2 normalized, out string? target, out string? message)
