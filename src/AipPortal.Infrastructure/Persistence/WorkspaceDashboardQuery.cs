@@ -175,17 +175,75 @@ public sealed class WorkspaceDashboardQuery(
             .Select(group => new WorkspaceCount(group.Key, group.Count()))
             .ToDictionaryAsync(item => item.WorkspaceId, item => item.Count, cancellationToken);
 
-        var projectCounts = await dbContext.VisibleProjectsFor(userId)
+        var visibleWorkspaceProjects = dbContext.VisibleProjectsFor(userId)
+            .Where(project => workspaceIds.Contains(project.WorkspaceId));
+        var projectCounts = await visibleWorkspaceProjects
             .Where(project =>
-                workspaceIds.Contains(project.WorkspaceId) &&
-                (project.Status == ProjectStatus.Active ||
-                 project.Status == ProjectStatus.Review))
+                project.Status == ProjectStatus.Active ||
+                project.Status == ProjectStatus.Review)
             .GroupBy(project => new { project.WorkspaceId, project.Status })
             .Select(group => new WorkspaceProjectCount(
                 group.Key.WorkspaceId,
                 group.Key.Status,
                 group.Count()))
             .ToListAsync(cancellationToken);
+
+        var reviewAttentionRows = await (
+            from task in dbContext.TaskItems.AsNoTracking()
+            join project in visibleWorkspaceProjects on task.ProjectId equals project.Id
+            where task.DeletedAt == null &&
+                  task.ReviewerUserId == userId &&
+                  task.ReviewStatus == TaskReviewStatus.Submitted &&
+                  task.ReviewResolvedAt == null
+            select new WorkspaceAttentionRow(
+                task.WorkspaceId,
+                task.Id,
+                task.ProjectId,
+                task.Id,
+                WorkspaceNeedsAttentionKind.ReviewRequired,
+                task.ReviewSubmittedAt ?? task.CreatedAt))
+            .ToListAsync(cancellationToken);
+
+        var failedResearchAttentionRows = await (
+            from run in dbContext.TaskExecutionRuns.AsNoTracking()
+            join task in dbContext.TaskItems.AsNoTracking() on run.TaskItemId equals task.Id
+            join project in visibleWorkspaceProjects on run.ProjectId equals project.Id
+            where task.DeletedAt == null &&
+                  task.Status != TaskItemStatus.Completed &&
+                  task.Status != TaskItemStatus.Cancelled &&
+                  run.Status == TaskExecutionRunStatus.Failed &&
+                  (run.RequestedByUserId == userId || task.PrimaryAssigneeUserId == userId) &&
+                  !dbContext.TaskExecutionRuns.Any(laterRun =>
+                      laterRun.TaskItemId == run.TaskItemId &&
+                      laterRun.RequestedAtUtc > run.RequestedAtUtc)
+            select new WorkspaceAttentionRow(
+                run.WorkspaceId,
+                run.Id,
+                run.ProjectId,
+                run.TaskItemId,
+                WorkspaceNeedsAttentionKind.ResearchFailed,
+                run.FinishedAtUtc ?? run.RequestedAtUtc))
+            .ToListAsync(cancellationToken);
+
+        var attentionByWorkspace = reviewAttentionRows
+            .Concat(failedResearchAttentionRows)
+            .GroupBy(item => item.WorkspaceId)
+            .ToDictionary(
+                group => group.Key,
+                group => (IReadOnlyList<WorkspaceNeedsAttentionItemResponse>)group
+                    .GroupBy(item => new { item.Kind, item.TaskId })
+                    .Select(items => items
+                        .OrderByDescending(item => item.OccurredAt)
+                        .ThenBy(item => item.Id)
+                        .First())
+                    .OrderByDescending(item => item.OccurredAt)
+                    .ThenBy(item => item.Id)
+                    .Select(item => new WorkspaceNeedsAttentionItemResponse(
+                        item.Id,
+                        item.Kind,
+                        $"/projects/{item.ProjectId:D}/tasks/{item.TaskId:D}",
+                        item.OccurredAt))
+                    .ToList());
 
         var runningProjectCounts = projectCounts
             .Where(item => item.Status == ProjectStatus.Active)
@@ -200,7 +258,8 @@ public sealed class WorkspaceDashboardQuery(
                 announcementCounts.GetValueOrDefault(row.Id),
                 conversationCounts.GetValueOrDefault(row.Id),
                 runningProjectCounts.GetValueOrDefault(row.Id),
-                needsReviewProjectCounts.GetValueOrDefault(row.Id)))
+                needsReviewProjectCounts.GetValueOrDefault(row.Id),
+                attentionByWorkspace.GetValueOrDefault(row.Id) ?? []))
             .ToList();
     }
 
@@ -209,7 +268,8 @@ public sealed class WorkspaceDashboardQuery(
         int unreadAnnouncementCount,
         int unreadConversationCount,
         int runningProjectCount,
-        int needsReviewProjectCount)
+        int needsReviewProjectCount,
+        IReadOnlyList<WorkspaceNeedsAttentionItemResponse> needsAttentionItems)
     {
         // Navigation is read-only. Quick-create mutation affordances are projected
         // separately and must match the ungrouped production create boundary used
@@ -265,7 +325,9 @@ public sealed class WorkspaceDashboardQuery(
             canInspectSharing ? row.ExternalShareCount : null,
             canInspectSharing,
             canManageSharing,
-            row.MemberPreview);
+            row.MemberPreview,
+            needsAttentionItems.Count,
+            needsAttentionItems);
     }
 
     private sealed record WorkspaceDashboardRow(
@@ -290,4 +352,12 @@ public sealed class WorkspaceDashboardQuery(
         Guid WorkspaceId,
         ProjectStatus Status,
         int Count);
+
+    private sealed record WorkspaceAttentionRow(
+        Guid WorkspaceId,
+        Guid Id,
+        Guid ProjectId,
+        Guid TaskId,
+        WorkspaceNeedsAttentionKind Kind,
+        DateTimeOffset OccurredAt);
 }
