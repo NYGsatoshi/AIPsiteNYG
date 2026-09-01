@@ -153,7 +153,7 @@ export class TaskExecutionScopeComponent implements OnChanges, OnDestroy {
   readonly detailsId = `${this.owner}-details`;
   readonly eligibleSourceKindCount = computed(() => {
     const policy = this.state()?.task.effectivePolicy.policyV2;
-    return policy ? SOURCE_KINDS.filter((kind) => policyDefault(policy, kind) !== 'Exclude').length : 0;
+    return policy ? SOURCE_KINDS.filter((kind) => kindHasEligibleSource(policy, kind)).length : 0;
   });
   readonly allowedSourceKindCount = this.eligibleSourceKindCount;
 
@@ -672,6 +672,10 @@ function policyDefault(policy: SourcePolicyV2, kind: SourceKind): SourceState {
     case 'ProjectFile': return policy.projectFile;
     case 'ConnectedApp': return policy.connectedApp;
   }
+}
+function kindHasEligibleSource(policy: SourcePolicyV2, kind: SourceKind): boolean {
+  return policyDefault(policy, kind) !== 'Exclude'
+    || policy.items.some((rule) => rule.kind === kind && rule.state !== 'Exclude');
 }
 function ruleRows(rules: readonly SourceRule[], inventory: readonly SourceInventoryItem[]) {
   const inventoryMap = new Map(inventory.map((item) => [`${item.kind}:${item.sourceId}`, item] as const));
