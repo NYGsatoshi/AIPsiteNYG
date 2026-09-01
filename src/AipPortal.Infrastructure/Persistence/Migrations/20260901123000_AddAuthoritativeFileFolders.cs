@@ -25,7 +25,7 @@ public sealed class AddAuthoritativeFileFolders : Migration
                 Version = table.Column<long>(type: "bigint", nullable: false, defaultValue: 1L),
                 DeletedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
                 DeletedByUserId = table.Column<Guid>(type: "uuid", nullable: true),
-                DeleteReason = table.Column<string>(type: "text", nullable: true),
+                DeleteReason = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: true),
                 CreatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
                 UpdatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
             },
@@ -83,6 +83,18 @@ public sealed class AddAuthoritativeFileFolders : Migration
             });
 
         migrationBuilder.CreateIndex(
+            name: "IX_file_folders_CreatedAt",
+            table: "file_folders",
+            column: "CreatedAt");
+        migrationBuilder.CreateIndex(
+            name: "IX_file_folders_DeletedAt",
+            table: "file_folders",
+            column: "DeletedAt");
+        migrationBuilder.CreateIndex(
+            name: "IX_file_folders_DeletedByUserId",
+            table: "file_folders",
+            column: "DeletedByUserId");
+        migrationBuilder.CreateIndex(
             name: "IX_file_folders_ParentFolderId",
             table: "file_folders",
             column: "ParentFolderId");
@@ -99,6 +111,10 @@ public sealed class AddAuthoritativeFileFolders : Migration
             table: "file_folders",
             columns: new[] { "TenantId", "WorkspaceId", "DeletedAt" });
 
+        migrationBuilder.CreateIndex(
+            name: "IX_file_folder_placements_CreatedAt",
+            table: "file_folder_placements",
+            column: "CreatedAt");
         migrationBuilder.CreateIndex(
             name: "IX_file_folder_placements_FileObjectId",
             table: "file_folder_placements",
