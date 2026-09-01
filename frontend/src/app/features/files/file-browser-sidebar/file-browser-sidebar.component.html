@@ -43,6 +43,13 @@
           <button class="browser__folder" type="button" (click)="chooseFolder(node)" tabindex="-1">
             @if (expandedIds().has(node.id)) { <svg lucideFolderOpen [size]="18" aria-hidden="true"></svg> } @else { <svg lucideFolder [size]="18" aria-hidden="true"></svg> }<span>{{ node.name }}</span>
           </button>
+          <button
+            class="browser__move"
+            type="button"
+            (click)="requestFolderMove(node)"
+            [attr.aria-label]="i18n.translate('files.actions.move') + ': ' + node.name"
+            [title]="i18n.translate('files.actions.move')"
+          >↪</button>
         </div>
       } @empty {
         <p class="browser__empty">{{ i18n.translate('files.browser.empty') }}</p>
