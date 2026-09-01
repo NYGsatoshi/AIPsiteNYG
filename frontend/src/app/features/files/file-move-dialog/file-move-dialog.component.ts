@@ -37,6 +37,9 @@ interface DestinationOption {
             }
           </select>
         </label>
+        @if (!folderId && validFileObjectIds().length > 1) {
+          <p role="status">{{ i18n.translate('files.actions.moveUnavailable') }}</p>
+        }
         @if (folders.loading()) {
           <p role="status" aria-live="polite">{{ i18n.translate('files.upload.loading') }}</p>
         }
@@ -58,7 +61,7 @@ interface DestinationOption {
 })
 export class FileMoveDialogComponent implements OnChanges {
   @Input() open = false;
-  @Input() fileObjectId: string | null = null;
+  @Input() fileObjectIds: readonly string[] = [];
   @Input() folderId: string | null = null;
   @Output() readonly moved = new EventEmitter<void>();
   @Output() readonly dismissed = new EventEmitter<void>();
@@ -81,8 +84,12 @@ export class FileMoveDialogComponent implements OnChanges {
     }
   }
 
+  validFileObjectIds(): readonly string[] {
+    return [...new Set(this.fileObjectIds.filter((id) => id.length > 0))];
+  }
+
   hasMoveTarget(): boolean {
-    return this.folderId !== null || !!this.fileObjectId;
+    return this.folderId !== null || this.validFileObjectIds().length === 1;
   }
 
   destinationOptions(): readonly DestinationOption[] {
@@ -114,7 +121,7 @@ export class FileMoveDialogComponent implements OnChanges {
     const destination = this.destinationFolderId();
     const operation = this.folderId
       ? this.folders.moveFolder(this.folderId, destination)
-      : this.folders.moveFile(this.fileObjectId!, destination);
+      : this.folders.moveFile(this.validFileObjectIds()[0]!, destination);
 
     this.request?.unsubscribe();
     this.request = operation.subscribe({
