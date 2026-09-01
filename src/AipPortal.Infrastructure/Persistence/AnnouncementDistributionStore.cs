@@ -1,0 +1,300 @@
+using System.Data;
+using System.Text.Json;
+using AipPortal.Application.Announcements;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
+
+namespace AipPortal.Infrastructure.Persistence;
+
+/// <summary>
+/// PostgreSQL sidecar for #388. The distribution target JSON deliberately is
+/// not mapped into AppDbContext: content and delivery metadata remain separate
+/// without widening the legacy Announcement/Draft entity model or creating a
+/// second content aggregate. This follows the repository's existing sidecar
+/// persistence pattern (for example MessageNotificationPreferenceStore).
+/// </summary>
+public sealed class AnnouncementDistributionStore(AppDbContext dbContext) : IAnnouncementDistributionStore
+{
+    private readonly Dictionary<Guid, IReadOnlyList<AnnouncementDraftTargetRequest>> inMemoryDraftTargets = [];
+    private readonly Dictionary<Guid, IReadOnlyList<AnnouncementDraftTargetRequest>> inMemoryAnnouncementTargets = [];
+
+    public async Task StageCreatedDraftTargetsAsync(
+        Guid tenantId,
+        Guid draftId,
+        IReadOnlyList<AnnouncementDraftTargetRequest> targets,
+        CancellationToken cancellationToken = default)
+    {
+        Validate(tenantId, draftId, targets);
+
+        // The create idempotency coordinator already owns the relational
+        // transaction. Flush the draft row first so the raw sidecar update is
+        // part of that same uncommitted business transaction.
+        await dbContext.SaveChangesAsync(cancellationToken);
+        if (!UsesPostgreSql())
+        {
+            inMemoryDraftTargets[draftId] = Copy(targets);
+            return;
+        }
+
+        await UpdateTargetJsonAsync(
+            "announcement_drafts",
+            tenantId,
+            draftId,
+            Serialize(targets),
+            cancellationToken);
+    }
+
+    public async Task CommitDraftSaveAsync(
+        Guid tenantId,
+        Guid draftId,
+        IReadOnlyList<AnnouncementDraftTargetRequest> targets,
+        CancellationToken cancellationToken = default)
+    {
+        Validate(tenantId, draftId, targets);
+        if (!UsesPostgreSql())
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+            inMemoryDraftTargets[draftId] = Copy(targets);
+            return;
+        }
+
+        var ownsTransaction = dbContext.Database.CurrentTransaction is null;
+        await using var transaction = ownsTransaction
+            ? await dbContext.Database.BeginTransactionAsync(cancellationToken)
+            : null;
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+            await UpdateTargetJsonAsync(
+                "announcement_drafts",
+                tenantId,
+                draftId,
+                Serialize(targets),
+                cancellationToken);
+            if (transaction is not null)
+            {
+                await transaction.CommitAsync(cancellationToken);
+            }
+        }
+        catch
+        {
+            if (transaction is not null)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+            }
+            dbContext.ChangeTracker.Clear();
+            throw;
+        }
+    }
+
+    public async Task<IReadOnlyList<AnnouncementDraftTargetRequest>> GetDraftTargetsAsync(
+        Guid tenantId,
+        Guid draftId,
+        CancellationToken cancellationToken = default)
+    {
+        if (tenantId == Guid.Empty || draftId == Guid.Empty)
+        {
+            return [];
+        }
+        if (!UsesPostgreSql())
+        {
+            return inMemoryDraftTargets.TryGetValue(draftId, out var targets)
+                ? Copy(targets)
+                : [];
+        }
+
+        var json = await ReadTargetJsonAsync(
+            "announcement_drafts",
+            tenantId,
+            draftId,
+            cancellationToken);
+        return Deserialize(json);
+    }
+
+    public async Task CommitPublicationAsync(
+        Guid tenantId,
+        Guid announcementId,
+        IReadOnlyList<AnnouncementDraftTargetRequest> targets,
+        Func<CancellationToken, Task> stagePublication,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(stagePublication);
+        Validate(tenantId, announcementId, targets);
+
+        if (!UsesPostgreSql())
+        {
+            await stagePublication(cancellationToken);
+            await dbContext.SaveChangesAsync(cancellationToken);
+            inMemoryAnnouncementTargets[announcementId] = Copy(targets);
+            return;
+        }
+
+        var ownsTransaction = dbContext.Database.CurrentTransaction is null;
+        await using var transaction = ownsTransaction
+            ? await dbContext.Database.BeginTransactionAsync(cancellationToken)
+            : null;
+        try
+        {
+            await stagePublication(cancellationToken);
+            // A logical-notification implementation may already have flushed
+            // tracked rows while remaining inside this transaction. This final
+            // save is intentionally idempotent and persists zero-recipient
+            // publications too.
+            await dbContext.SaveChangesAsync(cancellationToken);
+            await UpdateTargetJsonAsync(
+                "announcements",
+                tenantId,
+                announcementId,
+                Serialize(targets),
+                cancellationToken);
+            if (transaction is not null)
+            {
+                await transaction.CommitAsync(cancellationToken);
+            }
+        }
+        catch
+        {
+            if (transaction is not null)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+            }
+            dbContext.ChangeTracker.Clear();
+            throw;
+        }
+    }
+
+    private bool UsesPostgreSql() =>
+        dbContext.Database.IsRelational() &&
+        string.Equals(dbContext.Database.ProviderName, "Npgsql.EntityFrameworkCore.PostgreSQL", StringComparison.Ordinal);
+
+    private async Task UpdateTargetJsonAsync(
+        string table,
+        Guid tenantId,
+        Guid resourceId,
+        string json,
+        CancellationToken cancellationToken)
+    {
+        var connection = dbContext.Database.GetDbConnection();
+        var openedHere = connection.State != ConnectionState.Open;
+        if (openedHere)
+        {
+            await connection.OpenAsync(cancellationToken);
+        }
+
+        try
+        {
+            await using var command = connection.CreateCommand();
+            command.Transaction = dbContext.Database.CurrentTransaction?.GetDbTransaction();
+            command.CommandText = $"""
+                UPDATE {table}
+                SET "DistributionTargetsJson" = @targets
+                WHERE "TenantId" = @tenantId
+                  AND "Id" = @resourceId
+                """;
+            AddParameter(command, "targets", json);
+            AddParameter(command, "tenantId", tenantId);
+            AddParameter(command, "resourceId", resourceId);
+            if (await command.ExecuteNonQueryAsync(cancellationToken) != 1)
+            {
+                throw new InvalidOperationException("Announcement distribution target sidecar could not be persisted.");
+            }
+        }
+        finally
+        {
+            if (openedHere)
+            {
+                await connection.CloseAsync();
+            }
+        }
+    }
+
+    private async Task<string?> ReadTargetJsonAsync(
+        string table,
+        Guid tenantId,
+        Guid resourceId,
+        CancellationToken cancellationToken)
+    {
+        var connection = dbContext.Database.GetDbConnection();
+        var openedHere = connection.State != ConnectionState.Open;
+        if (openedHere)
+        {
+            await connection.OpenAsync(cancellationToken);
+        }
+
+        try
+        {
+            await using var command = connection.CreateCommand();
+            command.Transaction = dbContext.Database.CurrentTransaction?.GetDbTransaction();
+            command.CommandText = $"""
+                SELECT "DistributionTargetsJson"
+                FROM {table}
+                WHERE "TenantId" = @tenantId
+                  AND "Id" = @resourceId
+                LIMIT 1
+                """;
+            AddParameter(command, "tenantId", tenantId);
+            AddParameter(command, "resourceId", resourceId);
+            var value = await command.ExecuteScalarAsync(cancellationToken);
+            return value is null or DBNull ? null : Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture);
+        }
+        finally
+        {
+            if (openedHere)
+            {
+                await connection.CloseAsync();
+            }
+        }
+    }
+
+    private static string Serialize(IReadOnlyList<AnnouncementDraftTargetRequest> targets) =>
+        JsonSerializer.Serialize(targets);
+
+    private static IReadOnlyList<AnnouncementDraftTargetRequest> Deserialize(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return [];
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<List<AnnouncementDraftTargetRequest>>(json) is { Count: > 0 } targets
+                ? Copy(targets)
+                : [];
+        }
+        catch (JsonException exception)
+        {
+            throw new InvalidOperationException("Announcement distribution target sidecar is invalid.", exception);
+        }
+    }
+
+    private static IReadOnlyList<AnnouncementDraftTargetRequest> Copy(
+        IReadOnlyList<AnnouncementDraftTargetRequest> targets) =>
+        targets.Select(target => new AnnouncementDraftTargetRequest(
+            target.WorkspaceId,
+            target.GroupId,
+            target.ChannelId)).ToArray();
+
+    private static void Validate(
+        Guid tenantId,
+        Guid resourceId,
+        IReadOnlyList<AnnouncementDraftTargetRequest> targets)
+    {
+        if (tenantId == Guid.Empty || resourceId == Guid.Empty)
+        {
+            throw new ArgumentException("Announcement distribution scope identifiers must be non-empty.");
+        }
+        if (targets.Count is < 1 or > AnnouncementDistributionContract.MaximumTargetCount)
+        {
+            throw new ArgumentException("Announcement distribution target count is invalid.", nameof(targets));
+        }
+    }
+
+    private static void AddParameter(System.Data.Common.DbCommand command, string name, object value)
+    {
+        var parameter = command.CreateParameter();
+        parameter.ParameterName = name;
+        parameter.Value = value;
+        command.Parameters.Add(parameter);
+    }
+}
