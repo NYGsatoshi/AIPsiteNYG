@@ -274,9 +274,15 @@ mark_backend_test_file() {
     trait_text="$(grep -E 'TaskV1PR07[B-D]' "$path" 2>/dev/null || true)"
   fi
   trait_text+=$'\n'"$(changed_lines_for "$path")"
-  [[ "$trait_text" == *TaskV1PR07B* ]] && backend_pr07b=true
-  [[ "$trait_text" == *TaskV1PR07C* ]] && backend_pr07c=true
-  [[ "$trait_text" == *TaskV1PR07D* ]] && backend_pr07d=true
+  if [[ "$trait_text" == *TaskV1PR07B* ]]; then
+    backend_pr07b=true
+  fi
+  if [[ "$trait_text" == *TaskV1PR07C* ]]; then
+    backend_pr07c=true
+  fi
+  if [[ "$trait_text" == *TaskV1PR07D* ]]; then
+    backend_pr07d=true
+  fi
 }
 
 add_frontend_feature() {
