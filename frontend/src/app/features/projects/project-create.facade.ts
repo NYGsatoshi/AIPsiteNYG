@@ -89,6 +89,7 @@ export class ProjectCreateFacade {
   private mutationCancellation = new Subject<void>();
   private createAttempt: ProjectCreateAttempt | null = null;
   private activeCreateAttempt: ProjectCreateAttempt | null = null;
+  private activeCreateHasDispatched = false;
   private committedCreate: CommittedProjectCreate | null = null;
 
   readonly options = this.optionsState.asReadonly();
@@ -221,6 +222,7 @@ export class ProjectCreateFacade {
 
     const attempt = this.getOrCreateAttempt(identityKey, workspaceId, request);
     this.activeCreateAttempt = attempt;
+    this.activeCreateHasDispatched = false;
     this.cancelMutationRequest();
     const cancellation = this.mutationCancellation;
     const generation = this.scopeGeneration;
@@ -233,6 +235,7 @@ export class ProjectCreateFacade {
           .createProject(workspaceId, request, attempt.idempotencyKey, () => {
             if (this.activeCreateAttempt === attempt) {
               attempt.hasDispatched = true;
+              this.activeCreateHasDispatched = true;
             }
           })
           .pipe(takeUntil(cancellation)),
@@ -246,6 +249,7 @@ export class ProjectCreateFacade {
     } finally {
       if (this.activeCreateAttempt === attempt) {
         this.activeCreateAttempt = null;
+        this.activeCreateHasDispatched = false;
       }
     }
 
@@ -392,10 +396,24 @@ export class ProjectCreateFacade {
       attempt.identityKey === this.currentIdentityKey() &&
       attempt.workspaceId === this.scopeWorkspaceId;
     const attemptWasDispatched = preserveUncertainAttempt && attempt?.hasDispatched === true;
+    const preserveDispatchedMutation =
+      attemptWasDispatched &&
+      attempt !== null &&
+      this.activeCreateAttempt === attempt &&
+      this.activeCreateHasDispatched;
 
-    this.scopeGeneration += 1;
+    // Once this exact invocation has dispatched its canonical idempotent POST,
+    // an authorization invalidation must not abort the response. The server may
+    // already have committed, and cancelling the XHR would only discard the
+    // strict 201 needed to reconcile that commit. Pre-dispatch requests and all
+    // session/Tenant/Workspace boundary changes remain cancellable.
+    if (!preserveDispatchedMutation) {
+      this.scopeGeneration += 1;
+    }
     this.cancelOptionsRequest();
-    this.cancelMutationRequest();
+    if (!preserveDispatchedMutation) {
+      this.cancelMutationRequest();
+    }
 
     if (preserveCommitted && committed) {
       // An own-command authorization invalidation may arrive between the
@@ -431,6 +449,10 @@ export class ProjectCreateFacade {
         workspaceId: attempt.workspaceId,
         message: 'Project creation options changed and must be checked again.',
       });
+      if (preserveDispatchedMutation) {
+        this.mutationState.set({ status: 'submitting', fieldErrors: [] });
+        return;
+      }
       this.mutationState.set({
         status: 'error',
         fieldErrors: [],
