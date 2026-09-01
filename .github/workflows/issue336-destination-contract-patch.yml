@@ -1,6 +1,10 @@
 name: Issue336 Destination Contract Patch
 
 on:
+  push:
+    branches: ["feat/336-authoritative-folder-move"]
+    paths:
+      - ".github/workflows/issue336-destination-contract-patch.yml"
   pull_request:
     branches: ["main"]
     paths:
