@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+# Used by both full and selectively routed backend test runs. Keep verification
+# semantics identical regardless of whether CI produced a full or focused TRX.
+
 usage() {
   printf '%s\n' "Usage: $0 <trx-file> [--minimum-total N] [--required-tests FILE] [--label LABEL]" >&2
 }

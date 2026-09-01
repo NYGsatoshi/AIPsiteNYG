@@ -2,7 +2,9 @@ using System.Security.Cryptography;
 using System.Text;
 using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
+using AipPortal.Application.Files;
 using AipPortal.Application.Realtime;
+using AipPortal.Application.Tenancy;
 using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
 
@@ -10,8 +12,8 @@ namespace AipPortal.Application.Projects;
 
 /// <summary>
 /// Owns the server-authoritative source-policy and durable acceptance boundary
-/// for Task execution. It never resolves sources, invokes a provider, or
-/// persists source content; #462 dispatches an accepted run after commit.
+/// for Task execution. Policy V2 adds Allow/Prioritize/Exclude item rules while
+/// retaining the V1 booleans as a compatibility projection.
 /// </summary>
 public sealed class TaskExecutionScopeService(
     IProjectRepository projects,
@@ -23,7 +25,9 @@ public sealed class TaskExecutionScopeService(
     IAuditLogger audit,
     IBusinessInvalidationPublisher invalidations,
     ITaskCommandUnitOfWork unitOfWork,
-    ICreateIdempotencyCoordinator idempotency) : ITaskExecutionScopeService
+    ICreateIdempotencyCoordinator idempotency,
+    IFileAuthorizationService? fileAuthorization = null,
+    ITenantAuthorizationService? tenantAuthorization = null) : ITaskExecutionScopeService
 {
     private const string RunOperation = "TaskExecution.Run.v1";
 
@@ -37,7 +41,10 @@ public sealed class TaskExecutionScopeService(
 
         var scope = await executionScopes.GetProjectScopeAsync(project.Id, cancellationToken);
         var canManage = await CanManageAsync(project.Id, cancellationToken);
-        return Result<ProjectExecutionScopeResponse>.Success(ToProjectResponse(scope, canManage));
+        var canManageConnectedApps = canManage && await CanManageTenantAsync(project.TenantId, cancellationToken);
+        var policy = await ProjectPolicyAsync(scope, cancellationToken);
+        return Result<ProjectExecutionScopeResponse>.Success(
+            ToProjectResponse(scope, RedactProjectPolicy(policy, canManage, canManageConnectedApps), canManage));
     }
 
     public async Task<Result<ProjectExecutionScopeResponse>> UpdateProjectScopeAsync(
@@ -48,9 +55,15 @@ public sealed class TaskExecutionScopeService(
         if (request.ExpectedVersion < 0)
             return Invalid<ProjectExecutionScopeResponse>("expectedVersion", "Expected version must be zero or a positive integer.");
 
+        if (!TryRequestedPolicy(request.PolicyV2, request.WebEnabled, request.ProjectFilesEnabled, out var requestedPolicy, out var policyError))
+            return Result<ProjectExecutionScopeResponse>.Failure(policyError!);
+
         var project = await ManagedProjectAsync(projectId, cancellationToken);
         if (project is null)
             return NotFound<ProjectExecutionScopeResponse>();
+
+        if (!await CanUseProjectItemRulesAsync(project, requestedPolicy, cancellationToken))
+            return Invalid<ProjectExecutionScopeResponse>("policyV2.items", "One or more source rules are not available in the current authorization scope.");
 
         var actor = Actor();
         var scope = await executionScopes.GetProjectScopeForUpdateAsync(project.Id, cancellationToken);
@@ -59,7 +72,7 @@ public sealed class TaskExecutionScopeService(
             if (request.ExpectedVersion != 0)
                 return Stale<ProjectExecutionScopeResponse>();
 
-            scope = NewProjectScope(project, actor, request.WebEnabled, request.ProjectFilesEnabled);
+            scope = NewProjectScope(project, actor, requestedPolicy.WebEnabled, requestedPolicy.ProjectFilesEnabled);
             await executionScopes.AddProjectScopeAsync(scope, cancellationToken);
         }
         else
@@ -67,11 +80,22 @@ public sealed class TaskExecutionScopeService(
             if (scope.VersionNo != request.ExpectedVersion)
                 return Stale<ProjectExecutionScopeResponse>();
 
-            scope.WebEnabled = request.WebEnabled;
-            scope.ProjectFilesEnabled = request.ProjectFilesEnabled;
+            scope.WebEnabled = requestedPolicy.WebEnabled;
+            scope.ProjectFilesEnabled = requestedPolicy.ProjectFilesEnabled;
             scope.VersionNo = NextVersion(scope.VersionNo);
             scope.UpdatedByUserId = actor;
         }
+
+        executionScopes.StageSourcePolicyDocument(new TaskExecutionSourcePolicyDocument(
+            TaskExecutionSourcePolicyOwnerType.Project,
+            project.Id,
+            project.TenantId,
+            project.WorkspaceId,
+            project.Id,
+            null,
+            scope.VersionNo,
+            null,
+            requestedPolicy));
 
         await audit.LogAsync(new AuditLogEntry(
             actor,
@@ -80,14 +104,16 @@ public sealed class TaskExecutionScopeService(
             scope.Id,
             WorkspaceId: project.WorkspaceId,
             ProjectId: project.Id,
-            Metadata: ScopeMetadata(scope.WebEnabled, scope.ProjectFilesEnabled, scope.VersionNo)), cancellationToken);
+            Metadata: ScopeMetadata(requestedPolicy, scope.VersionNo)), cancellationToken);
         await invalidations.ProjectChangedAsync(project, actor, "executionScopeChanged", cancellationToken);
 
         var save = await unitOfWork.SaveTaskCommandAsync(cancellationToken);
         if (!save.IsSaved)
             return Stale<ProjectExecutionScopeResponse>();
 
-        return Result<ProjectExecutionScopeResponse>.Success(ToProjectResponse(scope, true));
+        var canManageConnectedApps = await CanManageTenantAsync(project.TenantId, cancellationToken);
+        return Result<ProjectExecutionScopeResponse>.Success(
+            ToProjectResponse(scope, RedactProjectPolicy(requestedPolicy, true, canManageConnectedApps), true));
     }
 
     public async Task<Result<TaskExecutionScopeResponse>> GetTaskScopeAsync(
@@ -110,9 +136,15 @@ public sealed class TaskExecutionScopeService(
         if (request.ExpectedVersion < 0)
             return Invalid<TaskExecutionScopeResponse>("expectedVersion", "Expected version must be zero or a positive integer.");
 
+        if (!TryRequestedPolicy(request.PolicyV2, request.WebEnabled, request.ProjectFilesEnabled, out var requestedPolicy, out var policyError))
+            return Result<TaskExecutionScopeResponse>.Failure(policyError!);
+
         var task = await ManagedTaskAsync(taskItemId, cancellationToken);
         if (task is null)
             return NotFound<TaskExecutionScopeResponse>();
+
+        if (!await CanUseTaskItemRulesAsync(task, requestedPolicy, cancellationToken))
+            return Invalid<TaskExecutionScopeResponse>("policyV2.items", "One or more source rules are not available in the current authorization scope.");
 
         var actor = Actor();
         var overrideScope = await executionScopes.GetTaskOverrideForUpdateAsync(task.Id, cancellationToken);
@@ -121,7 +153,7 @@ public sealed class TaskExecutionScopeService(
             if (request.ExpectedVersion != 0)
                 return Stale<TaskExecutionScopeResponse>();
 
-            overrideScope = NewTaskOverride(task, actor, request.WebEnabled, request.ProjectFilesEnabled);
+            overrideScope = NewTaskOverride(task, actor, requestedPolicy.WebEnabled, requestedPolicy.ProjectFilesEnabled);
             await executionScopes.AddTaskOverrideAsync(overrideScope, cancellationToken);
         }
         else
@@ -129,11 +161,23 @@ public sealed class TaskExecutionScopeService(
             if (overrideScope.VersionNo != request.ExpectedVersion)
                 return Stale<TaskExecutionScopeResponse>();
 
-            overrideScope.WebEnabled = request.WebEnabled;
-            overrideScope.ProjectFilesEnabled = request.ProjectFilesEnabled;
+            overrideScope.WebEnabled = requestedPolicy.WebEnabled;
+            overrideScope.ProjectFilesEnabled = requestedPolicy.ProjectFilesEnabled;
             overrideScope.VersionNo = NextVersion(overrideScope.VersionNo);
             overrideScope.UpdatedByUserId = actor;
         }
+
+        var projectScope = await executionScopes.GetProjectScopeAsync(task.ProjectId, cancellationToken);
+        executionScopes.StageSourcePolicyDocument(new TaskExecutionSourcePolicyDocument(
+            TaskExecutionSourcePolicyOwnerType.Task,
+            task.Id,
+            task.TenantId,
+            task.WorkspaceId,
+            task.ProjectId,
+            task.Id,
+            projectScope?.VersionNo ?? 0,
+            overrideScope.VersionNo,
+            requestedPolicy));
 
         AdvanceTaskVersion(task);
         await audit.LogAsync(new AuditLogEntry(
@@ -143,7 +187,7 @@ public sealed class TaskExecutionScopeService(
             overrideScope.Id,
             WorkspaceId: task.WorkspaceId,
             ProjectId: task.ProjectId,
-            Metadata: ScopeMetadata(overrideScope.WebEnabled, overrideScope.ProjectFilesEnabled, overrideScope.VersionNo)), cancellationToken);
+            Metadata: ScopeMetadata(requestedPolicy, overrideScope.VersionNo)), cancellationToken);
         await invalidations.TaskChangedAsync(task, actor, "executionScopeChanged", cancellationToken: cancellationToken);
 
         var save = await unitOfWork.SaveTaskCommandAsync(cancellationToken);
@@ -182,6 +226,7 @@ public sealed class TaskExecutionScopeService(
         var actor = Actor();
         var removedVersion = overrideScope.VersionNo;
         executionScopes.RemoveTaskOverride(overrideScope);
+        executionScopes.StageSourcePolicyDocumentDelete(TaskExecutionSourcePolicyOwnerType.Task, task.Id);
         AdvanceTaskVersion(task);
         await audit.LogAsync(new AuditLogEntry(
             actor,
@@ -219,11 +264,6 @@ public sealed class TaskExecutionScopeService(
             return NotFound<TaskExecutionRunResponse>();
 
         var actor = Actor();
-        // Only the generated identifier needs to exist before the idempotency
-        // coordinator opens its transaction. The effective policy is read and
-        // copied into this run within the staged callback below, which makes
-        // the persisted snapshot's linearization point part of the accepted
-        // idempotent creation transaction.
         var run = new TaskExecutionRun();
 
         IdempotentCreateResult<TaskExecutionRunResponse> result;
@@ -237,13 +277,13 @@ public sealed class TaskExecutionScopeService(
                     idempotencyKey!,
                     CreateRunFingerprint(task),
                     "TaskExecutionRun",
-                run.Id),
+                    run.Id),
                 async token =>
                 {
                     var projectScope = await executionScopes.GetProjectScopeAsync(task.ProjectId, token);
                     var overrideScope = await executionScopes.GetTaskOverrideAsync(task.Id, token);
                     var researchPlanSnapshot = await researchPlans.GetCurrentExecutionSnapshotForTaskAsync(task.Id, token);
-                    var snapshot = EffectivePolicy(projectScope, overrideScope);
+                    var snapshot = await EffectivePolicyAsync(projectScope, overrideScope, token);
 
                     run.TenantId = task.TenantId;
                     run.WorkspaceId = task.WorkspaceId;
@@ -255,8 +295,8 @@ public sealed class TaskExecutionScopeService(
                     run.SnapshotScopeOrigin = snapshot.Origin;
                     run.SnapshotProjectScopeVersion = snapshot.ProjectVersion;
                     run.SnapshotTaskOverrideVersion = snapshot.OverrideVersion;
-                    run.SnapshotWebEnabled = snapshot.WebEnabled;
-                    run.SnapshotProjectFilesEnabled = snapshot.ProjectFilesEnabled;
+                    run.SnapshotWebEnabled = snapshot.Policy.WebEnabled;
+                    run.SnapshotProjectFilesEnabled = snapshot.Policy.ProjectFilesEnabled;
                     run.SnapshotResearchPlanRevisionId = researchPlanSnapshot?.RevisionId;
                     run.SnapshotResearchPlanRevisionNo = researchPlanSnapshot?.RevisionNo;
                     run.RuntimeProvider = FirstPartyProjectFilesRuntimeV1.Provider;
@@ -268,6 +308,16 @@ public sealed class TaskExecutionScopeService(
                     run.FinishedAtUtc = null;
 
                     await executionScopes.AddRunAsync(run, token);
+                    executionScopes.StageSourcePolicyDocument(new TaskExecutionSourcePolicyDocument(
+                        TaskExecutionSourcePolicyOwnerType.Run,
+                        run.Id,
+                        task.TenantId,
+                        task.WorkspaceId,
+                        task.ProjectId,
+                        task.Id,
+                        snapshot.ProjectVersion,
+                        snapshot.OverrideVersion,
+                        snapshot.Policy));
 
                     AdvanceTaskVersion(task);
                     await audit.LogAsync(new AuditLogEntry(
@@ -277,14 +327,14 @@ public sealed class TaskExecutionScopeService(
                         run.Id,
                         WorkspaceId: task.WorkspaceId,
                         ProjectId: task.ProjectId,
-                        Metadata: RunMetadata(run)), token);
+                        Metadata: RunMetadata(run, snapshot.Policy)), token);
                     await invalidations.TaskChangedAsync(task, actor, "executionRunChanged", cancellationToken: token);
-                    return ToRunResponse(run);
+                    return ToRunResponse(run, snapshot.Policy);
                 },
                 async (runId, token) =>
                 {
                     var existing = await executionScopes.GetRunAsync(runId, token);
-                    return existing is null ? null : ToRunResponse(existing);
+                    return existing is null ? null : await ToRunResponseAsync(existing, token);
                 },
                 cancellationToken);
         }
@@ -317,19 +367,199 @@ public sealed class TaskExecutionScopeService(
         var projectScope = await executionScopes.GetProjectScopeAsync(task.ProjectId, cancellationToken);
         var overrideScope = await executionScopes.GetTaskOverrideAsync(task.Id, cancellationToken);
         var latestRun = await executionScopes.GetLatestRunAsync(task.Id, cancellationToken);
-        var effective = EffectivePolicy(projectScope, overrideScope);
+        var effective = await EffectivePolicyAsync(projectScope, overrideScope, cancellationToken);
+        var overridePolicy = overrideScope is null
+            ? null
+            : await TaskOverridePolicyAsync(overrideScope, cancellationToken);
+        var inventory = await BuildSourceInventoryAsync(task, canManage, cancellationToken);
+        var effectiveForResponse = RedactTaskPolicy(effective.Policy, inventory, canManage);
+        var overrideForResponse = overridePolicy is null ? null : RedactTaskPolicy(overridePolicy, inventory, canManage);
 
         return new TaskExecutionScopeResponse(
-            new TaskExecutionSourcePolicyResponse(effective.WebEnabled, effective.ProjectFilesEnabled),
+            ToPolicyResponse(effectiveForResponse),
             effective.Origin,
             effective.ProjectVersion,
             overrideScope?.VersionNo,
-            overrideScope is null
-                ? null
-                : new TaskExecutionSourcePolicyResponse(overrideScope.WebEnabled, overrideScope.ProjectFilesEnabled),
+            overrideForResponse is null ? null : ToPolicyResponse(overrideForResponse),
             canManage,
-            latestRun is null ? null : ToRunResponse(latestRun),
-            "nextRun");
+            latestRun is null ? null : await ToRunResponseAsync(latestRun, cancellationToken),
+            "nextRun",
+            canManage ? inventory : []);
+    }
+
+    private async Task<IReadOnlyList<TaskExecutionSourceInventoryItemResponse>> BuildSourceInventoryAsync(
+        TaskItem task,
+        bool canManage,
+        CancellationToken cancellationToken)
+    {
+        if (!canManage || !TryActor(out var actor))
+            return [];
+
+        var result = new List<TaskExecutionSourceInventoryItemResponse>();
+        if (fileAuthorization is not null)
+        {
+            var attachments = await executionScopes.ListTaskSourceAttachmentsAsync(task.Id, cancellationToken);
+            var seenFiles = new HashSet<Guid>();
+            foreach (var attachment in attachments)
+            {
+                if (attachment.FileObject is not { } fileObject || !seenFiles.Add(fileObject.Id))
+                    continue;
+                if (!await fileAuthorization.CanViewAttachment(actor, attachment, cancellationToken))
+                    continue;
+
+                result.Add(new TaskExecutionSourceInventoryItemResponse(
+                    TaskExecutionSourceKind.ProjectFile,
+                    TaskExecutionSourcePolicyV2.ProjectFileSourceId(fileObject.Id),
+                    string.IsNullOrWhiteSpace(attachment.FileName) ? fileObject.OriginalFileName : attachment.FileName));
+            }
+        }
+
+        if (await CanManageTenantAsync(task.TenantId, cancellationToken))
+        {
+            var integrations = await executionScopes.ListActiveIntegrationAccountsAsync(cancellationToken);
+            result.AddRange(integrations.Select(account => new TaskExecutionSourceInventoryItemResponse(
+                TaskExecutionSourceKind.ConnectedApp,
+                TaskExecutionSourcePolicyV2.ConnectedAppSourceId(account.Id),
+                account.DisplayName)));
+        }
+
+        return result;
+    }
+
+    private async Task<bool> CanUseProjectItemRulesAsync(
+        Project project,
+        TaskExecutionSourcePolicyV2 policy,
+        CancellationToken cancellationToken)
+    {
+        if (!TryActor(out var actor))
+            return false;
+
+        var projectFileRules = policy.Items.Where(rule => rule.Kind == TaskExecutionSourceKind.ProjectFile).ToList();
+        if (projectFileRules.Count > 0)
+        {
+            if (fileAuthorization is null)
+                return false;
+
+            var allowedFileIds = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var attachment in await executionScopes.ListProjectSourceAttachmentsAsync(project.Id, cancellationToken))
+            {
+                if (attachment.FileObject is { } fileObject &&
+                    await fileAuthorization.CanViewAttachment(actor, attachment, cancellationToken))
+                {
+                    allowedFileIds.Add(TaskExecutionSourcePolicyV2.ProjectFileSourceId(fileObject.Id));
+                }
+            }
+
+            if (projectFileRules.Any(rule => !allowedFileIds.Contains(rule.SourceId)))
+                return false;
+        }
+
+        return await CanUseConnectedAppRulesAsync(project.TenantId, policy, cancellationToken);
+    }
+
+    private async Task<bool> CanUseTaskItemRulesAsync(
+        TaskItem task,
+        TaskExecutionSourcePolicyV2 policy,
+        CancellationToken cancellationToken)
+    {
+        if (!TryActor(out var actor))
+            return false;
+
+        var projectFileRules = policy.Items.Where(rule => rule.Kind == TaskExecutionSourceKind.ProjectFile).ToList();
+        if (projectFileRules.Count > 0)
+        {
+            if (fileAuthorization is null)
+                return false;
+
+            var allowedFileIds = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var attachment in await executionScopes.ListTaskSourceAttachmentsAsync(task.Id, cancellationToken))
+            {
+                if (attachment.FileObject is { } fileObject &&
+                    await fileAuthorization.CanViewAttachment(actor, attachment, cancellationToken))
+                {
+                    allowedFileIds.Add(TaskExecutionSourcePolicyV2.ProjectFileSourceId(fileObject.Id));
+                }
+            }
+
+            if (projectFileRules.Any(rule => !allowedFileIds.Contains(rule.SourceId)))
+                return false;
+        }
+
+        return await CanUseConnectedAppRulesAsync(task.TenantId, policy, cancellationToken);
+    }
+
+    private async Task<bool> CanUseConnectedAppRulesAsync(
+        Guid tenantId,
+        TaskExecutionSourcePolicyV2 policy,
+        CancellationToken cancellationToken)
+    {
+        var connectedRules = policy.Items.Where(rule => rule.Kind == TaskExecutionSourceKind.ConnectedApp).ToList();
+        var requiresTenantAdmin = policy.ConnectedApp != TaskExecutionSourceState.Exclude || connectedRules.Count > 0;
+        if (!requiresTenantAdmin)
+            return true;
+        if (!await CanManageTenantAsync(tenantId, cancellationToken))
+            return false;
+        if (connectedRules.Count == 0)
+            return true;
+
+        var activeIds = (await executionScopes.ListActiveIntegrationAccountsAsync(cancellationToken))
+            .Select(account => TaskExecutionSourcePolicyV2.ConnectedAppSourceId(account.Id))
+            .ToHashSet(StringComparer.Ordinal);
+        return connectedRules.All(rule => activeIds.Contains(rule.SourceId));
+    }
+
+    private async Task<bool> CanManageTenantAsync(Guid tenantId, CancellationToken cancellationToken) =>
+        TryActor(out var actor) && tenantAuthorization is not null &&
+        await tenantAuthorization.CanManageTenantAsync(actor, tenantId, cancellationToken);
+
+    private async Task<TaskExecutionSourcePolicyV2> ProjectPolicyAsync(
+        ProjectExecutionScope? scope,
+        CancellationToken cancellationToken)
+    {
+        if (scope is null)
+            return TaskExecutionSourcePolicyV2.FromLegacy(false, false);
+
+        var document = await executionScopes.GetSourcePolicyDocumentAsync(
+            TaskExecutionSourcePolicyOwnerType.Project,
+            scope.ProjectId,
+            cancellationToken);
+        return document is { ProjectScopeVersion: var version } && version == scope.VersionNo
+            ? document.Policy
+            : TaskExecutionSourcePolicyV2.FromLegacy(scope.WebEnabled, scope.ProjectFilesEnabled);
+    }
+
+    private async Task<TaskExecutionSourcePolicyV2> TaskOverridePolicyAsync(
+        TaskExecutionScopeOverride scope,
+        CancellationToken cancellationToken)
+    {
+        var document = await executionScopes.GetSourcePolicyDocumentAsync(
+            TaskExecutionSourcePolicyOwnerType.Task,
+            scope.TaskItemId,
+            cancellationToken);
+        return document is { TaskOverrideVersion: var version } && version == scope.VersionNo
+            ? document.Policy
+            : TaskExecutionSourcePolicyV2.FromLegacy(scope.WebEnabled, scope.ProjectFilesEnabled);
+    }
+
+    private async Task<EffectiveExecutionScope> EffectivePolicyAsync(
+        ProjectExecutionScope? projectScope,
+        TaskExecutionScopeOverride? taskOverride,
+        CancellationToken cancellationToken)
+    {
+        if (taskOverride is not null)
+        {
+            return new EffectiveExecutionScope(
+                TaskExecutionScopeOrigin.TaskOverride,
+                projectScope?.VersionNo ?? 0,
+                taskOverride.VersionNo,
+                await TaskOverridePolicyAsync(taskOverride, cancellationToken));
+        }
+
+        return new EffectiveExecutionScope(
+            TaskExecutionScopeOrigin.ProjectDefault,
+            projectScope?.VersionNo ?? 0,
+            null,
+            await ProjectPolicyAsync(projectScope, cancellationToken));
     }
 
     private async Task<Project?> VisibleProjectAsync(Guid projectId, CancellationToken cancellationToken)
@@ -416,13 +646,29 @@ public sealed class TaskExecutionScopeService(
         UpdatedByUserId = actor
     };
 
-    private static ProjectExecutionScopeResponse ToProjectResponse(ProjectExecutionScope? scope, bool canManage) =>
-        new(
-            new TaskExecutionSourcePolicyResponse(scope?.WebEnabled ?? false, scope?.ProjectFilesEnabled ?? false),
+    private static ProjectExecutionScopeResponse ToProjectResponse(
+        ProjectExecutionScope? scope,
+        TaskExecutionSourcePolicyV2 policy,
+        bool canManage) => new(
+            ToPolicyResponse(policy),
             scope?.VersionNo ?? 0,
             canManage);
 
-    private static TaskExecutionRunResponse ToRunResponse(TaskExecutionRun run) => new(
+    private async Task<TaskExecutionRunResponse> ToRunResponseAsync(
+        TaskExecutionRun run,
+        CancellationToken cancellationToken)
+    {
+        var document = await executionScopes.GetSourcePolicyDocumentAsync(
+            TaskExecutionSourcePolicyOwnerType.Run,
+            run.Id,
+            cancellationToken);
+        var policy = document?.Policy ?? TaskExecutionSourcePolicyV2.FromLegacy(
+            run.SnapshotWebEnabled,
+            run.SnapshotProjectFilesEnabled);
+        return ToRunResponse(run, policy);
+    }
+
+    private static TaskExecutionRunResponse ToRunResponse(TaskExecutionRun run, TaskExecutionSourcePolicyV2 policy) => new(
         run.Id,
         run.Status,
         run.FailureCode,
@@ -439,34 +685,96 @@ public sealed class TaskExecutionScopeService(
         run.QueuedAtUtc,
         run.StartedAtUtc,
         run.SnapshotResearchPlanRevisionId,
-        run.SnapshotResearchPlanRevisionNo);
+        run.SnapshotResearchPlanRevisionNo,
+        policy);
 
-    private static EffectiveExecutionScope EffectivePolicy(
-        ProjectExecutionScope? projectScope,
-        TaskExecutionScopeOverride? taskOverride) =>
-        taskOverride is null
-            ? new EffectiveExecutionScope(
-                TaskExecutionScopeOrigin.ProjectDefault,
-                projectScope?.VersionNo ?? 0,
-                null,
-                projectScope?.WebEnabled ?? false,
-                projectScope?.ProjectFilesEnabled ?? false)
-            : new EffectiveExecutionScope(
-                TaskExecutionScopeOrigin.TaskOverride,
-                projectScope?.VersionNo ?? 0,
-                taskOverride.VersionNo,
-                taskOverride.WebEnabled,
-                taskOverride.ProjectFilesEnabled);
+    private static TaskExecutionSourcePolicyResponse ToPolicyResponse(TaskExecutionSourcePolicyV2 policy) =>
+        new(policy.WebEnabled, policy.ProjectFilesEnabled, policy);
 
-    private static IReadOnlyDictionary<string, object?> ScopeMetadata(bool webEnabled, bool projectFilesEnabled, long version) =>
+    private static TaskExecutionSourcePolicyV2 RedactProjectPolicy(
+        TaskExecutionSourcePolicyV2 policy,
+        bool canManage,
+        bool canManageConnectedApps)
+    {
+        if (!canManage)
+            return policy with { Items = [] };
+        if (canManageConnectedApps)
+            return policy;
+        return policy with
+        {
+            ConnectedApp = TaskExecutionSourceState.Exclude,
+            Items = policy.Items.Where(rule => rule.Kind != TaskExecutionSourceKind.ConnectedApp).ToList()
+        };
+    }
+
+    private static TaskExecutionSourcePolicyV2 RedactTaskPolicy(
+        TaskExecutionSourcePolicyV2 policy,
+        IReadOnlyList<TaskExecutionSourceInventoryItemResponse> inventory,
+        bool canManage)
+    {
+        if (!canManage)
+            return policy with { Items = [] };
+
+        var visibleIds = inventory.Select(item => (item.Kind, item.SourceId)).ToHashSet();
+        return policy with
+        {
+            Items = policy.Items
+                .Where(rule => rule.Kind is TaskExecutionSourceKind.Web or TaskExecutionSourceKind.WebSite ||
+                               visibleIds.Contains((rule.Kind, rule.SourceId)))
+                .ToList()
+        };
+    }
+
+    private static bool TryRequestedPolicy(
+        TaskExecutionSourcePolicyV2? supplied,
+        bool webEnabled,
+        bool projectFilesEnabled,
+        out TaskExecutionSourcePolicyV2 policy,
+        out ApplicationErrorDetail? error)
+    {
+        error = null;
+        if (supplied is null)
+        {
+            policy = TaskExecutionSourcePolicyV2.FromLegacy(webEnabled, projectFilesEnabled);
+            return true;
+        }
+
+        if (!supplied.TryNormalize(out policy, out var target, out var message))
+        {
+            error = new ApplicationErrorDetail(
+                "TASK_EXECUTION_VALIDATION_FAILED",
+                message ?? "Source policy is invalid.",
+                Target: target ?? "policyV2");
+            return false;
+        }
+
+        if (policy.WebEnabled != webEnabled || policy.ProjectFilesEnabled != projectFilesEnabled)
+        {
+            error = new ApplicationErrorDetail(
+                "TASK_EXECUTION_VALIDATION_FAILED",
+                "The legacy compatibility flags contradict policyV2. Recompute them from the itemized policy before saving.",
+                Target: "policyV2");
+            return false;
+        }
+
+        return true;
+    }
+
+    private static IReadOnlyDictionary<string, object?> ScopeMetadata(TaskExecutionSourcePolicyV2 policy, long version) =>
         new Dictionary<string, object?>
         {
-            ["webEnabled"] = webEnabled,
-            ["projectFilesEnabled"] = projectFilesEnabled,
-            ["scopeVersion"] = version
+            ["webEnabled"] = policy.WebEnabled,
+            ["projectFilesEnabled"] = policy.ProjectFilesEnabled,
+            ["scopeVersion"] = version,
+            ["policySchemaVersion"] = policy.SchemaVersion,
+            ["webDefault"] = policy.Web.ToString(),
+            ["webSiteDefault"] = policy.WebSite.ToString(),
+            ["projectFileDefault"] = policy.ProjectFile.ToString(),
+            ["connectedAppDefault"] = policy.ConnectedApp.ToString(),
+            ["itemRuleCount"] = policy.Items.Count
         };
 
-    private static IReadOnlyDictionary<string, object?> RunMetadata(TaskExecutionRun run) =>
+    private static IReadOnlyDictionary<string, object?> RunMetadata(TaskExecutionRun run, TaskExecutionSourcePolicyV2 policy) =>
         new Dictionary<string, object?>
         {
             ["snapshotSchemaVersion"] = run.SnapshotSchemaVersion,
@@ -475,22 +783,16 @@ public sealed class TaskExecutionScopeService(
             ["taskOverrideVersion"] = run.SnapshotTaskOverrideVersion,
             ["webEnabled"] = run.SnapshotWebEnabled,
             ["projectFilesEnabled"] = run.SnapshotProjectFilesEnabled,
+            ["policySchemaVersion"] = policy.SchemaVersion,
+            ["itemRuleCount"] = policy.Items.Count,
             ["researchPlanRevisionNo"] = run.SnapshotResearchPlanRevisionNo,
             ["runtimeProvider"] = run.RuntimeProvider.ToString(),
             ["runtimeContractVersion"] = run.RuntimeContractVersion,
             ["status"] = run.Status.ToString()
         };
 
-    private static string CreateRunFingerprint(TaskItem task)
-    {
-        // The request body deliberately has no source-policy fields. A retry
-        // with the same key must replay the originally persisted immutable
-        // snapshot even if a Project manager changes policy before the client
-        // receives its response. Tenant, actor, and operation are already
-        // independent parts of the idempotency context.
-        return Convert.ToHexStringLower(
-            SHA256.HashData(Encoding.UTF8.GetBytes(task.Id.ToString("N"))));
-    }
+    private static string CreateRunFingerprint(TaskItem task) =>
+        Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(task.Id.ToString("N"))));
 
     private static bool IsValidIdempotencyKey(string? value) =>
         value is { Length: >= 8 and <= 128 } &&
@@ -518,6 +820,5 @@ public sealed class TaskExecutionScopeService(
         TaskExecutionScopeOrigin Origin,
         long ProjectVersion,
         long? OverrideVersion,
-        bool WebEnabled,
-        bool ProjectFilesEnabled);
+        TaskExecutionSourcePolicyV2 Policy);
 }
