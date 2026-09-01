@@ -62,7 +62,11 @@ public sealed class DbAuditFindingsService(
         IQueryable<ArtifactFinding> findingsQuery = dbContext.Set<ArtifactFinding>()
             .AsNoTracking()
             .Include(finding => finding.History)
-            .Where(finding => claimIds.Contains(finding.ArtifactClaimId));
+            .Where(finding =>
+                claimIds.Contains(finding.ArtifactClaimId) &&
+                dbContext.Set<ArtifactClaim>().Any(claim =>
+                    claim.Id == finding.ArtifactClaimId &&
+                    claim.TenantId == finding.TenantId));
 
         if (status.HasValue)
         {
@@ -166,7 +170,7 @@ public sealed class DbAuditFindingsService(
         var finding = await dbContext.Set<ArtifactFinding>()
             .Include(item => item.ArtifactClaim)
             .SingleOrDefaultAsync(item => item.Id == findingId, cancellationToken);
-        if (finding?.ArtifactClaim is null)
+        if (finding?.ArtifactClaim is null || finding.ArtifactClaim.TenantId != finding.TenantId)
         {
             return FindingNotFound();
         }
@@ -265,7 +269,10 @@ public sealed class DbAuditFindingsService(
         var tenantId = findings[0].TenantId;
         var tenantOwnerIds = await dbContext.TenantUsers
             .AsNoTracking()
-            .Where(link => link.TenantId == tenantId && ownerIds.Contains(link.UserId))
+            .Where(link =>
+                link.TenantId == tenantId &&
+                link.Status == TenantUserStatus.Active &&
+                ownerIds.Contains(link.UserId))
             .Select(link => link.UserId)
             .Distinct()
             .ToListAsync(cancellationToken);
