@@ -12,6 +12,10 @@ public sealed record AuditFindingHistoryResponse(
     string? Reason,
     DateTimeOffset ChangedAt);
 
+public sealed record AuditFindingOwnerResponse(
+    Guid UserId,
+    string DisplayName);
+
 public sealed record AuditFindingResponse(
     Guid FindingId,
     Guid ClaimId,
@@ -37,9 +41,11 @@ public sealed record AuditFindingsResponse(
     int ArtifactVersionNumber,
     string ArtifactTitle,
     bool CanReview,
+    IReadOnlyList<AuditFindingOwnerResponse> EligibleOwners,
     IReadOnlyList<AuditFindingResponse> Findings);
 
 public sealed record UpdateAuditFindingTriageRequest(
     string Status,
     string? Reason = null,
-    bool TakeOwnership = true);
+    Guid? OwnerUserId = null,
+    bool AssignOwner = false);
