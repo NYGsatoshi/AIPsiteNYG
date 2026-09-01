@@ -38,6 +38,7 @@ on:
       - "src/AipPortal.Web/Security/**"
       - "src/AipPortal.Web/Tenancy/**"
       - "src/AipPortal.Web/appsettings*.json"
+      - "scripts/ci/route-acceptance-changes.sh"
       - "scripts/ci/run-mbj02-invite-acceptance.sh"
       - "scripts/ci/verify-npm-lockfile.mjs"
       - "tests/ui/mbj02-invite-acceptance.mjs"
@@ -79,6 +80,7 @@ on:
       - "src/AipPortal.Web/Security/**"
       - "src/AipPortal.Web/Tenancy/**"
       - "src/AipPortal.Web/appsettings*.json"
+      - "scripts/ci/route-acceptance-changes.sh"
       - "scripts/ci/run-mbj02-invite-acceptance.sh"
       - "scripts/ci/verify-npm-lockfile.mjs"
       - "tests/ui/mbj02-invite-acceptance.mjs"
@@ -87,8 +89,32 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    name: MBJ-02 change routing
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.route.outputs.run }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Route MBJ-02 acceptance by changed content
+        id: route
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: bash scripts/ci/route-acceptance-changes.sh mbj02
+
   mbj02-invite-onboarding:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    needs: changes
+    if: needs.changes.outputs.run == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: self-hosted
     timeout-minutes: 45
     concurrency:

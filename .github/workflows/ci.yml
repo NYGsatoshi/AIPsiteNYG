@@ -21,12 +21,31 @@ permissions:
 jobs:
   changes:
     name: CI change routing
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
       backend: ${{ steps.classify.outputs.backend }}
+      backend_ef: ${{ steps.classify.outputs.backend_ef }}
+      backend_tests: ${{ steps.classify.outputs.backend_tests }}
+      backend_test_scope: ${{ steps.classify.outputs.backend_test_scope }}
+      backend_test_filter: ${{ steps.classify.outputs.backend_test_filter }}
+      backend_pr07b: ${{ steps.classify.outputs.backend_pr07b }}
+      backend_pr07c: ${{ steps.classify.outputs.backend_pr07c }}
+      backend_pr07d: ${{ steps.classify.outputs.backend_pr07d }}
       frontend: ${{ steps.classify.outputs.frontend }}
+      frontend_build: ${{ steps.classify.outputs.frontend_build }}
+      frontend_unit: ${{ steps.classify.outputs.frontend_unit }}
+      frontend_unit_scope: ${{ steps.classify.outputs.frontend_unit_scope }}
+      frontend_unit_features: ${{ steps.classify.outputs.frontend_unit_features }}
+      frontend_architecture: ${{ steps.classify.outputs.frontend_architecture }}
+      frontend_license_guard: ${{ steps.classify.outputs.frontend_license_guard }}
+      frontend_storybook: ${{ steps.classify.outputs.frontend_storybook }}
+      frontend_playwright: ${{ steps.classify.outputs.frontend_playwright }}
       security: ${{ steps.classify.outputs.security }}
+      security_dotnet: ${{ steps.classify.outputs.security_dotnet }}
+      security_compose: ${{ steps.classify.outputs.security_compose }}
+      security_migration: ${{ steps.classify.outputs.security_migration }}
+      security_image: ${{ steps.classify.outputs.security_image }}
 
     steps:
       - name: Checkout
@@ -36,83 +55,17 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Classify changed files
+      - name: Classify changed work
         id: classify
         shell: bash
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: |
-          set -euo pipefail
-
-          zero_sha="0000000000000000000000000000000000000000"
-          base_sha="${BASE_SHA:-}"
-          head_sha="${HEAD_SHA:-$GITHUB_SHA}"
-
-          route_all() {
-            {
-              echo "backend=true"
-              echo "frontend=true"
-              echo "security=true"
-            } >> "$GITHUB_OUTPUT"
-            echo "Unable to establish a safe diff base; all CI lanes are enabled." >> "$GITHUB_STEP_SUMMARY"
-          }
-
-          if [[ -z "$base_sha" || "$base_sha" == "$zero_sha" ]] || \
-             ! git cat-file -e "${base_sha}^{commit}" 2>/dev/null || \
-             ! git cat-file -e "${head_sha}^{commit}" 2>/dev/null; then
-            route_all
-            exit 0
-          fi
-
-          changed_file_list="$RUNNER_TEMP/ci-changed-files.txt"
-          git diff --name-only "$base_sha" "$head_sha" > "$changed_file_list"
-
-          backend=false
-          frontend=false
-          security=false
-
-          while IFS= read -r path; do
-            [[ -n "$path" ]] || continue
-
-            case "$path" in
-              .github/workflows/ci.yml|AipPortal.slnx|global.json|NuGet.config|Directory.Build.*|Directory.Packages.*|.config/*|src/*|tests/AipPortal.Tests/*|scripts/ci/configure-persistent-caches.sh|scripts/ci/verify-trx-results.sh|scripts/ci/task-pr07b-required-tests.txt|scripts/ci/task-pr07c-required-tests.txt|scripts/ci/task-pr07d-required-tests.txt)
-                backend=true
-                ;;
-            esac
-
-            case "$path" in
-              .github/workflows/ci.yml|frontend/*|tests/ui/*|package.json|package-lock.json|.npmrc|Dockerfile.playwright|docker-compose.playwright.yml|docker-compose.real-backend-smoke.yml|playwright.config.*|scripts/ci/configure-persistent-caches.sh|scripts/ci/npm-ci-retry.sh)
-                frontend=true
-                ;;
-            esac
-
-            case "$path" in
-              .github/workflows/ci.yml|.dockerignore|.env|.env.*|.env.example|AipPortal.slnx|global.json|NuGet.config|Directory.Build.*|Directory.Packages.*|.config/*|Dockerfile|Dockerfile.*|docker-compose*.yml|deploy/*|package.json|package-lock.json|frontend/package.json|frontend/package-lock.json|src/*.csproj|tests/AipPortal.Tests/*.csproj|src/AipPortal.Infrastructure/Migrations/*|scripts/ci/*|*/syncfusion-license.txt|syncfusion-license.txt)
-                security=true
-                ;;
-            esac
-          done < "$changed_file_list"
-
-          {
-            echo "backend=$backend"
-            echo "frontend=$frontend"
-            echo "security=$security"
-          } >> "$GITHUB_OUTPUT"
-
-          {
-            echo "### CI routing"
-            echo "- backend: $backend"
-            echo "- frontend: $frontend"
-            echo "- heavy security: $security"
-            echo
-            echo "Changed files:"
-            sed 's/^/- `/' "$changed_file_list" | sed 's/$/`/'
-          } >> "$GITHUB_STEP_SUMMARY"
+        run: bash scripts/ci/route-main-ci-changes.sh
 
   secret-scan:
     name: Secret scan
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 10
 
     steps:
@@ -250,12 +203,15 @@ jobs:
         run: '"$DOTNET_CMD" build AipPortal.slnx --configuration Release --no-restore --disable-build-servers -m:1'
 
       - name: Restore .NET tools
+        if: needs.changes.outputs.backend_ef == 'true'
         run: '"$DOTNET_CMD" tool restore'
 
       - name: Apply PostgreSQL migrations
+        if: needs.changes.outputs.backend_ef == 'true'
         run: '"$DOTNET_CMD" ef database update --project src/AipPortal.Infrastructure --startup-project src/AipPortal.Web --configuration Release'
 
       - name: Verify EF Core model has no pending changes
+        if: needs.changes.outputs.backend_ef == 'true'
         shell: bash
         run: |
           "$DOTNET_CMD" ef migrations has-pending-model-changes \
@@ -264,24 +220,116 @@ jobs:
             --configuration Release \
             --no-build
 
-      - name: Test
-        run: >-
-          "$DOTNET_CMD" test AipPortal.slnx
-          --configuration Release
-          --no-build
-          --disable-build-servers
-          -m:1
-          --verbosity normal
-          --logger "trx;LogFileName=backend-tests.trx"
-          --results-directory artifacts/test-results
-
-      - name: Verify full backend test results
+      - name: Run routed backend tests
+        if: needs.changes.outputs.backend_tests == 'true'
+        env:
+          BACKEND_TEST_SCOPE: ${{ needs.changes.outputs.backend_test_scope }}
+          BACKEND_TEST_FILTER: ${{ needs.changes.outputs.backend_test_filter }}
         shell: bash
         run: |
+          set -euo pipefail
+          target="AipPortal.slnx"
+          filter_args=()
+          if [[ "$BACKEND_TEST_SCOPE" == "scoped" ]]; then
+            test -n "$BACKEND_TEST_FILTER"
+            target="tests/AipPortal.Tests/AipPortal.Tests.csproj"
+            filter_args+=(--filter "$BACKEND_TEST_FILTER")
+          fi
+
+          "$DOTNET_CMD" test "$target" \
+            --configuration Release \
+            --no-build \
+            --disable-build-servers \
+            -m:1 \
+            --verbosity normal \
+            "${filter_args[@]}" \
+            --logger "trx;LogFileName=backend-tests.trx" \
+            --results-directory artifacts/test-results
+
+      - name: Verify routed backend test results
+        if: needs.changes.outputs.backend_tests == 'true'
+        env:
+          BACKEND_TEST_SCOPE: ${{ needs.changes.outputs.backend_test_scope }}
+        shell: bash
+        run: |
+          label="Scoped backend"
+          [[ "$BACKEND_TEST_SCOPE" == "full" ]] && label="Full backend"
           bash scripts/ci/verify-trx-results.sh \
             artifacts/test-results/backend-tests.trx \
             --minimum-total 1 \
-            --label "Full backend"
+            --label "$label"
+
+      - name: Run routed TASK-V1-PR07 acceptance tests
+        if: >-
+          needs.changes.outputs.backend_test_scope != 'full' &&
+          (needs.changes.outputs.backend_pr07b == 'true' ||
+           needs.changes.outputs.backend_pr07c == 'true' ||
+           needs.changes.outputs.backend_pr07d == 'true')
+        env:
+          RUN_PR07B: ${{ needs.changes.outputs.backend_pr07b }}
+          RUN_PR07C: ${{ needs.changes.outputs.backend_pr07c }}
+          RUN_PR07D: ${{ needs.changes.outputs.backend_pr07d }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          filters=()
+          [[ "$RUN_PR07B" == "true" ]] && filters+=("Scope=TaskV1PR07B")
+          [[ "$RUN_PR07C" == "true" ]] && filters+=("Scope=TaskV1PR07C")
+          [[ "$RUN_PR07D" == "true" ]] && filters+=("Scope=TaskV1PR07D")
+          test "${#filters[@]}" -gt 0
+          filter="$(IFS='|'; echo "${filters[*]}")"
+
+          "$DOTNET_CMD" test tests/AipPortal.Tests/AipPortal.Tests.csproj \
+            --configuration Release \
+            --no-build \
+            --disable-build-servers \
+            -m:1 \
+            --verbosity normal \
+            --filter "$filter" \
+            --logger "trx;LogFileName=backend-pr07-tests.trx" \
+            --results-directory artifacts/test-results
+
+      - name: Verify TASK-V1-PR07-B acceptance results
+        if: needs.changes.outputs.backend_test_scope == 'full' || needs.changes.outputs.backend_pr07b == 'true'
+        env:
+          BACKEND_TEST_SCOPE: ${{ needs.changes.outputs.backend_test_scope }}
+        shell: bash
+        run: |
+          trx="artifacts/test-results/backend-pr07-tests.trx"
+          [[ "$BACKEND_TEST_SCOPE" == "full" ]] && trx="artifacts/test-results/backend-tests.trx"
+          bash scripts/ci/verify-trx-results.sh \
+            "$trx" \
+            --minimum-total 1 \
+            --required-tests scripts/ci/task-pr07b-required-tests.txt \
+            --label "TASK-V1-PR07-B"
+
+      - name: Verify TASK-V1-PR07-C acceptance results
+        if: needs.changes.outputs.backend_test_scope == 'full' || needs.changes.outputs.backend_pr07c == 'true'
+        env:
+          BACKEND_TEST_SCOPE: ${{ needs.changes.outputs.backend_test_scope }}
+        shell: bash
+        run: |
+          trx="artifacts/test-results/backend-pr07-tests.trx"
+          [[ "$BACKEND_TEST_SCOPE" == "full" ]] && trx="artifacts/test-results/backend-tests.trx"
+          bash scripts/ci/verify-trx-results.sh \
+            "$trx" \
+            --minimum-total 1 \
+            --required-tests scripts/ci/task-pr07c-required-tests.txt \
+            --label "TASK-V1-PR07-C"
+
+      - name: Verify TASK-V1-PR07-D acceptance results
+        if: needs.changes.outputs.backend_test_scope == 'full' || needs.changes.outputs.backend_pr07d == 'true'
+        env:
+          BACKEND_TEST_SCOPE: ${{ needs.changes.outputs.backend_test_scope }}
+        shell: bash
+        run: |
+          trx="artifacts/test-results/backend-pr07-tests.trx"
+          [[ "$BACKEND_TEST_SCOPE" == "full" ]] && trx="artifacts/test-results/backend-tests.trx"
+          bash scripts/ci/verify-trx-results.sh \
+            "$trx" \
+            --minimum-total 1 \
+            --required-tests scripts/ci/task-pr07d-required-tests.txt \
+            --label "TASK-V1-PR07-D"
 
       - name: Upload backend test results
         if: failure()
@@ -291,33 +339,6 @@ jobs:
           name: backend-test-results
           path: artifacts/test-results
           if-no-files-found: warn
-
-      - name: Verify TASK-V1-PR07-B acceptance results
-        shell: bash
-        run: |
-          bash scripts/ci/verify-trx-results.sh \
-            artifacts/test-results/backend-tests.trx \
-            --minimum-total 1 \
-            --required-tests scripts/ci/task-pr07b-required-tests.txt \
-            --label "TASK-V1-PR07-B"
-
-      - name: Verify TASK-V1-PR07-C acceptance results
-        shell: bash
-        run: |
-          bash scripts/ci/verify-trx-results.sh \
-            artifacts/test-results/backend-tests.trx \
-            --minimum-total 1 \
-            --required-tests scripts/ci/task-pr07c-required-tests.txt \
-            --label "TASK-V1-PR07-C"
-
-      - name: Verify TASK-V1-PR07-D acceptance results
-        shell: bash
-        run: |
-          bash scripts/ci/verify-trx-results.sh \
-            artifacts/test-results/backend-tests.trx \
-            --minimum-total 1 \
-            --required-tests scripts/ci/task-pr07d-required-tests.txt \
-            --label "TASK-V1-PR07-D"
 
       - name: Report backend cache and host resources on failure
         if: failure()
@@ -372,6 +393,7 @@ jobs:
           persist-credentials: false
 
       - name: Initialize security reports
+        if: needs.changes.outputs.security_dotnet == 'true' || needs.changes.outputs.security_image == 'true'
         shell: bash
         run: |
           mkdir -p artifacts/ci
@@ -380,6 +402,7 @@ jobs:
           printf 'Trivy image scan did not run.\n' > trivy-image-report.txt
 
       - name: Configure persistent .NET caches
+        if: needs.changes.outputs.security_dotnet == 'true'
         shell: bash
         run: |
           bash scripts/ci/configure-persistent-caches.sh
@@ -403,11 +426,13 @@ jobs:
           echo "$install_dir" >> "$GITHUB_PATH"
 
       - name: Setup .NET
+        if: needs.changes.outputs.security_dotnet == 'true'
         uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
 
       - name: Restore
+        if: needs.changes.outputs.security_dotnet == 'true'
         shell: bash
         run: |
           log="$GITHUB_WORKSPACE/artifacts/ci/security-dotnet-restore.log"
@@ -420,7 +445,7 @@ jobs:
           exit "$restore_status"
 
       - name: Upload security restore log
-        if: failure()
+        if: failure() && needs.changes.outputs.security_dotnet == 'true'
         continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
@@ -429,6 +454,7 @@ jobs:
           if-no-files-found: error
 
       - name: Check .NET vulnerable packages
+        if: needs.changes.outputs.security_dotnet == 'true'
         shell: bash
         run: |
           set +e
@@ -442,6 +468,7 @@ jobs:
           exit "$status"
 
       - name: Report .NET deprecated packages
+        if: needs.changes.outputs.security_dotnet == 'true'
         shell: bash
         run: |
           set +e
@@ -452,7 +479,7 @@ jobs:
           exit "$status"
 
       - name: Upload .NET dependency scan reports
-        if: failure()
+        if: failure() && needs.changes.outputs.security_dotnet == 'true'
         continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
@@ -463,6 +490,7 @@ jobs:
           if-no-files-found: error
 
       - name: Validate Docker Compose configs
+        if: needs.changes.outputs.security_compose == 'true'
         env:
           POSTGRES_DB: aip_portal
           POSTGRES_USER: aip_portal
@@ -483,6 +511,7 @@ jobs:
           bash scripts/ci/verify-onprem-proxy-topology.sh
 
       - name: Verify on-prem Compose migration service
+        if: needs.changes.outputs.security_migration == 'true'
         env:
           DB_PASSWORD: ci_dummy_password
         shell: bash
@@ -497,7 +526,7 @@ jobs:
             up --abort-on-container-exit --exit-code-from migrate postgres migrate
 
       - name: Build Docker image with persistent BuildKit caches
-        if: github.event_name != 'pull_request' || github.event.pull_request.user.login != 'dependabot[bot]'
+        if: needs.changes.outputs.security_image == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.user.login != 'dependabot[bot]')
         env:
           SYNCFUSION_LICENSE: ${{ secrets.SYNCFUSION_LICENSE }}
         shell: bash
@@ -532,7 +561,7 @@ jobs:
           done
 
       - name: Verify runtime image excludes Syncfusion license material
-        if: github.event_name != 'pull_request' || github.event.pull_request.user.login != 'dependabot[bot]'
+        if: needs.changes.outputs.security_image == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.user.login != 'dependabot[bot]')
         shell: bash
         run: |
           docker run --rm --entrypoint sh "$IMAGE_NAME" -c '
@@ -543,7 +572,7 @@ jobs:
           '
 
       - name: Scan Docker image with Trivy
-        if: github.event_name != 'pull_request' || github.event.pull_request.user.login != 'dependabot[bot]'
+        if: needs.changes.outputs.security_image == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.user.login != 'dependabot[bot]')
         shell: bash
         run: |
           set +e
@@ -561,7 +590,7 @@ jobs:
           exit "$status"
 
       - name: Scan repository with Trivy for Dependabot
-        if: github.event_name == 'pull_request' && github.event.pull_request.user.login == 'dependabot[bot]'
+        if: needs.changes.outputs.security_image == 'true' && github.event_name == 'pull_request' && github.event.pull_request.user.login == 'dependabot[bot]'
         shell: bash
         run: |
           set +e
@@ -578,7 +607,7 @@ jobs:
           exit "$status"
 
       - name: Upload Trivy image scan report
-        if: failure()
+        if: failure() && needs.changes.outputs.security_image == 'true'
         continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
@@ -587,7 +616,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Remove per-run Docker image
-        if: always()
+        if: always() && needs.changes.outputs.security_image == 'true'
         shell: bash
         run: docker image rm --force "$IMAGE_NAME" || true
 
@@ -640,23 +669,30 @@ jobs:
           node-version: "24"
 
       - name: Configure persistent npm and Angular caches
+        if: >-
+          needs.changes.outputs.frontend_build == 'true' ||
+          needs.changes.outputs.frontend_unit == 'true' ||
+          needs.changes.outputs.frontend_architecture == 'true' ||
+          needs.changes.outputs.frontend_license_guard == 'true' ||
+          needs.changes.outputs.frontend_storybook == 'true'
         env:
           CI_ENABLE_ANGULAR_CACHE: "1"
         shell: bash
         run: bash scripts/ci/configure-persistent-caches.sh
 
-      - name: Install repo Playwright dependencies
-        run: bash scripts/ci/npm-ci-retry.sh .
-
       - name: Install Angular frontend dependencies
+        if: >-
+          needs.changes.outputs.frontend_build == 'true' ||
+          needs.changes.outputs.frontend_unit == 'true' ||
+          needs.changes.outputs.frontend_architecture == 'true' ||
+          needs.changes.outputs.frontend_license_guard == 'true' ||
+          needs.changes.outputs.frontend_storybook == 'true'
         run: bash scripts/ci/npm-ci-retry.sh frontend
 
-      - name: Angular production build
-        working-directory: frontend
-        run: npm run build
-
-      - name: Validate licensed frontend build when Syncfusion is installed
-        if: github.event_name != 'pull_request' || github.event.pull_request.user.login != 'dependabot[bot]'
+      - name: Activate Syncfusion license for frontend compilation
+        if: >-
+          (needs.changes.outputs.frontend_build == 'true' || needs.changes.outputs.frontend_storybook == 'true') &&
+          (github.event_name != 'pull_request' || github.event.pull_request.user.login != 'dependabot[bot]')
         working-directory: frontend
         env:
           SYNCFUSION_LICENSE: ${{ secrets.SYNCFUSION_LICENSE }}
@@ -664,31 +700,60 @@ jobs:
         run: |
           test -x node_modules/.bin/syncfusion-license
           test -n "${SYNCFUSION_LICENSE:-}"
-          npm run build:licensed
+          npm run syncfusion:activate
+
+      - name: Angular production build
+        if: needs.changes.outputs.frontend_build == 'true'
+        working-directory: frontend
+        run: npm run build
 
       - name: Angular unit tests
+        if: needs.changes.outputs.frontend_unit == 'true'
         working-directory: frontend
-        run: npm run test
+        env:
+          FRONTEND_UNIT_SCOPE: ${{ needs.changes.outputs.frontend_unit_scope }}
+          FRONTEND_UNIT_FEATURES: ${{ needs.changes.outputs.frontend_unit_features }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=()
+          if [[ "$FRONTEND_UNIT_SCOPE" == "features" ]]; then
+            IFS=',' read -r -a features <<< "$FRONTEND_UNIT_FEATURES"
+            for feature in "${features[@]}"; do
+              [[ -n "$feature" ]] || continue
+              args+=(--include "src/app/features/${feature}/**/*.spec.ts")
+            done
+          fi
+          npm run test -- "${args[@]}"
 
-      - name: Validate frontend architecture and Syncfusion license safeguards
+      - name: Validate frontend architecture
+        if: needs.changes.outputs.frontend_architecture == 'true'
         working-directory: frontend
         run: |
           npm run check:architecture
           npm run test:architecture
-          npm run test:syncfusion-license
+
+      - name: Validate Syncfusion license safeguards
+        if: needs.changes.outputs.frontend_license_guard == 'true'
+        working-directory: frontend
+        run: npm run test:syncfusion-license
 
       - name: Angular Storybook build
+        if: needs.changes.outputs.frontend_storybook == 'true'
         working-directory: frontend
         env:
           NODE_OPTIONS: --max-old-space-size=4096
         run: npm run build-storybook
 
       - name: Angular Playwright smoke
+        if: needs.changes.outputs.frontend_playwright == 'true'
+        env:
+          AIP_PLAYWRIGHT_REUSE_HOST_BUILD: ${{ needs.changes.outputs.frontend_build }}
         shell: bash
         run: npm run test:ui:angular:docker
 
       - name: Upload Playwright artifacts
-        if: failure()
+        if: failure() && needs.changes.outputs.frontend_playwright == 'true'
         continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
