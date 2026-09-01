@@ -41,7 +41,9 @@ Triage mutation never rewrites Claim/Evidence content or detector metadata.
 
 ## Ownership
 
-The v1 mutation endpoint supports taking ownership as the authenticated reviewer. Owner identity is projected only when that user remains a member of the Finding's tenant. The stable owner user ID remains part of the authorized Finding state.
+When the caller has `audit.review`, the Findings response includes a bounded list of active users in the Finding tenant as eligible owners. A reviewer may assign any eligible owner or clear the owner. The server revalidates that a selected owner is still an active tenant member and active user at mutation time; stale or cross-tenant owner IDs are rejected.
+
+Current Owner display is projected only while that user remains an active member of the Finding's tenant. The stable owner user ID remains part of the authorized Finding state.
 
 ## Authorization and non-disclosure
 
@@ -49,13 +51,15 @@ The v1 mutation endpoint supports taking ownership as the authenticated reviewer
 
 `GET /api/admin/audit/findings` does not independently enumerate Findings first. It first resolves the requested Artifact version through the canonical Claims & Evidence projection, which requires `audit.view`, current Artifact authorization, and current source authorization.
 
-Only Findings whose canonical Claim IDs exist in that authorized projection may be returned. Related Evidence and Event links are derived only from already-authorized Evidence projection entries. A hidden Evidence row, source title, passage, location, reference, or Event ID is never recovered from the Finding query.
+Only Findings whose canonical Claim IDs exist in that authorized projection may be returned. The Finding and parent Claim tenant IDs must also agree. Related Evidence and Event links are derived only from already-authorized Evidence projection entries. A hidden Evidence row, source title, passage, location, reference, or Event ID is never recovered from the Finding query.
+
+Eligible owner options are returned only when `CanReview` is true and are limited to active users in the same tenant as the Finding.
 
 ### Mutation
 
-`PATCH /api/admin/audit/findings/{findingId}/triage` requires `audit.review` and then re-runs the canonical Claims & Evidence authorization for the Finding's parent Artifact version. A Finding outside the current authorized scope is returned through a generic not-available boundary.
+`PATCH /api/admin/audit/findings/{findingId}/triage` requires `audit.review` and then re-runs the canonical Claims & Evidence authorization for the Finding's parent Artifact version. A Finding outside the current authorized scope, or one whose tenant does not agree with its parent Claim, is returned through a generic not-available boundary.
 
-The Audit log records that a triage transition occurred and its status/owner summary, but does not duplicate the free-text resolution reason into generic Audit metadata.
+Owner assignment is separately revalidated against active tenant membership. The Audit log records that a triage/owner change occurred and its status/owner summary, but does not duplicate the free-text resolution reason into generic Audit metadata.
 
 ## Query and prioritization
 
@@ -73,7 +77,7 @@ Default ordering is deterministic for triage work:
 3. Confidence descending;
 4. Created time ascending.
 
-The server returns at most 200 authorized Findings per request in v1. A Finding history projection returns at most the newest 50 entries.
+The server returns at most 200 authorized Findings per request in v1. A Finding history projection returns at most the newest 50 entries. Eligible owners are bounded to 500 active tenant users.
 
 ## UI behavior
 
@@ -81,7 +85,7 @@ The Findings workspace:
 
 - keeps Status and Severity filters URL-reproducible;
 - displays Severity and Confidence as separate values;
-- shows Owner, Detector, Policy version, Claim text, current outcome reason, and state history;
+- shows and configures Owner, and shows Detector, Policy version, Claim text, current outcome reason, and state history;
 - provides direct authorized navigation to the related Claim/Evidence and Event when available;
 - disables mutation when `CanReview` is false;
 - validates Accepted Risk / False Positive reasons client-side in addition to the server validation;
