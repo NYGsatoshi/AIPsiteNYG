@@ -45,7 +45,7 @@ test.describe('Issue #361 Source Policy V2 Angular smoke', () => {
     await expect(scope.getByTestId('task-execution-runtime-contract')).toContainText('fails closed');
     await expect(scope.getByTestId('task-execution-snapshot')).toContainText('Project files at request');
     await expect(scope.getByTestId('task-execution-snapshot')).toContainText('Prioritize');
-    await expect(scope.getByRole('heading', { name: 'Source policy' })).toBeVisible();
+    await expect(scope.getByRole('heading', { name: 'Source policy', exact: true })).toBeVisible();
 
     await expect(scope.getByRole('button', { name: /start|run|execute/i })).toHaveCount(0);
     await expect(scope.locator('a[href^="http"]')).toHaveCount(0);
