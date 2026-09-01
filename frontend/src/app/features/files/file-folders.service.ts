@@ -1,5 +1,5 @@
 import { HttpClient, HttpParams } from '@angular/common/http';
-import { Injectable, computed, inject, signal } from '@angular/core';
+import { Injectable, computed, inject, signal, untracked } from '@angular/core';
 import { Observable, catchError, finalize, map, of, switchMap, throwError } from 'rxjs';
 
 export interface FileFolderViewModel {
@@ -45,7 +45,7 @@ export class FileFolderStore {
       !force &&
       normalizedWorkspaceId !== null &&
       normalizedWorkspaceId === this.workspaceId &&
-      (this.loadingState() || this.loadedWorkspaceId === normalizedWorkspaceId)
+      (untracked(() => this.loadingState()) || this.loadedWorkspaceId === normalizedWorkspaceId)
     ) {
       return;
     }
