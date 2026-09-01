@@ -1,0 +1,165 @@
+<section
+  class="multi-audience"
+  aria-labelledby="announcement-multi-audience-heading"
+  data-testid="announcement-multi-audience"
+>
+  <header class="multi-audience__header">
+    <div>
+      <p class="multi-audience__eyebrow">Distribution targets</p>
+      <h2 id="announcement-multi-audience-heading">複数の Group / Channel へ配信</h2>
+    </div>
+    <strong data-testid="announcement-selected-audience-count">
+      {{ selectedAudiences().length }} / 20 targets
+    </strong>
+  </header>
+
+  <p class="multi-audience__help">
+    主対象は下の Audience ステップで選びます。Group / Channel を追加すると、配信時点の membership をサーバーが再解決し、
+    同じユーザーが複数の対象に含まれていても1回だけ配信します。
+  </p>
+
+  @if (selectedAudiences().length > 0) {
+    <section
+      class="multi-audience__summary"
+      aria-live="polite"
+      data-testid="announcement-multi-audience-summary"
+    >
+      <h3>選択中の配信対象</h3>
+      <ul>
+        @for (audience of selectedAudiences(); track audience.key; let index = $index) {
+          <li>
+            <span>
+              <strong>{{ audience.displayName }}</strong>
+              <small>
+                {{ audience.scope === 'group' ? 'Group' : audience.scope === 'channel' ? 'Channel' : audience.scope }}
+                @if (index === 0) { · primary }
+                @if (audience.recipientCount !== undefined) {
+                  · {{ audience.recipientCount.toLocaleString('ja-JP') }} recipients
+                }
+              </small>
+            </span>
+            @if (index > 0 && isEditable()) {
+              <button
+                type="button"
+                (click)="removeAudience(audience.key)"
+                [attr.aria-label]="audience.displayName + ' を配信対象から外す'"
+                [attr.data-testid]="'announcement-remove-audience-' + audience.key"
+              >
+                Remove
+              </button>
+            }
+          </li>
+        }
+      </ul>
+
+      <p data-testid="announcement-recipient-upper-bound">
+        @if (recipientUpperBound() !== undefined) {
+          重複除去前の受信者上限見積: <strong>{{ recipientUpperBound()!.toLocaleString('ja-JP') }}名</strong>
+        } @else {
+          受信者数は配信時に再計算します。
+        }
+      </p>
+      <small>実際の配信数は dispatch 時点の membership を UserId で重複除去した件数です。</small>
+    </section>
+  }
+
+  @if (isEditable()) {
+    <fieldset class="multi-audience__picker" data-testid="announcement-multi-audience-picker">
+      <legend>追加する Group / Channel</legend>
+      @if (selectableAudiences().length === 0) {
+        <p>追加できる Group / Channel はありません。</p>
+      } @else {
+        <div class="multi-audience__options">
+          @for (audience of selectableAudiences(); track audience.key) {
+            <label>
+              <input
+                type="checkbox"
+                [checked]="isSelected(audience.key)"
+                [disabled]="additionalSelectionDisabled(audience)"
+                (change)="toggleAudience(audience.key, $any($event.target).checked)"
+                [attr.data-testid]="'announcement-audience-option-' + audience.key"
+              />
+              <span>
+                <strong>{{ audience.displayName }}</strong>
+                <small>
+                  {{ audience.scope === 'group' ? 'Group' : 'Channel' }}
+                  @if (audience.recipientCount !== undefined) {
+                    · {{ audience.recipientCount.toLocaleString('ja-JP') }} recipients
+                  }
+                  @if (isPrimary(audience.key)) { · primary }
+                </small>
+              </span>
+            </label>
+          }
+        </div>
+      }
+      @if (!canAddMore()) {
+        <small role="status">最大20件の配信対象を選択しています。</small>
+      }
+      @if (selectedAudiences()[0]; as primary) {
+        @if (primary.scope !== 'group' && primary.scope !== 'channel') {
+          <small role="status">
+            複数配信するには、下の Audience ステップで Group または Channel を主対象に選択してください。
+          </small>
+        }
+      }
+    </fieldset>
+  }
+
+  @if (localError()) {
+    <p class="multi-audience__error" role="alert" data-testid="announcement-multi-audience-error">
+      {{ localError() }}
+    </p>
+  }
+</section>
+
+@if (innerDraft(); as currentDraft) {
+  <app-announcement-editor
+    [draft]="currentDraft"
+    [submissionError]="displayError()"
+    [publishing]="publishing"
+    (draftChanged)="onInnerDraftChanged($event)"
+    (saveDraftRequested)="onSaveDraftRequested($event)"
+    (publishRequested)="onPublishRequested($event)"
+  />
+}
+
+<app-aip-dialog
+  [open]="finalReviewOpen()"
+  title="Confirm all delivery targets"
+  description="Confirm every selected Group / Channel before this publication request is sent to the server."
+  [confirmLabel]="finalConfirmLabel()"
+  cancelLabel="Back to targets"
+  [busy]="publishing"
+  focusReturnFallbackId="announcement-publish-action"
+  (confirm)="confirmFinalPublication()"
+  (cancel)="closeFinalReview()"
+>
+  @if (pendingPublication(); as publication) {
+    <section class="multi-audience__final-review" data-testid="announcement-multi-audience-final-review">
+      <h3>{{ publication.title }}</h3>
+      <p>
+        {{ publication.deliveryMode === 'scheduled' ? 'Scheduled delivery' : 'Immediate delivery' }} ·
+        {{ selectedAudiences().length }} targets
+      </p>
+      <ul>
+        @for (audience of selectedAudiences(); track audience.key) {
+          <li>
+            <strong>{{ audience.displayName }}</strong>
+            <span>{{ audience.scope === 'group' ? 'Group' : 'Channel' }}</span>
+          </li>
+        }
+      </ul>
+      <p>
+        @if (recipientUpperBound() !== undefined) {
+          重複除去前の受信者上限見積は {{ recipientUpperBound()!.toLocaleString('ja-JP') }}名です。
+        } @else {
+          受信者数は dispatch 時に確定します。
+        }
+      </p>
+      <p>
+        サーバーは公開時にすべての対象を再認可し、live membership を UserId で重複除去してから immutable delivery cohort を確定します。
+      </p>
+    </section>
+  }
+</app-aip-dialog>
