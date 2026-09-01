@@ -48,12 +48,13 @@ describe('AuditFindingDecisionPanelComponent', () => {
     });
     fixture.detectChanges();
 
-    expect(component.state().status).toBe('ready');
-    if (component.state().status !== 'ready') {
+    const initialState = component.state();
+    expect(initialState.status).toBe('ready');
+    if (initialState.status !== 'ready') {
       throw new Error('Expected ready decision panel state.');
     }
-    expect(component.state().response.reviewCompleted).toBe(false);
-    expect(component.state().response.currentDecision).toBeNull();
+    expect(initialState.response.reviewCompleted).toBe(false);
+    expect(initialState.response.currentDecision).toBeNull();
 
     component.updateDecision('AcceptedRisk');
     component.save();
