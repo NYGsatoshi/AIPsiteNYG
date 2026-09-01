@@ -30,6 +30,8 @@ public sealed class ArtifactEvidenceManifestService(
     private const int MaxSourceVersion = 256;
     private const int MaxPassage = 4000;
     private const int MaxLocation = 512;
+    private const int MaxDetectorKey = 128;
+    private const int MaxPolicyVersion = 128;
 
     public async Task<Result<ArtifactEvidenceManifestResponse>> AttachAsync(
         Guid artifactVersionId,
@@ -70,6 +72,7 @@ public sealed class ArtifactEvidenceManifestService(
         var claimOrdinals = new HashSet<int>();
         var claims = new List<ArtifactClaim>(request.Claims.Count);
         var provenanceBySource = new Dictionary<(ArtifactEvidenceSourceKind Kind, string Reference), SourceProvenanceContract>();
+        var findingCount = 0;
         foreach (var item in request.Claims)
         {
             if (item.Ordinal <= 0 || !claimOrdinals.Add(item.Ordinal))
@@ -211,6 +214,48 @@ public sealed class ArtifactEvidenceManifestService(
                 });
             }
 
+            if (item.Finding is not null)
+            {
+                if (!TryParseEnum(item.Finding.Severity, out AuditFindingSeverity severity) ||
+                    item.Finding.ConfidencePercent is < 0 or > 100)
+                {
+                    return Failure("ValidationFailed", "Finding severity or confidence is invalid.");
+                }
+
+                var detectorKey = NormalizeRequired(item.Finding.DetectorKey);
+                var policyVersion = NormalizeRequired(item.Finding.PolicyVersion);
+                if (detectorKey is null || detectorKey.Length > MaxDetectorKey ||
+                    policyVersion is null || policyVersion.Length > MaxPolicyVersion)
+                {
+                    return Failure("ValidationFailed", "Finding detector key and policy version are required and bounded.");
+                }
+
+                var finding = new ArtifactFinding
+                {
+                    TenantId = version.TenantId,
+                    ArtifactClaimId = claim.Id,
+                    Severity = severity,
+                    ConfidencePercent = item.Finding.ConfidencePercent,
+                    DetectorKey = detectorKey,
+                    PolicyVersion = policyVersion,
+                    Status = AuditFindingTriageStatus.Open,
+                    ArtifactClaim = claim
+                };
+                finding.History.Add(new AuditFindingHistory
+                {
+                    TenantId = version.TenantId,
+                    ArtifactFindingId = finding.Id,
+                    FromStatus = null,
+                    ToStatus = AuditFindingTriageStatus.Open,
+                    OwnerUserId = null,
+                    Reason = null,
+                    ChangedByUserId = userId,
+                    Finding = finding
+                });
+                claim.Finding = finding;
+                findingCount += 1;
+            }
+
             claims.Add(claim);
         }
 
@@ -226,7 +271,9 @@ public sealed class ArtifactEvidenceManifestService(
             Metadata: new Dictionary<string, object?>
             {
                 ["claimCount"] = claims.Count,
-                ["schema"] = "artifact-claims-evidence-v1"
+                ["findingCount"] = findingCount,
+                ["schema"] = "artifact-claims-evidence-v1",
+                ["findingSchema"] = "audit-findings-v1"
             }), cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
 

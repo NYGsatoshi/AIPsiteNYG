@@ -202,6 +202,13 @@ export const routes: Routes = [
           import('./features/account/account-page/account-page.component').then((m) => m.AccountPageComponent)
       },
       {
+        path: 'admin/audit/findings',
+        loadComponent: () =>
+          import('./features/admin/audit-findings-page/audit-findings-page.component').then(
+            (m) => m.AuditFindingsPageComponent
+          )
+      },
+      {
         path: 'admin/audit/claims-evidence',
         loadComponent: () =>
           import('./features/admin/audit-claims-evidence-page/audit-claims-evidence-page.component').then(

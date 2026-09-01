@@ -1,0 +1,334 @@
+:host {
+  display: block;
+  min-width: 0;
+}
+
+.findings-page {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+  padding: clamp(1rem, 2vw, 1.5rem);
+}
+
+.findings-page__header,
+.findings-page__version,
+.finding-queue__header,
+.finding-detail__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.findings-page h1,
+.findings-page h2,
+.findings-page h3,
+.findings-page p {
+  margin-block-start: 0;
+}
+
+.findings-page__eyebrow {
+  margin-block-end: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.findings-page__views,
+.finding-detail__trace-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.findings-page__views a,
+.finding-detail__trace-actions a {
+  border: 1px solid currentColor;
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  text-decoration: none;
+}
+
+.findings-page__views a[aria-current='page'] {
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.findings-page__policy,
+.findings-page__notice,
+.findings-page__version,
+.findings-page__filters,
+.finding-queue,
+.finding-detail {
+  border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+  border-radius: 0.75rem;
+  padding: 1rem;
+}
+
+.findings-page__loader {
+  display: grid;
+  gap: 0.5rem;
+  max-width: 50rem;
+}
+
+.findings-page__loader-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.5rem;
+}
+
+.findings-page input,
+.findings-page select,
+.findings-page textarea,
+.findings-page button {
+  font: inherit;
+}
+
+.findings-page input,
+.findings-page select,
+.findings-page textarea {
+  max-width: 100%;
+  border: 1px solid currentColor;
+  border-radius: 0.4rem;
+  padding: 0.55rem 0.65rem;
+  background: transparent;
+  color: inherit;
+}
+
+.findings-page button {
+  border: 1px solid currentColor;
+  border-radius: 0.45rem;
+  padding: 0.55rem 0.75rem;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.findings-page button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.findings-page__error {
+  margin-block: 0.25rem 0;
+  font-weight: 600;
+}
+
+.findings-page__status {
+  min-height: 1.5rem;
+}
+
+.findings-page__version-id,
+.finding-card__claim,
+.finding-detail__claim,
+.finding-detail dd,
+.finding-detail code {
+  overflow-wrap: anywhere;
+}
+
+.findings-page__filters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(10rem, 1fr)) minmax(12rem, auto) auto;
+  align-items: end;
+  gap: 0.75rem;
+}
+
+.findings-page__filters label:not(.findings-page__check) {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.findings-page__check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.5rem;
+}
+
+.findings-page__check input {
+  width: 1rem;
+  height: 1rem;
+  padding: 0;
+}
+
+.findings-page__clear {
+  white-space: nowrap;
+}
+
+.findings-page__workspace {
+  display: grid;
+  grid-template-columns: minmax(18rem, 0.9fr) minmax(0, 1.4fr);
+  gap: 1rem;
+  align-items: start;
+  min-width: 0;
+}
+
+.finding-queue,
+.finding-detail {
+  min-width: 0;
+}
+
+.finding-queue__header p {
+  max-width: 32rem;
+  margin-block-end: 0;
+}
+
+.finding-queue__list {
+  display: grid;
+  gap: 0.65rem;
+  margin-block-start: 1rem;
+}
+
+.finding-card {
+  display: grid;
+  gap: 0.55rem;
+  width: 100%;
+  text-align: start;
+}
+
+.finding-card--selected {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.finding-card__headline,
+.finding-card__metrics {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+}
+
+.finding-card__status,
+.finding-detail__status {
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 0.15rem 0.5rem;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.finding-card__claim {
+  line-height: 1.45;
+}
+
+.finding-card__metrics,
+.finding-card__owner,
+.finding-detail__help,
+.finding-detail__readonly {
+  font-size: 0.9rem;
+}
+
+.finding-detail {
+  display: grid;
+  gap: 1rem;
+}
+
+.finding-detail__claim {
+  padding: 0.75rem;
+  border-inline-start: 0.25rem solid currentColor;
+}
+
+.finding-detail__facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem 1rem;
+  margin: 0;
+}
+
+.finding-detail__facts div {
+  min-width: 0;
+}
+
+.finding-detail__facts dt {
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.finding-detail__facts dd {
+  margin: 0.25rem 0 0;
+}
+
+.finding-detail__trace,
+.finding-detail__reason,
+.finding-detail__actions,
+.finding-detail__history {
+  border-block-start: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+  padding-block-start: 1rem;
+}
+
+.finding-detail__actions label {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.finding-detail__action-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin-block: 0.75rem;
+}
+
+.finding-detail__owner-action {
+  width: 100%;
+}
+
+.finding-detail__history ol {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+  padding-inline-start: 1.25rem;
+}
+
+.finding-detail__history li {
+  padding-inline-start: 0.25rem;
+}
+
+.finding-detail__history time {
+  display: block;
+  margin-block-start: 0.2rem;
+  font-size: 0.85rem;
+}
+
+.finding-detail__history p {
+  margin-block: 0.35rem 0;
+}
+
+@media (max-width: 900px) {
+  .findings-page__header,
+  .findings-page__version,
+  .finding-queue__header,
+  .finding-detail__header {
+    display: grid;
+  }
+
+  .findings-page__filters,
+  .findings-page__workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 480px) {
+  .findings-page {
+    padding: 0.75rem;
+  }
+
+  .findings-page__loader-row,
+  .finding-detail__facts,
+  .finding-detail__action-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .findings-page__loader-row button,
+  .findings-page__clear,
+  .finding-detail__action-grid button {
+    width: 100%;
+  }
+
+  .findings-page__views,
+  .finding-detail__trace-actions {
+    display: grid;
+  }
+}

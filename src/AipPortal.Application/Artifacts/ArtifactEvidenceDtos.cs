@@ -9,7 +9,8 @@ public sealed record ArtifactClaimManifestItem(
     bool CitationPresent,
     string SupportStatus,
     string ReviewStatus,
-    IReadOnlyList<ArtifactEvidenceManifestItem> Evidence);
+    IReadOnlyList<ArtifactEvidenceManifestItem> Evidence,
+    ArtifactFindingManifestItem? Finding = null);
 
 public sealed record ArtifactEvidenceManifestItem(
     int Ordinal,
@@ -27,6 +28,12 @@ public sealed record ArtifactEvidenceManifestItem(
     string? ContentHashSnapshot = null,
     string? SourceVersionSnapshot = null,
     string? VerificationStatus = null);
+
+public sealed record ArtifactFindingManifestItem(
+    string Severity,
+    int ConfidencePercent,
+    string DetectorKey,
+    string PolicyVersion);
 
 public sealed record ArtifactEvidenceManifestResponse(
     Guid ArtifactVersionId,

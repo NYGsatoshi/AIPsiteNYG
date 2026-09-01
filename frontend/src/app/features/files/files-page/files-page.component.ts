@@ -24,8 +24,10 @@ import { AipDialogComponent } from '../../../shared/ui/aip-dialog/aip-dialog.com
 import { AipFilterChipComponent } from '../../../shared/ui/aip-filter-chip/aip-filter-chip.component';
 import { AipFileUploaderComponent } from '../../../shared/ui/adapters/syncfusion/aip-file-uploader.component';
 import { AttachmentPickerDialogComponent } from '../attachment-picker-dialog/attachment-picker-dialog.component';
+import { FileFolderStore } from '../file-folders.service';
+import { FileMoveDialogComponent } from '../file-move-dialog/file-move-dialog.component';
 import { FilePreviewService } from '../file-preview.service';
-import { FileBrowserFolderNode, FileBrowserShortcut, FileBrowserSidebarComponent } from '../file-browser-sidebar/file-browser-sidebar.component';
+import { FileBrowserShortcut, FileBrowserSidebarComponent } from '../file-browser-sidebar/file-browser-sidebar.component';
 import { FileQuotaStateComponent } from '../file-quota-state/file-quota-state.component';
 import { FilesFacade } from '../files.facade';
 import { FileSharingDetailViewModel } from '../files.api';
@@ -58,6 +60,7 @@ const PREVIEW_OVERLAY_MAX_WIDTH = 860;
     AipFileUploaderComponent,
     AppDataGridComponent,
     AttachmentPickerDialogComponent,
+    FileMoveDialogComponent,
     FileQuotaStateComponent,
     FileBrowserSidebarComponent,
     RecentFilesListComponent,
@@ -70,6 +73,7 @@ export class FilesPageComponent {
   @ViewChild('previewPane') private previewPane?: ElementRef<HTMLElement>;
 
   private readonly facade = inject(FilesFacade);
+  private readonly fileFolders = inject(FileFolderStore);
   private readonly previewService = inject(FilePreviewService);
   private readonly sanitizer = inject(DomSanitizer);
   private readonly destroyRef = inject(DestroyRef);
@@ -87,7 +91,7 @@ export class FilesPageComponent {
   readonly searchModified = signal<FileSearchModifiedFilter>('any');
   readonly searchOwner = signal<FileSearchOwnerFilter>('any');
   readonly browserShortcut = signal<FileBrowserShortcut>('recent');
-  readonly browserFolders: readonly FileBrowserFolderNode[] = [];
+  readonly browserFolders = this.fileFolders.tree;
   readonly activeWorkspaceLabel = computed(() =>
     this.activeWorkspace.activeWorkspace()?.label ?? this.i18n.translate('files.currentWorkspace'));
   readonly browserShortcutLabel = computed(() => {
@@ -127,6 +131,7 @@ export class FilesPageComponent {
 
   selectBrowserShortcut(shortcut: FileBrowserShortcut): void {
     this.browserShortcut.set(shortcut);
+    this.closeMoveDialog();
     this.clearSelection();
     this.closePreview(false);
   }
@@ -141,6 +146,19 @@ export class FilesPageComponent {
   readonly selectionCaptureBusy = computed(() => this.selectionSnapshot().status === 'capturing');
   readonly selectedFileIds = computed<ReadonlySet<string>>(() =>
     new Set(this.selectedFiles().map((file) => file.id)));
+  readonly moveDialogOpen = signal(false);
+  readonly moveFolderId = signal<string | null>(null);
+  readonly moveFileObjectIds = computed<readonly string[]>(() =>
+    this.selectedFiles()
+      .map((file) => file.canonicalFileId)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0));
+  readonly canMoveSelection = computed(() => {
+    if (this.hasSearchResultsSelection()) {
+      return false;
+    }
+    const selected = this.selectedFiles();
+    return selected.length > 0 && this.moveFileObjectIds().length === selected.length;
+  });
   readonly canDeleteSelection = computed(() => {
     if (this.hasSearchResultsSelection()) {
       // The selection snapshot grants no delete authority. The server
@@ -325,15 +343,18 @@ export class FilesPageComponent {
       };
       const workspaceId = this.activeWorkspace.activeWorkspace()?.id;
       this.resetSearchControls();
+      this.closeMoveDialog();
       this.closePreview(false);
       this.clearSelection();
       this.closeDeleteDialog();
+      this.fileFolders.load(workspaceId);
       pageFacade.loadPageFilesForWorkspace?.call(pageFacade, workspaceId);
     });
     effect(() => {
       // A server inventory replacement can revoke a capability or remove a row.
       // Selection and preview never survive that authoritative reload.
       this.facade.inventoryRevision();
+      this.closeMoveDialog();
       this.closePreview(false);
       this.clearSelection();
       this.closeDeleteDialog();
@@ -345,12 +366,14 @@ export class FilesPageComponent {
       if (this.search().status === 'idle') {
         this.resetSearchControls();
       }
+      this.closeMoveDialog();
       this.closePreview(false);
       this.clearSelection();
       this.closeDeleteDialog();
     });
     this.destroyRef.onDestroy(() => {
       unregisterSearchDraftClearer?.();
+      this.closeMoveDialog();
       this.closePreview(false);
     });
   }
@@ -362,7 +385,7 @@ export class FilesPageComponent {
 
   @HostListener('document:keydown.escape', ['$event'])
   handleEscape(event: KeyboardEvent): void {
-    if (!this.previewOpen() || this.deleteDialogOpen() || this.sharingDialogOpen()) {
+    if (this.moveDialogOpen() || !this.previewOpen() || this.deleteDialogOpen() || this.sharingDialogOpen()) {
       return;
     }
     event.preventDefault();
@@ -517,6 +540,32 @@ export class FilesPageComponent {
     this.mobileSelectionAnchorId = null;
     this.dataGrid?.clearSelection();
     this.facade.captureSearchSelectionSnapshot();
+  }
+
+  openFileMoveDialog(): void {
+    if (!this.canMoveSelection()) {
+      return;
+    }
+    this.moveFolderId.set(null);
+    this.moveDialogOpen.set(true);
+  }
+
+  openFolderMoveDialog(folderId: string): void {
+    if (!folderId || !this.fileFolders.folders().some((folder) => folder.id === folderId)) {
+      return;
+    }
+    this.moveFolderId.set(folderId);
+    this.moveDialogOpen.set(true);
+  }
+
+  closeMoveDialog(): void {
+    this.moveDialogOpen.set(false);
+    this.moveFolderId.set(null);
+  }
+
+  handleMoveCompleted(): void {
+    this.closeMoveDialog();
+    this.clearSelection();
   }
 
   openPreview(file: FileViewModel): void {

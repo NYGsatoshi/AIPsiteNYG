@@ -27,6 +27,7 @@ export class FileBrowserSidebarComponent {
   @Input() selectedFolderId: string | null = null;
   @Input() activeShortcut: FileBrowserShortcut | null = 'recent';
   @Output() readonly folderSelected = new EventEmitter<string>();
+  @Output() readonly folderMoveRequested = new EventEmitter<string>();
   @Output() readonly shortcutSelected = new EventEmitter<FileBrowserShortcut>();
 
   @ViewChildren('treeitem', { read: ElementRef }) private treeItems?: QueryList<ElementRef<HTMLElement>>;
@@ -62,6 +63,11 @@ export class FileBrowserSidebarComponent {
   chooseFolder(node: FileBrowserFolderNode): void {
     this.focusedId.set(node.id);
     this.folderSelected.emit(node.id);
+  }
+
+  requestFolderMove(node: FileBrowserFolderNode): void {
+    this.focusedId.set(node.id);
+    this.folderMoveRequested.emit(node.id);
   }
 
   toggle(node: FileBrowserFolderNode): void {
