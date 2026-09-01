@@ -415,19 +415,15 @@ test.describe('MVP0 real backend browser smoke', () => {
       await workspaceSwitcher.selectOption(workspaceId);
       await expect(workspaceSwitcher).toHaveValue(workspaceId);
 
-      // The options request may be issued while the Projects route initializes
-      // or after the user explicitly opens the dialog. Start observing before
-      // navigation so this real-backend assertion does not race either valid
-      // lifecycle timing.
+      await page.goto('/app/projects');
+      await expect(page.getByTestId('projects-overview-page')).toBeVisible();
+      const createAction = page.getByTestId('projects-create-project');
+      await expect(createAction).toBeVisible();
       const uiOptionsResponse = waitForApiResponse(
         page,
         'GET',
         `/api/workspaces/${workspaceId}/projects/create-options`
       );
-      await page.goto('/app/projects');
-      await expect(page.getByTestId('projects-overview-page')).toBeVisible();
-      const createAction = page.getByTestId('projects-create-project');
-      await expect(createAction).toBeVisible();
       await createAction.click();
       await recordOkJson(await uiOptionsResponse, evidence, 'project-create-options-ui', (body) =>
         hasString(body, 'requestId') &&
@@ -3359,9 +3355,12 @@ test.describe('MVP0 real backend browser smoke', () => {
       await expect(editor).toBeVisible();
       await editor.getByTestId('announcement-editor-title').fill(immediateTitle);
       await editor.getByTestId('announcement-editor-body').fill(immediateBody);
-      await editor.getByTestId('announcement-editor-priority').selectOption('critical');
+      await editor.getByTestId('announcement-next-step').click();
       await editor.getByTestId('announcement-editor-audience').selectOption(primaryAudienceKey);
+      await editor.getByTestId('announcement-next-step').click();
+      await editor.getByTestId('announcement-editor-priority').selectOption('critical');
       await editor.locator('#announcement-read-confirmation').check();
+      await editor.getByTestId('announcement-next-step').click();
 
       let directBrowserAnnouncementPosts = 0;
       const observeDirectBrowserAnnouncementPosts = (request: { method(): string; url(): string }) => {
@@ -4479,10 +4478,6 @@ async function createDirectMessageAndVerifyPersistence(page: Page, evidence: Smo
 
   const messageRow = page.locator(`#message-${evidence.messageId}`);
   const more = page.getByTestId(`message-more-actions-${evidence.messageId}`);
-  // Message actions are intentionally revealed only for a hovered or
-  // keyboard-focused row. Mirror the real mouse interaction before invoking
-  // the overflow control rather than forcing a click through that boundary.
-  await messageRow.hover();
   await more.click();
   await page.getByTestId(`report-message-${evidence.messageId}`).click();
   const [reportResponse] = await Promise.all([
@@ -4497,7 +4492,6 @@ async function createDirectMessageAndVerifyPersistence(page: Page, evidence: Smo
   await expect(page.getByTestId('message-action-status')).toContainText('Report request recorded.');
 
   const editedMessageBody = `${messageBody} edited`;
-  await messageRow.hover();
   await more.click();
   await page.getByTestId(`edit-message-${evidence.messageId}`).click();
   await expect(page.getByTestId(`message-edit-input-${evidence.messageId}`)).toBeFocused();
@@ -4524,9 +4518,6 @@ async function createDirectMessageAndVerifyPersistence(page: Page, evidence: Smo
   });
 
   const reloadedMore = page.getByTestId(`message-more-actions-${evidence.messageId}`);
-  // Reload replaces the message row, so repeat the real hover interaction
-  // before opening its intentionally hover/focus-revealed overflow control.
-  await page.locator(`#message-${evidence.messageId}`).hover();
   await reloadedMore.click();
   await page.getByTestId(`delete-message-${evidence.messageId}`).click();
   await expect(page.getByRole('dialog', { name: 'Delete message?' })).toBeVisible();

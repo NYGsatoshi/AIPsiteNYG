@@ -2,7 +2,7 @@
   class="announcement-editor"
   [formGroup]="form"
   novalidate
-  (ngSubmit)="publish()"
+  (ngSubmit)="submitCurrentStep()"
   data-testid="announcement-editor"
 >
   <header>
@@ -34,6 +34,33 @@
       </button>
     </div>
   </header>
+
+  <nav
+    class="announcement-editor__progress"
+    aria-label="Announcement creation progress"
+    data-testid="announcement-editor-progress"
+  >
+    <p aria-live="polite" data-testid="announcement-editor-current-step">
+      Step {{ stepNumber(currentStep()) }} of {{ editorSteps.length }}: {{ currentStepLabel() }}
+    </p>
+    <ol>
+      @for (step of editorSteps; track step.id) {
+        <li>
+          <button
+            type="button"
+            [disabled]="!canNavigateToStep(step.id)"
+            [attr.aria-current]="currentStep() === step.id ? 'step' : null"
+            [attr.aria-label]="'Step ' + stepNumber(step.id) + ' of ' + editorSteps.length + ': ' + step.label"
+            (click)="goToStep(step.id)"
+            [attr.data-testid]="'announcement-editor-step-' + step.id"
+          >
+            <span aria-hidden="true">{{ stepNumber(step.id) }}</span>
+            <span>{{ step.label }}</span>
+          </button>
+        </li>
+      }
+    </ol>
+  </nav>
 
   @if (previewOpen()) {
     @if (preview(); as localPreview) {
@@ -93,6 +120,13 @@
     </section>
   }
 
+  <section
+    class="announcement-editor__step"
+    [hidden]="currentStep() !== 'content'"
+    aria-labelledby="announcement-editor-content-step-heading"
+    data-testid="announcement-editor-content-step"
+  >
+  <h3 id="announcement-editor-content-step-heading">Content</h3>
   <label for="announcement-title">
     <span>タイトル <span aria-hidden="true">*</span></span>
     <input
@@ -283,8 +317,20 @@
     </div>
   </fieldset>
 
-  <div class="announcement-editor__row">
-    <label for="announcement-priority">
+  </section>
+
+  <section
+    class="announcement-editor__step"
+    [hidden]="currentStep() !== 'audience' && currentStep() !== 'delivery'"
+    aria-label="Audience and delivery"
+  >
+    <h3 [hidden]="currentStep() !== 'audience'">Audience</h3>
+    <h3 [hidden]="currentStep() !== 'delivery'">Delivery</h3>
+  <div
+    class="announcement-editor__row"
+    [class.announcement-editor__row--single]="currentStep() === 'audience' || currentStep() === 'delivery'"
+  >
+    <label for="announcement-priority" [hidden]="currentStep() !== 'delivery'">
       <span>優先度 <span aria-hidden="true">*</span></span>
       <select
         #priorityInput
@@ -315,7 +361,7 @@
       }
     </label>
 
-    <label for="announcement-audience">
+    <label for="announcement-audience" [hidden]="currentStep() !== 'audience'">
       <span>対象 <span aria-hidden="true">*</span></span>
       <select
         #audienceInput
@@ -346,6 +392,7 @@
     </label>
   </div>
 
+  <div [hidden]="currentStep() !== 'audience'">
   @if (availableAudiences().length === 0) {
     <p
       class="announcement-editor__audience-note"
@@ -376,8 +423,13 @@
       <p class="announcement-editor__audience-note">公開時にサーバーで権限と対象を再確認します。</p>
     </section>
   }
+  </div>
 
-  <label class="announcement-editor__check" for="announcement-read-confirmation">
+  <label
+    class="announcement-editor__check"
+    for="announcement-read-confirmation"
+    [hidden]="currentStep() !== 'delivery'"
+  >
     <input
       id="announcement-read-confirmation"
       type="checkbox"
@@ -387,7 +439,11 @@
     <span>既読確認</span>
   </label>
 
-  <fieldset class="announcement-editor__delivery announcement-editor__review" aria-describedby="announcement-delivery-help">
+  <fieldset
+    class="announcement-editor__delivery announcement-editor__review"
+    aria-describedby="announcement-delivery-help"
+    [hidden]="currentStep() !== 'delivery'"
+  >
     <legend>Delivery</legend>
     <label class="announcement-editor__check announcement-editor__radio" for="announcement-delivery-now">
       <input
@@ -456,10 +512,25 @@
     }
   </fieldset>
 
-  <section class="announcement-editor__review" data-testid="announcement-review-summary">
-    <h3>公開前の確認</h3>
+  </section>
+
+  <section
+    class="announcement-editor__review announcement-editor__step"
+    [hidden]="currentStep() !== 'review'"
+    aria-labelledby="announcement-editor-review-step-heading"
+    data-testid="announcement-review-summary"
+  >
+    <h3 #reviewStepHeading id="announcement-editor-review-step-heading" tabindex="-1">Review before publication</h3>
     @if (selectedAudience(); as audience) {
       <dl>
+        <div>
+          <dt>Title</dt>
+          <dd>{{ form.controls.title.value.trim() }}</dd>
+        </div>
+        <div>
+          <dt>Message</dt>
+          <dd class="announcement-editor__confirmation-body">{{ form.controls.body.value.trim() }}</dd>
+        </div>
         <div>
           <dt>対象</dt>
           <dd>{{ audience.displayName }}</dd>
@@ -491,10 +562,50 @@
           <dd>{{ publicationTimingLabel() }}</dd>
         </div>
       </dl>
+      <div class="announcement-editor__review-edits" role="group" aria-label="Edit review sections">
+        <button
+          type="button"
+          (click)="goToStep('content')"
+          data-testid="announcement-review-edit-content"
+        >
+          Edit Content
+        </button>
+        <button
+          type="button"
+          (click)="goToStep('audience')"
+          data-testid="announcement-review-edit-audience"
+        >
+          Edit Audience
+        </button>
+        <button
+          type="button"
+          (click)="goToStep('delivery')"
+          data-testid="announcement-review-edit-delivery"
+        >
+          Edit Delivery
+        </button>
+        <button
+          type="button"
+          (click)="openPreview()"
+          data-testid="announcement-review-preview"
+        >
+          Open live preview
+        </button>
+      </div>
     }
   </section>
 
-  <div class="announcement-editor__actions">
+  <div class="announcement-editor__actions announcement-editor__step-actions">
+    @if (currentStep() !== 'content') {
+      <button
+        type="button"
+        (click)="previousStep()"
+        [disabled]="publishing"
+        data-testid="announcement-previous-step"
+      >
+        Back
+      </button>
+    }
     <button
       type="button"
       data-testid="announcement-save-draft-action"
@@ -503,6 +614,16 @@
     >
       Save draft
     </button>
+    @if (currentStep() !== 'review') {
+      <button
+        type="submit"
+        class="announcement-editor__primary"
+        [disabled]="publishing"
+        data-testid="announcement-next-step"
+      >
+        Next: {{ editorSteps[stepNumber(currentStep())]?.label ?? 'Review' }}
+      </button>
+    } @else {
     <button
       type="submit"
       class="announcement-editor__primary"
@@ -511,6 +632,7 @@
     >
       Review {{ form.controls.deliveryMode.value === 'scheduled' ? 'schedule' : 'publication' }}
     </button>
+    }
   </div>
   }
 </form>
