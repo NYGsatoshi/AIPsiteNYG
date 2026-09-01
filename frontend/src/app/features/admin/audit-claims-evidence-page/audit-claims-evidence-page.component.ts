@@ -84,28 +84,33 @@ export class AuditClaimsEvidencePageComponent {
     const references: Array<{
       claimId: string;
       claimOrdinal: number;
+      evidenceId: string;
       evidenceOrdinal: number;
       location: string | null;
     }> = [];
-    const seenClaims = new Set<string>();
 
     for (const claim of this.vm().claims) {
-      const matchingEvidence = claim.evidence.find((candidate) => candidate.sourceId === evidence.sourceId);
-      if (!matchingEvidence || seenClaims.has(claim.id)) {
-        continue;
-      }
+      for (const candidate of claim.evidence) {
+        if (candidate.sourceId !== evidence.sourceId) {
+          continue;
+        }
 
-      seenClaims.add(claim.id);
-      references.push({
-        claimId: claim.id,
-        claimOrdinal: claim.ordinal,
-        evidenceOrdinal: matchingEvidence.ordinal,
-        location: matchingEvidence.location,
-      });
+        references.push({
+          claimId: claim.id,
+          claimOrdinal: claim.ordinal,
+          evidenceId: candidate.id,
+          evidenceOrdinal: candidate.ordinal,
+          location: candidate.location,
+        });
+      }
     }
 
     return references;
   });
+
+  readonly selectedSourceClaimCount = computed(() =>
+    new Set(this.selectedSourceReferences().map((reference) => reference.claimId)).size,
+  );
 
   constructor() {
     this.facade.loadActionSummary();
@@ -257,6 +262,15 @@ export class AuditClaimsEvidencePageComponent {
       case 'Rejected': return 'Rejected';
       default: return 'Not verified';
     }
+  }
+
+  formatTimestamp(value: string | null): string {
+    if (!value) {
+      return 'Not recorded';
+    }
+
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? 'Not recorded' : parsed.toISOString();
   }
 
   private async updateClaimFilter(filter: AuditClaimSupportFilter): Promise<void> {
