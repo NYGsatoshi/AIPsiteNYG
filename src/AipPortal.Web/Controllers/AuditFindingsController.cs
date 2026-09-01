@@ -53,7 +53,7 @@ public sealed class AuditFindingsController(IAuditFindingsService findings) : Co
             "AuthenticationRequired" => StatusCodes.Status401Unauthorized,
             "CapabilityDenied" or "TenantMembershipRequired" => StatusCodes.Status403Forbidden,
             "ArtifactVersionNotFound" or "FindingNotFound" => StatusCodes.Status404NotFound,
-            "ReasonRequired" or "ValidationFailed" => StatusCodes.Status400BadRequest,
+            "ReasonRequired" or "ValidationFailed" or "OwnerNotEligible" => StatusCodes.Status400BadRequest,
             _ => StatusCodes.Status400BadRequest
         };
 
