@@ -18,6 +18,7 @@ public sealed class ArtifactClaim : AuditableEntity, ITenantEntity
     public ArtifactClaimReviewStatus ReviewStatus { get; set; } = ArtifactClaimReviewStatus.Unreviewed;
 
     public ArtifactVersion? ArtifactVersion { get; set; }
+    public ArtifactFinding? Finding { get; set; }
     public ICollection<ArtifactEvidence> Evidence { get; } = new List<ArtifactEvidence>();
 }
 

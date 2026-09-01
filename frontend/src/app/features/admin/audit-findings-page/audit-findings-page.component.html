@@ -1,0 +1,338 @@
+@let page = vm();
+@let activeFilters = filters();
+
+<section class="findings-page" data-testid="audit-findings-page">
+  <header class="findings-page__header">
+    <div>
+      <p class="findings-page__eyebrow">Audit workspace</p>
+      <h1 tabindex="-1">Findings triage</h1>
+      <p>Prioritize risk and policy findings, assign ownership, and record review outcomes.</p>
+    </div>
+    <nav class="findings-page__views" aria-label="Audit views">
+      <a routerLink="/admin/audit">Event log</a>
+      <a routerLink="/admin/audit/claims-evidence">Claims &amp; Evidence</a>
+      <a routerLink="/admin/audit/findings" aria-current="page">Findings</a>
+    </nav>
+  </header>
+
+  <p class="findings-page__policy">
+    Severity describes impact; detector confidence describes certainty. Only findings attached to currently authorized Claims and Evidence are returned.
+  </p>
+
+  <form class="findings-page__loader" (submit)="$event.preventDefault(); openVersion()">
+    <label for="finding-artifact-version-id">Artifact version ID</label>
+    <div class="findings-page__loader-row">
+      <input
+        id="finding-artifact-version-id"
+        type="text"
+        autocomplete="off"
+        spellcheck="false"
+        data-testid="audit-findings-artifact-version-input"
+        [value]="versionInput()"
+        [attr.aria-invalid]="inputError() ? 'true' : null"
+        [attr.aria-describedby]="inputError() ? 'finding-artifact-version-error' : null"
+        (input)="updateVersionInput($any($event.target).value)"
+      />
+      <button type="submit" data-testid="audit-findings-open-version">Open version</button>
+    </div>
+    @if (inputError(); as error) {
+      <p id="finding-artifact-version-error" class="findings-page__error" role="alert">{{ error }}</p>
+    }
+  </form>
+
+  <p class="findings-page__status" role="status" aria-live="polite" aria-atomic="true">
+    @switch (page.status) {
+      @case ('loading') { Loading authorized findings. }
+      @case ('permissionDenied') { Findings triage access is unavailable. }
+      @case ('notFound') { The requested artifact version is unavailable. }
+      @case ('error') { Findings triage could not be loaded. }
+      @case ('empty') { No findings match the current authorized scope and filters. }
+      @case ('ready') { {{ page.findings.length }} findings are available; {{ unresolvedCount() }} are unresolved. }
+      @default { Enter an artifact version ID to inspect its findings. }
+    }
+  </p>
+
+  @if (page.status === 'permissionDenied' || page.status === 'notFound' || page.status === 'error') {
+    <section class="findings-page__notice" data-testid="audit-findings-notice">
+      <h2>
+        @switch (page.status) {
+          @case ('permissionDenied') { Permission required }
+          @case ('notFound') { Version unavailable }
+          @default { Unable to load }
+        }
+      </h2>
+      <p>{{ page.message }}</p>
+    </section>
+  }
+
+  @if (page.status === 'ready' || page.status === 'empty') {
+    <section class="findings-page__version" aria-labelledby="findings-version-title">
+      <div>
+        <p class="findings-page__eyebrow">Artifact version {{ page.artifactVersionNumber }}</p>
+        <h2 id="findings-version-title">{{ page.artifactTitle }}</h2>
+      </div>
+      <p class="findings-page__version-id">Version ID: <code>{{ page.artifactVersionId }}</code></p>
+    </section>
+
+    <section class="findings-page__filters" aria-label="Finding filters" data-testid="audit-findings-filters">
+      <label>
+        <span>Status</span>
+        <select
+          data-testid="audit-findings-status-filter"
+          [value]="activeFilters.status"
+          (change)="updateStatus($any($event.target).value)"
+        >
+          <option value="">All statuses</option>
+          @for (status of statuses; track status) {
+            <option [value]="status">{{ statusLabel(status) }}</option>
+          }
+        </select>
+      </label>
+
+      <label>
+        <span>Severity</span>
+        <select
+          data-testid="audit-findings-severity-filter"
+          [value]="activeFilters.severity"
+          (change)="updateSeverity($any($event.target).value)"
+        >
+          <option value="">All severities</option>
+          @for (severity of severities; track severity) {
+            <option [value]="severity">{{ severity }}</option>
+          }
+        </select>
+      </label>
+
+      <label class="findings-page__check">
+        <input
+          type="checkbox"
+          data-testid="audit-findings-open-only"
+          [checked]="activeFilters.openOnly"
+          (change)="toggleOpenOnly($any($event.target).checked)"
+        />
+        <span>Open / Reviewing only</span>
+      </label>
+
+      <button type="button" class="findings-page__clear" (click)="clearFilters()">Clear filters</button>
+    </section>
+  }
+
+  @if (page.status === 'empty') {
+    <section class="findings-page__notice" data-testid="audit-findings-empty">
+      <h2>No findings in this view</h2>
+      <p>{{ page.message }}</p>
+      <button type="button" (click)="clearFilters()">Clear filters</button>
+    </section>
+  }
+
+  @if (page.status === 'ready') {
+    <div class="findings-page__workspace">
+      <section class="finding-queue" aria-labelledby="finding-queue-title" data-testid="audit-finding-queue">
+        <header class="finding-queue__header">
+          <div>
+            <p class="findings-page__eyebrow">Triage queue</p>
+            <h2 id="finding-queue-title">Prioritized findings</h2>
+          </div>
+          <p>Unresolved findings are ordered before resolved outcomes, then by severity and confidence.</p>
+        </header>
+
+        <div class="finding-queue__list">
+          @for (finding of page.findings; track finding.id) {
+            <button
+              type="button"
+              class="finding-card"
+              [class.finding-card--selected]="selectedFindingId() === finding.id"
+              [attr.aria-pressed]="selectedFindingId() === finding.id"
+              [attr.data-testid]="'audit-finding-' + finding.id"
+              (click)="selectFinding(finding)"
+            >
+              <span class="finding-card__headline">
+                <strong>Claim #{{ finding.claimOrdinal }}</strong>
+                <span class="finding-card__status" [attr.data-state]="finding.status">{{ statusLabel(finding.status) }}</span>
+              </span>
+              <span class="finding-card__claim">{{ finding.claimText }}</span>
+              <span class="finding-card__metrics">
+                <span><strong>{{ finding.severity }}</strong> severity</span>
+                <span><strong>{{ finding.confidencePercent }}%</strong> confidence</span>
+              </span>
+              <span class="finding-card__owner">
+                Owner: {{ finding.ownerDisplayName || 'Unassigned' }}
+              </span>
+            </button>
+          }
+        </div>
+      </section>
+
+      @if (selectedFinding(); as finding) {
+        <aside class="finding-detail" aria-labelledby="finding-detail-title" data-testid="audit-finding-detail">
+          <header class="finding-detail__header">
+            <div>
+              <p class="findings-page__eyebrow">Selected finding</p>
+              <h2 id="finding-detail-title">Claim #{{ finding.claimOrdinal }}</h2>
+            </div>
+            <span class="finding-detail__status" [attr.data-state]="finding.status">{{ statusLabel(finding.status) }}</span>
+          </header>
+
+          <p class="finding-detail__claim">{{ finding.claimText }}</p>
+
+          <dl class="finding-detail__facts">
+            <div>
+              <dt>Severity</dt>
+              <dd>{{ finding.severity }}</dd>
+            </div>
+            <div>
+              <dt>Detector confidence</dt>
+              <dd>{{ finding.confidencePercent }}%</dd>
+            </div>
+            <div>
+              <dt>Owner</dt>
+              <dd>{{ finding.ownerDisplayName || 'Unassigned' }}</dd>
+            </div>
+            <div>
+              <dt>Detector</dt>
+              <dd><code>{{ finding.detectorKey }}</code></dd>
+            </div>
+            <div>
+              <dt>Policy version</dt>
+              <dd><code>{{ finding.policyVersion }}</code></dd>
+            </div>
+            <div>
+              <dt>Created</dt>
+              <dd>{{ formatTimestamp(finding.createdAt) }}</dd>
+            </div>
+            <div>
+              <dt>Updated</dt>
+              <dd>{{ formatTimestamp(finding.updatedAt) }}</dd>
+            </div>
+          </dl>
+
+          <section class="finding-detail__trace" aria-labelledby="finding-trace-title">
+            <h3 id="finding-trace-title">Trace</h3>
+            <div class="finding-detail__trace-actions">
+              <a
+                [routerLink]="['/admin/audit/claims-evidence']"
+                [queryParams]="{
+                  artifactVersion: page.artifactVersionId,
+                  claim: finding.claimId,
+                  evidence: finding.relatedEvidenceId
+                }"
+                data-testid="audit-finding-claim-link"
+              >
+                Open related Claim / Evidence
+              </a>
+              @if (finding.relatedEventId) {
+                <a
+                  routerLink="/admin/audit"
+                  [queryParams]="{ event: finding.relatedEventId }"
+                  data-testid="audit-finding-event-link"
+                >
+                  Open related Event
+                </a>
+              }
+            </div>
+          </section>
+
+          @if (finding.resolutionReason) {
+            <section class="finding-detail__reason" aria-labelledby="finding-current-reason-title">
+              <h3 id="finding-current-reason-title">Recorded outcome reason</h3>
+              <p>{{ finding.resolutionReason }}</p>
+            </section>
+          }
+
+          @if (page.canReview) {
+            <section class="finding-detail__actions" aria-labelledby="finding-actions-title">
+              <h3 id="finding-actions-title">Triage</h3>
+
+              <label for="finding-owner">
+                <span>Owner</span>
+                <select
+                  id="finding-owner"
+                  data-testid="audit-finding-owner"
+                  [value]="selectedOwnerUserId()"
+                  (change)="updateOwner($any($event.target).value)"
+                >
+                  <option value="">Unassigned</option>
+                  @for (owner of page.eligibleOwners; track owner.userId) {
+                    <option [value]="owner.userId">{{ owner.displayName }}</option>
+                  }
+                </select>
+              </label>
+              <button
+                type="button"
+                class="finding-detail__owner-action"
+                data-testid="audit-finding-save-owner"
+                [disabled]="saving() || selectedOwnerUserId() === (finding.ownerUserId || '')"
+                (click)="saveOwner()"
+              >
+                Save owner
+              </button>
+
+              <label for="finding-reason">
+                <span>Reason</span>
+                <textarea
+                  id="finding-reason"
+                  rows="4"
+                  maxlength="1000"
+                  data-testid="audit-finding-reason"
+                  [value]="reason()"
+                  [attr.aria-invalid]="reasonError() ? 'true' : null"
+                  [attr.aria-describedby]="reasonError() ? 'finding-reason-error' : 'finding-reason-help'"
+                  (input)="updateReason($any($event.target).value)"
+                ></textarea>
+              </label>
+              <p id="finding-reason-help" class="finding-detail__help">
+                Required when marking a finding as Accepted Risk or False Positive.
+              </p>
+              @if (reasonError(); as error) {
+                <p id="finding-reason-error" class="findings-page__error" role="alert">{{ error }}</p>
+              }
+              @if (mutationError(); as error) {
+                <p class="findings-page__error" role="alert">{{ error }}</p>
+              }
+
+              <div class="finding-detail__action-grid" role="group" aria-label="Finding status actions">
+                @for (status of statuses; track status) {
+                  <button
+                    type="button"
+                    [disabled]="saving() || status === finding.status"
+                    [attr.data-testid]="'audit-finding-status-' + status"
+                    (click)="transition(status)"
+                  >
+                    {{ statusLabel(status) }}
+                  </button>
+                }
+              </div>
+
+              <p class="finding-detail__help">
+                Status changes and owner assignment are server-authorized with <code>audit.review</code>.
+              </p>
+            </section>
+          } @else {
+            <p class="finding-detail__readonly">You can review this finding, but changing triage requires Audit review permission.</p>
+          }
+
+          <section class="finding-detail__history" aria-labelledby="finding-history-title">
+            <h3 id="finding-history-title">State history</h3>
+            @if (finding.history.length === 0) {
+              <p>No visible history entries.</p>
+            } @else {
+              <ol>
+                @for (entry of finding.history; track entry.changedAt + entry.toStatus) {
+                  <li>
+                    <strong>
+                      {{ entry.fromStatus ? statusLabel(entry.fromStatus) + ' → ' : '' }}{{ statusLabel(entry.toStatus) }}
+                    </strong>
+                    <time>{{ formatTimestamp(entry.changedAt) }}</time>
+                    @if (entry.reason) {
+                      <p>{{ entry.reason }}</p>
+                    }
+                  </li>
+                }
+              </ol>
+            }
+          </section>
+        </aside>
+      }
+    </div>
+  }
+</section>

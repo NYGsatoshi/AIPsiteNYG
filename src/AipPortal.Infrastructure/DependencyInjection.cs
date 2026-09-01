@@ -145,6 +145,7 @@ public static class DependencyInjection
         services.AddScoped<AipPortal.Application.Search.ISearchService, DbSearchService>();
         services.AddScoped<AipPortal.Application.Audit.IAuditQueryService, DbAuditQueryService>();
         services.AddScoped<AipPortal.Application.Audit.IAuditClaimsEvidenceService, DbAuditClaimsEvidenceService>();
+        services.AddScoped<AipPortal.Application.Audit.IAuditFindingsService, DbAuditFindingsService>();
         services.AddSingleton<IClock, SystemClock>();
 
         return services;
