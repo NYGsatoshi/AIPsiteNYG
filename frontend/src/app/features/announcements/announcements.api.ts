@@ -97,7 +97,7 @@ export interface AnnouncementDraftContentRequestDto {
     readonly groupId: string | null;
     readonly channelId: string | null;
   };
-  readonly targets: readonly {
+  readonly targets?: readonly {
     readonly workspaceId: string | null;
     readonly groupId: string | null;
     readonly channelId: string | null;
@@ -251,11 +251,12 @@ export function mapAnnouncementDraft(
     return null;
   }
 
+  const hasExplicitTargets = Array.isArray(dto.targets) && dto.targets.length > 0;
   const rawTargets = announcementDraftTargets(dto);
   const selectedAudiences = rawTargets
     .map((target) => audiences.find((candidate) => targetMatchesAudience(target, candidate)))
     .filter((candidate): candidate is AnnouncementAudienceOption => candidate !== undefined);
-  if (rawTargets.length > 0 && selectedAudiences.length !== rawTargets.length) {
+  if (hasExplicitTargets && selectedAudiences.length !== rawTargets.length) {
     return null;
   }
 
@@ -458,7 +459,7 @@ function toAnnouncementDraftContentRequest(
   }));
   return {
     target: targets[0],
-    targets,
+    ...(targets.length > 1 ? { targets } : {}),
     title: submission.title,
     body: submission.body,
     priority: priorityNumber(submission.priority),
