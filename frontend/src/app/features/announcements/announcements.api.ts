@@ -63,6 +63,12 @@ export interface CreateAnnouncementRequestDto {
   readonly attachment?: AnnouncementActionLinkDto;
 }
 
+export interface AnnouncementDraftTargetDto {
+  readonly workspaceId?: unknown;
+  readonly groupId?: unknown;
+  readonly channelId?: unknown;
+}
+
 export interface AnnouncementDraftResponseDto {
   readonly id?: unknown;
   readonly version?: unknown;
@@ -70,6 +76,7 @@ export interface AnnouncementDraftResponseDto {
   readonly workspaceId?: unknown;
   readonly groupId?: unknown;
   readonly channelId?: unknown;
+  readonly targets?: unknown;
   readonly title?: unknown;
   readonly body?: unknown;
   readonly priority?: unknown;
@@ -90,6 +97,11 @@ export interface AnnouncementDraftContentRequestDto {
     readonly groupId: string | null;
     readonly channelId: string | null;
   };
+  readonly targets: readonly {
+    readonly workspaceId: string | null;
+    readonly groupId: string | null;
+    readonly channelId: string | null;
+  }[];
   readonly title: string;
   readonly body: string;
   readonly priority: number;
@@ -146,8 +158,6 @@ export function mapAnnouncementAudienceOption(dto: AnnouncementAudienceOptionDto
   const scope = audienceScope(dto.scopeType);
   const displayName = stringValue(dto.displayName);
   const recipientCount = nonNegativeInteger(dto.estimatedRecipientCount);
-  // UTC is the contract's final server fallback and preserves compatibility
-  // while independently deployed API nodes roll out the explicit field.
   const scheduleTimeZoneId = stringValue(dto.scheduleTimeZoneId) ?? 'UTC';
   if (!key || !scope || !displayName || recipientCount === undefined) {
     return null;
@@ -241,12 +251,13 @@ export function mapAnnouncementDraft(
     return null;
   }
 
-  const audience = audiences.find(
-    (candidate) =>
-      nullableString(candidate.workspaceId) === nullableString(dto.workspaceId) &&
-      nullableString(candidate.groupId) === nullableString(dto.groupId) &&
-      nullableString(candidate.channelId) === nullableString(dto.channelId),
-  );
+  const rawTargets = announcementDraftTargets(dto);
+  const selectedAudiences = rawTargets
+    .map((target) => audiences.find((candidate) => targetMatchesAudience(target, candidate)))
+    .filter((candidate): candidate is AnnouncementAudienceOption => candidate !== undefined);
+  if (rawTargets.length > 0 && selectedAudiences.length !== rawTargets.length) {
+    return null;
+  }
 
   const cta = mapActionLink(dto.cta);
   const attachment = mapActionLink(dto.attachment);
@@ -260,7 +271,8 @@ export function mapAnnouncementDraft(
     title,
     body,
     priority: announcementPriority(dto.priority),
-    audienceKey: audience?.key ?? '',
+    audienceKey: selectedAudiences[0]?.key ?? '',
+    audienceKeys: selectedAudiences.map((audience) => audience.key),
     availableAudiences: audiences,
     requiresReadConfirmation: dto.requiresReadConfirmation === true,
     ...(cta ? { cta } : {}),
@@ -438,12 +450,15 @@ function toAnnouncementDraftContentRequest(
 ): AnnouncementDraftContentRequestDto {
   const cta = toActionLinkDto(submission.cta);
   const attachment = toActionLinkDto(submission.attachment);
+  const selectedAudiences = submission.audiences?.length ? submission.audiences : [submission.audience];
+  const targets = selectedAudiences.map((audience) => ({
+    workspaceId: audience.workspaceId ?? null,
+    groupId: audience.groupId ?? null,
+    channelId: audience.channelId ?? null,
+  }));
   return {
-    target: {
-      workspaceId: submission.audience.workspaceId ?? null,
-      groupId: submission.audience.groupId ?? null,
-      channelId: submission.audience.channelId ?? null,
-    },
+    target: targets[0],
+    targets,
     title: submission.title,
     body: submission.body,
     priority: priorityNumber(submission.priority),
@@ -453,6 +468,26 @@ function toAnnouncementDraftContentRequest(
     ...(cta ? { cta } : {}),
     ...(attachment ? { attachment } : {}),
   };
+}
+
+function announcementDraftTargets(dto: AnnouncementDraftResponseDto): readonly AnnouncementDraftTargetDto[] {
+  if (Array.isArray(dto.targets) && dto.targets.length > 0) {
+    return dto.targets.filter(
+      (target): target is AnnouncementDraftTargetDto => typeof target === 'object' && target !== null,
+    );
+  }
+  return [{ workspaceId: dto.workspaceId, groupId: dto.groupId, channelId: dto.channelId }];
+}
+
+function targetMatchesAudience(
+  target: AnnouncementDraftTargetDto,
+  audience: AnnouncementAudienceOption,
+): boolean {
+  return (
+    nullableString(audience.workspaceId) === nullableString(target.workspaceId) &&
+    nullableString(audience.groupId) === nullableString(target.groupId) &&
+    nullableString(audience.channelId) === nullableString(target.channelId)
+  );
 }
 
 function mapActionLink(value: AnnouncementActionLinkDto | null | undefined): AnnouncementActionLink | undefined {
