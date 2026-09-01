@@ -24,6 +24,16 @@ public sealed class FileFolderModelTests
         Assert.Equal(DeleteBehavior.Restrict,
             folder.FindNavigation(nameof(FileFolder.Workspace))!.ForeignKey.DeleteBehavior);
 
+        var root = db.Model.FindEntityType(typeof(FileFolderRootState));
+        Assert.NotNull(root);
+        Assert.True(root!.FindProperty(nameof(FileFolderRootState.Version))!.IsConcurrencyToken);
+        Assert.Contains(root.GetIndexes(), index =>
+            index.IsUnique &&
+            index.Properties.Count == 1 &&
+            index.Properties[0].Name == nameof(FileFolderRootState.WorkspaceId));
+        Assert.Equal(DeleteBehavior.Restrict,
+            root.FindNavigation(nameof(FileFolderRootState.Workspace))!.ForeignKey.DeleteBehavior);
+
         var placement = db.Model.FindEntityType(typeof(FileFolderPlacement));
         Assert.NotNull(placement);
         Assert.True(placement!.FindProperty(nameof(FileFolderPlacement.Version))!.IsConcurrencyToken);
