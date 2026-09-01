@@ -1,0 +1,150 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+router="$(realpath scripts/ci/route-main-ci-changes.sh)"
+tmp_root="$(mktemp -d)"
+trap 'rm -rf "$tmp_root"' EXIT
+
+init_repo() {
+  local repo="$1"
+  shift
+  mkdir -p "$repo"
+  git -C "$repo" init -q
+  git -C "$repo" config user.name "CI Router Test"
+  git -C "$repo" config user.email "ci-router@example.invalid"
+
+  local scope
+  for scope in "$@"; do
+    mkdir -p "$repo/tests/AipPortal.Tests/$scope"
+    : > "$repo/tests/AipPortal.Tests/$scope/.keep"
+  done
+}
+
+commit_all() {
+  local repo="$1"
+  local message="$2"
+  git -C "$repo" add .
+  git -C "$repo" commit -qm "$message"
+  git -C "$repo" rev-parse HEAD
+}
+
+route_repo() {
+  local repo="$1"
+  local base="$2"
+  local head="$3"
+  local output="$repo/router-output.txt"
+  local summary="$repo/router-summary.txt"
+  : > "$output"
+  : > "$summary"
+
+  (
+    cd "$repo"
+    BASE_SHA="$base" \
+    HEAD_SHA="$head" \
+    GITHUB_OUTPUT="$output" \
+    GITHUB_STEP_SUMMARY="$summary" \
+    RUNNER_TEMP="$repo" \
+      bash "$router"
+  )
+
+  printf '%s\n' "$output"
+}
+
+value_of() {
+  local output="$1"
+  local key="$2"
+  sed -n "s/^${key}=//p" "$output" | tail -n 1
+}
+
+assert_eq() {
+  local expected="$1"
+  local actual="$2"
+  local label="$3"
+  if [[ "$actual" != "$expected" ]]; then
+    echo "router assertion failed: $label expected=$expected actual=$actual" >&2
+    exit 1
+  fi
+}
+
+assert_contains() {
+  local haystack="$1"
+  local needle="$2"
+  local label="$3"
+  if [[ "$haystack" != *"$needle"* ]]; then
+    echo "router assertion failed: $label missing '$needle' in '$haystack'" >&2
+    exit 1
+  fi
+}
+
+# Announcement runtime + persistence + migration should remain scoped, while EF
+# validation is enabled and unrelated TASK-V1 PR07 suites remain off.
+repo="$tmp_root/announcement"
+init_repo "$repo" Announcements PostgreSql
+mkdir -p \
+  "$repo/src/AipPortal.Application/Announcements" \
+  "$repo/src/AipPortal.Infrastructure/Persistence/Migrations" \
+  "$repo/src/AipPortal.Infrastructure/Persistence"
+printf 'public sealed class AnnouncementDraftService {}\n' > "$repo/src/AipPortal.Application/Announcements/AnnouncementDraftService.cs"
+printf 'public sealed class AnnouncementRepository {}\n' > "$repo/src/AipPortal.Infrastructure/Persistence/AnnouncementRepository.cs"
+base="$(commit_all "$repo" base)"
+printf 'public sealed class AnnouncementDraftService { public string Announcement => "changed"; }\n' > "$repo/src/AipPortal.Application/Announcements/AnnouncementDraftService.cs"
+printf 'public sealed class AnnouncementRepository { public string Announcement => "changed"; }\n' > "$repo/src/AipPortal.Infrastructure/Persistence/AnnouncementRepository.cs"
+printf 'public sealed class AddAnnouncementDistributionTargets {}\n' > "$repo/src/AipPortal.Infrastructure/Persistence/Migrations/20260901000000_AddAnnouncementDistributionTargets.cs"
+head="$(commit_all "$repo" head)"
+output="$(route_repo "$repo" "$base" "$head")"
+assert_eq true "$(value_of "$output" backend)" "announcement backend"
+assert_eq true "$(value_of "$output" backend_ef)" "announcement EF"
+assert_eq true "$(value_of "$output" backend_tests)" "announcement tests"
+assert_eq scoped "$(value_of "$output" backend_test_scope)" "announcement scope"
+filter="$(value_of "$output" backend_test_filter)"
+assert_contains "$filter" 'AipPortal.Tests.Announcements' "announcement filter"
+assert_contains "$filter" 'AipPortal.Tests.PostgreSql' "announcement persistence filter"
+assert_eq false "$(value_of "$output" backend_pr07b)" "announcement PR07-B"
+assert_eq false "$(value_of "$output" backend_pr07c)" "announcement PR07-C"
+assert_eq false "$(value_of "$output" backend_pr07d)" "announcement PR07-D"
+
+# Shared DI is content-aware: an Announcement-only registration must not widen
+# normal backend tests to the full suite.
+repo="$tmp_root/shared-di"
+init_repo "$repo" Announcements
+mkdir -p "$repo/src/AipPortal.Infrastructure"
+printf 'public static class DependencyInjection {}\n' > "$repo/src/AipPortal.Infrastructure/DependencyInjection.cs"
+base="$(commit_all "$repo" base)"
+printf '%s\n' \
+  'public static class DependencyInjection {' \
+  '  // Announcement registration' \
+  '  // services.AddScoped<IAnnouncementDistributionStore, AnnouncementDistributionStore>();' \
+  '}' > "$repo/src/AipPortal.Infrastructure/DependencyInjection.cs"
+head="$(commit_all "$repo" head)"
+output="$(route_repo "$repo" "$base" "$head")"
+assert_eq scoped "$(value_of "$output" backend_test_scope)" "shared DI scope"
+assert_contains "$(value_of "$output" backend_test_filter)" 'AipPortal.Tests.Announcements' "shared DI filter"
+
+# Task comments / mentions / assignments route the Projects namespace plus the
+# focused TASK-V1-PR07-B gate, without enabling C or D.
+repo="$tmp_root/pr07b"
+init_repo "$repo" Projects
+mkdir -p "$repo/src/AipPortal.Application/Projects"
+printf 'public sealed class TaskSubresourceService {}\n' > "$repo/src/AipPortal.Application/Projects/TaskSubresourceService.cs"
+base="$(commit_all "$repo" base)"
+printf 'public sealed class TaskSubresourceService { /* TaskComment Mention Assignee */ }\n' > "$repo/src/AipPortal.Application/Projects/TaskSubresourceService.cs"
+head="$(commit_all "$repo" head)"
+output="$(route_repo "$repo" "$base" "$head")"
+assert_eq scoped "$(value_of "$output" backend_test_scope)" "PR07-B scope"
+assert_contains "$(value_of "$output" backend_test_filter)" 'AipPortal.Tests.Projects' "PR07-B filter"
+assert_eq true "$(value_of "$output" backend_pr07b)" "PR07-B route"
+assert_eq false "$(value_of "$output" backend_pr07c)" "PR07-C isolation"
+assert_eq false "$(value_of "$output" backend_pr07d)" "PR07-D isolation"
+
+# Cross-cutting Common changes intentionally fail safe to the full backend suite.
+repo="$tmp_root/common"
+init_repo "$repo" Announcements
+mkdir -p "$repo/src/AipPortal.Application/Common"
+printf 'public sealed class Clock {}\n' > "$repo/src/AipPortal.Application/Common/Clock.cs"
+base="$(commit_all "$repo" base)"
+printf 'public sealed class Clock { public int Version => 2; }\n' > "$repo/src/AipPortal.Application/Common/Clock.cs"
+head="$(commit_all "$repo" head)"
+output="$(route_repo "$repo" "$base" "$head")"
+assert_eq full "$(value_of "$output" backend_test_scope)" "common fallback"
+
+echo "route-main-ci-changes regression tests passed"
