@@ -16,7 +16,7 @@ const file: FileViewModel = {
   originalFileName: 'research-notes.txt',
   contentType: 'text/plain',
   sizeBytes: 128,
-  kind: 'text',
+  kind: 'document',
   scanStatus: 'allowed',
   downloadPolicy: 'available',
   capabilities: ['download'],
