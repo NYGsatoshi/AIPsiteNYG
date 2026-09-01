@@ -31,6 +31,25 @@ public sealed class FileFolderConfiguration : IEntityTypeConfiguration<FileFolde
     }
 }
 
+public sealed class FileFolderRootStateConfiguration : IEntityTypeConfiguration<FileFolderRootState>
+{
+    public void Configure(EntityTypeBuilder<FileFolderRootState> builder)
+    {
+        builder.ToTable("file_folder_root_states");
+        builder.ConfigureAuditableEntity();
+
+        builder.Property(root => root.Version).IsConcurrencyToken().HasDefaultValue(1L).IsRequired();
+        builder.HasIndex(root => root.WorkspaceId).IsUnique();
+        builder.HasIndex(root => new { root.TenantId, root.WorkspaceId });
+
+        builder
+            .HasOne(root => root.Workspace)
+            .WithMany()
+            .HasForeignKey(root => root.WorkspaceId)
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
 public sealed class FileFolderPlacementConfiguration : IEntityTypeConfiguration<FileFolderPlacement>
 {
     public void Configure(EntityTypeBuilder<FileFolderPlacement> builder)
