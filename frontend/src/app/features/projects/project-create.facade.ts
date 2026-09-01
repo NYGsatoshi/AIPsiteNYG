@@ -401,29 +401,36 @@ export class ProjectCreateFacade {
       attempt !== null &&
       this.activeCreateAttempt === attempt &&
       this.activeCreateHasDispatched;
+    const preserveCommittedContinuation =
+      preserveCommitted && this.mutationState().status === 'submitting';
+    const preserveActiveMutation =
+      preserveDispatchedMutation || preserveCommittedContinuation;
 
     // Once this exact invocation has dispatched its canonical idempotent POST,
-    // an authorization invalidation must not abort the response. The server may
-    // already have committed, and cancelling the XHR would only discard the
-    // strict 201 needed to reconcile that commit. Pre-dispatch requests and all
-    // session/Tenant/Workspace boundary changes remain cancellable.
-    if (!preserveDispatchedMutation) {
+    // an authorization invalidation must not abort the response. After the
+    // strict 201, the confirmation GET/navigation may also stay alive because
+    // those follow-up reads reauthorize on the server. Pre-dispatch requests
+    // and all session/Tenant/Workspace boundary changes remain cancellable.
+    if (!preserveActiveMutation) {
       this.scopeGeneration += 1;
     }
     this.cancelOptionsRequest();
-    if (!preserveDispatchedMutation) {
+    if (!preserveActiveMutation) {
       this.cancelMutationRequest();
     }
 
     if (preserveCommitted && committed) {
-      // An own-command authorization invalidation may arrive between the
-      // verified 201 and follow-up GET/navigation. Clear all server-projected
-      // options and form state, but retain the committed command internally so
-      // recovery can only issue GET/navigation and never a second POST.
       this.scopeIdentityKey = committed.identityKey;
       this.scopeWorkspaceId = committed.workspaceId;
       this.createAttempt = null;
       this.optionsState.set(EMPTY_PROJECT_CREATE_OPTIONS);
+      if (preserveCommittedContinuation) {
+        // Keep the already-started authoritative GET/navigation chain alive.
+        // A denied confirmation still falls back to pending recovery, while a
+        // successful confirmation can finish navigation without a stale UI
+        // transition racing the router.
+        return;
+      }
       this.mutationState.set({
         status: 'committedPendingNavigation',
         fieldErrors: [],
