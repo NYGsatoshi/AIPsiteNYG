@@ -18,6 +18,7 @@ public sealed class DbAuditFindingsService(
 {
     private const int MaxFindings = 200;
     private const int MaxHistoryPerFinding = 50;
+    private const int MaxEligibleOwners = 500;
     private const int MaxReasonLength = 1000;
 
     public async Task<Result<AuditFindingsResponse>> ListAsync(
@@ -55,6 +56,7 @@ public sealed class DbAuditFindingsService(
                 claimsResult.Value.ArtifactVersionNumber,
                 claimsResult.Value.ArtifactTitle,
                 capabilities.CanReview,
+                Array.Empty<AuditFindingOwnerResponse>(),
                 Array.Empty<AuditFindingResponse>()));
         }
 
@@ -98,6 +100,9 @@ public sealed class DbAuditFindingsService(
             .ToListAsync(cancellationToken);
 
         var ownerNames = await LoadOwnerNamesAsync(findings, cancellationToken);
+        var eligibleOwners = capabilities.CanReview
+            ? await LoadEligibleOwnersAsync(findings, cancellationToken)
+            : Array.Empty<AuditFindingOwnerResponse>();
         var response = findings.Select(finding =>
         {
             var claim = claimMap[finding.ArtifactClaimId];
@@ -138,6 +143,7 @@ public sealed class DbAuditFindingsService(
             claimsResult.Value.ArtifactVersionNumber,
             claimsResult.Value.ArtifactTitle,
             capabilities.CanReview,
+            eligibleOwners,
             response));
     }
 
@@ -206,19 +212,32 @@ public sealed class DbAuditFindingsService(
                 "Accepted Risk and False Positive transitions require a reason."));
         }
 
-        var userId = currentUser.UserId.Value;
-        var nextOwner = request.TakeOwnership ? userId : finding.OwnerUserId;
+        var nextOwner = finding.OwnerUserId;
+        if (request.AssignOwner)
+        {
+            if (request.OwnerUserId.HasValue &&
+                !await IsEligibleOwnerAsync(finding.TenantId, request.OwnerUserId.Value, cancellationToken))
+            {
+                return Result.Failure(new ApplicationErrorDetail(
+                    "OwnerNotEligible",
+                    "The selected finding owner is not available in the current tenant."));
+            }
+            nextOwner = request.OwnerUserId;
+        }
+
         var nextReason = statusChanged
             ? nextStatus is AuditFindingTriageStatus.Open or AuditFindingTriageStatus.Reviewing
                 ? null
                 : normalizedReason
             : finding.ResolutionReason;
+        var ownerChanged = nextOwner != finding.OwnerUserId;
 
-        if (!statusChanged && nextOwner == finding.OwnerUserId)
+        if (!statusChanged && !ownerChanged)
         {
             return Result.Success();
         }
 
+        var userId = currentUser.UserId.Value;
         var previousStatus = finding.Status;
         finding.Status = nextStatus;
         finding.OwnerUserId = nextOwner;
@@ -246,6 +265,7 @@ public sealed class DbAuditFindingsService(
             {
                 ["fromStatus"] = previousStatus.ToString(),
                 ["toStatus"] = nextStatus.ToString(),
+                ["ownerChanged"] = ownerChanged,
                 ["ownerAssigned"] = nextOwner.HasValue
             }), cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
@@ -287,6 +307,47 @@ public sealed class DbAuditFindingsService(
             .Select(user => new { user.Id, user.DisplayName })
             .ToDictionaryAsync(user => user.Id, user => user.DisplayName, cancellationToken);
     }
+
+    private async Task<IReadOnlyList<AuditFindingOwnerResponse>> LoadEligibleOwnersAsync(
+        IReadOnlyList<ArtifactFinding> findings,
+        CancellationToken cancellationToken)
+    {
+        if (findings.Count == 0)
+        {
+            return Array.Empty<AuditFindingOwnerResponse>();
+        }
+
+        var tenantId = findings[0].TenantId;
+        return await dbContext.TenantUsers
+            .AsNoTracking()
+            .Where(link => link.TenantId == tenantId && link.Status == TenantUserStatus.Active)
+            .Join(
+                dbContext.Users.AsNoTracking().Where(user => user.Status == UserStatus.Active && user.DeletedAt == null),
+                link => link.UserId,
+                user => user.Id,
+                (link, user) => new AuditFindingOwnerResponse(user.Id, user.DisplayName))
+            .Distinct()
+            .OrderBy(owner => owner.DisplayName)
+            .ThenBy(owner => owner.UserId)
+            .Take(MaxEligibleOwners)
+            .ToListAsync(cancellationToken);
+    }
+
+    private async Task<bool> IsEligibleOwnerAsync(
+        Guid tenantId,
+        Guid userId,
+        CancellationToken cancellationToken) =>
+        await dbContext.TenantUsers
+            .AsNoTracking()
+            .AnyAsync(link =>
+                link.TenantId == tenantId &&
+                link.UserId == userId &&
+                link.Status == TenantUserStatus.Active &&
+                dbContext.Users.Any(user =>
+                    user.Id == link.UserId &&
+                    user.Status == UserStatus.Active &&
+                    user.DeletedAt == null),
+                cancellationToken);
 
     private static bool TryOptionalEnum<TEnum>(string? value, out TEnum? parsed)
         where TEnum : struct, Enum
