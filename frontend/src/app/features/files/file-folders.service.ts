@@ -1,6 +1,6 @@
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, computed, inject, signal } from '@angular/core';
-import { Observable, catchError, concatMap, finalize, forkJoin, from, map, of, switchMap, throwError, toArray } from 'rxjs';
+import { Observable, catchError, finalize, map, of, switchMap, throwError } from 'rxjs';
 
 export interface FileFolderViewModel {
   readonly id: string;
@@ -17,16 +17,23 @@ export interface FileFolderTreeNode {
   readonly children: readonly FileFolderTreeNode[];
 }
 
+interface FileFolderNavigationViewModel {
+  readonly rootVersion: number;
+  readonly folders: readonly FileFolderViewModel[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class FileFolderStore {
   private readonly http = inject(HttpClient);
   private readonly folderState = signal<readonly FileFolderViewModel[]>([]);
+  private readonly rootVersionState = signal(0);
   private readonly loadingState = signal(false);
   private readonly errorState = signal(false);
   private generation = 0;
   private workspaceId: string | null = null;
 
   readonly folders = this.folderState.asReadonly();
+  readonly rootVersion = this.rootVersionState.asReadonly();
   readonly loading = this.loadingState.asReadonly();
   readonly failed = this.errorState.asReadonly();
   readonly tree = computed<readonly FileFolderTreeNode[]>(() => buildFolderTree(this.folderState()));
@@ -37,6 +44,7 @@ export class FileFolderStore {
     this.errorState.set(false);
     if (!workspaceId) {
       this.folderState.set([]);
+      this.rootVersionState.set(0);
       this.loadingState.set(false);
       return;
     }
@@ -44,50 +52,48 @@ export class FileFolderStore {
     this.loadingState.set(true);
     const params = new HttpParams().set('workspaceId', workspaceId);
     this.http.get<unknown>('/api/file-folders', { params, withCredentials: true }).pipe(
-      map((response) => mapFolderList(response, workspaceId)),
+      map((response) => mapNavigation(response, workspaceId)),
       catchError(() => of(null)),
       finalize(() => {
         if (generation === this.generation) {
           this.loadingState.set(false);
         }
       }),
-    ).subscribe((folders) => {
+    ).subscribe((navigation) => {
       if (generation !== this.generation || workspaceId !== this.workspaceId) {
         return;
       }
-      if (!folders) {
+      if (!navigation) {
         this.folderState.set([]);
+        this.rootVersionState.set(0);
         this.errorState.set(true);
         return;
       }
-      this.folderState.set(folders);
+      this.folderState.set(navigation.folders);
+      this.rootVersionState.set(navigation.rootVersion);
     });
   }
 
-  moveFiles(fileObjectIds: readonly string[], destinationFolderId: string | null): Observable<void> {
+  moveFile(fileObjectId: string, destinationFolderId: string | null): Observable<void> {
     const workspaceId = this.workspaceId;
-    const ids = [...new Set(fileObjectIds.filter((id) => id.length > 0))];
-    if (!workspaceId || ids.length === 0) {
+    const expectedDestinationVersion = this.destinationVersion(destinationFolderId);
+    if (!workspaceId || !fileObjectId || expectedDestinationVersion === undefined) {
       return throwError(() => new Error('File move context is unavailable.'));
     }
-    if (destinationFolderId && !this.folderState().some((folder) => folder.id === destinationFolderId)) {
-      return throwError(() => new Error('Destination folder is unavailable.'));
-    }
 
-    return forkJoin(ids.map((fileObjectId) =>
-      this.http.get<unknown>(`/api/files/${encodeURIComponent(fileObjectId)}/location`, { withCredentials: true }).pipe(
-        map((response) => mapLocation(response, fileObjectId, workspaceId)),
-      ))).pipe(
-      switchMap((locations) => from(locations).pipe(
-        concatMap((location) => this.http.post<unknown>(
-          `/api/files/${encodeURIComponent(location.fileObjectId)}/move`,
-          {
-            destinationFolderId,
-            expectedVersion: location.version,
-          },
-          { withCredentials: true },
-        )),
-        toArray(),
+    return this.http.get<unknown>(
+      `/api/files/${encodeURIComponent(fileObjectId)}/location`,
+      { withCredentials: true },
+    ).pipe(
+      map((response) => mapLocation(response, fileObjectId, workspaceId)),
+      switchMap((location) => this.http.post<unknown>(
+        `/api/files/${encodeURIComponent(location.fileObjectId)}/move`,
+        {
+          destinationFolderId,
+          expectedVersion: location.version,
+          expectedDestinationVersion,
+        },
+        { withCredentials: true },
       )),
       map(() => undefined),
       finalize(() => this.load(workspaceId)),
@@ -97,14 +103,12 @@ export class FileFolderStore {
   moveFolder(folderId: string, destinationParentFolderId: string | null): Observable<void> {
     const workspaceId = this.workspaceId;
     const source = this.folderState().find((folder) => folder.id === folderId);
-    if (!workspaceId || !source) {
+    const expectedDestinationVersion = this.destinationVersion(destinationParentFolderId);
+    if (!workspaceId || !source || expectedDestinationVersion === undefined) {
       return throwError(() => new Error('Folder move context is unavailable.'));
     }
     if (destinationParentFolderId === folderId) {
       return throwError(() => new Error('A folder cannot be moved into itself.'));
-    }
-    if (destinationParentFolderId && !this.folderState().some((folder) => folder.id === destinationParentFolderId)) {
-      return throwError(() => new Error('Destination folder is unavailable.'));
     }
 
     return this.http.post<unknown>(
@@ -112,6 +116,7 @@ export class FileFolderStore {
       {
         destinationParentFolderId,
         expectedVersion: source.version,
+        expectedDestinationVersion,
       },
       { withCredentials: true },
     ).pipe(
@@ -119,22 +124,36 @@ export class FileFolderStore {
       finalize(() => this.load(workspaceId)),
     );
   }
+
+  private destinationVersion(folderId: string | null): number | undefined {
+    if (!folderId) {
+      return this.rootVersionState();
+    }
+    return this.folderState().find((folder) => folder.id === folderId)?.version;
+  }
 }
 
-function mapFolderList(response: unknown, workspaceId: string): readonly FileFolderViewModel[] | null {
-  if (!Array.isArray(response)) {
+function mapNavigation(response: unknown, workspaceId: string): FileFolderNavigationViewModel | null {
+  if (!isObject(response) || stringValue(response['workspaceId']) !== workspaceId) {
     return null;
   }
+  const rootVersion = nonNegativeInteger(response['rootVersion']);
+  const rawFolders = response['folders'];
+  if (rootVersion === undefined || !Array.isArray(rawFolders)) {
+    return null;
+  }
+
   const folders: FileFolderViewModel[] = [];
-  for (const item of response) {
+  for (const item of rawFolders) {
     const folder = mapFolder(item, workspaceId);
     if (!folder) {
       return null;
     }
     folders.push(folder);
   }
-  return folders.sort((left, right) =>
+  folders.sort((left, right) =>
     left.sortOrder - right.sortOrder || left.name.localeCompare(right.name) || left.id.localeCompare(right.id));
+  return { rootVersion, folders };
 }
 
 function mapFolder(value: unknown, workspaceId: string): FileFolderViewModel | null {
