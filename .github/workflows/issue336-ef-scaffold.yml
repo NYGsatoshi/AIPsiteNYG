@@ -1,6 +1,10 @@
 name: Issue336 EF Scaffold
 
 on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/issue336-ef-scaffold.yml"
   push:
     branches: ["feat/336-authoritative-folder-move"]
     paths:
@@ -11,6 +15,7 @@ permissions:
 
 jobs:
   scaffold:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     name: Scaffold folder migration
     runs-on: ubuntu-latest
     timeout-minutes: 15
