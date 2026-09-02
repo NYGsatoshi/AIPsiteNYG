@@ -272,7 +272,17 @@ public sealed class AuthService(
             ["tenantId"] = invite.TenantId,
             ["workspaceId"] = invite.WorkspaceId
         };
-        await auditLogger.LogAsync(new AuditLogEntry(user.Id, "InviteAccepted", "Invite", invite.Id, "Invite accepted."), cancellationToken);
+        await auditLogger.LogAsync(
+            new AuditLogEntry(
+                user.Id,
+                "InviteAccepted",
+                "Invite",
+                invite.Id,
+                "Invite accepted.",
+                WorkspaceId: invite.WorkspaceId,
+                Metadata: acceptedMetadata,
+                TenantId: invite.TenantId),
+            cancellationToken);
         await auditLogger.LogSecurityAsync("InviteAccepted", "Invite accepted.", acceptedMetadata, cancellationToken: cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -350,7 +360,15 @@ public sealed class AuthService(
             ["reason"] = reasonCode
         };
         await auditLogger.LogAsync(
-            new AuditLogEntry(null, "InviteAcceptanceDenied", "Invite", invite?.Id, "Invite acceptance denied."),
+            new AuditLogEntry(
+                null,
+                "InviteAcceptanceDenied",
+                "Invite",
+                invite?.Id,
+                "Invite acceptance denied.",
+                WorkspaceId: invite?.WorkspaceId,
+                Metadata: metadata,
+                TenantId: invite?.TenantId),
             cancellationToken);
         await auditLogger.LogSecurityAsync(
             "InviteAcceptanceDenied",
