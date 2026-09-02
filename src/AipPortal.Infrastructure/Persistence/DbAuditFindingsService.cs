@@ -136,7 +136,8 @@ public sealed class DbAuditFindingsService(
                 finding.Severity == AuditFindingSeverity.Critical ? 0 :
                 finding.Severity == AuditFindingSeverity.High ? 1 :
                 finding.Severity == AuditFindingSeverity.Medium ? 2 : 3)
-            .ThenBy(finding => finding.DueDate ?? DateOnly.MaxValue)
+            .ThenBy(finding => finding.DueDate.HasValue ? 0 : 1)
+            .ThenBy(finding => finding.DueDate)
             .ThenByDescending(finding => finding.ConfidencePercent)
             .ThenBy(finding => finding.CreatedAt)
             .Take(MaxFindings)
@@ -649,7 +650,7 @@ public sealed class DbAuditFindingsService(
                await HasAuditReviewAuthorityAsync(tenantId, candidate, cancellationToken);
     }
 
-    private Task<bool> HasAuditReviewAuthorityAsync(
+    private async Task<bool> HasAuditReviewAuthorityAsync(
         Guid tenantId,
         AuditOwnerCandidate candidate,
         CancellationToken cancellationToken)
@@ -657,10 +658,22 @@ public sealed class DbAuditFindingsService(
         if (candidate.SystemRole is SystemRole.PlatformAdmin or SystemRole.SystemAdmin ||
             candidate.TenantRole is TenantUserRole.Owner or TenantUserRole.Admin)
         {
-            return Task.FromResult(true);
+            return true;
         }
 
-        return capabilityGrants.HasActiveGrantAsync(
+        var canView = await capabilityGrants.HasActiveGrantAsync(
+            candidate.UserId,
+            tenantId,
+            CapabilityKeys.AuditView,
+            CapabilityScopeType.Tenant,
+            tenantId,
+            cancellationToken);
+        if (!canView)
+        {
+            return false;
+        }
+
+        return await capabilityGrants.HasActiveGrantAsync(
             candidate.UserId,
             tenantId,
             CapabilityKeys.AuditReview,
