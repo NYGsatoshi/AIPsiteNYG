@@ -145,6 +145,7 @@ public sealed class AuditFindingReviewerMentionsServiceTests
                 Status = TenantStatus.Active,
             };
             context.Tenants.Add(tenant);
+            await context.SaveChangesAsync();
 
             var actor = new User
             {
