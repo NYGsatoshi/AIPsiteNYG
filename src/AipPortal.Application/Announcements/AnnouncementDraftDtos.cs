@@ -27,10 +27,12 @@ public sealed record AnnouncementDraftContentRequest
         bool RequiresReadConfirmation = false,
         DateTimeOffset? ExpiresAt = null,
         AnnouncementActionLink? Cta = null,
-        AnnouncementActionLink? Attachment = null)
+        AnnouncementActionLink? Attachment = null,
+        IReadOnlyList<AnnouncementDraftTargetRequest>? Targets = null)
     {
         var content = AnnouncementContentContract.PrepareForPersistence(Body, Cta, Attachment);
         this.Target = Target;
+        this.Targets = Targets is { Count: > 0 } ? Targets.ToArray() : [Target];
         this.Title = Title;
         this.Body = content.PersistedBody;
         this.Priority = Priority;
@@ -41,7 +43,13 @@ public sealed record AnnouncementDraftContentRequest
         this.Attachment = content.Attachment;
     }
 
+    /// <summary>
+    /// Backwards-compatible primary target. New clients also send Targets; the
+    /// first item is mirrored here so independently deployed older consumers
+    /// remain fail-closed rather than interpreting a multi-target draft as global.
+    /// </summary>
     public AnnouncementDraftTargetRequest Target { get; init; }
+    public IReadOnlyList<AnnouncementDraftTargetRequest> Targets { get; init; }
     public string Title { get; init; }
     public string Body { get; init; }
     public AnnouncementPriority Priority { get; init; }
@@ -99,7 +107,8 @@ public sealed record AnnouncementDraftResponse
         DateTimeOffset? PublishedAtUtc,
         string? LastPublicationFailureCode,
         DateTimeOffset CreatedAtUtc,
-        DateTimeOffset? UpdatedAtUtc)
+        DateTimeOffset? UpdatedAtUtc,
+        IReadOnlyList<AnnouncementDraftTargetRequest>? Targets = null)
     {
         var content = AnnouncementContentContract.Decode(Body);
         this.Id = Id;
@@ -108,6 +117,9 @@ public sealed record AnnouncementDraftResponse
         this.WorkspaceId = WorkspaceId;
         this.GroupId = GroupId;
         this.ChannelId = ChannelId;
+        this.Targets = Targets is { Count: > 0 }
+            ? Targets.ToArray()
+            : [new AnnouncementDraftTargetRequest(WorkspaceId, GroupId, ChannelId)];
         this.Title = Title;
         this.Body = content.Body;
         this.Priority = Priority;
@@ -134,6 +146,7 @@ public sealed record AnnouncementDraftResponse
     public Guid? WorkspaceId { get; init; }
     public Guid? GroupId { get; init; }
     public Guid? ChannelId { get; init; }
+    public IReadOnlyList<AnnouncementDraftTargetRequest> Targets { get; init; }
     public string Title { get; init; }
     public string Body { get; init; }
     public AnnouncementPriority Priority { get; init; }
