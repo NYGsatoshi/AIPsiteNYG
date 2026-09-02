@@ -71,7 +71,7 @@ public sealed class InviteAcceptancePostgreSqlTests
     }
 
     [PostgreSqlFact]
-    public async Task ConcurrentAcceptanceForExistingEligibleUserSerializesOnInviteAndCreatesOneSession()
+    public async Task ConcurrentWorkspaceAdminAcceptanceForExistingEligibleUserSerializesWithoutTenantRoleEscalation()
     {
         var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
 
@@ -103,7 +103,7 @@ public sealed class InviteAcceptancePostgreSqlTests
             Assert.Equal(1, await verify.Users.CountAsync(item => item.NormalizedEmail == InviteEmail.ToUpperInvariant()));
             Assert.Equal(1, await verify.Sessions.CountAsync(item => item.UserId == persistedUser.Id));
             Assert.Equal(originalPasswordHash, persistedUser.PasswordHash);
-            Assert.Equal(TenantUserRole.Admin, tenantMembership.Role);
+            Assert.Equal(TenantUserRole.Member, tenantMembership.Role);
             Assert.Equal(TenantUserStatus.Active, tenantMembership.Status);
             Assert.Equal(WorkspaceRole.Admin, workspaceMembership.Role);
             Assert.Equal(MembershipStatus.Active, workspaceMembership.Status);
