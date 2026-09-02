@@ -52,6 +52,19 @@ public interface IUnitOfWork
         Func<CancellationToken, Task<T>> operation,
         CancellationToken cancellationToken = default) =>
         operation(cancellationToken);
+
+    /// <summary>
+    /// Serializes Invite acceptance against concurrent administrative Tenant and
+    /// Workspace membership lifecycle changes. Relational infrastructure locks
+    /// existing membership rows in a fixed order inside the acceptance transaction;
+    /// lightweight test implementations may safely no-op.
+    /// </summary>
+    Task LockInviteAcceptanceMembershipsAsync(
+        Guid tenantId,
+        Guid workspaceId,
+        Guid userId,
+        CancellationToken cancellationToken = default) =>
+        Task.CompletedTask;
 }
 
 /// <summary>
