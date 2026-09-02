@@ -271,6 +271,30 @@ public sealed class MessageCanonicalAttachmentPostgreSqlTests
             var graph = await TaskV1MigrationRawSqlSeed.CreateGraphAsync(connectionString, $"issue528-project-{Guid.NewGuid():N}");
             await using var fixture = CreateFixture(connectionString, graph);
 
+            // The raw migration graph creates the Project row but intentionally has
+            // no Workspace/Project memberships. Seed the canonical read boundary so
+            // this regression reaches Message attachment validation instead of being
+            // rejected earlier by ProjectChannel authorization.
+            fixture.Db.WorkspaceMembers.Add(new WorkspaceMember
+            {
+                TenantId = graph.TenantId,
+                WorkspaceId = graph.WorkspaceId,
+                UserId = graph.UserId,
+                Role = WorkspaceRole.Member,
+                Status = MembershipStatus.Active,
+                JoinedAt = DateTimeOffset.UtcNow
+            });
+            fixture.Db.ProjectMembers.Add(new ProjectMember
+            {
+                TenantId = graph.TenantId,
+                ProjectId = graph.ProjectId,
+                UserId = graph.UserId,
+                Role = ProjectRole.Owner,
+                JoinedAt = DateTimeOffset.UtcNow
+            });
+            await fixture.Db.SaveChangesAsync();
+            fixture.Db.ChangeTracker.Clear();
+
             var conversation = await fixture.SeedConversationAsync(graph.WorkspaceId, graph.UserId, graph.ProjectId);
             var sourceMessage = await fixture.SeedMessageAsync(conversation, graph.UserId, "project source");
             var projectFile = await fixture.SeedFileObjectAsync(
