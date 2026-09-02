@@ -628,7 +628,7 @@ public sealed class AuditFindingsServiceTests
             CancellationToken cancellationToken = default) =>
             Task.FromResult(
                 grantedUsers.Contains(subjectUserId) &&
-                capabilityKey == CapabilityKeys.AuditReview &&
+                (capabilityKey == CapabilityKeys.AuditView || capabilityKey == CapabilityKeys.AuditReview) &&
                 scopeType == CapabilityScopeType.Tenant &&
                 scopeId == tenantId);
     }
