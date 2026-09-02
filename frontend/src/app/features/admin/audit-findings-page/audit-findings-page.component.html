@@ -5,8 +5,8 @@
   <header class="findings-page__header">
     <div>
       <p class="findings-page__eyebrow">Audit workspace</p>
-      <h1 tabindex="-1">Findings triage</h1>
-      <p>Prioritize risk and policy findings, assign ownership, and record review outcomes.</p>
+      <h1 tabindex="-1">Findings review</h1>
+      <p>Prioritize findings, record review decisions, and manage accountable follow-up work.</p>
     </div>
     <nav class="findings-page__views" aria-label="Audit views">
       <a routerLink="/admin/audit">Event log</a>
@@ -16,7 +16,7 @@
   </header>
 
   <p class="findings-page__policy">
-    Severity describes impact; detector confidence describes certainty. Only findings attached to currently authorized Claims and Evidence are returned.
+    Triage, structured Review Decision, and operational Workflow Status are separate states. Only findings attached to currently authorized Claims and Evidence are returned.
   </p>
 
   <form class="findings-page__loader" (submit)="$event.preventDefault(); openVersion()">
@@ -43,11 +43,13 @@
   <p class="findings-page__status" role="status" aria-live="polite" aria-atomic="true">
     @switch (page.status) {
       @case ('loading') { Loading authorized findings. }
-      @case ('permissionDenied') { Findings triage access is unavailable. }
+      @case ('permissionDenied') { Findings review access is unavailable. }
       @case ('notFound') { The requested artifact version is unavailable. }
-      @case ('error') { Findings triage could not be loaded. }
+      @case ('error') { Findings review could not be loaded. }
       @case ('empty') { No findings match the current authorized scope and filters. }
-      @case ('ready') { {{ page.findings.length }} findings are available; {{ unresolvedCount() }} are unresolved. }
+      @case ('ready') {
+        {{ page.findings.length }} findings are available; {{ unresolvedCount() }} are unresolved and {{ overdueCount() }} are overdue.
+      }
       @default { Enter an artifact version ID to inspect its findings. }
     }
   </p>
@@ -76,15 +78,29 @@
 
     <section class="findings-page__filters" aria-label="Finding filters" data-testid="audit-findings-filters">
       <label>
-        <span>Status</span>
+        <span>Triage status</span>
         <select
           data-testid="audit-findings-status-filter"
           [value]="activeFilters.status"
           (change)="updateStatus($any($event.target).value)"
         >
-          <option value="">All statuses</option>
+          <option value="">All triage states</option>
           @for (status of statuses; track status) {
             <option [value]="status">{{ statusLabel(status) }}</option>
+          }
+        </select>
+      </label>
+
+      <label>
+        <span>Workflow status</span>
+        <select
+          data-testid="audit-findings-workflow-filter"
+          [value]="activeFilters.workflowStatus"
+          (change)="updateWorkflowStatusFilter($any($event.target).value)"
+        >
+          <option value="">All workflow states</option>
+          @for (status of workflowStatuses; track status) {
+            <option [value]="status">{{ workflowStatusLabel(status) }}</option>
           }
         </select>
       </label>
@@ -103,15 +119,44 @@
         </select>
       </label>
 
-      <label class="findings-page__check">
-        <input
-          type="checkbox"
-          data-testid="audit-findings-open-only"
-          [checked]="activeFilters.openOnly"
-          (change)="toggleOpenOnly($any($event.target).checked)"
-        />
-        <span>Open / Reviewing only</span>
-      </label>
+      <div class="findings-page__filter-checks">
+        <label class="findings-page__check">
+          <input
+            type="checkbox"
+            data-testid="audit-findings-my-reviews"
+            [checked]="activeFilters.myReviews"
+            (change)="toggleMyReviews($any($event.target).checked)"
+          />
+          <span>My reviews</span>
+        </label>
+        <label class="findings-page__check">
+          <input
+            type="checkbox"
+            data-testid="audit-findings-overdue"
+            [checked]="activeFilters.overdue"
+            (change)="toggleOverdue($any($event.target).checked)"
+          />
+          <span>Overdue</span>
+        </label>
+        <label class="findings-page__check">
+          <input
+            type="checkbox"
+            data-testid="audit-findings-unassigned"
+            [checked]="activeFilters.unassigned"
+            (change)="toggleUnassigned($any($event.target).checked)"
+          />
+          <span>Unassigned</span>
+        </label>
+        <label class="findings-page__check">
+          <input
+            type="checkbox"
+            data-testid="audit-findings-open-only"
+            [checked]="activeFilters.openOnly"
+            (change)="toggleOpenOnly($any($event.target).checked)"
+          />
+          <span>Open / Reviewing triage</span>
+        </label>
+      </div>
 
       <button type="button" class="findings-page__clear" (click)="clearFilters()">Clear filters</button>
     </section>
@@ -130,10 +175,10 @@
       <section class="finding-queue" aria-labelledby="finding-queue-title" data-testid="audit-finding-queue">
         <header class="finding-queue__header">
           <div>
-            <p class="findings-page__eyebrow">Triage queue</p>
+            <p class="findings-page__eyebrow">Review queue</p>
             <h2 id="finding-queue-title">Prioritized findings</h2>
           </div>
-          <p>Unresolved findings are ordered before resolved outcomes, then by severity and confidence.</p>
+          <p>Overdue work is surfaced first, followed by unresolved triage, severity, due date, and detector confidence.</p>
         </header>
 
         <div class="finding-queue__list">
@@ -142,21 +187,30 @@
               type="button"
               class="finding-card"
               [class.finding-card--selected]="selectedFindingId() === finding.id"
+              [class.finding-card--overdue]="finding.isOverdue"
               [attr.aria-pressed]="selectedFindingId() === finding.id"
               [attr.data-testid]="'audit-finding-' + finding.id"
               (click)="selectFinding(finding)"
             >
               <span class="finding-card__headline">
                 <strong>Claim #{{ finding.claimOrdinal }}</strong>
-                <span class="finding-card__status" [attr.data-state]="finding.status">{{ statusLabel(finding.status) }}</span>
+                <span class="finding-card__badges">
+                  @if (finding.isOverdue) {
+                    <span class="finding-card__overdue">Overdue</span>
+                  }
+                  <span class="finding-card__status" [attr.data-state]="finding.status">{{ statusLabel(finding.status) }}</span>
+                </span>
               </span>
               <span class="finding-card__claim">{{ finding.claimText }}</span>
               <span class="finding-card__metrics">
                 <span><strong>{{ finding.severity }}</strong> severity</span>
                 <span><strong>{{ finding.confidencePercent }}%</strong> confidence</span>
               </span>
+              <span class="finding-card__workflow">
+                Workflow: <strong>{{ workflowStatusLabel(finding.workflowStatus) }}</strong>
+              </span>
               <span class="finding-card__owner">
-                Owner: {{ finding.ownerDisplayName || 'Unassigned' }}
+                Owner: {{ ownerLabel(finding.ownerDisplayName) }} · Due: {{ formatDueDate(finding.dueDate) }}
               </span>
             </button>
           }
@@ -170,7 +224,12 @@
               <p class="findings-page__eyebrow">Selected finding</p>
               <h2 id="finding-detail-title">Claim #{{ finding.claimOrdinal }}</h2>
             </div>
-            <span class="finding-detail__status" [attr.data-state]="finding.status">{{ statusLabel(finding.status) }}</span>
+            <div class="finding-detail__badges">
+              @if (finding.isOverdue) {
+                <span class="finding-detail__overdue">Overdue</span>
+              }
+              <span class="finding-detail__status" [attr.data-state]="finding.status">{{ statusLabel(finding.status) }}</span>
+            </div>
           </header>
 
           <p class="finding-detail__claim">{{ finding.claimText }}</p>
@@ -185,8 +244,16 @@
               <dd>{{ finding.confidencePercent }}%</dd>
             </div>
             <div>
+              <dt>Workflow status</dt>
+              <dd>{{ workflowStatusLabel(finding.workflowStatus) }}</dd>
+            </div>
+            <div>
               <dt>Owner</dt>
-              <dd>{{ finding.ownerDisplayName || 'Unassigned' }}</dd>
+              <dd>{{ ownerLabel(finding.ownerDisplayName) }}</dd>
+            </div>
+            <div>
+              <dt>Due date</dt>
+              <dd>{{ formatDueDate(finding.dueDate) }}</dd>
             </div>
             <div>
               <dt>Detector</dt>
@@ -234,7 +301,7 @@
 
           @if (finding.resolutionReason) {
             <section class="finding-detail__reason" aria-labelledby="finding-current-reason-title">
-              <h3 id="finding-current-reason-title">Recorded outcome reason</h3>
+              <h3 id="finding-current-reason-title">Recorded triage reason</h3>
               <p>{{ finding.resolutionReason }}</p>
             </section>
           }
@@ -242,8 +309,28 @@
           <app-audit-finding-decision-panel [findingId]="finding.id" />
 
           @if (page.canReview) {
-            <section class="finding-detail__actions" aria-labelledby="finding-actions-title">
-              <h3 id="finding-actions-title">Triage</h3>
+            <section class="finding-detail__workflow" aria-labelledby="finding-workflow-title" data-testid="audit-finding-workflow">
+              <div>
+                <p class="findings-page__eyebrow">Operational follow-up</p>
+                <h3 id="finding-workflow-title">Review workflow</h3>
+                <p class="finding-detail__help">
+                  Workflow Status is independent from the structured Review Decision and detector triage state.
+                </p>
+              </div>
+
+              <label for="finding-workflow-status">
+                <span>Workflow status</span>
+                <select
+                  id="finding-workflow-status"
+                  data-testid="audit-finding-workflow-status"
+                  [value]="selectedWorkflowStatus()"
+                  (change)="updateWorkflowStatus($any($event.target).value)"
+                >
+                  @for (status of workflowStatuses; track status) {
+                    <option [value]="status">{{ workflowStatusLabel(status) }}</option>
+                  }
+                </select>
+              </label>
 
               <label for="finding-owner">
                 <span>Owner</span>
@@ -259,15 +346,39 @@
                   }
                 </select>
               </label>
+
+              <label for="finding-due-date">
+                <span>Due date</span>
+                <input
+                  id="finding-due-date"
+                  type="date"
+                  data-testid="audit-finding-due-date"
+                  [value]="selectedDueDate()"
+                  (input)="updateDueDate($any($event.target).value)"
+                />
+              </label>
+
               <button
                 type="button"
-                class="finding-detail__owner-action"
+                class="finding-detail__workflow-action"
                 data-testid="audit-finding-save-owner"
-                [disabled]="saving() || selectedOwnerUserId() === (finding.ownerUserId || '')"
-                (click)="saveOwner()"
+                [disabled]="saving() || (
+                  selectedOwnerUserId() === (finding.ownerUserId || '') &&
+                  selectedDueDate() === (finding.dueDate || '') &&
+                  selectedWorkflowStatus() === finding.workflowStatus
+                )"
+                (click)="saveWorkflow()"
               >
-                Save owner
+                Save workflow
               </button>
+
+              <p class="finding-detail__help">
+                Owner candidates are server-authorized for <code>audit.review</code>. Assigning another reviewer creates a generic notification whose Artifact target is re-authorized before delivery or navigation.
+              </p>
+            </section>
+
+            <section class="finding-detail__actions" aria-labelledby="finding-actions-title">
+              <h3 id="finding-actions-title">Triage</h3>
 
               <label for="finding-reason">
                 <span>Reason</span>
@@ -292,7 +403,7 @@
                 <p class="findings-page__error" role="alert">{{ error }}</p>
               }
 
-              <div class="finding-detail__action-grid" role="group" aria-label="Finding status actions">
+              <div class="finding-detail__action-grid" role="group" aria-label="Finding triage status actions">
                 @for (status of statuses; track status) {
                   <button
                     type="button"
@@ -306,17 +417,41 @@
               </div>
 
               <p class="finding-detail__help">
-                Status changes and owner assignment are server-authorized with <code>audit.review</code>.
+                Triage mutations are independently server-authorized with <code>audit.review</code>.
               </p>
             </section>
           } @else {
-            <p class="finding-detail__readonly">You can review this finding, but changing triage requires Audit review permission.</p>
+            <p class="finding-detail__readonly">You can inspect this finding, but changing review workflow or triage requires Audit review permission.</p>
           }
 
+          <section class="finding-detail__workflow-history" aria-labelledby="finding-workflow-history-title">
+            <h3 id="finding-workflow-history-title">Workflow history</h3>
+            @if (finding.workflowHistory.length === 0) {
+              <p>No workflow changes have been recorded.</p>
+            } @else {
+              <ol data-testid="audit-finding-workflow-history">
+                @for (entry of finding.workflowHistory; track entry.changedAt + entry.toWorkflowStatus + entry.toOwnerUserId) {
+                  <li>
+                    <strong>
+                      {{ workflowStatusLabel(entry.fromWorkflowStatus) }} → {{ workflowStatusLabel(entry.toWorkflowStatus) }}
+                    </strong>
+                    <time>{{ formatTimestamp(entry.changedAt) }}</time>
+                    <p>
+                      Owner: {{ ownerLabel(entry.fromOwnerDisplayName) }} → {{ ownerLabel(entry.toOwnerDisplayName) }}
+                    </p>
+                    <p>
+                      Due: {{ formatDueDate(entry.fromDueDate) }} → {{ formatDueDate(entry.toDueDate) }}
+                    </p>
+                  </li>
+                }
+              </ol>
+            }
+          </section>
+
           <section class="finding-detail__history" aria-labelledby="finding-history-title">
-            <h3 id="finding-history-title">State history</h3>
+            <h3 id="finding-history-title">Triage history</h3>
             @if (finding.history.length === 0) {
-              <p>No visible history entries.</p>
+              <p>No visible triage history entries.</p>
             } @else {
               <ol>
                 @for (entry of finding.history; track entry.changedAt + entry.toStatus) {
