@@ -1,0 +1,76 @@
+using System.Text;
+using AipPortal.Application.Common.Tenancy;
+using AipPortal.Domain.Entities;
+using AipPortal.Domain.Enums;
+using AipPortal.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
+
+namespace AipPortal.Tests.Notifications;
+
+public sealed class NotificationPersistenceLimitTests
+{
+    [Fact]
+    public async Task CreateAsyncClampsNotificationTextToPersistenceLimitsWithoutSplittingUnicodeScalars()
+    {
+        var tenantId = Guid.NewGuid();
+        var tenant = TenantScope(tenantId);
+        await using var db = new AppDbContext(
+            new DbContextOptionsBuilder<AppDbContext>()
+                .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
+                .Options,
+            tenant);
+        var service = new DbNotificationService(db, FixedClock.Instance, tenant);
+        var title = string.Concat(Enumerable.Repeat("🙂", Notification.TitleMaximumLength + 20));
+        var body = string.Concat(Enumerable.Repeat("界", Notification.BodyMaximumLength + 200));
+
+        var id = await service.CreateAsync(
+            Guid.NewGuid(),
+            NotificationType.Event,
+            title,
+            body,
+            "Event",
+            Guid.NewGuid());
+
+        var notification = Assert.Single(db.Notifications.Local);
+        Assert.Equal(id, notification.Id);
+        Assert.Equal(Notification.TitleMaximumLength, notification.Title.EnumerateRunes().Count());
+        Assert.Equal(Notification.BodyMaximumLength, notification.Body!.EnumerateRunes().Count());
+        Assert.True(notification.Title.EndsWith("🙂", StringComparison.Ordinal));
+        Assert.True(notification.Body.EndsWith("界", StringComparison.Ordinal));
+
+        await db.SaveChangesAsync();
+    }
+
+    [Fact]
+    public void NotificationEntityLimitsMatchEfPersistenceConfiguration()
+    {
+        var tenant = TenantScope(Guid.NewGuid());
+        using var db = new AppDbContext(
+            new DbContextOptionsBuilder<AppDbContext>()
+                .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
+                .Options,
+            tenant);
+        var entity = db.Model.FindEntityType(typeof(Notification));
+
+        Assert.NotNull(entity);
+        Assert.Equal(
+            Notification.TitleMaximumLength,
+            entity!.FindProperty(nameof(Notification.Title))!.GetMaxLength());
+        Assert.Equal(
+            Notification.BodyMaximumLength,
+            entity.FindProperty(nameof(Notification.Body))!.GetMaxLength());
+    }
+
+    private static CurrentTenantService TenantScope(Guid tenantId)
+    {
+        var tenant = new CurrentTenantService();
+        tenant.SetTenant(tenantId, $"tenant-{tenantId:N}");
+        return tenant;
+    }
+
+    private sealed class FixedClock : AipPortal.Application.Common.Interfaces.IClock
+    {
+        public static FixedClock Instance { get; } = new();
+        public DateTimeOffset UtcNow => new(2026, 9, 2, 10, 30, 0, TimeSpan.Zero);
+    }
+}
