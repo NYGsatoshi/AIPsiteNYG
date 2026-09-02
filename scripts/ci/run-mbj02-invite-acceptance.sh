@@ -139,6 +139,15 @@ run_probe() {
     bash -lc "npm ci && node tests/ui/mbj02-invite-acceptance.mjs"
 }
 
+run_issue527_postgres_tests() {
+  local connection_string='Host=postgres;Port=5432;Database=aip_portal_smoke;Username=aip_portal_smoke;Password=aip_portal_smoke_password'
+  echo "Running Issue #527 PostgreSQL transaction/replay integration tests."
+  "${compose[@]}" run --rm --no-deps \
+    -e POSTGRES_TEST_CONNECTION_STRING="$connection_string" \
+    migrate \
+    bash -lc 'set -euo pipefail; dotnet test tests/AipPortal.Tests/AipPortal.Tests.csproj --configuration Release --filter "Scope=Issue527" --logger "trx;LogFileName=mbj02-issue527-postgresql.trx" --results-directory test-results 2>&1 | tee test-results/mbj02-issue527-postgresql.log'
+}
+
 verify_postgres_state() {
   local row
   row="$("${compose[@]}" exec -T postgres \
@@ -242,6 +251,7 @@ echo "Starting isolated PostgreSQL and MBJ-02 application stack."
 "${compose[@]}" up --build --detach postgres app
 wait_healthy postgres
 wait_healthy app
+run_issue527_postgres_tests
 seed_cross_tenant_fixture
 run_probe
 verify_postgres_state
