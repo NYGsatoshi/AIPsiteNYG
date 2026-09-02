@@ -308,6 +308,13 @@
 
           <app-audit-finding-decision-panel [findingId]="finding.id" />
 
+          @if (mutationError(); as error) {
+            <p class="findings-page__error" role="alert">{{ error }}</p>
+          }
+          @if (mutationNotice(); as notice) {
+            <p class="finding-detail__help" role="status" data-testid="audit-finding-mutation-notice">{{ notice }}</p>
+          }
+
           @if (page.canReview) {
             <section class="finding-detail__workflow" aria-labelledby="finding-workflow-title" data-testid="audit-finding-workflow">
               <div>
@@ -333,7 +340,7 @@
               </label>
 
               <label for="finding-owner">
-                <span>Owner</span>
+                <span>Owner / reviewer</span>
                 <select
                   id="finding-owner"
                   data-testid="audit-finding-owner"
@@ -372,8 +379,18 @@
                 Save workflow
               </button>
 
+              <button
+                type="button"
+                class="finding-detail__workflow-action"
+                data-testid="audit-finding-mention-reviewer"
+                [disabled]="saving() || !selectedOwnerUserId()"
+                (click)="mentionSelectedReviewer()"
+              >
+                Mention selected reviewer
+              </button>
+
               <p class="finding-detail__help">
-                Owner candidates are server-authorized for <code>audit.review</code>. Assigning another reviewer creates a generic notification whose Artifact target is re-authorized before delivery or navigation.
+                Owner and mention candidates are server-authorized for <code>audit.review</code>. Assignment and mention notifications contain no Claim or Evidence text, and their Artifact target is re-authorized before delivery or navigation.
               </p>
             </section>
 
@@ -398,9 +415,6 @@
               </p>
               @if (reasonError(); as error) {
                 <p id="finding-reason-error" class="findings-page__error" role="alert">{{ error }}</p>
-              }
-              @if (mutationError(); as error) {
-                <p class="findings-page__error" role="alert">{{ error }}</p>
               }
 
               <div class="finding-detail__action-grid" role="group" aria-label="Finding triage status actions">
