@@ -225,8 +225,12 @@ jobs:
         env:
           BACKEND_TEST_SCOPE: ${{ needs.changes.outputs.backend_test_scope }}
           BACKEND_TEST_FILTER: ${{ needs.changes.outputs.backend_test_filter }}
+          BASH_ENV: ""
         shell: bash
         run: |
+          # A persistent runner may inject Bash startup/EXIT hooks. Keep those
+          # hooks from turning a successful dotnet test into a false failure.
+          trap - EXIT
           set -euo pipefail
           target="AipPortal.slnx"
           filter_args=()

@@ -50,6 +50,7 @@ public static class DependencyInjection
         services.AddScoped<IResearchPlanRepository, UnavailableResearchPlanRepository>();
         services.AddScoped<IAnnouncementDraftRepository, UnavailableAnnouncementDraftRepository>();
         services.AddScoped<ITaskExecutionResultRepository, UnavailableTaskExecutionResultRepository>();
+        services.AddScoped<ITaskExecutionInterventionRepository, UnavailableTaskExecutionInterventionRepository>();
         services.AddScoped<ICapabilityGrantEvaluator, CapabilityGrantEvaluator>();
         services.AddScoped<ICapabilityGrantService, CapabilityGrantService>();
         services.AddScoped<IAuditAuthorizationService, AuditAuthorizationService>();
@@ -125,6 +126,7 @@ public static class DependencyInjection
         services.AddScoped<ITaskCommandService, TaskCommandService>();
         services.AddScoped<ITaskSubresourceService, TaskSubresourceService>();
         services.AddScoped<ITaskExecutionScopeService, TaskExecutionScopeService>();
+        services.AddScoped<ITaskExecutionInterventionService, TaskExecutionInterventionService>();
         services.AddScoped<IResearchPlanService, ResearchPlanService>();
         services.AddScoped<ITaskExecutionResultService, TaskExecutionResultService>();
         services.AddScoped<ITaskWorkspaceTimeZoneResolver, TaskWorkspaceTimeZoneResolver>();

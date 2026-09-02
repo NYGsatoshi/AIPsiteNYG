@@ -22,7 +22,9 @@ public enum TaskExecutionProvider
 
 /// <summary>
 /// Durable lifecycle of a persisted execution request. It is independent from
-/// Task workflow, activity, progress, and browser state.
+/// Task workflow, activity, progress, and browser state. Stopped is a deliberate
+/// destructive intervention. Redirected closes the current immutable snapshot so
+/// a successor Run can restart from the latest saved Task state.
 /// </summary>
 public enum TaskExecutionRunStatus
 {
@@ -30,7 +32,9 @@ public enum TaskExecutionRunStatus
     Queued = 1,
     Running = 2,
     Succeeded = 3,
-    Failed = 4
+    Failed = 4,
+    Stopped = 5,
+    Redirected = 6
 }
 
 /// <summary>
@@ -43,19 +47,25 @@ public enum TaskExecutionMajorState
     Queued = 1,
     Running = 2,
     Succeeded = 3,
-    Failed = 4
+    Failed = 4,
+    Stopped = 5,
+    Redirected = 6
 }
 
 /// <summary>
-/// The only permitted V1 progression. A materialization refusal is recorded
-/// after the server worker has entered <see cref="TaskExecutionRunStatus.Running"/>,
-/// so it reaches the same safe terminal failure boundary as an execution
-/// failure without inventing a second lifecycle.
+/// Canonical runtime progression plus user intervention exits. A Stop or
+/// Redirect may win from any non-terminal state. Once terminal, a Run cannot be
+/// revived; direction correction creates a new immutable successor Run instead.
 /// </summary>
 public static class TaskExecutionRunLifecycle
 {
     public static bool IsTerminal(TaskExecutionRunStatus status) =>
-        status is TaskExecutionRunStatus.Succeeded or TaskExecutionRunStatus.Failed;
+        status is TaskExecutionRunStatus.Succeeded or
+            TaskExecutionRunStatus.Failed or
+            TaskExecutionRunStatus.Stopped or
+            TaskExecutionRunStatus.Redirected;
+
+    public static bool CanIntervene(TaskExecutionRunStatus status) => !IsTerminal(status);
 
     public static bool CanTransition(TaskExecutionRunStatus from, TaskExecutionRunStatus to) =>
         (from, to) switch
@@ -64,6 +74,8 @@ public static class TaskExecutionRunLifecycle
             (TaskExecutionRunStatus.Queued, TaskExecutionRunStatus.Running) => true,
             (TaskExecutionRunStatus.Running, TaskExecutionRunStatus.Succeeded) => true,
             (TaskExecutionRunStatus.Running, TaskExecutionRunStatus.Failed) => true,
+            (_, TaskExecutionRunStatus.Stopped) when CanIntervene(from) => true,
+            (_, TaskExecutionRunStatus.Redirected) when CanIntervene(from) => true,
             _ => false
         };
 }

@@ -9,5 +9,18 @@
 .task-execution-result__hash { overflow-wrap: anywhere; color: var(--aip-color-text-secondary); }
 .task-execution-result__failure { display: grid; gap: var(--aip-space-2); padding: var(--aip-space-3); border: 1px solid var(--aip-color-danger); border-radius: var(--aip-radius-md); background: var(--aip-color-danger-subtle); color: var(--aip-color-danger); }
 .task-execution-result__pending { color: var(--aip-color-text-secondary); }
+.task-execution-result__interventions { display: grid; gap: var(--aip-space-3); padding: var(--aip-space-3); border: 1px solid var(--aip-color-border-default); border-radius: var(--aip-radius-md); background: var(--aip-color-bg-surface); }
+.task-execution-result__correction, .task-execution-result__stop { display: grid; gap: var(--aip-space-2); padding: var(--aip-space-3); border: 1px solid var(--aip-color-border-default); border-radius: var(--aip-radius-md); }
+.task-execution-result__correction ul { margin: 0; padding-inline-start: 1.25rem; color: var(--aip-color-text-secondary); }
+.task-execution-result__stop { border-color: var(--aip-color-danger); background: var(--aip-color-danger-subtle); }
+.task-execution-result__stop-confirmation { display: grid; gap: var(--aip-space-2); padding: var(--aip-space-3); border: 2px solid var(--aip-color-danger); border-radius: var(--aip-radius-md); background: var(--aip-color-danger-subtle); }
+.task-execution-result__actions { display: flex; flex-wrap: wrap; gap: var(--aip-space-2); }
 .task-execution-result button { min-height: var(--aip-touch-target); padding: 0 var(--aip-space-3); border: 1px solid var(--aip-color-border-strong); border-radius: var(--aip-radius-md); background: var(--aip-color-bg-control); font-weight: 700; }
+.task-execution-result button:disabled { cursor: not-allowed; opacity: .6; }
+.task-execution-result__danger-button { border-color: var(--aip-color-danger) !important; background: var(--aip-color-danger-subtle) !important; color: var(--aip-color-danger); }
 .task-execution-result button:focus-visible { outline: var(--aip-focus-outline); outline-offset: var(--aip-focus-offset); }
+@media (max-width: 420px) {
+  .task-execution-result, .task-execution-result__interventions, .task-execution-result__correction, .task-execution-result__stop, .task-execution-result__stop-confirmation { padding: var(--aip-space-2); }
+  .task-execution-result__actions { display: grid; }
+  .task-execution-result button { width: 100%; }
+}
