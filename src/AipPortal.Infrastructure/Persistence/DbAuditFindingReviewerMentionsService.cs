@@ -96,7 +96,7 @@ public sealed class DbAuditFindingReviewerMentionsService(
 
         await notifications.CreateOrGetByLogicalKeyAsync(
             request.UserId,
-            NotificationType.System,
+            NotificationType.Mention,
             "Mentioned in Audit review",
             null,
             "Artifact",
