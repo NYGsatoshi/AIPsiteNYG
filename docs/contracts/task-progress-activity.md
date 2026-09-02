@@ -1,6 +1,6 @@
 # Task Progress and Activity contract
 
-Issue: #369
+Issues: #369, #370
 
 ## Authorities
 
@@ -17,12 +17,36 @@ The stable user-facing state vocabulary is:
 - `Running`
 - `Succeeded`
 - `Failed`
+- `Stopped`
+- `Redirected`
 
 `TaskExecutionRunStatus` is the canonical lifecycle and the API projects it
-directly to the corresponding major state. The only V1 progression is
-`Accepted` -> `Queued` -> `Running` -> (`Succeeded` | `Failed`). Historical
-provider-none rows are migrated safely; the current contract has no
-`RuntimeUnavailable`, `Prepared`, `Waiting`, or `NeedsInput` state.
+directly to the corresponding major state. Normal execution progresses as
+`Accepted` -> `Queued` -> `Running` -> (`Succeeded` | `Failed`). An authorized
+user intervention may instead move any non-terminal Run to either `Stopped` or
+`Redirected`. Historical provider-none rows are migrated safely; the current
+contract has no `RuntimeUnavailable`, `Prepared`, `Waiting`, or `NeedsInput`
+state.
+
+A terminal Run is immutable and cannot be revived. `Stopped` and `Redirected`
+are intentionally different terminal facts:
+
+- `Stopped` means the current Run was deliberately ended and no successor Run is created by that command.
+- `Redirected` means the immutable current Run was ended for direction correction and a new successor Run is created from the latest saved Task state.
+
+The V1 first-party Project Files runtime has no durable intra-run checkpoint.
+Therefore a direction correction exposes the truthful resume point
+`NewRunFromLatestTaskState`: the successor starts as a new Run with the latest
+saved Research Plan revision and Active Source Scope snapshot. UI text must not
+claim that work resumes inside the prior Run.
+
+## Intervention authorization and persistence
+
+- Stop and direction correction are server-authorized commands. Browser visibility or disabled state is not an authorization boundary.
+- The actor must retain Project management authorization for the Task at command time; unauthorized and cross-Task Run identifiers fail closed without disclosing Run existence.
+- Every accepted intervention records a Task-linked Activity fact and an Audit entry in the same Task command persistence boundary as the authoritative Run/Task mutation.
+- Direction correction never edits the old Run snapshot. It creates a successor immutable snapshot from current server-owned state.
+- Runtime materialization must not hold the Run row lock across slow source reads. Before result/provenance commit it must re-lock the Run and confirm that the Run is still `Running`; if Stop/Redirect won, the old Run cannot publish a result.
 
 ## Phase history
 
@@ -37,6 +61,8 @@ Phase-change history must be visually distinguishable from ordinary Activity eve
 - Activity remains a secondary, independently loaded surface.
 - No 0-100 completion percentage may be derived for Progress unless a separate authoritative product contract is introduced later.
 - State/phase updates must be exposed through semantic headings and a polite atomic live region so keyboard and screen-reader users can perceive authoritative changes.
+- `Correct direction` and destructive `Stop Task` are separate controls. The correction surface identifies the saved Task surfaces that can change the successor snapshot and explicitly states the resume point. Stop requires a deliberate confirmation step.
+- Unavailable intervention controls are hidden or disabled according to authorization and terminal Run state; where a control remains visible, the UI explains why it is unavailable.
 
 ## Security and failure behavior
 
