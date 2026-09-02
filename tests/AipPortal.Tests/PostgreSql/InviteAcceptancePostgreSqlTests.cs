@@ -151,10 +151,14 @@ public sealed class InviteAcceptancePostgreSqlTests
                 Assert.Equal(MembershipStatus.Active, workspaceMembership.Status);
                 Assert.False(await verify.Sessions.AnyAsync(item => item.UserId == graph.ExistingUser!.Id));
                 Assert.Null((await verify.Invites.SingleAsync(item => item.Id == graph.Invite.Id)).AcceptedAt);
-                Assert.True(await verify.AuditLogs.IgnoreQueryFilters().AnyAsync(item =>
-                    item.Action == "InviteAcceptanceDenied" &&
-                    item.MetadataJson != null &&
-                    item.MetadataJson.Contains("TenantMembershipUnavailable")));
+
+                var denialMetadata = await verify.AuditLogs
+                    .IgnoreQueryFilters()
+                    .Where(item => item.Action == "InviteAcceptanceDenied")
+                    .Select(item => item.MetadataJson)
+                    .ToListAsync();
+                Assert.Contains(denialMetadata, metadata =>
+                    metadata?.Contains("TenantMembershipUnavailable", StringComparison.Ordinal) == true);
             });
         }
     }
@@ -191,10 +195,14 @@ public sealed class InviteAcceptancePostgreSqlTests
             Assert.Equal(MembershipStatus.Suspended, workspaceMembership.Status);
             Assert.False(await verify.Sessions.AnyAsync(item => item.UserId == graph.ExistingUser!.Id));
             Assert.Null((await verify.Invites.SingleAsync(item => item.Id == graph.Invite.Id)).AcceptedAt);
-            Assert.True(await verify.AuditLogs.IgnoreQueryFilters().AnyAsync(item =>
-                item.Action == "InviteAcceptanceDenied" &&
-                item.MetadataJson != null &&
-                item.MetadataJson.Contains("WorkspaceMembershipUnavailable")));
+
+            var denialMetadata = await verify.AuditLogs
+                .IgnoreQueryFilters()
+                .Where(item => item.Action == "InviteAcceptanceDenied")
+                .Select(item => item.MetadataJson)
+                .ToListAsync();
+            Assert.Contains(denialMetadata, metadata =>
+                metadata?.Contains("WorkspaceMembershipUnavailable", StringComparison.Ordinal) == true);
         });
     }
 
