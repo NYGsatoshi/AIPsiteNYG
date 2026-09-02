@@ -52,14 +52,21 @@ public sealed class InviteRepository(AppDbContext dbContext) : IInviteRepository
             return await GetByTokenHashAsync(tokenHash, cancellationToken);
         }
 
-        // The hashed token is parameterized. The SELECT itself is deliberately
-        // executed before the tracked EF query so PostgreSQL holds the row lock
-        // until the surrounding acceptance transaction commits or rolls back.
-        await dbContext.Database.ExecuteSqlInterpolatedAsync(
-            $"SELECT 1 FROM invites WHERE \"TokenHash\" = {tokenHash} FOR UPDATE",
-            cancellationToken);
+        // Resolve through EF first so the normal Tenant query filter remains the
+        // visibility boundary. Only a visible Invite is then locked by primary key.
+        // Reloading after FOR UPDATE is required because another transaction may
+        // have committed AcceptedAt while this transaction was waiting for the lock.
+        var invite = await GetByTokenHashAsync(tokenHash, cancellationToken);
+        if (invite is null)
+        {
+            return null;
+        }
 
-        return await GetByTokenHashAsync(tokenHash, cancellationToken);
+        await dbContext.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT 1 FROM invites WHERE \"Id\" = {invite.Id} FOR UPDATE",
+            cancellationToken);
+        await dbContext.Entry(invite).ReloadAsync(cancellationToken);
+        return invite;
     }
 }
 
