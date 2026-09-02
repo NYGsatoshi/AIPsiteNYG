@@ -7,9 +7,10 @@
   gap: 1rem;
   margin-block-end: 1rem;
   padding: 1rem;
-  border: 1px solid var(--aip-border, #d7dce5);
+  border: 1px solid var(--aip-color-border-default);
   border-radius: 0.75rem;
-  background: var(--aip-surface, #fff);
+  background: var(--aip-color-bg-surface);
+  color: var(--aip-color-text-primary);
 }
 
 .multi-audience__header {
@@ -23,6 +24,7 @@
 .multi-audience__summary h3,
 .multi-audience__final-review h3 {
   margin: 0;
+  color: var(--aip-color-text-primary);
 }
 
 .multi-audience__eyebrow,
@@ -30,6 +32,13 @@
 .multi-audience__summary p,
 .multi-audience__final-review p {
   margin: 0;
+}
+
+.multi-audience__eyebrow,
+.multi-audience__help,
+.multi-audience__summary small,
+.multi-audience__final-review small {
+  color: var(--aip-color-text-secondary);
 }
 
 .multi-audience__eyebrow {
@@ -62,8 +71,10 @@
   justify-content: space-between;
   gap: 0.75rem;
   padding: 0.75rem;
-  border: 1px solid var(--aip-border, #d7dce5);
+  border: 1px solid var(--aip-color-border-default);
   border-radius: 0.5rem;
+  background: var(--aip-color-bg-elevated);
+  color: var(--aip-color-text-primary);
 }
 
 .multi-audience__summary li span,
@@ -78,13 +89,20 @@
   gap: 0.5rem;
 }
 
+.multi-audience__picker {
+  border-color: var(--aip-color-border-default);
+  color: var(--aip-color-text-primary);
+}
+
 .multi-audience__options label {
   display: flex;
   align-items: flex-start;
   gap: 0.6rem;
   padding: 0.75rem;
-  border: 1px solid var(--aip-border, #d7dce5);
+  border: 1px solid var(--aip-color-border-default);
   border-radius: 0.5rem;
+  background: var(--aip-color-bg-elevated);
+  color: var(--aip-color-text-primary);
 }
 
 .multi-audience__options input {
@@ -93,6 +111,7 @@
 
 .multi-audience__error {
   margin: 0;
+  color: var(--aip-color-danger-text, var(--aip-color-text-primary));
   font-weight: 600;
 }
 
