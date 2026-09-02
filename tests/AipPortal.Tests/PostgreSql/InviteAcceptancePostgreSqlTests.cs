@@ -21,7 +21,7 @@ public sealed class InviteAcceptancePostgreSqlTests
     private static readonly DateTimeOffset Now = new(2026, 9, 2, 3, 0, 0, TimeSpan.Zero);
 
     [PostgreSqlFact]
-    public async Task NewUserAcceptanceCommitsUserMembershipsInviteSessionAndMetadataOnlyAuditTogether()
+    public async Task NewUserRegistrationCommitsUserMembershipsInviteSessionAndMetadataOnlyAuditTogether()
     {
         var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
 
@@ -33,7 +33,11 @@ public sealed class InviteAcceptancePostgreSqlTests
             await using (var scope = CreateTenantScope(database, graph.Tenant))
             {
                 var service = CreateService(scope.Context, scope.CurrentTenant);
-                var result = await service.AcceptInviteAsync(new AcceptInviteRequest(Token, "Invitee", InvitePassword));
+                var result = await service.RegisterByInviteAsync(new RegisterByInviteRequest(
+                    Token,
+                    "Invitee",
+                    InviteEmail,
+                    InvitePassword));
 
                 Assert.True(result.IsSuccess, result.Error);
                 Assert.Equal(graph.Workspace.Id, result.Value!.CurrentWorkspace?.Id);
