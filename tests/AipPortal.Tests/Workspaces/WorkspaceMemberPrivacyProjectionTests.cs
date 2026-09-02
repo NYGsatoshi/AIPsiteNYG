@@ -34,12 +34,15 @@ public sealed class WorkspaceMemberPrivacyProjectionTests
         var member = Assert.Single(result.Value!);
         Assert.Equal(active.UserId, member.UserId);
         Assert.Equal(active.User!.DisplayName, member.DisplayName);
+        Assert.Equal(MembershipStatus.Active, member.Status);
         Assert.DoesNotContain(
             typeof(WorkspaceMemberResponse).GetProperties(),
-            property => string.Equals(property.Name, "Email", StringComparison.Ordinal));
+            property => string.Equals(property.Name, "Email", StringComparison.Ordinal) ||
+                        string.Equals(property.Name, "JoinedAt", StringComparison.Ordinal));
 
         var json = JsonSerializer.Serialize(result.Value, new JsonSerializerOptions(JsonSerializerDefaults.Web));
         Assert.DoesNotContain("email", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("joinedAt", json, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain(active.User.Email, json, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain(removed.User!.DisplayName, json, StringComparison.Ordinal);
         Assert.DoesNotContain(removed.User.Email, json, StringComparison.OrdinalIgnoreCase);
@@ -136,8 +139,9 @@ public sealed class WorkspaceMemberPrivacyProjectionTests
         var ok = Assert.IsType<OkObjectResult>(action);
         var json = JsonSerializer.Serialize(ok.Value, new JsonSerializerOptions(JsonSerializerDefaults.Web));
         Assert.Contains("HTTP Member", json, StringComparison.Ordinal);
+        Assert.Contains("\"status\":1", json, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("email", json, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("status", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("joinedAt", json, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
