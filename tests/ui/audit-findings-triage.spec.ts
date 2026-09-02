@@ -23,6 +23,7 @@ test.describe('Audit findings triage', () => {
     let resolutionReason: string | null = null;
     let triagePatchCount = 0;
     let workflowPatchCount = 0;
+    let mentionPostCount = 0;
     let decisionPutCount = 0;
     let currentDecision: ReviewDecision | null = null;
     let currentDecisionRationale: string | null = null;
@@ -71,6 +72,7 @@ test.describe('Audit findings triage', () => {
       const pathname = new URL(request.url()).pathname;
       const isDecisionEndpoint = pathname.endsWith(`/api/admin/audit/findings/${findingId}/decision`);
       const isWorkflowEndpoint = pathname.endsWith(`/api/admin/audit/findings/${findingId}/workflow`);
+      const isMentionEndpoint = pathname.endsWith(`/api/admin/audit/findings/${findingId}/mentions`);
       const isTriageEndpoint = pathname.endsWith(`/api/admin/audit/findings/${findingId}/triage`);
 
       if (isDecisionEndpoint && request.method() === 'GET') {
@@ -145,6 +147,18 @@ test.describe('Audit findings triage', () => {
           toDueDate: dueDate,
           changedAt: `2026-09-02T05:${10 + workflowPatchCount}:00Z`,
         });
+        await route.fulfill({ status: 204, body: '' });
+        return;
+      }
+
+      if (isMentionEndpoint && request.method() === 'POST') {
+        const body = request.postDataJSON() as {
+          userId: string;
+          requestId: string;
+        };
+        expect(body.userId).toBe(ownerId);
+        expect(body.requestId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+        mentionPostCount += 1;
         await route.fulfill({ status: 204, body: '' });
         return;
       }
@@ -286,6 +300,12 @@ test.describe('Audit findings triage', () => {
     await expect(workflowHistoryPanel).toContainText('No due date → 2026-09-01');
     await expect(current).toContainText('Accepted risk');
     await expect(page.getByTestId('audit-finding-detail').locator('.finding-detail__status')).toHaveText('Open');
+
+    await page.getByTestId('audit-finding-mention-reviewer').click();
+    await expect.poll(() => mentionPostCount).toBe(1);
+    await expect(page.getByTestId('audit-finding-mutation-notice')).toHaveText('Reviewer mention sent.');
+    await expect(page.getByTestId('audit-finding-workflow-status')).toHaveValue('InReview');
+    await expect(current).toContainText('Accepted risk');
 
     await page.getByTestId('audit-finding-status-FalsePositive').click();
     await expect(page.getByRole('alert')).toContainText('A reason is required');
