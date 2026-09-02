@@ -3,6 +3,7 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { distinctUntilChanged, map } from 'rxjs';
 
+import { AuditFindingDecisionPanelComponent } from './audit-finding-decision-panel.component';
 import { AuditFindingsFacade } from './audit-findings.facade';
 import {
   AuditFindingFilters,
@@ -14,7 +15,7 @@ import {
 @Component({
   selector: 'app-audit-findings-page',
   standalone: true,
-  imports: [RouterLink],
+  imports: [RouterLink, AuditFindingDecisionPanelComponent],
   templateUrl: './audit-findings-page.component.html',
   styleUrl: './audit-findings-page.component.scss',
 })

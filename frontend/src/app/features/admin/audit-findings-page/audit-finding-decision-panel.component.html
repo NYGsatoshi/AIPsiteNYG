@@ -1,0 +1,143 @@
+@let panel = state();
+
+<section class="decision-panel" aria-labelledby="finding-decision-title" data-testid="audit-finding-decision-panel">
+  <header class="decision-panel__header">
+    <div>
+      <p class="decision-panel__eyebrow">Structured review</p>
+      <h3 id="finding-decision-title">Review decision</h3>
+    </div>
+    @if (panel.status === 'ready') {
+      <span class="decision-panel__completion" [attr.data-complete]="panel.response.reviewCompleted">
+        {{ panel.response.reviewCompleted ? 'Review complete' : 'Decision required' }}
+      </span>
+    }
+  </header>
+
+  <p class="decision-panel__policy">
+    The decision is separate from comments, notes, and Finding triage. Comments alone do not mark this review complete.
+  </p>
+
+  <p class="decision-panel__status" role="status" aria-live="polite" aria-atomic="true">
+    @switch (panel.status) {
+      @case ('loading') { Loading structured decision. }
+      @case ('ready') {
+        {{ panel.response.reviewCompleted ? 'A structured decision is recorded.' : 'No structured decision is recorded yet.' }}
+      }
+      @default { {{ panel.message }} }
+    }
+  </p>
+
+  @if (panel.status === 'ready') {
+    @if (panel.response.currentDecision; as current) {
+      <dl class="decision-panel__current" data-testid="audit-finding-current-decision">
+        <div>
+          <dt>Decision</dt>
+          <dd>{{ decisionLabel(current.decision) }}</dd>
+        </div>
+        <div>
+          <dt>Reviewer</dt>
+          <dd>{{ current.reviewerDisplayName }}</dd>
+        </div>
+        <div>
+          <dt>Timestamp</dt>
+          <dd>{{ formatTimestamp(current.timestamp) }}</dd>
+        </div>
+        <div>
+          <dt>Previous state</dt>
+          <dd>{{ decisionLabel(current.previousDecision) }}</dd>
+        </div>
+        <div class="decision-panel__rationale-current">
+          <dt>Rationale</dt>
+          <dd>{{ current.rationale || 'No rationale recorded.' }}</dd>
+        </div>
+      </dl>
+    } @else {
+      <p class="decision-panel__empty" data-testid="audit-finding-decision-empty">
+        No structured decision exists. This review is not complete.
+      </p>
+    }
+
+    @if (panel.response.canReview) {
+      <form class="decision-panel__form" (submit)="$event.preventDefault(); save()">
+        <label for="finding-review-decision">
+          <span>Decision</span>
+          <select
+            id="finding-review-decision"
+            data-testid="audit-finding-decision-select"
+            [value]="selectedDecision()"
+            (change)="updateDecision($any($event.target).value)"
+          >
+            @for (option of panel.response.options; track option.decision) {
+              <option [value]="option.decision">
+                {{ option.label }}{{ option.rationaleRequired ? ' — rationale required' : '' }}
+              </option>
+            }
+          </select>
+        </label>
+
+        <label for="finding-review-rationale">
+          <span>Rationale</span>
+          <textarea
+            id="finding-review-rationale"
+            rows="4"
+            maxlength="1000"
+            data-testid="audit-finding-decision-rationale"
+            [value]="rationale()"
+            [attr.aria-invalid]="validationError() ? 'true' : null"
+            [attr.aria-describedby]="validationError() ? 'finding-review-decision-error' : 'finding-review-decision-help'"
+            (input)="updateRationale($any($event.target).value)"
+          ></textarea>
+        </label>
+        <p id="finding-review-decision-help" class="decision-panel__help">
+          @if (selectedOption()?.rationaleRequired) {
+            Rationale is required for this decision.
+          } @else {
+            Rationale is optional for this decision.
+          }
+        </p>
+        @if (validationError(); as error) {
+          <p id="finding-review-decision-error" class="decision-panel__error" role="alert">{{ error }}</p>
+        }
+        @if (mutationError(); as error) {
+          <p class="decision-panel__error" role="alert">{{ error }}</p>
+        }
+
+        <button
+          type="submit"
+          data-testid="audit-finding-decision-save"
+          [disabled]="saving() || !selectedDecision()"
+        >
+          {{ saving() ? 'Saving…' : 'Save structured decision' }}
+        </button>
+      </form>
+    } @else {
+      <p class="decision-panel__readonly">
+        You can inspect the structured decision, but changing it requires Audit review permission.
+      </p>
+    }
+
+    <section class="decision-panel__history" aria-labelledby="finding-decision-history-title">
+      <h4 id="finding-decision-history-title">Decision history</h4>
+      @if (panel.response.history.length === 0) {
+        <p>No structured decision history exists.</p>
+      } @else {
+        <ol data-testid="audit-finding-decision-history">
+          @for (entry of panel.response.history; track entry.decisionId) {
+            <li>
+              <strong>
+                {{ decisionLabel(entry.previousDecision) }} → {{ decisionLabel(entry.decision) }}
+              </strong>
+              <span>{{ entry.reviewerDisplayName }}</span>
+              <time>{{ formatTimestamp(entry.timestamp) }}</time>
+              @if (entry.rationale) {
+                <p>{{ entry.rationale }}</p>
+              }
+            </li>
+          }
+        </ol>
+      }
+    </section>
+  } @else if (panel.status !== 'loading') {
+    <p class="decision-panel__error">{{ panel.message }}</p>
+  }
+</section>

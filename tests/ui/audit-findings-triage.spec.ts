@@ -8,8 +8,10 @@ const evidenceId = '44444444-4444-4444-8444-444444444444';
 const eventId = '55555555-5555-4555-8555-555555555555';
 const ownerId = '66666666-6666-4666-8666-666666666666';
 
+type ReviewDecision = 'NoIssue' | 'NeedsFix' | 'AcceptedRisk';
+
 test.describe('Audit findings triage', () => {
-  test('prioritizes unresolved risk, requires reasons, configures ownership, and exposes trace links', async ({ page }) => {
+  test('records a structured review decision independently from triage and exposes authorized history', async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 800 });
 
     let status = 'Open';
@@ -17,17 +19,86 @@ test.describe('Audit findings triage', () => {
     let ownerDisplayName: string | null = null;
     let resolutionReason: string | null = null;
     let patchCount = 0;
+    let decisionPutCount = 0;
+    let currentDecision: ReviewDecision | null = null;
+    let currentDecisionRationale: string | null = null;
     const history: Array<{
       fromStatus: string | null;
       toStatus: string;
       reason: string | null;
       changedAt: string;
     }> = [];
+    const decisionHistory: Array<{
+      decisionId: string;
+      decision: ReviewDecision;
+      previousDecision: ReviewDecision | null;
+      rationale: string | null;
+      reviewerUserId: string;
+      reviewerDisplayName: string;
+      timestamp: string;
+    }> = [];
+
+    const decisionResponse = () => ({
+      findingId,
+      reviewCompleted: currentDecision !== null,
+      canReview: true,
+      currentDecision: decisionHistory[0] ?? null,
+      history: decisionHistory,
+      options: [
+        { decision: 'NoIssue', label: 'No issue', rationaleRequired: false },
+        { decision: 'NeedsFix', label: 'Needs fix', rationaleRequired: false },
+        { decision: 'AcceptedRisk', label: 'Accepted risk', rationaleRequired: true },
+      ],
+    });
 
     await page.route('**/api/admin/audit/findings**', async (route) => {
-      if (route.request().method() === 'PATCH') {
+      const request = route.request();
+      const pathname = new URL(request.url()).pathname;
+      const isDecisionEndpoint = pathname.endsWith(`/api/admin/audit/findings/${findingId}/decision`);
+
+      if (isDecisionEndpoint && request.method() === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json; charset=utf-8',
+          body: JSON.stringify(decisionResponse()),
+        });
+        return;
+      }
+
+      if (isDecisionEndpoint && request.method() === 'PUT') {
+        const body = request.postDataJSON() as {
+          decision: ReviewDecision;
+          rationale: string | null;
+        };
+        if (body.decision === 'AcceptedRisk' && !body.rationale?.trim()) {
+          await route.fulfill({ status: 400, contentType: 'application/json', body: '{}' });
+          return;
+        }
+
+        decisionPutCount += 1;
+        const previousDecision = currentDecision;
+        currentDecision = body.decision;
+        currentDecisionRationale = body.rationale?.trim() || null;
+        decisionHistory.unshift({
+          decisionId: `99999999-9999-4999-8999-${String(decisionPutCount).padStart(12, '0')}`,
+          decision: currentDecision,
+          previousDecision,
+          rationale: currentDecisionRationale,
+          reviewerUserId: ownerId,
+          reviewerDisplayName: 'Authorized reviewer',
+          timestamp: `2026-09-01T04:${10 + decisionPutCount}:00Z`,
+        });
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json; charset=utf-8',
+          body: JSON.stringify(decisionResponse()),
+        });
+        return;
+      }
+
+      if (request.method() === 'PATCH') {
         patchCount += 1;
-        const body = route.request().postDataJSON() as {
+        const body = request.postDataJSON() as {
           status: string;
           reason: string | null;
           ownerUserId: string | null;
@@ -118,6 +189,41 @@ test.describe('Audit findings triage', () => {
     await expect(page.getByTestId('audit-finding-detail')).toContainText('policy.conflict');
     await expect(page.getByTestId('audit-finding-detail')).toContainText('policy-2026.09');
     await expect(page.getByTestId('audit-finding-detail')).toContainText('Unassigned');
+
+    const decisionPanel = page.getByTestId('audit-finding-decision-panel');
+    await expect(decisionPanel).toBeVisible();
+    await expect(decisionPanel).toContainText('Decision required');
+    await expect(decisionPanel).toContainText('No structured decision exists');
+    await expect(decisionPanel).toContainText('Comments alone do not mark this review complete');
+    expect(decisionPutCount).toBe(0);
+    await expect(page.getByTestId('audit-finding-detail').locator('.finding-detail__status')).toHaveText('Open');
+
+    await page.getByTestId('audit-finding-decision-select').selectOption('AcceptedRisk');
+    await page.getByTestId('audit-finding-decision-save').click();
+    await expect(decisionPanel.getByRole('alert')).toContainText('requires a rationale');
+    expect(decisionPutCount).toBe(0);
+
+    await page.getByTestId('audit-finding-decision-rationale').fill('Risk accepted under policy exception.');
+    await page.getByTestId('audit-finding-decision-save').click();
+    await expect.poll(() => decisionPutCount).toBe(1);
+    await expect(decisionPanel).toContainText('Review complete');
+    const current = page.getByTestId('audit-finding-current-decision');
+    await expect(current).toContainText('Accepted risk');
+    await expect(current).toContainText('Authorized reviewer');
+    await expect(current).toContainText('Risk accepted under policy exception.');
+    await expect(current).toContainText('Previous state');
+    await expect(current).toContainText('None');
+    await expect(page.getByTestId('audit-finding-decision-history')).toContainText('None → Accepted risk');
+    await expect(page.getByTestId('audit-finding-detail').locator('.finding-detail__status')).toHaveText('Open');
+
+    await page.getByTestId('audit-finding-decision-select').selectOption('NeedsFix');
+    await page.getByTestId('audit-finding-decision-rationale').fill('Source must be corrected before release.');
+    await page.getByTestId('audit-finding-decision-save').click();
+    await expect.poll(() => decisionPutCount).toBe(2);
+    await expect(current).toContainText('Needs fix');
+    await expect(current).toContainText('Accepted risk');
+    await expect(current).toContainText('Source must be corrected before release.');
+    await expect(page.getByTestId('audit-finding-decision-history')).toContainText('Accepted risk → Needs fix');
 
     const claimLink = page.getByTestId('audit-finding-claim-link');
     await expect(claimLink).toHaveAttribute(
