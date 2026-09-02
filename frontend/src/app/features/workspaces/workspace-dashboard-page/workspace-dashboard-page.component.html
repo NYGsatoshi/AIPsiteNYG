@@ -63,6 +63,55 @@
     />
   } @else {
     @if (vm.workspaces.length > 0) {
+      <section
+        class="workspace-dashboard__attention"
+        aria-labelledby="workspace-needs-attention-title"
+        data-testid="workspace-needs-attention"
+      >
+        <header class="workspace-dashboard__attention-header">
+          <div>
+            <p class="workspace-dashboard__attention-eyebrow">Needs attention</p>
+            <h2 id="workspace-needs-attention-title">対応が必要な項目</h2>
+            <p class="workspace-dashboard__attention-help">
+              確認や再実行などで処理済みになると、自動的にこの一覧から外れます。
+            </p>
+          </div>
+          <span
+            class="workspace-dashboard__attention-count"
+            data-testid="workspace-needs-attention-count"
+          >
+            未処理 {{ needsAttentionCount() }}件
+          </span>
+        </header>
+
+        @if (needsAttentionItems().length > 0) {
+          <ul class="workspace-dashboard__attention-list" aria-label="対応が必要な項目">
+            @for (entry of needsAttentionItems(); track entry.workspaceId + ':' + entry.item.id) {
+              <li>
+                <a
+                  class="workspace-dashboard__attention-link"
+                  [routerLink]="entry.item.targetRoute"
+                  data-testid="workspace-needs-attention-link"
+                >
+                  <span class="workspace-dashboard__attention-copy">
+                    <strong>{{ entry.item.label }}</strong>
+                    <span>{{ entry.workspaceName }}</span>
+                  </span>
+                  @if (entry.item.occurredAtLabel) {
+                    <time>{{ entry.item.occurredAtLabel }}</time>
+                  }
+                  <span aria-hidden="true">→</span>
+                </a>
+              </li>
+            }
+          </ul>
+        } @else {
+          <p class="workspace-dashboard__attention-empty" data-testid="workspace-needs-attention-empty">
+            現在、対応が必要な項目はありません。
+          </p>
+        }
+      </section>
+
       <label class="workspace-dashboard__search">
         <span>このページを検索</span>
         <input

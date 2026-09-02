@@ -82,6 +82,7 @@ public static class DependencyInjection
         services.AddScoped<IUiShellRepository, UiShellRepository>();
         services.AddScoped<IAnnouncementRepository, AnnouncementRepository>();
         services.AddScoped<IAnnouncementDraftRepository, AnnouncementDraftRepository>();
+        services.AddScoped<IAnnouncementDistributionStore, AnnouncementDistributionStore>();
         services.AddScoped<AipPortal.Application.Realtime.IOutboxEventRepository, OutboxEventRepository>();
         services.AddScoped<ITransactionalOutbox, TransactionalOutbox>();
         services.AddScoped<IOutboxReplayService, OutboxReplayService>();

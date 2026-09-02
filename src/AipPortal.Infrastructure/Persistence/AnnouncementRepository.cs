@@ -56,8 +56,6 @@ public sealed class AnnouncementRepository(
                 throw new InvalidOperationException("A tenant context is required to create an announcement.");
             }
 
-            // Stamp before any pre-save audience/invalidation query. AppDbContext
-            // also enforces this tenant again at SaveChanges.
             announcement.TenantId = currentTenant.TenantId;
         }
         else if (currentTenant.IsAvailable && !currentTenant.IsPlatformScope && announcement.TenantId != currentTenant.TenantId)
@@ -80,8 +78,35 @@ public sealed class AnnouncementRepository(
             .Select(member => member.UserId);
 
         IQueryable<Guid> userIds;
+        var deliveryLogicalKey = AnnouncementDistributionContract.DeliveryLogicalKey(announcement.Id);
+        var frozenRecipientIds = dbContext.Notifications
+            .AsNoTracking()
+            .Where(notification =>
+                notification.TenantId == announcement.TenantId &&
+                notification.NotificationType == NotificationType.Announcement &&
+                notification.RelatedEntityType == "Announcement" &&
+                notification.RelatedEntityId == announcement.Id &&
+                notification.LogicalKey == deliveryLogicalKey)
+            .Select(notification => notification.UserId);
+        var hasFrozenCohort = await dbContext.AuditLogs
+            .AsNoTracking()
+            .AnyAsync(log =>
+                log.TenantId == announcement.TenantId &&
+                log.Action == AnnouncementDistributionContract.FrozenCohortAuditAction &&
+                log.EntityType == "Announcement" &&
+                log.EntityId == announcement.Id,
+                cancellationToken);
 
-        if (announcement.ChannelId.HasValue)
+        if (hasFrozenCohort)
+        {
+            // #388 freezes the de-duplicated recipient cohort at dispatch. The
+            // audit marker exists even for an empty cohort; recipient rows are
+            // the per-user membership ledger. Soft-deleting the visible
+            // notification does not remove the row, so read-status/reminders
+            // cannot drift to users who join a scope after publication.
+            userIds = frozenRecipientIds;
+        }
+        else if (announcement.ChannelId.HasValue)
         {
             var channel = await dbContext.Channels
                 .AsNoTracking()
@@ -229,5 +254,4 @@ public sealed class AnnouncementRepository(
     {
         return dbContext.AnnouncementReads.CountAsync(read => read.AnnouncementId == announcementId, cancellationToken);
     }
-
 }
