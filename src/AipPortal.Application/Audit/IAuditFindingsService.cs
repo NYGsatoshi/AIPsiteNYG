@@ -17,9 +17,4 @@ public interface IAuditFindingsService
         Guid findingId,
         UpdateAuditFindingWorkflowRequest request,
         CancellationToken cancellationToken = default);
-
-    Task<Result> MentionReviewerAsync(
-        Guid findingId,
-        MentionAuditFindingReviewerRequest request,
-        CancellationToken cancellationToken = default);
 }
