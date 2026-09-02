@@ -10,7 +10,7 @@ import { TaskExecutionResultComponent } from '../task-execution-result/task-exec
 
 type ScopeOrigin = 'ProjectDefault' | 'TaskOverride';
 type ScopeEditorMode = 'inherit' | 'override';
-type RunStatus = 'Accepted' | 'Queued' | 'Running' | 'Succeeded' | 'Failed';
+type RunStatus = 'Accepted' | 'Queued' | 'Running' | 'Succeeded' | 'Failed' | 'Stopped' | 'Redirected';
 type MajorState = RunStatus;
 export type SourceState = 'Allow' | 'Prioritize' | 'Exclude';
 export type SourceKind = 'Web' | 'WebSite' | 'ProjectFile' | 'ConnectedApp';
@@ -370,6 +370,8 @@ export class TaskExecutionScopeComponent implements OnChanges, OnDestroy {
       case 'Running': return 'Execution is materializing authorized sources.';
       case 'Succeeded': return 'Execution succeeded.';
       case 'Failed': return 'Execution failed.';
+      case 'Stopped': return 'Execution was deliberately stopped.';
+      case 'Redirected': return 'Execution was closed for direction correction.';
     }
   }
 
@@ -730,7 +732,7 @@ function requiredSourceKind(value: unknown): SourceKind {
   throw new Error('Source kind response is invalid.');
 }
 function requiredRunStatus(value: unknown): RunStatus {
-  if (value === 'Accepted' || value === 'Queued' || value === 'Running' || value === 'Succeeded' || value === 'Failed') return value;
+  if (value === 'Accepted' || value === 'Queued' || value === 'Running' || value === 'Succeeded' || value === 'Failed' || value === 'Stopped' || value === 'Redirected') return value;
   throw new Error('Latest execution run status is invalid.');
 }
 function requiredMajorState(value: unknown): MajorState { return requiredRunStatus(value); }
