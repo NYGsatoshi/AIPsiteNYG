@@ -14,14 +14,24 @@ For an acceptance request, the application now:
 4. validates that the persisted Tenant is active and not deleted;
 5. validates that the persisted Workspace is active, not deleted, and belongs to the same Tenant as the Invite;
 6. reuses an existing active User for the invite email, or creates one new User;
-7. creates or reactivates the Tenant membership using a role derived from the Invite role;
-8. creates or reactivates the Workspace membership using the exact Invite role;
+7. creates a new Tenant membership at least privilege (`TenantUserRole.Member`), or reactivates an existing Tenant membership without changing its Tenant-level role;
+8. creates or reactivates the Workspace membership using the exact persisted Invite role;
 9. marks the Invite accepted;
 10. creates the authenticated Session;
 11. records metadata-only acceptance audit/security events; and
 12. saves and commits the complete mutation together.
 
 A persistence exception rolls the transaction back and clears tracked command state. A second concurrent acceptance blocks on the Invite row; after the first transaction commits it observes `AcceptedAt` and returns the existing used-invite failure without creating another Session.
+
+## Role boundary
+
+`Invite.Role` is a `WorkspaceRole`. It controls only the target `WorkspaceMember`. It is not authority to grant a Tenant-wide administrative role. Therefore:
+
+- a newly-required `TenantUser` is created as `TenantUserRole.Member`;
+- an existing `TenantUser.Role` is preserved rather than upgraded or downgraded by Workspace invite acceptance; and
+- the target `WorkspaceMember.Role` is assigned from the persisted `Invite.Role`.
+
+This preserves the documented separation between TenantAdmin and WorkspaceAdmin while still allowing the Invite to be authoritative for its own Workspace scope.
 
 ## Fail-closed scope rules
 
@@ -38,7 +48,7 @@ Acceptance does not infer or repair scope from request data. It is denied when:
 
 ## Existing-user semantics
 
-An active existing User with the Invite email is reused. Invite acceptance does not overwrite that User's password with the registration payload. Tenant/Workspace memberships are activated and assigned from Invite-owned authority. This avoids duplicate users while keeping Invite role/scope authoritative.
+An active existing User with the Invite email is reused. Invite acceptance does not overwrite that User's password with the registration payload. Tenant presence is activated without changing an existing Tenant-level role, while the target Workspace membership is activated and assigned the persisted Invite role. This avoids duplicate users and prevents a Workspace invite from becoming a Tenant-level role escalation path.
 
 ## Audit data
 
@@ -48,11 +58,11 @@ Successful acceptance records `userId`, `inviteId`, `tenantId`, and `workspaceId
 
 `tests/AipPortal.Tests/PostgreSql/InviteAcceptancePostgreSqlTests.cs` covers:
 
-- new User + TenantUser + WorkspaceMember + Invite accepted + Session committed together;
-- existing eligible User reuse with role activation and password preservation;
+- successful `RegisterByInviteAsync` creating User + least-privilege TenantUser + WorkspaceMember + Invite accepted + Session in one commit;
+- existing eligible User reuse with password preservation, exact Workspace-role application, no Tenant-role escalation, and concurrent replay serialization;
 - two concurrent accepts of the same Invite when membership rows already exist, proving the result is one success / one used-Invite denial and exactly one Session rather than relying on a membership unique violation;
 - a cross-Tenant Invite/Workspace mismatch failing closed without identity, membership, Session, or `AcceptedAt` mutation;
 - a provider-side persistence failure rolling back User, memberships, Invite acceptance, Session, and success audit together; and
 - accepted/denied audit metadata not containing the raw token, invite email, or submitted password.
 
-The tests are marked `PostgreSQLIntegration` / `Issue527` and use the repository's `PostgreSqlFact` harness with an isolated migrated database.
+The tests are marked `PostgreSQLIntegration` / `Issue527` and use the repository's `PostgreSqlFact` harness with an isolated migrated database. The existing MBJ-02 acceptance workflow now invokes `Scope=Issue527` explicitly against its real PostgreSQL service so these provider-backed transaction/replay cases are part of the hosted acceptance gate.
