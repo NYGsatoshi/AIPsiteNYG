@@ -16,7 +16,8 @@ public sealed class TaskExecutionController(
     ITaskExecutionResultService? executionResults = null,
     ITaskExecutionScopeRepository? executionScopeRepository = null,
     IFileAuthorizationService? fileAuthorization = null,
-    ICurrentUser? currentUser = null) : ControllerBase
+    ICurrentUser? currentUser = null,
+    ITaskExecutionInterventionService? interventions = null) : ControllerBase
 {
     [HttpGet("api/projects/{projectId:guid}/execution-scope")]
     public async Task<IActionResult> GetProjectScope(Guid projectId, CancellationToken cancellationToken)
@@ -65,13 +66,11 @@ public sealed class TaskExecutionController(
             return ToActionResult(result);
 
         var response = accepted;
-        if (runtime is not null &&
-            currentTenant is { IsAvailable: true, IsPlatformScope: false } &&
-            currentTenant.TenantId != Guid.Empty)
+        if (CanExecuteRuntime())
         {
-            await runtime.ExecuteAsync(new TaskExecutionRuntimeHandle(
+            await runtime!.ExecuteAsync(new TaskExecutionRuntimeHandle(
                 accepted.Id,
-                currentTenant.TenantId,
+                currentTenant!.TenantId,
                 accepted.RuntimeContractVersion), CancellationToken.None);
 
             var refreshed = await executionScopes.GetTaskScopeAsync(taskItemId, CancellationToken.None);
@@ -81,6 +80,55 @@ public sealed class TaskExecutionController(
 
         return StatusCode(StatusCodes.Status201Created, response);
     }
+
+    [HttpPost("api/tasks/{taskItemId:guid}/execution-runs/{runId:guid}/stop")]
+    public async Task<IActionResult> StopRun(
+        Guid taskItemId,
+        Guid runId,
+        StopTaskExecutionRunRequest request,
+        CancellationToken cancellationToken)
+    {
+        _ = request;
+        if (interventions is null)
+            return InterventionUnavailable();
+
+        return ToActionResult(await interventions.StopAsync(taskItemId, runId, cancellationToken));
+    }
+
+    [HttpPost("api/tasks/{taskItemId:guid}/execution-runs/{runId:guid}/correct-direction")]
+    public async Task<IActionResult> CorrectDirection(
+        Guid taskItemId,
+        Guid runId,
+        CorrectTaskExecutionDirectionRequest request,
+        CancellationToken cancellationToken)
+    {
+        _ = request;
+        if (interventions is null)
+            return InterventionUnavailable();
+
+        var result = await interventions.CorrectDirectionAsync(taskItemId, runId, cancellationToken);
+        if (!result.IsSuccess || result.Value is not { ResumedRun: { } resumed } response)
+            return ToActionResult(result);
+
+        if (CanExecuteRuntime())
+        {
+            await runtime!.ExecuteAsync(new TaskExecutionRuntimeHandle(
+                resumed.Id,
+                currentTenant!.TenantId,
+                resumed.RuntimeContractVersion), CancellationToken.None);
+
+            var refreshed = await executionScopes.GetTaskScopeAsync(taskItemId, CancellationToken.None);
+            if (refreshed.IsSuccess && refreshed.Value is { LatestRun: { } latest } && latest.Id == resumed.Id)
+                response = response with { ResumedRun = latest };
+        }
+
+        return Ok(response);
+    }
+
+    private bool CanExecuteRuntime() =>
+        runtime is not null &&
+        currentTenant is { IsAvailable: true, IsPlatformScope: false } &&
+        currentTenant.TenantId != Guid.Empty;
 
     private async Task<ProjectExecutionScopeResponse> RedactUnauthorizedProjectFileRulesAsync(
         Guid projectId,
@@ -150,6 +198,11 @@ public sealed class TaskExecutionController(
             "TASK_EXECUTION_RESULT_UNAVAILABLE",
             "The execution result is temporarily unavailable.")));
 
+    private IActionResult InterventionUnavailable() =>
+        ToActionResult(Result<TaskExecutionInterventionResponse>.Failure(new ApplicationErrorDetail(
+            "TASK_EXECUTION_INTERVENTION_UNAVAILABLE",
+            "Task execution intervention is temporarily unavailable.")));
+
     private IActionResult ToActionResult<T>(Result<T> result)
     {
         if (result.IsSuccess)
@@ -161,10 +214,13 @@ public sealed class TaskExecutionController(
         var status = code switch
         {
             "TASK_EXECUTION_NOT_FOUND" or "TASK_EXECUTION_RESULT_NOT_FOUND" => StatusCodes.Status404NotFound,
-            "TASK_EXECUTION_STALE_VERSION" or "TASK_EXECUTION_IDEMPOTENCY_CONFLICT" => StatusCodes.Status409Conflict,
+            "TASK_EXECUTION_STALE_VERSION" or
+            "TASK_EXECUTION_IDEMPOTENCY_CONFLICT" or
+            "TASK_EXECUTION_INTERVENTION_NOT_AVAILABLE" => StatusCodes.Status409Conflict,
             "TASK_EXECUTION_PERSISTENCE_UNAVAILABLE" or
             "TASK_EXECUTION_REPLAY_UNAVAILABLE" or
-            "TASK_EXECUTION_RESULT_UNAVAILABLE" => StatusCodes.Status503ServiceUnavailable,
+            "TASK_EXECUTION_RESULT_UNAVAILABLE" or
+            "TASK_EXECUTION_INTERVENTION_UNAVAILABLE" => StatusCodes.Status503ServiceUnavailable,
             _ => StatusCodes.Status400BadRequest
         };
 
