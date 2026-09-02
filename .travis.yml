@@ -23,12 +23,6 @@ env:
     - DOTNET_MULTILEVEL_LOOKUP=0
     - DOTNET_CLI_WORKLOAD_UPDATE_NOTIFY_DISABLE=1
     - ASPNETCORE_ENVIRONMENT=Test
-    - POSTGRES_DB=aip_portal_ci
-    - POSTGRES_USER=aip_portal_ci
-    - POSTGRES_PASSWORD=aip_portal_ci_password
-    - POSTGRES_DEV_HOST_PORT=5433
-    - ConnectionStrings__DefaultConnection=Host=localhost;Port=5433;Database=aip_portal_ci;Username=aip_portal_ci;Password=aip_portal_ci_password
-    - POSTGRES_TEST_CONNECTION_STRING=Host=localhost;Port=5433;Database=aip_portal_ci;Username=aip_portal_ci;Password=aip_portal_ci_password
 
 branches:
   only:

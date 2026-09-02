@@ -16,9 +16,13 @@ also executed by GitHub Actions.
 - Docker / Docker Compose
 - PostgreSQL 18 Alpine
 
-`ConnectionStrings__DefaultConnection` and `POSTGRES_TEST_CONNECTION_STRING`
-point to the isolated PostgreSQL 18 service used by the backend Travis job, so
-conditional PostgreSQL tests cannot silently pass without provider execution.
+The backend Travis job owns its PostgreSQL database name, credentials, host
+port, `ConnectionStrings__DefaultConnection`, and
+`POSTGRES_TEST_CONNECTION_STRING`. The connection strings are exported by the
+backend shell entry point rather than serialized through `.travis.yml` because
+they contain shell-significant semicolons. The job verifies the requested
+PostgreSQL database/user with `select 1` before EF or xUnit runs, so conditional
+PostgreSQL tests cannot silently pass against a missing or unintended database.
 
 ## Job split
 
