@@ -47,7 +47,7 @@ describe('ProjectDetailPageComponent Task create navigation recovery', () => {
     expect(navigate).toHaveBeenNthCalledWith(2, ['/projects', 'project-1', 'tasks', 'new']);
   });
 
-  it('does not retry while the reauthorized Project no longer grants Task create authority', async () => {
+  it('discards the retry intent when the reauthorized Project no longer grants Task create authority', async () => {
     const rendered = await render();
     const router = TestBed.inject(Router);
     const firstNavigation = deferred<boolean>();
@@ -73,6 +73,13 @@ describe('ProjectDetailPageComponent Task create navigation recovery', () => {
 
     firstNavigation.resolve(false);
     await firstNavigation.promise;
+    await flushEffects(rendered.fixture);
+    expect(navigate).toHaveBeenCalledTimes(1);
+
+    // A later permission change must not resurrect the stale click. The user
+    // has to explicitly choose New Task again after an authoritative denial.
+    rendered.setView({ status: 'ready', project: authorizedProject });
+    rendered.fixture.detectChanges();
     await flushEffects(rendered.fixture);
 
     expect(navigate).toHaveBeenCalledTimes(1);
