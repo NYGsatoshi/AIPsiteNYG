@@ -16,7 +16,7 @@ test.describe('Issue #363 File Activity and version history Angular smoke', () =
       if (path === `/api/files/${FILE_OBJECT_ID}/activity`) {
         activityRequests.push(path);
       }
-      if (/\/api\/audit(?:\/|$)|\/versions\//i.test(path)) {
+      if (/\/audit(?:\/|$)|\/versions\//i.test(path)) {
         prohibitedRequests.push(path);
       }
     });
