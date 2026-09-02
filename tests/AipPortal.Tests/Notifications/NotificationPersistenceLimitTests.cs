@@ -13,12 +13,24 @@ public sealed class NotificationPersistenceLimitTests
     public async Task CreateAsyncClampsNotificationTextToPersistenceLimitsWithoutSplittingUnicodeScalars()
     {
         var tenantId = Guid.NewGuid();
-        var tenant = TenantScope(tenantId);
+        var tenant = new CurrentTenantService();
+        tenant.SetPlatformScope();
         await using var db = new AppDbContext(
             new DbContextOptionsBuilder<AppDbContext>()
                 .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
                 .Options,
             tenant);
+        db.Tenants.Add(new Tenant(tenantId)
+        {
+            Name = "Tenant",
+            DisplayName = "Tenant",
+            Slug = $"tenant-{tenantId:N}",
+            Status = TenantStatus.Active
+        });
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+        tenant.SetTenant(tenantId, $"tenant-{tenantId:N}");
+
         var service = new DbNotificationService(db, FixedClock.Instance, tenant);
         var title = string.Concat(Enumerable.Repeat("🙂", Notification.TitleMaximumLength + 20));
         var body = string.Concat(Enumerable.Repeat("界", Notification.BodyMaximumLength + 200));
