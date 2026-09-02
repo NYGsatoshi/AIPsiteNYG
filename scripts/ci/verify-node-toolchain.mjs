@@ -10,6 +10,7 @@ await verifyDockerBase('Dockerfile', /^FROM\s+node:(\d+)(?:\.[^\s]*)?\s+AS\s+fro
 await verifyDockerBase('frontend.Dockerfile', /^FROM\s+node:(\d+)(?:\.[^-\s]*)?-alpine\s*$/m, 'frontend development container');
 await verifyPackageManager('package.json');
 await verifyPackageManager('frontend/package.json');
+await verifyTravisNodeVersion('.travis.yml');
 await verifyWorkflowNodeVersions('.github/workflows');
 
 if (failures.length > 0) {
@@ -46,6 +47,21 @@ async function verifyPackageManager(filePath) {
   observations.push(`${filePath}: ${String(packageManager ?? '<missing packageManager>')}`);
   if (packageManager !== expectedPackageManager) {
     failures.push(`${filePath} packageManager is ${String(packageManager)}; expected ${expectedPackageManager}.`);
+  }
+}
+
+async function verifyTravisNodeVersion(filePath) {
+  const content = await readFile(filePath, 'utf8');
+  const match = /^node_js:\s*\n\s*-\s*["']?(\d+)/m.exec(content);
+  if (!match) {
+    failures.push(`${filePath} does not declare a Node.js major under node_js.`);
+    return;
+  }
+
+  const major = match[1];
+  observations.push(`${filePath}: node_js ${major}`);
+  if (major !== expectedNodeMajor) {
+    failures.push(`${filePath} configures Node ${major}; repository standard is Node ${expectedNodeMajor}.`);
   }
 }
 

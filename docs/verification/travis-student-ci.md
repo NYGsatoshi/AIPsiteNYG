@@ -1,48 +1,74 @@
-# Travis Student CI lane
+# Travis Student CI migration
 
 ## Purpose
 
-Travis CI provides an additional hosted Linux lane for expensive serial checks so
-GitHub Actions and the self-hosted runner do not need to own every full-stack
-verification run.
-
-This lane is additive. It does not replace the routed GitHub Actions gates or
-change their branch-protection semantics.
+Travis CI is the canonical hosted CI compute provider for AIPsiteNYG. The
+initial additive Travis rollout has been replaced by provider-owned build,
+test, security, browser, MBJ, and WPC verification so the same work is not
+also executed by GitHub Actions.
 
 ## Environment
 
 - Ubuntu 24.04 (`noble`)
 - Node.js 24
 - npm 11.17.0
-- .NET SDK 10.0.302 installed from `global.json` policy
+- .NET SDK 10.0.302
 - Docker / Docker Compose
-- PostgreSQL 18 Alpine from `docker-compose.db.yml`
+- PostgreSQL 18 Alpine
 
-The Travis configuration sets both `ConnectionStrings__DefaultConnection` and
-`POSTGRES_TEST_CONNECTION_STRING` to the isolated CI PostgreSQL container so
-conditional PostgreSQL tests execute instead of returning early.
+`ConnectionStrings__DefaultConnection` and `POSTGRES_TEST_CONNECTION_STRING`
+point to the isolated PostgreSQL 18 service used by the backend Travis job, so
+conditional PostgreSQL tests cannot silently pass without provider execution.
 
-## Entry points
+## Job split
 
-- `.travis.yml`: Travis environment and lifecycle.
-- `scripts/ci/wait-for-travis-postgres.sh`: bounded PostgreSQL readiness check.
-- `scripts/ci/run-travis-core.sh`: repository-owned core verification sequence.
+The Student plan is expected to serialize jobs. The repository therefore uses
+separate provider jobs rather than one oversized full-stack command:
 
-The core sequence runs:
+| Travis stage | Responsibility |
+| --- | --- |
+| `preflight` | toolchain, lockfile/install policy, documentation integrity |
+| `backend` | Release build, migrations, full PostgreSQL suite, PR07/WPC manifests |
+| `frontend` | lint/type/architecture, Angular, Storybook, static Playwright |
+| `security` | Gitleaks, npm/NuGet checks, Compose/migration, image/Trivy |
+| `acceptance` | P0, My Tasks, MBJ-02, MBJ-03 real-backend suites |
+| `manual` | MBJ-01, general real-backend smoke, Qodana API-triggered suites |
 
-```text
-node scripts/ci/verify-node-toolchain.mjs
-dotnet restore AipPortal.slnx --disable-parallel --verbosity normal
-dotnet build AipPortal.slnx --configuration Release --no-restore --disable-build-servers -m:1
-dotnet test AipPortal.slnx --configuration Release --no-build --disable-build-servers -m:1 --verbosity normal
-npm --prefix frontend ci
-npm --prefix frontend run build
-npm --prefix frontend test
-```
+Each former specialized PostgreSQL workflow is represented by the full backend
+TRX plus its existing required-test manifest. This preserves the proof that the
+named acceptance tests actually executed while avoiding a second build/restore
+of the same commit.
 
-## Scope
+## Repository entry points
 
-Playwright, real-backend smoke, and specialized acceptance workflows remain on
-their existing lanes for the initial Travis rollout. They can be migrated only
-after the core Travis lane is observed green and its runtime is known to remain
-comfortably below the provider job timeout.
+- `.travis.yml`
+- `scripts/ci/run-travis-preflight.sh`
+- `scripts/ci/run-travis-backend.sh`
+- `scripts/ci/run-travis-frontend.sh`
+- `scripts/ci/run-travis-security.sh`
+- `scripts/ci/run-travis-acceptance.sh`
+- `scripts/ci/run-travis-qodana.sh`
+- `scripts/ci/validate-documentation.sh`
+- `scripts/ci/wait-for-travis-postgres.sh`
+
+The initial `scripts/ci/run-travis-core.sh` compatibility entry point is
+removed because backend and frontend work now have separate timeout domains.
+
+## Required Travis secrets
+
+Configure these in Travis, never in source control:
+
+- `SYNCFUSION_LICENSE` — required by licensed Docker/real-backend acceptance.
+- `QODANA_TOKEN` — required only for `MANUAL_TRAVIS_SUITE=qodana`.
+
+A missing required secret is a hard failure for the corresponding Travis job;
+the migration does not silently downgrade a licensed acceptance gate.
+
+## GitHub Actions boundary
+
+Normal CI workflows were removed to prevent duplicate execution. GitHub-native
+dependency submission, the protected public-HTTPS gate, and the PR445 baseline
+maintenance tool remain outside Travis for their provider-specific purposes.
+
+Branch protection is configured outside the repository. Old required GitHub
+Actions check names must be replaced with the Travis status after merge.

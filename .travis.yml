@@ -7,10 +7,14 @@ node_js:
 services:
   - docker
 
+git:
+  depth: false
+
 cache:
   directories:
     - $HOME/.nuget/packages
     - $HOME/.npm
+    - $HOME/.cache/ms-playwright
 
 env:
   global:
@@ -18,12 +22,19 @@ env:
     - DOTNET_NOLOGO=1
     - DOTNET_MULTILEVEL_LOOKUP=0
     - DOTNET_CLI_WORKLOAD_UPDATE_NOTIFY_DISABLE=1
+    - ASPNETCORE_ENVIRONMENT=Test
     - POSTGRES_DB=aip_portal_ci
     - POSTGRES_USER=aip_portal_ci
     - POSTGRES_PASSWORD=aip_portal_ci_password
     - POSTGRES_DEV_HOST_PORT=5433
     - ConnectionStrings__DefaultConnection=Host=localhost;Port=5433;Database=aip_portal_ci;Username=aip_portal_ci;Password=aip_portal_ci_password
     - POSTGRES_TEST_CONNECTION_STRING=Host=localhost;Port=5433;Database=aip_portal_ci;Username=aip_portal_ci;Password=aip_portal_ci_password
+
+branches:
+  only:
+    - main
+
+if: branch = main OR type = pull_request OR type = api
 
 before_install:
   - curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh
@@ -39,12 +50,71 @@ before_install:
 
 install: skip
 
-before_script:
-  - docker compose -f docker-compose.db.yml up -d
-  - bash scripts/ci/wait-for-travis-postgres.sh
+stages:
+  - name: preflight
+  - name: backend
+  - name: frontend
+  - name: security
+  - name: acceptance
+  - name: manual
+    if: type = api
 
-script:
-  - bash scripts/ci/run-travis-core.sh
+jobs:
+  include:
+    - stage: preflight
+      name: "Preflight / policy"
+      if: type != api
+      script: bash scripts/ci/run-travis-preflight.sh
 
-after_script:
-  - docker compose -f docker-compose.db.yml down -v
+    - stage: backend
+      name: "Backend / PostgreSQL 18"
+      if: type != api
+      script: bash scripts/ci/run-travis-backend.sh
+
+    - stage: frontend
+      name: "Frontend / quality / static browser"
+      if: type != api
+      script: bash scripts/ci/run-travis-frontend.sh
+
+    - stage: security
+      name: "Security / dependencies / image"
+      if: type != api
+      script: bash scripts/ci/run-travis-security.sh
+
+    - stage: acceptance
+      name: "Real Backend P0"
+      if: type != api
+      script: bash scripts/ci/run-travis-acceptance.sh real-backend-p0
+
+    - stage: acceptance
+      name: "Real Backend My Tasks"
+      if: type != api
+      script: bash scripts/ci/run-travis-acceptance.sh real-backend-my-tasks
+
+    - stage: acceptance
+      name: "MBJ-02 Invite Onboarding"
+      if: type != api
+      script: bash scripts/ci/run-travis-acceptance.sh mbj02
+
+    - stage: acceptance
+      name: "MBJ-03 Session Lifecycle"
+      if: type != api
+      script: bash scripts/ci/run-travis-acceptance.sh mbj03
+
+    - stage: manual
+      name: "MBJ-01 Fresh Bootstrap"
+      if: type = api AND env(MANUAL_TRAVIS_SUITE) = mbj01
+      script: bash scripts/ci/run-travis-acceptance.sh mbj01
+
+    - stage: manual
+      name: "Real Backend Browser Smoke"
+      if: type = api AND env(MANUAL_TRAVIS_SUITE) = real-backend-smoke
+      script: bash scripts/ci/run-travis-acceptance.sh real-backend-smoke
+
+    - stage: manual
+      name: "Qodana Community / .NET"
+      if: type = api AND env(MANUAL_TRAVIS_SUITE) = qodana
+      script: bash scripts/ci/run-travis-qodana.sh
+
+notifications:
+  email: false
