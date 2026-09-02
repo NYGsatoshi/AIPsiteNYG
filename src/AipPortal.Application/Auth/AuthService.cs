@@ -23,6 +23,7 @@ public sealed class AuthService(
 {
     private const int MinimumPasswordLength = 8;
     private const string GenericLoginError = "Invalid email or password.";
+    private const string GenericInviteError = "Invite is invalid or expired.";
     private static readonly TimeSpan SessionLifetime = TimeSpan.FromHours(8);
 
     public async Task<Result<LoginResponse>> LoginAsync(LoginRequest request, CancellationToken cancellationToken = default)
@@ -113,36 +114,50 @@ public sealed class AuthService(
         }
 
         var normalizedEmail = NormalizeEmail(request.Email);
-        var inviteResult = await GetUsableInviteAsync(request.InviteToken, cancellationToken);
-        if (!inviteResult.IsSuccess || inviteResult.Value is null)
+        return await unitOfWork.ExecuteInTransactionAsync(async transactionToken =>
         {
-            return Result<LoginResponse>.Failure(inviteResult.Error ?? "Invite is invalid or expired.");
-        }
+            var inviteResult = await GetUsableInviteAsync(request.InviteToken, forUpdate: true, transactionToken);
+            if (!inviteResult.IsSuccess || inviteResult.Value is null)
+            {
+                return await RejectInviteAcceptanceAsync(
+                    inviteResult.Error ?? GenericInviteError,
+                    InviteFailureReason(inviteResult.Error),
+                    null,
+                    transactionToken);
+            }
 
-        if (inviteResult.Value.NormalizedEmail != normalizedEmail)
-        {
-            return Result<LoginResponse>.Failure("Invite is invalid or expired.");
-        }
+            var invite = inviteResult.Value;
+            if (!string.Equals(invite.NormalizedEmail, normalizedEmail, StringComparison.Ordinal))
+            {
+                return await RejectInviteAcceptanceAsync(GenericInviteError, "EmailMismatch", invite, transactionToken);
+            }
 
-        return await AcceptInviteCoreAsync(inviteResult.Value, request.DisplayName, request.Password, cancellationToken);
+            return await AcceptResolvedInviteAsync(invite, request.DisplayName, request.Password, transactionToken);
+        }, cancellationToken);
     }
 
     public async Task<Result<InviteValidationResponse>> ValidateInviteAsync(string token, CancellationToken cancellationToken = default)
     {
-        var inviteResult = await GetUsableInviteAsync(token, cancellationToken);
+        var inviteResult = await GetUsableInviteAsync(token, forUpdate: false, cancellationToken);
         if (!inviteResult.IsSuccess || inviteResult.Value is null)
         {
             return Result<InviteValidationResponse>.Failure(inviteResult.Error ?? "Invite is invalid.");
         }
 
-        var tenant = await tenants.GetTenantAsync(inviteResult.Value.TenantId, cancellationToken);
-        var tenantName = !string.IsNullOrWhiteSpace(tenant?.DisplayName)
+        var scopeResult = await GetInviteScopeAsync(inviteResult.Value, cancellationToken);
+        if (!scopeResult.IsSuccess || scopeResult.Value is null)
+        {
+            return Result<InviteValidationResponse>.Failure(GenericInviteError);
+        }
+
+        var tenant = scopeResult.Value.Tenant;
+        var workspace = scopeResult.Value.Workspace;
+        var tenantName = !string.IsNullOrWhiteSpace(tenant.DisplayName)
             ? tenant.DisplayName
-            : !string.IsNullOrWhiteSpace(tenant?.Name)
+            : !string.IsNullOrWhiteSpace(tenant.Name)
                 ? tenant.Name
                 : "AIP Portal";
-        var workspace = await workspaces.GetByIdAsync(inviteResult.Value.WorkspaceId, cancellationToken);
-        var workspaceName = !string.IsNullOrWhiteSpace(workspace?.Name)
+        var workspaceName = !string.IsNullOrWhiteSpace(workspace.Name)
             ? workspace.Name
             : "Default Workspace";
 
@@ -167,22 +182,81 @@ public sealed class AuthService(
             return Result<LoginResponse>.Failure($"Password must be at least {MinimumPasswordLength} characters.");
         }
 
-        var inviteResult = await GetUsableInviteAsync(request.Token, cancellationToken);
-        if (!inviteResult.IsSuccess || inviteResult.Value is null)
+        return await unitOfWork.ExecuteInTransactionAsync(async transactionToken =>
         {
-            return Result<LoginResponse>.Failure(inviteResult.Error ?? "Invite is invalid or expired.");
-        }
+            var inviteResult = await GetUsableInviteAsync(request.Token, forUpdate: true, transactionToken);
+            if (!inviteResult.IsSuccess || inviteResult.Value is null)
+            {
+                return await RejectInviteAcceptanceAsync(
+                    inviteResult.Error ?? GenericInviteError,
+                    InviteFailureReason(inviteResult.Error),
+                    null,
+                    transactionToken);
+            }
 
-        return await AcceptInviteCoreAsync(inviteResult.Value, request.DisplayName, request.Password, cancellationToken);
+            return await AcceptResolvedInviteAsync(inviteResult.Value, request.DisplayName, request.Password, transactionToken);
+        }, cancellationToken);
     }
 
-    private async Task<Result<LoginResponse>> AcceptInviteCoreAsync(
+    private async Task<Result<LoginResponse>> AcceptResolvedInviteAsync(
         Invite invite,
         string displayName,
         string password,
         CancellationToken cancellationToken)
     {
+        var scopeResult = await GetInviteScopeAsync(invite, cancellationToken);
+        if (!scopeResult.IsSuccess)
+        {
+            return await RejectInviteAcceptanceAsync(GenericInviteError, "ScopeInvalid", invite, cancellationToken);
+        }
+
         var existingUser = await users.GetByNormalizedEmailAsync(invite.NormalizedEmail, cancellationToken);
+        if (existingUser is not null && !CanUserLogin(existingUser))
+        {
+            return await RejectInviteAcceptanceAsync(
+                "Invite cannot be accepted for this account.",
+                "AccountUnavailable",
+                invite,
+                cancellationToken);
+        }
+
+        if (existingUser is not null)
+        {
+            await unitOfWork.LockInviteAcceptanceMembershipsAsync(
+                invite.TenantId,
+                invite.WorkspaceId,
+                existingUser.Id,
+                cancellationToken);
+
+            var existingTenantMembership = await tenants.GetTenantUserAsync(invite.TenantId, existingUser.Id, cancellationToken);
+            if (existingTenantMembership is not null &&
+                existingTenantMembership.Status is TenantUserStatus.Suspended or TenantUserStatus.Left or TenantUserStatus.Archived)
+            {
+                return await RejectInviteAcceptanceAsync(GenericInviteError, "TenantMembershipUnavailable", invite, cancellationToken);
+            }
+
+            var existingWorkspaceMembership = await workspaces.GetMemberAsync(invite.WorkspaceId, existingUser.Id, cancellationToken);
+            if (existingWorkspaceMembership is not null && existingWorkspaceMembership.TenantId != invite.TenantId)
+            {
+                return await RejectInviteAcceptanceAsync(GenericInviteError, "MembershipScopeMismatch", invite, cancellationToken);
+            }
+
+            if (existingWorkspaceMembership is { Status: MembershipStatus.Suspended })
+            {
+                return await RejectInviteAcceptanceAsync(GenericInviteError, "WorkspaceMembershipUnavailable", invite, cancellationToken);
+            }
+        }
+
+        return await AcceptInviteCoreAsync(invite, existingUser, displayName, password, cancellationToken);
+    }
+
+    private async Task<Result<LoginResponse>> AcceptInviteCoreAsync(
+        Invite invite,
+        User? existingUser,
+        string displayName,
+        string password,
+        CancellationToken cancellationToken)
+    {
         User user;
         if (existingUser is null)
         {
@@ -199,29 +273,44 @@ public sealed class AuthService(
         }
         else
         {
-            if (!CanUserLogin(existingUser))
-            {
-                return Result<LoginResponse>.Failure("Invite cannot be accepted for this account.");
-            }
-
             user = existingUser;
         }
 
         var now = clock.UtcNow;
         await EnsureTenantMembershipAsync(invite, user.Id, now, cancellationToken);
         await EnsureWorkspaceMembershipAsync(invite, user.Id, now, cancellationToken);
-        invite.AcceptedAt = clock.UtcNow;
+        invite.AcceptedAt = now;
 
         var session = CreateSession(user.Id);
         await sessions.AddAsync(session, cancellationToken);
-        await auditLogger.LogAsync(new AuditLogEntry(user.Id, "InviteAccepted", "Invite", invite.Id, "Invite accepted."), cancellationToken);
-        await auditLogger.LogSecurityAsync("InviteAccepted", "Invite accepted.", new Dictionary<string, object?> { ["userId"] = user.Id, ["inviteId"] = invite.Id }, cancellationToken: cancellationToken);
+        var acceptedMetadata = new Dictionary<string, object?>
+        {
+            ["userId"] = user.Id,
+            ["inviteId"] = invite.Id,
+            ["tenantId"] = invite.TenantId,
+            ["workspaceId"] = invite.WorkspaceId
+        };
+        await auditLogger.LogAsync(
+            new AuditLogEntry(
+                user.Id,
+                "InviteAccepted",
+                "Invite",
+                invite.Id,
+                "Invite accepted.",
+                WorkspaceId: invite.WorkspaceId,
+                Metadata: acceptedMetadata,
+                TenantId: invite.TenantId),
+            cancellationToken);
+        await auditLogger.LogSecurityAsync("InviteAccepted", "Invite accepted.", acceptedMetadata, cancellationToken: cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
         return Result<LoginResponse>.Success(await ToLoginResponseAsync(user, session, cancellationToken));
     }
 
-    private async Task<Result<Invite>> GetUsableInviteAsync(string token, CancellationToken cancellationToken)
+    private async Task<Result<Invite>> GetUsableInviteAsync(
+        string token,
+        bool forUpdate,
+        CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(token))
         {
@@ -229,7 +318,9 @@ public sealed class AuthService(
         }
 
         var tokenHash = tokenHasher.HashToken(token);
-        var invite = await invites.GetByTokenHashAsync(tokenHash, cancellationToken);
+        var invite = forUpdate
+            ? await invites.GetByTokenHashForUpdateAsync(tokenHash, cancellationToken)
+            : await invites.GetByTokenHashAsync(tokenHash, cancellationToken);
         if (invite is null)
         {
             return Result<Invite>.Failure("Invite is invalid.");
@@ -253,16 +344,83 @@ public sealed class AuthService(
         return Result<Invite>.Success(invite);
     }
 
+    private async Task<Result<InviteScope>> GetInviteScopeAsync(Invite invite, CancellationToken cancellationToken)
+    {
+        var tenant = await tenants.GetTenantAsync(invite.TenantId, cancellationToken);
+        if (tenant is null || tenant.DeletedAt.HasValue || tenant.Status != TenantStatus.Active)
+        {
+            return Result<InviteScope>.Failure(GenericInviteError);
+        }
+
+        var workspace = await workspaces.GetByIdAsync(invite.WorkspaceId, cancellationToken);
+        if (workspace is null ||
+            workspace.DeletedAt.HasValue ||
+            workspace.Status != WorkspaceStatus.Active ||
+            workspace.TenantId != invite.TenantId)
+        {
+            return Result<InviteScope>.Failure(GenericInviteError);
+        }
+
+        return Result<InviteScope>.Success(new InviteScope(tenant, workspace));
+    }
+
+    private async Task<Result<LoginResponse>> RejectInviteAcceptanceAsync(
+        string clientError,
+        string reasonCode,
+        Invite? invite,
+        CancellationToken cancellationToken)
+    {
+        var metadata = new Dictionary<string, object?>
+        {
+            ["inviteId"] = invite?.Id,
+            ["tenantId"] = invite?.TenantId,
+            ["workspaceId"] = invite?.WorkspaceId,
+            ["reason"] = reasonCode
+        };
+        await auditLogger.LogAsync(
+            new AuditLogEntry(
+                null,
+                "InviteAcceptanceDenied",
+                "Invite",
+                invite?.Id,
+                "Invite acceptance denied.",
+                Metadata: metadata,
+                TenantId: invite?.TenantId),
+            cancellationToken);
+        await auditLogger.LogSecurityAsync(
+            "InviteAcceptanceDenied",
+            "Invite acceptance denied.",
+            metadata,
+            SecurityEventSeverity.Warning,
+            cancellationToken);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+        return Result<LoginResponse>.Failure(clientError);
+    }
+
+    private static string InviteFailureReason(string? error)
+    {
+        return error switch
+        {
+            "Invite token is required." => "TokenMissing",
+            "Invite has already been used." => "AlreadyUsed",
+            "Invite was revoked." => "Revoked",
+            "Invite has expired." => "Expired",
+            _ => "Invalid"
+        };
+    }
+
     private async Task EnsureTenantMembershipAsync(Invite invite, Guid userId, DateTimeOffset now, CancellationToken cancellationToken)
     {
         var membership = await tenants.GetTenantUserAsync(invite.TenantId, userId, cancellationToken);
         if (membership is null)
         {
+            // Invite.Role is workspace-scoped. Creating the Tenant presence row must
+            // not turn WorkspaceAdmin/Owner into TenantAdmin.
             await tenants.AddTenantUserAsync(new TenantUser
             {
                 TenantId = invite.TenantId,
                 UserId = userId,
-                Role = ToTenantUserRole(invite.Role),
+                Role = TenantUserRole.Member,
                 Status = TenantUserStatus.Active,
                 JoinedAt = now,
                 InvitedByUserId = invite.InvitedByUserId
@@ -270,8 +428,14 @@ public sealed class AuthService(
             return;
         }
 
-        membership.Role = ToTenantUserRole(invite.Role);
-        membership.Status = TenantUserStatus.Active;
+        // Invite acceptance may promote only the pre-membership Invited state.
+        // Suspended/Left/Archived are administrative lifecycle boundaries and are
+        // rejected before this mutation path is entered.
+        if (membership.Status == TenantUserStatus.Invited)
+        {
+            membership.Status = TenantUserStatus.Active;
+        }
+
         if (membership.JoinedAt == default)
         {
             membership.JoinedAt = now;
@@ -298,15 +462,11 @@ public sealed class AuthService(
         }
 
         membership.Role = invite.Role;
-        membership.Status = MembershipStatus.Active;
+        if (membership.Status == MembershipStatus.Pending)
+        {
+            membership.Status = MembershipStatus.Active;
+        }
         membership.JoinedAt ??= now;
-    }
-
-    private static TenantUserRole ToTenantUserRole(WorkspaceRole role)
-    {
-        return role is WorkspaceRole.Owner or WorkspaceRole.Admin
-            ? TenantUserRole.Admin
-            : TenantUserRole.Member;
     }
 
     public async Task<Result> LogoutAsync(CancellationToken cancellationToken = default)
@@ -427,6 +587,8 @@ public sealed class AuthService(
             activeWorkspaces.Count == 1 ? activeWorkspaces[0] : null,
             activeWorkspaces);
     }
+
+    private sealed record InviteScope(Tenant Tenant, Workspace Workspace);
 
     private sealed record WorkspaceContext(
         AuthWorkspaceSummary? CurrentWorkspace,

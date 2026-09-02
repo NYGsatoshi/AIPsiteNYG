@@ -77,6 +77,8 @@ public sealed record TaskExecutionRunResponse(
         TaskExecutionRunStatus.Running => TaskExecutionMajorState.Running,
         TaskExecutionRunStatus.Succeeded => TaskExecutionMajorState.Succeeded,
         TaskExecutionRunStatus.Failed => TaskExecutionMajorState.Failed,
+        TaskExecutionRunStatus.Stopped => TaskExecutionMajorState.Stopped,
+        TaskExecutionRunStatus.Redirected => TaskExecutionMajorState.Redirected,
         _ => TaskExecutionMajorState.Failed
     };
 }

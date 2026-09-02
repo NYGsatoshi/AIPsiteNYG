@@ -92,7 +92,9 @@ public sealed class DbAuditLogger(AppDbContext dbContext, IClock clock, ICurrent
                     "TaskExecutionRunQueued" or
                     "TaskExecutionRunStarted" or
                     "TaskExecutionRunSucceeded" or
-                    "TaskExecutionRunFailed")
+                    "TaskExecutionRunFailed" or
+                    "TaskExecutionRunStopped" or
+                    "TaskExecutionRunRedirected")
             {
                 throw;
             }
