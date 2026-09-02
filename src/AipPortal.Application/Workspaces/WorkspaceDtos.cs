@@ -83,14 +83,14 @@ public sealed record UpdateWorkspaceRequest(string? Name, string? Description, s
 /// <summary>
 /// Ordinary Workspace member projection. This contract is intentionally data-minimized:
 /// it contains only identity needed for display and the current Workspace relationship.
-/// Membership status remains server-only so stale/revoked rows can be filtered at the
-/// HTTP boundary without becoming part of the ordinary response contract.
+/// Only current active memberships are projected by the application service, so Status
+/// preserves the existing relationship-state contract without exposing revoked rows.
 /// </summary>
 public sealed record WorkspaceMemberResponse(
     Guid UserId,
     string DisplayName,
     WorkspaceRole Role,
-    [property: JsonIgnore] MembershipStatus Status)
+    MembershipStatus Status)
 {
     /// <summary>
     /// Compatibility constructor for existing mutation code. Email and JoinedAt are
