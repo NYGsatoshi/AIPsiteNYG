@@ -101,6 +101,7 @@ public sealed record ConversationMemberResponse(
 
 public sealed record AddConversationMemberRequest(Guid UserId);
 
+/// <summary>Canonical server-owned Attachment identity accepted by Message send.</summary>
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record MessageAttachmentReferenceRequest(Guid AttachmentId);
 
