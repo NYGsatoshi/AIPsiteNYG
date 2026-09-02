@@ -222,6 +222,12 @@ public sealed class AuthService(
 
         if (existingUser is not null)
         {
+            await unitOfWork.LockInviteAcceptanceMembershipsAsync(
+                invite.TenantId,
+                invite.WorkspaceId,
+                existingUser.Id,
+                cancellationToken);
+
             var existingTenantMembership = await tenants.GetTenantUserAsync(invite.TenantId, existingUser.Id, cancellationToken);
             if (existingTenantMembership is not null &&
                 existingTenantMembership.Status is TenantUserStatus.Suspended or TenantUserStatus.Left or TenantUserStatus.Archived)
