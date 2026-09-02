@@ -10,30 +10,65 @@ export ASPNETCORE_ENVIRONMENT="Test"
 export POSTGRES_DB="aip_portal_ci"
 export POSTGRES_USER="aip_portal_ci"
 export POSTGRES_PASSWORD="aip_portal_ci_password"
-export POSTGRES_DEV_HOST_PORT="5433"
-postgres_connection_string="Host=localhost;Port=${POSTGRES_DEV_HOST_PORT};Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
-export ConnectionStrings__DefaultConnection="$postgres_connection_string"
-export POSTGRES_TEST_CONNECTION_STRING="$postgres_connection_string"
 
-postgres_started=false
+postgres_container=""
 cleanup() {
-  if [[ "$postgres_started" == "true" ]]; then
-    docker compose -f docker-compose.db.yml down -v || true
+  if [[ -n "$postgres_container" ]]; then
+    docker rm --force "$postgres_container" >/dev/null 2>&1 || true
   fi
 }
 trap cleanup EXIT
 
 setup_postgres() {
   echo "== PostgreSQL 18 =="
-  docker compose -f docker-compose.db.yml config --quiet
-  docker compose -f docker-compose.db.yml up -d
-  postgres_started=true
-  bash scripts/ci/wait-for-travis-postgres.sh
+  postgres_container="aipsite-travis-pg-${TRAVIS_JOB_ID:-$$}"
 
-  test "${ConnectionStrings__DefaultConnection}" = "${POSTGRES_TEST_CONNECTION_STRING}"
-  docker compose -f docker-compose.db.yml exec -T postgres \
+  # GitHub Actions used an automatically assigned service port. Do the same on
+  # Travis instead of assuming that host port 5433 is free on the worker VM.
+  docker run --detach \
+    --name "$postgres_container" \
+    --publish 127.0.0.1::5432 \
+    --env "POSTGRES_DB=$POSTGRES_DB" \
+    --env "POSTGRES_USER=$POSTGRES_USER" \
+    --env "POSTGRES_PASSWORD=$POSTGRES_PASSWORD" \
+    --health-cmd "pg_isready -U $POSTGRES_USER -d $POSTGRES_DB" \
+    --health-interval 5s \
+    --health-timeout 5s \
+    --health-retries 20 \
+    --health-start-period 5s \
+    postgres:18-alpine >/dev/null
+
+  for attempt in $(seq 1 30); do
+    status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$postgres_container")"
+    if [[ "$status" == "healthy" ]]; then
+      break
+    fi
+    echo "Waiting for PostgreSQL ($attempt/30): $status"
+    sleep 2
+  done
+
+  status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$postgres_container")"
+  if [[ "$status" != "healthy" ]]; then
+    echo "PostgreSQL did not become healthy: $status" >&2
+    docker logs "$postgres_container" >&2 || true
+    exit 1
+  fi
+
+  port_binding="$(docker port "$postgres_container" 5432/tcp | head -n 1)"
+  postgres_port="${port_binding##*:}"
+  if [[ ! "$postgres_port" =~ ^[0-9]+$ ]]; then
+    echo "Unable to resolve PostgreSQL host port from: $port_binding" >&2
+    docker port "$postgres_container" >&2 || true
+    exit 1
+  fi
+
+  postgres_connection_string="Host=127.0.0.1;Port=${postgres_port};Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+  export ConnectionStrings__DefaultConnection="$postgres_connection_string"
+  export POSTGRES_TEST_CONNECTION_STRING="$postgres_connection_string"
+
+  docker exec "$postgres_container" \
     psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc 'select 1' | grep -qx '1'
-  echo "PostgreSQL connection probe passed."
+  echo "PostgreSQL connection probe passed on an ephemeral host port."
 }
 
 restore_build() {
