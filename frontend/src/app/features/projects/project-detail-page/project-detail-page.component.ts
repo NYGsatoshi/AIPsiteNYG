@@ -139,13 +139,26 @@ export class ProjectDetailPageComponent implements OnDestroy {
         return;
       }
 
-      const project = this.page().project;
+      const view = this.page();
+      const project = view.project;
+      if (!project) {
+        if (view.status === 'loading') {
+          this.taskCreateNavigationInterrupted.set(true);
+        } else {
+          this.clearPendingTaskCreateNavigation();
+        }
+        return;
+      }
+
       if (
-        project?.id !== pendingProjectId ||
+        project.id !== pendingProjectId ||
         project.isOperational !== true ||
         project.canCreateTask !== true
       ) {
-        this.taskCreateNavigationInterrupted.set(true);
+        // A current authoritative Project that no longer matches the pending
+        // scope or permission is a denial, not a transient reconnect. Do not
+        // resurrect the old click if authorization later changes again.
+        this.clearPendingTaskCreateNavigation();
         return;
       }
 
@@ -166,6 +179,10 @@ export class ProjectDetailPageComponent implements OnDestroy {
       this.taskCreateNavigationInterrupted.set(false);
       void this.navigateToTaskCreate(project.id);
     }
+  }
+  private clearPendingTaskCreateNavigation(): void {
+    this.pendingTaskCreateProjectId.set(null);
+    this.taskCreateNavigationInterrupted.set(false);
   }
   private async navigateToTaskCreate(projectId: string): Promise<void> {
     if (this.taskCreateNavigationInFlight()) {
