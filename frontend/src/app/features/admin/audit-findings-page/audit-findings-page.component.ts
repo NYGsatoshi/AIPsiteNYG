@@ -64,6 +64,7 @@ export class AuditFindingsPageComponent {
   readonly vm = this.facade.viewModel;
   readonly saving = this.facade.saving;
   readonly mutationError = this.facade.mutationError;
+  readonly mutationNotice = this.facade.mutationNotice;
   readonly versionInput = signal(this.route.snapshot.queryParamMap.get('artifactVersion') ?? '');
   readonly inputError = signal<string | null>(null);
   readonly selectedFindingId = signal<string | null>(null);
@@ -268,6 +269,16 @@ export class AuditFindingsPageComponent {
     }
 
     this.facade.updateWorkflow(finding.id, workflowStatus, ownerUserId, dueDate);
+  }
+
+  mentionSelectedReviewer(): void {
+    const finding = this.selectedFinding();
+    const reviewerUserId = this.selectedOwnerUserId();
+    if (!finding || !this.vm().canReview || this.saving() || !reviewerUserId) {
+      return;
+    }
+
+    this.facade.mentionReviewer(finding.id, reviewerUserId);
   }
 
   updateReason(value: string): void {
