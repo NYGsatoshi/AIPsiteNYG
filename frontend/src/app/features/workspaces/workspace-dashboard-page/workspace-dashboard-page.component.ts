@@ -1,5 +1,6 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 
 import { WorkspaceCreateDialogComponent } from '../workspace-create-dialog/workspace-create-dialog.component';
 import { WorkspaceEmptyStateComponent } from '../workspace-empty-state/workspace-empty-state.component';
@@ -12,6 +13,7 @@ import { WorkspaceCardViewModel, WorkspaceCreateInput } from '../workspaces.type
   standalone: true,
   imports: [
     FormsModule,
+    RouterLink,
     WorkspaceCreateDialogComponent,
     WorkspaceEmptyStateComponent,
     WorkspaceSummaryListComponent,
@@ -28,6 +30,21 @@ export class WorkspaceDashboardPageComponent {
   readonly createDialogOpen = signal(false);
   readonly createdAnnouncement = signal<string | null>(null);
   readonly filteredWorkspaces = computed(() => this.filterWorkspaces(this.dashboard().workspaces, this.searchValue()));
+  readonly needsAttentionCount = computed(() =>
+    this.dashboard().workspaces.reduce(
+      (total, workspace) => total + (workspace.needsAttentionCount ?? 0),
+      0,
+    ),
+  );
+  readonly needsAttentionItems = computed(() =>
+    this.dashboard().workspaces.flatMap((workspace) =>
+      (workspace.needsAttentionItems ?? []).map((item) => ({
+        workspaceId: workspace.id,
+        workspaceName: workspace.displayName,
+        item,
+      })),
+    ),
+  );
 
   updateSearch(value: string): void {
     this.searchValue.set(value);

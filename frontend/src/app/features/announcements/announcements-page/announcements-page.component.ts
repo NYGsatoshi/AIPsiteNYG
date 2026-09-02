@@ -164,7 +164,11 @@ export class AnnouncementsPageComponent implements OnDestroy {
   }
 
   showCreateEditor(): void {
-    if (this.canCreate() && this.facade.beginCreate()) {
+    // The button is rendered from the page capability, but a background list
+    // refresh can replace that projection between pointer-down and click. The
+    // facade owns the current authorized audience set, so beginCreate() is the
+    // final fail-closed authority for whether the editor may actually open.
+    if (this.facade.beginCreate()) {
       this.editingAnnouncementId.set(null);
       this.editorVisible.set(true);
     }
