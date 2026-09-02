@@ -4,7 +4,8 @@ import { Subscription } from 'rxjs';
 
 import { normalizeApiError } from '../../../core/api/api-error.adapter';
 
-type RunStatus = 'Accepted' | 'Queued' | 'Running' | 'Succeeded' | 'Failed';
+type RunStatus = 'Accepted' | 'Queued' | 'Running' | 'Succeeded' | 'Failed' | 'Stopped' | 'Redirected';
+type InterventionAction = 'stop' | 'correct';
 
 interface ExecutionRunAcceptance {
   readonly id: string;
@@ -31,6 +32,19 @@ interface ExecutionResultProjection {
   readonly report: ExecutionReport | null;
 }
 
+interface InterventionRunProjection {
+  readonly id: string;
+  readonly status: RunStatus;
+}
+
+interface InterventionResponse {
+  readonly action: 'Stop' | 'CorrectDirection';
+  readonly closedRun: InterventionRunProjection;
+  readonly resumedRun: InterventionRunProjection | null;
+  readonly resumePoint: 'None' | 'NewRunFromLatestTaskState';
+  readonly editableSurfaces: readonly string[];
+}
+
 @Component({
   selector: 'app-task-execution-result',
   standalone: true,
@@ -45,6 +59,8 @@ export class TaskExecutionResultComponent implements OnChanges, OnDestroy {
   private readonly http = inject(HttpClient, { optional: true });
   private request: Subscription | null = null;
   private startRequest: Subscription | null = null;
+  private capabilityRequest: Subscription | null = null;
+  private interventionRequest: Subscription | null = null;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
   private generation = 0;
 
@@ -55,8 +71,16 @@ export class TaskExecutionResultComponent implements OnChanges, OnDestroy {
   readonly starting = signal(false);
   readonly startError = signal<string | null>(null);
   readonly startFeedback = signal<string | null>(null);
+  readonly canManageInterventions = signal(false);
+  readonly intervening = signal<InterventionAction | null>(null);
+  readonly interventionError = signal<string | null>(null);
+  readonly interventionFeedback = signal<string | null>(null);
+  readonly stopConfirmation = signal(false);
 
   ngOnChanges(changes: SimpleChanges): void {
+    if (changes['taskId']) {
+      this.loadInterventionCapability();
+    }
     if (changes['taskId'] || changes['loadExistingResult']) {
       if (this.loadExistingResult) {
         this.reload();
@@ -78,18 +102,21 @@ export class TaskExecutionResultComponent implements OnChanges, OnDestroy {
   startExecution(): void {
     const taskId = this.taskId.trim();
     const http = this.http;
-    if (!this.allowExecutionStart || !taskId || !http || typeof http.post !== 'function' || this.starting()) {
+    if (!this.allowExecutionStart || !taskId || !http || typeof http.post !== 'function' || this.starting() || this.intervening()) {
       return;
     }
 
     this.generation++;
     const generation = this.generation;
-    this.cancelPending();
+    this.cancelResultRequests();
     this.result.set(null);
     this.noResult.set(false);
     this.error.set(null);
     this.startError.set(null);
     this.startFeedback.set(null);
+    this.interventionError.set(null);
+    this.interventionFeedback.set(null);
+    this.stopConfirmation.set(false);
     this.starting.set(true);
 
     this.startRequest = http.post<unknown>(
@@ -144,6 +171,42 @@ export class TaskExecutionResultComponent implements OnChanges, OnDestroy {
     });
   }
 
+  canIntervene(status: RunStatus): boolean {
+    return this.canManageInterventions() && isIntervenableStatus(status) && !this.starting() && this.intervening() === null;
+  }
+
+  interventionUnavailableReason(status: RunStatus): string {
+    if (!this.canManageInterventions()) return 'You do not have permission to intervene in this Task.';
+    if (status === 'Succeeded') return 'This execution already completed successfully.';
+    if (status === 'Failed') return 'This execution already ended in a failure state.';
+    if (status === 'Stopped') return 'This execution was already stopped.';
+    if (status === 'Redirected') return 'This execution was already redirected to a successor Run.';
+    return '';
+  }
+
+  requestStopConfirmation(): void {
+    const current = this.result();
+    if (!current || !this.canIntervene(current.status)) return;
+    this.interventionError.set(null);
+    this.stopConfirmation.set(true);
+  }
+
+  cancelStopConfirmation(): void {
+    if (this.intervening() !== 'stop') this.stopConfirmation.set(false);
+  }
+
+  stopExecution(): void {
+    const current = this.result();
+    if (!current || !this.canIntervene(current.status) || !this.stopConfirmation()) return;
+    this.submitIntervention('stop', current.runId);
+  }
+
+  correctDirection(): void {
+    const current = this.result();
+    if (!current || !this.canIntervene(current.status)) return;
+    this.submitIntervention('correct', current.runId);
+  }
+
   statusMessage(status: RunStatus): string {
     switch (status) {
       case 'Accepted': return 'The execution request was durably accepted.';
@@ -151,13 +214,105 @@ export class TaskExecutionResultComponent implements OnChanges, OnDestroy {
       case 'Running': return 'Authorized Project files are being analyzed.';
       case 'Succeeded': return 'The durable execution report is ready.';
       case 'Failed': return 'The execution ended with a safe failure state.';
+      case 'Stopped': return 'The execution was deliberately stopped and no successor Run was started.';
+      case 'Redirected': return 'This immutable Run was closed by a direction correction.';
     }
+  }
+
+  private submitIntervention(action: InterventionAction, runId: string): void {
+    const taskId = this.taskId.trim();
+    const http = this.http;
+    if (!taskId || !runId || !http || typeof http.post !== 'function' || this.intervening()) return;
+
+    this.generation++;
+    const generation = this.generation;
+    this.cancelResultRequests();
+    this.interventionError.set(null);
+    this.interventionFeedback.set(null);
+    this.intervening.set(action);
+
+    const command = action === 'stop' ? 'stop' : 'correct-direction';
+    this.interventionRequest = http.post<unknown>(
+      `/api/tasks/${encodeURIComponent(taskId)}/execution-runs/${encodeURIComponent(runId)}/${command}`,
+      {},
+      { withCredentials: true },
+    ).subscribe({
+      next: (response) => {
+        if (!this.isCurrent(generation, taskId)) return;
+
+        let intervention: InterventionResponse;
+        try {
+          intervention = mapInterventionResponse(response);
+        } catch {
+          this.interventionRequest = null;
+          this.intervening.set(null);
+          this.interventionError.set('The intervention response was invalid. Reload the execution state.');
+          return;
+        }
+
+        this.interventionRequest = null;
+        this.intervening.set(null);
+        this.stopConfirmation.set(false);
+        this.interventionFeedback.set(action === 'stop'
+          ? 'Task execution stopped. No successor Run was started.'
+          : `Direction corrected. Resume point: ${resumePointLabel(intervention.resumePoint)}.`);
+        this.result.set(null);
+        this.noResult.set(false);
+        this.load(generation);
+      },
+      error: (error: unknown) => {
+        if (!this.isCurrent(generation, taskId)) return;
+        this.interventionRequest = null;
+        this.intervening.set(null);
+        const normalized = normalizeApiError(error);
+        if (normalized.httpStatus === 401 || normalized.httpStatus === 403 || normalized.httpStatus === 404) {
+          this.canManageInterventions.set(false);
+          this.stopConfirmation.set(false);
+          this.interventionError.set('Execution intervention is unavailable in the current session.');
+          return;
+        }
+        this.interventionError.set(normalized.httpStatus === 409
+          ? 'The execution changed before the intervention was saved. The latest state has been reloaded.'
+          : 'The execution intervention could not be completed. Try again.');
+        this.result.set(null);
+        this.load(generation);
+      },
+    });
+  }
+
+  private loadInterventionCapability(): void {
+    const taskId = this.taskId.trim();
+    const http = this.http;
+    this.capabilityRequest?.unsubscribe();
+    this.capabilityRequest = null;
+    this.canManageInterventions.set(false);
+    if (!taskId || !http || typeof http.get !== 'function') return;
+
+    this.capabilityRequest = http.get<unknown>(
+      `/api/tasks/${encodeURIComponent(taskId)}/execution-scope`,
+      { withCredentials: true },
+    ).subscribe({
+      next: (response) => {
+        if (taskId !== this.taskId.trim()) return;
+        try {
+          const record = requiredRecord(response, 'Task execution scope');
+          this.canManageInterventions.set(requiredBoolean(record['canManage'], 'Task execution intervention permission'));
+        } catch {
+          this.canManageInterventions.set(false);
+        }
+        this.capabilityRequest = null;
+      },
+      error: () => {
+        if (taskId === this.taskId.trim()) this.canManageInterventions.set(false);
+        this.capabilityRequest = null;
+      },
+    });
   }
 
   private reload(): void {
     this.generation++;
     const generation = this.generation;
-    this.cancelPending();
+    this.cancelResultRequests();
     this.result.set(null);
     this.noResult.set(false);
     this.error.set(null);
@@ -167,12 +322,15 @@ export class TaskExecutionResultComponent implements OnChanges, OnDestroy {
 
   private resetWithoutLoad(): void {
     this.generation++;
-    this.cancelPending();
+    this.cancelResultRequests();
     this.result.set(null);
     this.noResult.set(false);
     this.error.set(null);
     this.startError.set(null);
     this.startFeedback.set(null);
+    this.interventionError.set(null);
+    this.interventionFeedback.set(null);
+    this.stopConfirmation.set(false);
   }
 
   private load(generation: number): void {
@@ -200,7 +358,7 @@ export class TaskExecutionResultComponent implements OnChanges, OnDestroy {
           this.error.set(null);
           this.loading.set(false);
           this.request = null;
-          if (result.status === 'Accepted' || result.status === 'Queued' || result.status === 'Running') {
+          if (isIntervenableStatus(result.status)) {
             this.pollTimer = setTimeout(() => this.load(generation), 1500);
           }
         } catch {
@@ -229,7 +387,7 @@ export class TaskExecutionResultComponent implements OnChanges, OnDestroy {
     });
   }
 
-  private cancelPending(): void {
+  private cancelResultRequests(): void {
     this.request?.unsubscribe();
     this.startRequest?.unsubscribe();
     this.request = null;
@@ -242,9 +400,22 @@ export class TaskExecutionResultComponent implements OnChanges, OnDestroy {
     this.starting.set(false);
   }
 
+  private cancelPending(): void {
+    this.cancelResultRequests();
+    this.capabilityRequest?.unsubscribe();
+    this.interventionRequest?.unsubscribe();
+    this.capabilityRequest = null;
+    this.interventionRequest = null;
+    this.intervening.set(null);
+  }
+
   private isCurrent(generation: number, taskId: string): boolean {
     return generation === this.generation && taskId === this.taskId.trim();
   }
+}
+
+function isIntervenableStatus(status: RunStatus): boolean {
+  return status === 'Accepted' || status === 'Queued' || status === 'Running';
 }
 
 function mapExecutionRunAcceptance(value: unknown): ExecutionRunAcceptance {
@@ -262,6 +433,8 @@ function startFeedbackMessage(status: RunStatus): string {
     case 'Running': return 'Execution started. The durable result will refresh from the server.';
     case 'Succeeded': return 'Execution completed. The durable report is loading from the server.';
     case 'Failed': return 'Execution completed with a bounded server failure state.';
+    case 'Stopped': return 'Execution was stopped before the start response completed.';
+    case 'Redirected': return 'Execution was redirected before the start response completed.';
   }
 }
 
@@ -292,6 +465,43 @@ function mapExecutionResult(value: unknown): ExecutionResultProjection {
     finishedAtUtc: nullableString(record['finishedAtUtc'], 'Finished timestamp'),
     report,
   };
+}
+
+function mapInterventionResponse(value: unknown): InterventionResponse {
+  const record = requiredRecord(value, 'Task execution intervention');
+  const action = record['action'];
+  if (action !== 'Stop' && action !== 'CorrectDirection') throw new Error('Intervention action is invalid.');
+  const closedRun = mapInterventionRun(record['closedRun'], 'Closed Run');
+  const resumedRun = record['resumedRun'] == null ? null : mapInterventionRun(record['resumedRun'], 'Resumed Run');
+  const resumePoint = record['resumePoint'];
+  if (resumePoint !== 'None' && resumePoint !== 'NewRunFromLatestTaskState') throw new Error('Resume point is invalid.');
+  if (action === 'Stop' && (closedRun.status !== 'Stopped' || resumedRun !== null || resumePoint !== 'None')) {
+    throw new Error('Stop intervention response is inconsistent.');
+  }
+  if (action === 'CorrectDirection' && (closedRun.status !== 'Redirected' || resumedRun === null || resumePoint !== 'NewRunFromLatestTaskState')) {
+    throw new Error('Direction correction response is inconsistent.');
+  }
+  return {
+    action,
+    closedRun,
+    resumedRun,
+    resumePoint,
+    editableSurfaces: requiredStringArray(record['editableSurfaces'], 'Editable surfaces'),
+  };
+}
+
+function mapInterventionRun(value: unknown, label: string): InterventionRunProjection {
+  const record = requiredRecord(value, label);
+  return {
+    id: requiredString(record['id'], `${label} identity`),
+    status: requiredStatus(record['status']),
+  };
+}
+
+function resumePointLabel(resumePoint: InterventionResponse['resumePoint']): string {
+  return resumePoint === 'NewRunFromLatestTaskState'
+    ? 'new Run from the latest saved Task state'
+    : 'none';
 }
 
 function nullableReport(value: unknown): ExecutionReport | null {
@@ -328,10 +538,20 @@ function requiredRecord(value: unknown, label: string): Record<string, unknown> 
 }
 
 function requiredStatus(value: unknown): RunStatus {
-  if (value === 'Accepted' || value === 'Queued' || value === 'Running' || value === 'Succeeded' || value === 'Failed') {
+  if (value === 'Accepted' || value === 'Queued' || value === 'Running' || value === 'Succeeded' || value === 'Failed' || value === 'Stopped' || value === 'Redirected') {
     return value;
   }
   throw new Error('Task execution status is invalid.');
+}
+
+function requiredBoolean(value: unknown, label: string): boolean {
+  if (typeof value !== 'boolean') throw new Error(`${label} is invalid.`);
+  return value;
+}
+
+function requiredStringArray(value: unknown, label: string): readonly string[] {
+  if (!Array.isArray(value) || value.length > 10) throw new Error(`${label} is invalid.`);
+  return value.map((item, index) => requiredString(item, `${label} ${index + 1}`, 100));
 }
 
 function requiredString(value: unknown, label: string, maximumLength = 200): string {
