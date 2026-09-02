@@ -45,7 +45,7 @@ public sealed class AddAuditFindingReviewWorkflow : Migration
             {
                 table.PrimaryKey("PK_audit_finding_workflow_history", x => x.Id);
                 table.ForeignKey(
-                    "FK_audit_finding_workflow_history_artifact_findings_ArtifactFindingId",
+                    "FK_audit_finding_workflow_history_finding",
                     x => x.ArtifactFindingId,
                     "artifact_findings",
                     "Id",
@@ -53,17 +53,17 @@ public sealed class AddAuditFindingReviewWorkflow : Migration
             });
 
         migrationBuilder.CreateIndex(
-            name: "IX_artifact_findings_TenantId_WorkflowStatus_DueDate_OwnerUserId",
+            name: "IX_artifact_findings_workflow_due_owner",
             table: "artifact_findings",
             columns: new[] { "TenantId", "WorkflowStatus", "DueDate", "OwnerUserId" });
 
         migrationBuilder.CreateIndex(
-            name: "IX_audit_finding_workflow_history_ArtifactFindingId",
+            name: "IX_audit_finding_workflow_history_finding",
             table: "audit_finding_workflow_history",
             column: "ArtifactFindingId");
 
         migrationBuilder.CreateIndex(
-            name: "IX_audit_finding_workflow_history_TenantId_ArtifactFindingId_CreatedAt",
+            name: "IX_audit_finding_workflow_history_tenant_finding_created",
             table: "audit_finding_workflow_history",
             columns: new[] { "TenantId", "ArtifactFindingId", "CreatedAt" });
 
@@ -93,7 +93,7 @@ public sealed class AddAuditFindingReviewWorkflow : Migration
         migrationBuilder.DropTable("audit_finding_workflow_history");
 
         migrationBuilder.DropIndex(
-            name: "IX_artifact_findings_TenantId_WorkflowStatus_DueDate_OwnerUserId",
+            name: "IX_artifact_findings_workflow_due_owner",
             table: "artifact_findings");
 
         migrationBuilder.DropColumn(
