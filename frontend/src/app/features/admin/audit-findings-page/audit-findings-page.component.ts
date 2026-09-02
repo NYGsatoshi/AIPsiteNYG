@@ -10,6 +10,7 @@ import {
   AuditFindingSeverity,
   AuditFindingStatus,
   AuditFindingViewModel,
+  AuditFindingWorkflowStatus,
 } from './audit-findings.types';
 
 @Component({
@@ -30,12 +31,20 @@ export class AuditFindingsPageComponent {
         status: normalizeStatus(params.get('status')),
         severity: normalizeSeverity(params.get('severity')),
         openOnly: params.get('openOnly') === 'true',
+        workflowStatus: normalizeWorkflowStatus(params.get('workflowStatus')),
+        myReviews: params.get('myReviews') === 'true',
+        overdue: params.get('overdue') === 'true',
+        unassigned: params.get('unassigned') === 'true',
       })),
       distinctUntilChanged((left, right) =>
         left.artifactVersionId === right.artifactVersionId &&
         left.status === right.status &&
         left.severity === right.severity &&
-        left.openOnly === right.openOnly,
+        left.openOnly === right.openOnly &&
+        left.workflowStatus === right.workflowStatus &&
+        left.myReviews === right.myReviews &&
+        left.overdue === right.overdue &&
+        left.unassigned === right.unassigned,
       ),
     ),
     {
@@ -44,6 +53,10 @@ export class AuditFindingsPageComponent {
         status: normalizeStatus(this.route.snapshot.queryParamMap.get('status')),
         severity: normalizeSeverity(this.route.snapshot.queryParamMap.get('severity')),
         openOnly: this.route.snapshot.queryParamMap.get('openOnly') === 'true',
+        workflowStatus: normalizeWorkflowStatus(this.route.snapshot.queryParamMap.get('workflowStatus')),
+        myReviews: this.route.snapshot.queryParamMap.get('myReviews') === 'true',
+        overdue: this.route.snapshot.queryParamMap.get('overdue') === 'true',
+        unassigned: this.route.snapshot.queryParamMap.get('unassigned') === 'true',
       },
     },
   );
@@ -55,6 +68,8 @@ export class AuditFindingsPageComponent {
   readonly inputError = signal<string | null>(null);
   readonly selectedFindingId = signal<string | null>(null);
   readonly selectedOwnerUserId = signal('');
+  readonly selectedWorkflowStatus = signal<AuditFindingWorkflowStatus>('Open');
+  readonly selectedDueDate = signal('');
   readonly reason = signal('');
   readonly reasonError = signal<string | null>(null);
 
@@ -65,6 +80,13 @@ export class AuditFindingsPageComponent {
     'AcceptedRisk',
     'FalsePositive',
   ];
+  readonly workflowStatuses: readonly AuditFindingWorkflowStatus[] = [
+    'Open',
+    'InReview',
+    'WaitingFix',
+    'ReadyForReReview',
+    'Done',
+  ];
   readonly severities: readonly AuditFindingSeverity[] = ['Critical', 'High', 'Medium', 'Low'];
 
   readonly filters = computed<AuditFindingFilters>(() => {
@@ -73,6 +95,10 @@ export class AuditFindingsPageComponent {
       status: state.status,
       severity: state.severity,
       openOnly: state.openOnly,
+      workflowStatus: state.workflowStatus,
+      myReviews: state.myReviews,
+      overdue: state.overdue,
+      unassigned: state.unassigned,
     };
   });
 
@@ -85,6 +111,10 @@ export class AuditFindingsPageComponent {
     this.vm().findings.filter((finding) => finding.status === 'Open' || finding.status === 'Reviewing').length,
   );
 
+  readonly overdueCount = computed(() =>
+    this.vm().findings.filter((finding) => finding.isOverdue).length,
+  );
+
   constructor() {
     effect(() => {
       const state = this.routeState();
@@ -92,6 +122,10 @@ export class AuditFindingsPageComponent {
         status: state.status,
         severity: state.severity,
         openOnly: state.openOnly,
+        workflowStatus: state.workflowStatus,
+        myReviews: state.myReviews,
+        overdue: state.overdue,
+        unassigned: state.unassigned,
       }));
     });
 
@@ -155,10 +189,38 @@ export class AuditFindingsPageComponent {
     });
   }
 
+  updateWorkflowStatusFilter(value: string): void {
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { workflowStatus: normalizeWorkflowStatus(value) || null },
+      queryParamsHandling: 'merge',
+    });
+  }
+
+  toggleMyReviews(checked: boolean): void {
+    this.updateBooleanFilter('myReviews', checked);
+  }
+
+  toggleOverdue(checked: boolean): void {
+    this.updateBooleanFilter('overdue', checked);
+  }
+
+  toggleUnassigned(checked: boolean): void {
+    this.updateBooleanFilter('unassigned', checked);
+  }
+
   clearFilters(): void {
     void this.router.navigate([], {
       relativeTo: this.route,
-      queryParams: { status: null, severity: null, openOnly: null },
+      queryParams: {
+        status: null,
+        severity: null,
+        openOnly: null,
+        workflowStatus: null,
+        myReviews: null,
+        overdue: null,
+        unassigned: null,
+      },
       queryParamsHandling: 'merge',
     });
   }
@@ -170,6 +232,8 @@ export class AuditFindingsPageComponent {
 
     this.selectedFindingId.set(finding.id);
     this.selectedOwnerUserId.set(finding.ownerUserId ?? '');
+    this.selectedWorkflowStatus.set(finding.workflowStatus);
+    this.selectedDueDate.set(finding.dueDate ?? '');
     this.reason.set(finding.resolutionReason ?? '');
     this.reasonError.set(null);
   }
@@ -178,18 +242,32 @@ export class AuditFindingsPageComponent {
     this.selectedOwnerUserId.set(value.trim());
   }
 
-  saveOwner(): void {
+  updateWorkflowStatus(value: string): void {
+    this.selectedWorkflowStatus.set(normalizeWorkflowStatus(value) || 'Open');
+  }
+
+  updateDueDate(value: string): void {
+    this.selectedDueDate.set(value.trim());
+  }
+
+  saveWorkflow(): void {
     const finding = this.selectedFinding();
     if (!finding || !this.vm().canReview || this.saving()) {
       return;
     }
 
     const ownerUserId = this.selectedOwnerUserId() || null;
-    if (ownerUserId === finding.ownerUserId) {
+    const dueDate = this.selectedDueDate() || null;
+    const workflowStatus = this.selectedWorkflowStatus();
+    if (
+      ownerUserId === finding.ownerUserId &&
+      dueDate === finding.dueDate &&
+      workflowStatus === finding.workflowStatus
+    ) {
       return;
     }
 
-    this.facade.updateTriage(finding.id, finding.status, null, ownerUserId, true);
+    this.facade.updateWorkflow(finding.id, workflowStatus, ownerUserId, dueDate);
   }
 
   updateReason(value: string): void {
@@ -223,6 +301,15 @@ export class AuditFindingsPageComponent {
     }
   }
 
+  workflowStatusLabel(status: AuditFindingWorkflowStatus): string {
+    switch (status) {
+      case 'InReview': return 'In Review';
+      case 'WaitingFix': return 'Waiting Fix';
+      case 'ReadyForReReview': return 'Ready for Re-review';
+      default: return status;
+    }
+  }
+
   formatTimestamp(value: string | null): string {
     if (!value) {
       return '—';
@@ -230,6 +317,22 @@ export class AuditFindingsPageComponent {
 
     const parsed = new Date(value);
     return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
+  }
+
+  formatDueDate(value: string | null): string {
+    return value || 'No due date';
+  }
+
+  ownerLabel(displayName: string | null): string {
+    return displayName || 'Unassigned';
+  }
+
+  private updateBooleanFilter(name: 'myReviews' | 'overdue' | 'unassigned', checked: boolean): void {
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { [name]: checked ? 'true' : null },
+      queryParamsHandling: 'merge',
+    });
   }
 
   private loadFromRoute(artifactVersionId: string | null, filters: AuditFindingFilters): void {
@@ -255,6 +358,8 @@ export class AuditFindingsPageComponent {
   private clearSelection(): void {
     this.selectedFindingId.set(null);
     this.selectedOwnerUserId.set('');
+    this.selectedWorkflowStatus.set('Open');
+    this.selectedDueDate.set('');
     this.reason.set('');
     this.reasonError.set(null);
   }
@@ -266,6 +371,16 @@ function normalizeStatus(value: string | null): AuditFindingStatus | '' {
     value === 'Resolved' ||
     value === 'AcceptedRisk' ||
     value === 'FalsePositive'
+    ? value
+    : '';
+}
+
+function normalizeWorkflowStatus(value: string | null): AuditFindingWorkflowStatus | '' {
+  return value === 'Open' ||
+    value === 'InReview' ||
+    value === 'WaitingFix' ||
+    value === 'ReadyForReReview' ||
+    value === 'Done'
     ? value
     : '';
 }
