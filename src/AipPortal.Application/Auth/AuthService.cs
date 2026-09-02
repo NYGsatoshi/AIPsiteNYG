@@ -366,7 +366,6 @@ public sealed class AuthService(
                 "Invite",
                 invite?.Id,
                 "Invite acceptance denied.",
-                WorkspaceId: invite?.WorkspaceId,
                 Metadata: metadata,
                 TenantId: invite?.TenantId),
             cancellationToken);
