@@ -396,11 +396,13 @@ public sealed class AuthService(
         var membership = await tenants.GetTenantUserAsync(invite.TenantId, userId, cancellationToken);
         if (membership is null)
         {
+            // Invite.Role is workspace-scoped. Creating the Tenant presence row must
+            // not turn WorkspaceAdmin/Owner into TenantAdmin.
             await tenants.AddTenantUserAsync(new TenantUser
             {
                 TenantId = invite.TenantId,
                 UserId = userId,
-                Role = ToTenantUserRole(invite.Role),
+                Role = TenantUserRole.Member,
                 Status = TenantUserStatus.Active,
                 JoinedAt = now,
                 InvitedByUserId = invite.InvitedByUserId
@@ -408,7 +410,8 @@ public sealed class AuthService(
             return;
         }
 
-        membership.Role = ToTenantUserRole(invite.Role);
+        // A Workspace invite may reactivate Tenant presence, but it does not own
+        // the existing Tenant-level role and therefore must not upgrade/downgrade it.
         membership.Status = TenantUserStatus.Active;
         if (membership.JoinedAt == default)
         {
@@ -438,13 +441,6 @@ public sealed class AuthService(
         membership.Role = invite.Role;
         membership.Status = MembershipStatus.Active;
         membership.JoinedAt ??= now;
-    }
-
-    private static TenantUserRole ToTenantUserRole(WorkspaceRole role)
-    {
-        return role is WorkspaceRole.Owner or WorkspaceRole.Admin
-            ? TenantUserRole.Admin
-            : TenantUserRole.Member;
     }
 
     public async Task<Result> LogoutAsync(CancellationToken cancellationToken = default)
