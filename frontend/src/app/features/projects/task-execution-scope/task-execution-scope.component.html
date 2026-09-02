@@ -94,7 +94,7 @@
         <app-task-execution-result
           [taskId]="taskId"
           [allowExecutionStart]="true"
-          [loadExistingResult]="current.task.latestRun?.status === 'Succeeded'"
+          [loadExistingResult]="current.task.latestRun !== null"
           [interventionCanManage]="current.task.canManage"
         ></app-task-execution-result>
       }
