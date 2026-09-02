@@ -55,6 +55,7 @@ public static class DependencyInjection
         services.AddScoped<IDefaultConversationStore, DefaultConversationStore>();
         services.AddScoped<IProjectRepository, ProjectRepository>();
         services.AddScoped<ITaskExecutionScopeRepository, TaskExecutionScopeRepository>();
+        services.AddScoped<ITaskExecutionInterventionRepository, TaskExecutionInterventionRepository>();
         services.AddScoped<IResearchPlanRepository, ResearchPlanRepository>();
         services.AddScoped<ITaskExecutionResultRepository, TaskExecutionResultRepository>();
         services.AddScoped<DurableTaskExecutionResultRuntime>();
