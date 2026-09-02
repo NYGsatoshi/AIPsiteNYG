@@ -94,7 +94,8 @@
         <app-task-execution-result
           [taskId]="taskId"
           [allowExecutionStart]="true"
-          [loadExistingResult]="current.task.latestRun?.status === 'Succeeded'"
+          [loadExistingResult]="current.task.latestRun !== null"
+          [interventionCanManage]="current.task.canManage"
         ></app-task-execution-result>
       }
 
@@ -113,7 +114,10 @@
           </dl>
         </section>
         @if (latestRun.status === 'Succeeded' && !current.task.effectivePolicy.projectFilesEnabled) {
-          <app-task-execution-result [taskId]="taskId"></app-task-execution-result>
+          <app-task-execution-result
+            [taskId]="taskId"
+            [interventionCanManage]="current.task.canManage"
+          ></app-task-execution-result>
         }
       }
     </section>

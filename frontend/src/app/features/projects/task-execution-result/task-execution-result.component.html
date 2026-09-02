@@ -11,7 +11,7 @@
       <button
         type="button"
         data-testid="task-execution-start"
-        [disabled]="starting() || loading()"
+        [disabled]="starting() || loading() || intervening() !== null"
         (click)="startExecution()"
       >
         {{ starting() ? 'Starting execution...' : 'Start execution' }}
@@ -33,6 +33,76 @@
       <span>{{ statusMessage(current.status) }}</span>
     </p>
 
+    @if (canManageInterventions()) {
+      <section class="task-execution-result__interventions" aria-labelledby="task-execution-interventions-heading" data-testid="task-execution-interventions">
+        <div>
+          <p class="task-execution-result__eyebrow">Run controls</p>
+          <h4 id="task-execution-interventions-heading">Intervene in this execution</h4>
+        </div>
+
+        <div class="task-execution-result__correction" data-testid="task-execution-correction-help">
+          <strong>Correct direction</strong>
+          <p>Save the intended changes first, then redirect this immutable Run. The successor snapshots the latest saved state.</p>
+          <ul>
+            <li>Task brief — edit the Task context.</li>
+            <li>Research plan — the latest saved revision is snapshotted.</li>
+            <li>Active source scope — the latest Project default or complete Task override is snapshotted.</li>
+          </ul>
+          <p><strong>Resume point:</strong> a new Run from the latest saved Task state. First-party Project Files V1 has no durable intra-run checkpoint, so the UI does not claim an in-place resume.</p>
+          <button
+            type="button"
+            data-testid="task-execution-correct-direction"
+            [disabled]="!canIntervene(current.status)"
+            (click)="correctDirection()"
+          >
+            {{ intervening() === 'correct' ? 'Correcting direction...' : 'Correct direction' }}
+          </button>
+        </div>
+
+        <div class="task-execution-result__stop" data-testid="task-execution-stop-control">
+          <strong>Stop Task execution</strong>
+          <p>This is destructive for the current Run. It records a terminal Stopped state and does not create a successor.</p>
+          <button
+            type="button"
+            class="task-execution-result__danger-button"
+            data-testid="task-execution-stop"
+            [disabled]="!canIntervene(current.status)"
+            (click)="requestStopConfirmation()"
+          >Stop Task…</button>
+        </div>
+
+        @if (!canIntervene(current.status)) {
+          <p class="task-execution-result__pending" data-testid="task-execution-intervention-unavailable">
+            {{ interventionUnavailableReason(current.status) }}
+          </p>
+        }
+
+        @if (stopConfirmation()) {
+          <div class="task-execution-result__stop-confirmation" role="alertdialog" aria-modal="false" aria-labelledby="task-execution-stop-confirmation-heading" data-testid="task-execution-stop-confirmation">
+            <strong id="task-execution-stop-confirmation-heading">Stop this execution?</strong>
+            <p>The current Run will end as Stopped. No replacement Run starts automatically.</p>
+            <div class="task-execution-result__actions">
+              <button
+                type="button"
+                class="task-execution-result__danger-button"
+                [disabled]="intervening() !== null"
+                data-testid="task-execution-stop-confirm"
+                (click)="stopExecution()"
+              >{{ intervening() === 'stop' ? 'Stopping...' : 'Confirm stop' }}</button>
+              <button type="button" [disabled]="intervening() !== null" (click)="cancelStopConfirmation()">Cancel</button>
+            </div>
+          </div>
+        }
+      </section>
+    }
+
+    @if (interventionFeedback(); as message) {
+      <p class="task-execution-result__status" role="status" aria-live="polite" data-testid="task-execution-intervention-feedback">{{ message }}</p>
+    }
+    @if (interventionError(); as message) {
+      <p class="task-execution-result__failure" role="alert" data-testid="task-execution-intervention-error">{{ message }}</p>
+    }
+
     @if (current.report; as report) {
       <article class="task-execution-result__report" data-testid="task-execution-report">
         <h4>{{ report.title }}</h4>
@@ -47,6 +117,8 @@
           <code>{{ current.failureCode }}</code>
         }
       </p>
+    } @else if (current.status === 'Stopped' || current.status === 'Redirected') {
+      <p class="task-execution-result__pending">This Run is terminal and will not produce a report.</p>
     } @else {
       <p class="task-execution-result__pending">This view refreshes from the server until the run reaches a terminal state.</p>
     }
