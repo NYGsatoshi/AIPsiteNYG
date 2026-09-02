@@ -58,10 +58,14 @@ public sealed class InviteAcceptanceMembershipRacePostgreSqlTests
             Assert.Equal(TenantUserStatus.Suspended, tenantMembership.Status);
             Assert.False(await verify.Sessions.AnyAsync(item => item.UserId == graph.User.Id));
             Assert.Null((await verify.Invites.SingleAsync(item => item.Id == graph.Invite.Id)).AcceptedAt);
-            Assert.True(await verify.AuditLogs.IgnoreQueryFilters().AnyAsync(item =>
-                item.Action == "InviteAcceptanceDenied" &&
-                item.MetadataJson != null &&
-                item.MetadataJson.Contains("TenantMembershipUnavailable")));
+
+            var denialMetadata = await verify.AuditLogs
+                .IgnoreQueryFilters()
+                .Where(item => item.Action == "InviteAcceptanceDenied")
+                .Select(item => item.MetadataJson)
+                .ToListAsync();
+            Assert.Contains(denialMetadata, metadata =>
+                metadata?.Contains("TenantMembershipUnavailable", StringComparison.Ordinal) == true);
         });
     }
 
