@@ -18,6 +18,17 @@ const snapshotPathTemplate = process.env.CI
 const supersededSourcePolicyV1Smoke =
   /keeps the server-authorized Task execution policy responsive without offering a runtime action$/;
 
+// Issue #363 replaced the embedded #356 Activity placeholder smoke with the
+// dedicated authorized Activity/version-history browser smoke. The old test
+// intentionally expected no Activity request, which is no longer the product
+// contract now that Files exposes a reauthorized File-specific Activity API.
+const supersededFileActivityPlaceholderSmoke =
+  /keeps one keyboard-accessible File inspector with staged metadata at 320px$/;
+
+const supersededAngularSmokes = new RegExp(
+  `${supersededSourcePolicyV1Smoke.source}|${supersededFileActivityPlaceholderSmoke.source}`
+);
+
 // Existing Playwright acceptance assertions and screenshot baselines are English.
 // Pin that locale explicitly so the product's Japanese default does not rewrite
 // unrelated acceptance contracts; locale-specific behavior is tested separately.
@@ -42,7 +53,7 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: 1,
-  grepInvert: supersededSourcePolicyV1Smoke,
+  grepInvert: supersededAngularSmokes,
   // The public deployment gate intentionally emits no trace, video, screenshot,
   // HTML, or JUnit artifact. Browser-network artifacts can contain session or
   // CSRF material even when the test code never logs those values.
