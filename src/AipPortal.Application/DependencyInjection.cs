@@ -50,6 +50,7 @@ public static class DependencyInjection
         services.AddScoped<IResearchPlanRepository, UnavailableResearchPlanRepository>();
         services.AddScoped<IAnnouncementDraftRepository, UnavailableAnnouncementDraftRepository>();
         services.AddScoped<ITaskExecutionResultRepository, UnavailableTaskExecutionResultRepository>();
+        services.AddScoped<ITaskExecutionInterventionRepository, UnavailableTaskExecutionInterventionRepository>();
         services.AddScoped<ICapabilityGrantEvaluator, CapabilityGrantEvaluator>();
         services.AddScoped<ICapabilityGrantService, CapabilityGrantService>();
         services.AddScoped<IAuditAuthorizationService, AuditAuthorizationService>();
