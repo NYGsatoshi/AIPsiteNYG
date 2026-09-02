@@ -44,6 +44,23 @@ public sealed class InviteRepository(AppDbContext dbContext) : IInviteRepository
     {
         return dbContext.Invites.FirstOrDefaultAsync(invite => invite.TokenHash == tokenHash, cancellationToken);
     }
+
+    public async Task<Invite?> GetByTokenHashForUpdateAsync(string tokenHash, CancellationToken cancellationToken = default)
+    {
+        if (!dbContext.Database.IsRelational() || dbContext.Database.CurrentTransaction is null)
+        {
+            return await GetByTokenHashAsync(tokenHash, cancellationToken);
+        }
+
+        // The hashed token is parameterized. The SELECT itself is deliberately
+        // executed before the tracked EF query so PostgreSQL holds the row lock
+        // until the surrounding acceptance transaction commits or rolls back.
+        await dbContext.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT 1 FROM invites WHERE \"TokenHash\" = {tokenHash} FOR UPDATE",
+            cancellationToken);
+
+        return await GetByTokenHashAsync(tokenHash, cancellationToken);
+    }
 }
 
 public sealed class SessionRepository(AppDbContext dbContext) : ISessionRepository
@@ -104,6 +121,30 @@ public sealed class EfUnitOfWork(
 
     public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) =>
         SaveWithPolicyDocumentsAsync(cancellationToken);
+
+    public async Task<T> ExecuteInTransactionAsync<T>(
+        Func<CancellationToken, Task<T>> operation,
+        CancellationToken cancellationToken = default)
+    {
+        if (!dbContext.Database.IsRelational() || dbContext.Database.CurrentTransaction is not null)
+        {
+            return await operation(cancellationToken);
+        }
+
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            var result = await operation(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return result;
+        }
+        catch
+        {
+            await transaction.RollbackAsync(CancellationToken.None);
+            ClearTaskCommandTracking();
+            throw;
+        }
+    }
 
     public async Task<TaskCommandSaveOutcome> SaveTaskCommandAsync(CancellationToken cancellationToken = default)
     {
