@@ -14,7 +14,8 @@ namespace AipPortal.Web.Controllers;
 public sealed class FilesController(
     IFileObjectService files,
     IFileSelectionSnapshotService selectionSnapshots,
-    IFileSharingService sharing) : ControllerBase
+    IFileSharingService sharing,
+    IFileActivityService activity) : ControllerBase
 {
     [HttpGet("api/files")]
     public async Task<IActionResult> List(
@@ -59,6 +60,32 @@ public sealed class FilesController(
         return ToFileMetadataActionResult(
             await files.GetFileObjectAsync(fileObjectId, cancellationToken),
             "FileRead");
+    }
+
+    [HttpGet("api/files/{fileObjectId:guid}/activity")]
+    public async Task<IActionResult> GetActivity(Guid fileObjectId, CancellationToken cancellationToken)
+    {
+        return ToFileMetadataActionResult(
+            await activity.GetAsync(fileObjectId, cancellationToken),
+            "FileActivity",
+            "FileActivityFailed");
+    }
+
+    [HttpGet("api/files/{fileObjectId:guid}/versions/{versionId:guid}/content")]
+    public async Task<IActionResult> ViewVersion(
+        Guid fileObjectId,
+        Guid versionId,
+        CancellationToken cancellationToken)
+    {
+        var result = await activity.ViewVersionAsync(fileObjectId, versionId, cancellationToken);
+        return result.IsSuccess
+            ? PrivateFile(result.Value!.Content, result.Value.ContentType, result.Value.FileName)
+            : BadRequest(CanonicalErrorEnvelope.FromResult(
+                HttpContext,
+                StatusCodes.Status400BadRequest,
+                result.ErrorDetail,
+                result.Error,
+                "FileVersionViewFailed"));
     }
 
     [HttpGet("api/files/{fileObjectId:guid}/sharing")]

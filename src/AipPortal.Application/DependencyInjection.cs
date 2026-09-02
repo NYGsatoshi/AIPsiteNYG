@@ -131,6 +131,7 @@ public static class DependencyInjection
         services.AddScoped<IEventService, EventService>();
         services.AddScoped<IFormService, FormService>();
         services.AddScoped<IFileSharingService, FileSharingService>();
+        services.AddScoped<IFileActivityService, FileActivityService>();
         services.AddScoped<IFileService, FileService>();
         services.AddScoped<IFileObjectService>(provider => provider.GetRequiredService<IFileService>() as IFileObjectService
             ?? throw new InvalidOperationException("IFileService must be implemented by IFileObjectService."));
