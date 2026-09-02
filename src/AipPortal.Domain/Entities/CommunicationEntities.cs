@@ -107,7 +107,7 @@ public sealed class Notification : Entity, ITenantEntity
     public string Title
     {
         get => title;
-        set => title = TruncateToScalarLength(value ?? string.Empty, TitleMaximumLength);
+        set => title = NormalizeTitle(value);
     }
 
     public string? Body
@@ -125,6 +125,11 @@ public sealed class Notification : Entity, ITenantEntity
     public long StateVersion { get; set; }
 
     public User? User { get; set; }
+
+    public static string NormalizeTitle(string? value)
+    {
+        return TruncateToScalarLength(value ?? string.Empty, TitleMaximumLength);
+    }
 
     private static string TruncateToScalarLength(string value, int maximumLength)
     {
