@@ -6,6 +6,7 @@ import { vi } from 'vitest';
 import { TaskExecutionResultComponent } from './task-execution-result.component';
 
 const TASK_ID = 'task-463';
+const RUN_ID = 'run-463';
 
 describe('TaskExecutionResultComponent', () => {
   let fixture: ComponentFixture<TaskExecutionResultComponent>;
@@ -30,6 +31,7 @@ describe('TaskExecutionResultComponent', () => {
   });
 
   it('loads and renders the durable server report without interpreting Markdown as HTML', () => {
+    flushCapability(false);
     const request = http.expectOne(`/api/tasks/${TASK_ID}/execution-result`);
     expect(request.request.method).toBe('GET');
     expect(request.request.withCredentials).toBe(true);
@@ -45,17 +47,9 @@ describe('TaskExecutionResultComponent', () => {
 
   it('polls non-terminal state and stops after a terminal response', () => {
     vi.useFakeTimers();
+    flushCapability(false);
 
-    http.expectOne(`/api/tasks/${TASK_ID}/execution-result`).flush({
-      runId: 'run-463',
-      status: 'Running',
-      failureCode: null,
-      requestedAtUtc: '2026-08-30T22:00:00Z',
-      queuedAtUtc: '2026-08-30T22:00:01Z',
-      startedAtUtc: '2026-08-30T22:00:02Z',
-      finishedAtUtc: null,
-      report: null,
-    });
+    http.expectOne(`/api/tasks/${TASK_ID}/execution-result`).flush(runningResult());
     fixture.detectChanges();
     expect((fixture.nativeElement as HTMLElement).textContent).toContain('Authorized Project files are being analyzed.');
 
@@ -69,6 +63,7 @@ describe('TaskExecutionResultComponent', () => {
   });
 
   it('uses a redacted empty state for unauthorized or missing results', () => {
+    flushCapability(false);
     http.expectOne(`/api/tasks/${TASK_ID}/execution-result`).flush(
       { error: { message: 'secret/path/report.md' } },
       { status: 404, statusText: 'Not Found' },
@@ -81,6 +76,7 @@ describe('TaskExecutionResultComponent', () => {
   });
 
   it('rejects a succeeded projection that has no durable report', () => {
+    flushCapability(false);
     http.expectOne(`/api/tasks/${TASK_ID}/execution-result`).flush({
       ...succeededResult('# Missing'),
       report: null,
@@ -89,11 +85,126 @@ describe('TaskExecutionResultComponent', () => {
 
     expect((fixture.nativeElement as HTMLElement).textContent).toContain('execution result response was invalid');
   });
+
+  it('keeps direction correction and destructive stop as separate controls', () => {
+    flushCapability(true);
+    http.expectOne(`/api/tasks/${TASK_ID}/execution-result`).flush(runningResult());
+    fixture.detectChanges();
+
+    const native = fixture.nativeElement as HTMLElement;
+    expect(native.querySelector('[data-testid="task-execution-correct-direction"]')).not.toBeNull();
+    expect(native.querySelector('[data-testid="task-execution-stop"]')).not.toBeNull();
+    expect(native.querySelector('[data-testid="task-execution-correction-help"]')?.textContent).toContain('Task brief');
+    expect(native.querySelector('[data-testid="task-execution-correction-help"]')?.textContent).toContain('Research plan');
+    expect(native.querySelector('[data-testid="task-execution-correction-help"]')?.textContent).toContain('Active source scope');
+    expect(native.querySelector('[data-testid="task-execution-correction-help"]')?.textContent).toContain('new Run from the latest saved Task state');
+  });
+
+  it('requires explicit confirmation before sending a destructive stop command', () => {
+    flushCapability(true);
+    http.expectOne(`/api/tasks/${TASK_ID}/execution-result`).flush(runningResult());
+    fixture.detectChanges();
+
+    const native = fixture.nativeElement as HTMLElement;
+    (native.querySelector('[data-testid="task-execution-stop"]') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    expect(native.querySelector('[data-testid="task-execution-stop-confirmation"]')).not.toBeNull();
+    http.expectNone(`/api/tasks/${TASK_ID}/execution-runs/${RUN_ID}/stop`);
+
+    (native.querySelector('[data-testid="task-execution-stop-confirm"]') as HTMLButtonElement).click();
+    const stop = http.expectOne(`/api/tasks/${TASK_ID}/execution-runs/${RUN_ID}/stop`);
+    expect(stop.request.method).toBe('POST');
+    expect(stop.request.withCredentials).toBe(true);
+    stop.flush({
+      action: 'Stop',
+      closedRun: { id: RUN_ID, status: 'Stopped' },
+      resumedRun: null,
+      resumePoint: 'None',
+      editableSurfaces: [],
+    });
+
+    http.expectOne(`/api/tasks/${TASK_ID}/execution-result`).flush(terminalResult('Stopped'));
+    fixture.detectChanges();
+
+    expect(native.querySelector('[data-testid="task-execution-result-status"]')?.textContent).toContain('Stopped');
+    expect(native.querySelector('[data-testid="task-execution-intervention-feedback"]')?.textContent).toContain('No successor Run was started');
+  });
+
+  it('redirects to a successor run and displays the truthful resume point', () => {
+    flushCapability(true);
+    http.expectOne(`/api/tasks/${TASK_ID}/execution-result`).flush(runningResult());
+    fixture.detectChanges();
+
+    const native = fixture.nativeElement as HTMLElement;
+    (native.querySelector('[data-testid="task-execution-correct-direction"]') as HTMLButtonElement).click();
+
+    const redirect = http.expectOne(`/api/tasks/${TASK_ID}/execution-runs/${RUN_ID}/correct-direction`);
+    expect(redirect.request.method).toBe('POST');
+    redirect.flush({
+      action: 'CorrectDirection',
+      closedRun: { id: RUN_ID, status: 'Redirected' },
+      resumedRun: { id: 'run-464', status: 'Accepted' },
+      resumePoint: 'NewRunFromLatestTaskState',
+      editableSurfaces: ['Task brief', 'Research plan', 'Active source scope'],
+    });
+
+    http.expectOne(`/api/tasks/${TASK_ID}/execution-result`).flush(succeededResult('# Redirected run complete', 'run-464'));
+    fixture.detectChanges();
+
+    expect(native.querySelector('[data-testid="task-execution-intervention-feedback"]')?.textContent)
+      .toContain('new Run from the latest saved Task state');
+    expect(native.querySelector('[data-testid="task-execution-result-status"]')?.textContent).toContain('Succeeded');
+  });
+
+  it('does not render intervention controls for users without management permission', () => {
+    flushCapability(false);
+    http.expectOne(`/api/tasks/${TASK_ID}/execution-result`).flush(runningResult());
+    fixture.detectChanges();
+
+    const native = fixture.nativeElement as HTMLElement;
+    expect(native.querySelector('[data-testid="task-execution-interventions"]')).toBeNull();
+    expect(native.querySelector('[data-testid="task-execution-stop"]')).toBeNull();
+    expect(native.querySelector('[data-testid="task-execution-correct-direction"]')).toBeNull();
+  });
+
+  function flushCapability(canManage: boolean): void {
+    const request = http.expectOne(`/api/tasks/${TASK_ID}/execution-scope`);
+    expect(request.request.method).toBe('GET');
+    expect(request.request.withCredentials).toBe(true);
+    request.flush({ canManage });
+  }
 });
 
-function succeededResult(bodyMarkdown: string): Record<string, unknown> {
+function runningResult(): Record<string, unknown> {
   return {
-    runId: 'run-463',
+    runId: RUN_ID,
+    status: 'Running',
+    failureCode: null,
+    requestedAtUtc: '2026-08-30T22:00:00Z',
+    queuedAtUtc: '2026-08-30T22:00:01Z',
+    startedAtUtc: '2026-08-30T22:00:02Z',
+    finishedAtUtc: null,
+    report: null,
+  };
+}
+
+function terminalResult(status: 'Stopped' | 'Redirected'): Record<string, unknown> {
+  return {
+    runId: RUN_ID,
+    status,
+    failureCode: null,
+    requestedAtUtc: '2026-08-30T22:00:00Z',
+    queuedAtUtc: '2026-08-30T22:00:01Z',
+    startedAtUtc: '2026-08-30T22:00:02Z',
+    finishedAtUtc: '2026-08-30T22:00:03Z',
+    report: null,
+  };
+}
+
+function succeededResult(bodyMarkdown: string, runId = RUN_ID): Record<string, unknown> {
+  return {
+    runId,
     status: 'Succeeded',
     failureCode: null,
     requestedAtUtc: '2026-08-30T22:00:00Z',
