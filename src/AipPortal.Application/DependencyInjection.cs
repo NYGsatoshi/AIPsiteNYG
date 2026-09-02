@@ -99,6 +99,7 @@ public static class DependencyInjection
                 ? new UnavailableWorkspaceRequiredInitialization()
                 : provider.GetRequiredService<WorkspaceGeneralRequiredInitialization>());
         services.AddScoped<IWorkspaceGeneralMembershipSynchronizer, WorkspaceGeneralMembershipSynchronizer>();
+        services.AddScoped<IWorkspaceMemberProjectionService, WorkspaceMemberProjectionService>();
         services.AddScoped<IWorkspaceService, WorkspaceService>();
         services.AddScoped<IGroupService, GroupService>();
         services.AddScoped<IChannelService, ChannelService>();
