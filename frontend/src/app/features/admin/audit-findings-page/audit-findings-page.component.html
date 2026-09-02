@@ -239,6 +239,8 @@
             </section>
           }
 
+          <app-audit-finding-decision-panel [findingId]="finding.id" />
+
           @if (page.canReview) {
             <section class="finding-detail__actions" aria-labelledby="finding-actions-title">
               <h3 id="finding-actions-title">Triage</h3>
