@@ -28,7 +28,7 @@ public sealed class AuditFindingReviewerMentionsServiceTests
 
         var notification = Assert.Single(fixture.Notifications.Entries);
         Assert.Equal(reviewerId, notification.UserId);
-        Assert.Equal(NotificationType.System, notification.Type);
+        Assert.Equal(NotificationType.Mention, notification.Type);
         Assert.Equal("Mentioned in Audit review", notification.Title);
         Assert.Null(notification.Body);
         Assert.Equal("Artifact", notification.RelatedEntityType);
