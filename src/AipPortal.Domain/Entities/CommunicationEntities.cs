@@ -1,3 +1,4 @@
+using System.Text;
 using AipPortal.Domain.Common;
 using AipPortal.Domain.Enums;
 
@@ -89,6 +90,12 @@ public sealed class AnnouncementDraft : AuditableEntity, ITenantEntity
 
 public sealed class Notification : Entity, ITenantEntity
 {
+    public const int TitleMaximumLength = 200;
+    public const int BodyMaximumLength = 2000;
+
+    private string title = string.Empty;
+    private string? body;
+
     public Guid TenantId { get; set; }
     public Guid UserId { get; set; }
     /// <summary>
@@ -97,8 +104,18 @@ public sealed class Notification : Entity, ITenantEntity
     /// </summary>
     public string? LogicalKey { get; set; }
     public NotificationType NotificationType { get; set; } = NotificationType.System;
-    public string Title { get; set; } = string.Empty;
-    public string? Body { get; set; }
+    public string Title
+    {
+        get => title;
+        set => title = TruncateToScalarLength(value ?? string.Empty, TitleMaximumLength);
+    }
+
+    public string? Body
+    {
+        get => body;
+        set => body = value is null ? null : TruncateToScalarLength(value, BodyMaximumLength);
+    }
+
     public string? RelatedEntityType { get; set; }
     public Guid? RelatedEntityId { get; set; }
     public bool IsRead { get; set; }
@@ -108,6 +125,29 @@ public sealed class Notification : Entity, ITenantEntity
     public long StateVersion { get; set; }
 
     public User? User { get; set; }
+
+    private static string TruncateToScalarLength(string value, int maximumLength)
+    {
+        if (value.Length <= maximumLength)
+        {
+            return value;
+        }
+
+        var builder = new StringBuilder(maximumLength);
+        var count = 0;
+        foreach (var rune in value.EnumerateRunes())
+        {
+            if (count >= maximumLength)
+            {
+                break;
+            }
+
+            builder.Append(rune.ToString());
+            count++;
+        }
+
+        return builder.ToString();
+    }
 }
 
 /// <summary>
