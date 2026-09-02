@@ -75,3 +75,7 @@ public sealed record UpdateAuditFindingWorkflowRequest(
     bool AssignOwner = false,
     DateOnly? DueDate = null,
     bool SetDueDate = false);
+
+public sealed record MentionAuditFindingReviewerRequest(
+    Guid UserId,
+    Guid RequestId);
