@@ -55,11 +55,11 @@ export class TaskExecutionResultComponent implements OnChanges, OnDestroy {
   @Input({ required: true }) taskId = '';
   @Input() allowExecutionStart = false;
   @Input() loadExistingResult = true;
+  @Input() interventionCanManage = false;
 
   private readonly http = inject(HttpClient, { optional: true });
   private request: Subscription | null = null;
   private startRequest: Subscription | null = null;
-  private capabilityRequest: Subscription | null = null;
   private interventionRequest: Subscription | null = null;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
   private generation = 0;
@@ -78,8 +78,9 @@ export class TaskExecutionResultComponent implements OnChanges, OnDestroy {
   readonly stopConfirmation = signal(false);
 
   ngOnChanges(changes: SimpleChanges): void {
-    if (changes['taskId']) {
-      this.loadInterventionCapability();
+    if (changes['taskId'] || changes['interventionCanManage']) {
+      this.canManageInterventions.set(this.interventionCanManage);
+      if (!this.interventionCanManage) this.stopConfirmation.set(false);
     }
     if (changes['taskId'] || changes['loadExistingResult']) {
       if (this.loadExistingResult) {
@@ -280,35 +281,6 @@ export class TaskExecutionResultComponent implements OnChanges, OnDestroy {
     });
   }
 
-  private loadInterventionCapability(): void {
-    const taskId = this.taskId.trim();
-    const http = this.http;
-    this.capabilityRequest?.unsubscribe();
-    this.capabilityRequest = null;
-    this.canManageInterventions.set(false);
-    if (!taskId || !http || typeof http.get !== 'function') return;
-
-    this.capabilityRequest = http.get<unknown>(
-      `/api/tasks/${encodeURIComponent(taskId)}/execution-scope`,
-      { withCredentials: true },
-    ).subscribe({
-      next: (response) => {
-        if (taskId !== this.taskId.trim()) return;
-        try {
-          const record = requiredRecord(response, 'Task execution scope');
-          this.canManageInterventions.set(requiredBoolean(record['canManage'], 'Task execution intervention permission'));
-        } catch {
-          this.canManageInterventions.set(false);
-        }
-        this.capabilityRequest = null;
-      },
-      error: () => {
-        if (taskId === this.taskId.trim()) this.canManageInterventions.set(false);
-        this.capabilityRequest = null;
-      },
-    });
-  }
-
   private reload(): void {
     this.generation++;
     const generation = this.generation;
@@ -402,9 +374,7 @@ export class TaskExecutionResultComponent implements OnChanges, OnDestroy {
 
   private cancelPending(): void {
     this.cancelResultRequests();
-    this.capabilityRequest?.unsubscribe();
     this.interventionRequest?.unsubscribe();
-    this.capabilityRequest = null;
     this.interventionRequest = null;
     this.intervening.set(null);
   }
@@ -542,11 +512,6 @@ function requiredStatus(value: unknown): RunStatus {
     return value;
   }
   throw new Error('Task execution status is invalid.');
-}
-
-function requiredBoolean(value: unknown, label: string): boolean {
-  if (typeof value !== 'boolean') throw new Error(`${label} is invalid.`);
-  return value;
 }
 
 function requiredStringArray(value: unknown, label: string): readonly string[] {
