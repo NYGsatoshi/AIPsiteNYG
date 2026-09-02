@@ -54,6 +54,55 @@ public sealed class NotificationPersistenceLimitTests
     }
 
     [Fact]
+    public async Task CreateAsyncDeduplicatesUsingThePersistedClampedTitle()
+    {
+        var tenantId = Guid.NewGuid();
+        var tenant = new CurrentTenantService();
+        tenant.SetPlatformScope();
+        await using var db = new AppDbContext(
+            new DbContextOptionsBuilder<AppDbContext>()
+                .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
+                .Options,
+            tenant);
+        db.Tenants.Add(new Tenant(tenantId)
+        {
+            Name = "Tenant",
+            DisplayName = "Tenant",
+            Slug = $"tenant-{tenantId:N}",
+            Status = TenantStatus.Active
+        });
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+        tenant.SetTenant(tenantId, $"tenant-{tenantId:N}");
+
+        var service = new DbNotificationService(db, FixedClock.Instance, tenant);
+        var userId = Guid.NewGuid();
+        var relatedEntityId = Guid.NewGuid();
+        var title = string.Concat(Enumerable.Repeat("🙂", Notification.TitleMaximumLength + 20));
+
+        var firstId = await service.CreateAsync(
+            userId,
+            NotificationType.Event,
+            title,
+            null,
+            "Event",
+            relatedEntityId);
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+
+        var secondId = await service.CreateAsync(
+            userId,
+            NotificationType.Event,
+            title,
+            null,
+            "Event",
+            relatedEntityId);
+
+        Assert.Equal(firstId, secondId);
+        Assert.Single(await db.Notifications.ToListAsync());
+    }
+
+    [Fact]
     public void NotificationEntityLimitsMatchEfPersistenceConfiguration()
     {
         var tenant = TenantScope(Guid.NewGuid());
