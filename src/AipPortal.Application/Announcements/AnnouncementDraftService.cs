@@ -10,11 +10,11 @@ using AipPortal.Domain.Enums;
 namespace AipPortal.Application.Announcements;
 
 /// <summary>
-/// Minimal durable publication workflow for #378. It owns a single saved
-/// target, a versioned draft, accepted UTC scheduling, idempotent transitions,
-/// and the worker's real publication mutation. It intentionally does not own
-/// preview rendering, campaigns, links, attachments, analytics, or recipient
-/// delivery ledgers.
+/// Durable announcement publication workflow. #388 extends the #378 single
+/// target contract with one independently-persisted target set while retaining
+/// one content aggregate. Target memberships remain live until dispatch; the
+/// worker then de-duplicates by UserId and commits one logical Announcement
+/// notification per recipient in the publication transaction.
 /// </summary>
 public sealed class AnnouncementDraftService(
     IAnnouncementDraftRepository drafts,
@@ -27,7 +27,9 @@ public sealed class AnnouncementDraftService(
     IClock clock,
     IAuditLogger audit,
     IBusinessInvalidationPublisher invalidations,
-    IUnitOfWork unitOfWork) : IAnnouncementDraftService, IAnnouncementPublicationProcessor
+    IUnitOfWork unitOfWork,
+    INotificationService? notifications = null,
+    IAnnouncementDistributionStore? distributionStore = null) : IAnnouncementDraftService, IAnnouncementPublicationProcessor
 {
     private const string CreateOperation = "AnnouncementDraft.Create.v1";
     private const string PublishOperation = "AnnouncementDraft.Publish.v1";
@@ -45,13 +47,18 @@ public sealed class AnnouncementDraftService(
         {
             return Failure<AnnouncementDraftResponse>("ANNOUNCEMENT_DRAFT_AUTHENTICATION_REQUIRED", actorError!);
         }
-
         if (!IsValidIdempotencyKey(idempotencyKey))
         {
             return IdempotencyFailure<AnnouncementDraftResponse>(idempotencyKey);
         }
 
-        var contentValidation = await ValidateContentAsync(actorUserId, request.Content, clock.UtcNow, cancellationToken);
+        var targetsResult = NormalizeTargets(request.Content);
+        if (!targetsResult.IsSuccess)
+        {
+            return Result<AnnouncementDraftResponse>.Failure(targetsResult.ErrorDetail!);
+        }
+        var targets = targetsResult.Value!;
+        var contentValidation = await ValidateContentAsync(actorUserId, request.Content, targets, clock.UtcNow, cancellationToken);
         if (!contentValidation.IsSuccess)
         {
             return Result<AnnouncementDraftResponse>.Failure(contentValidation.ErrorDetail!);
@@ -77,7 +84,7 @@ public sealed class AnnouncementDraftService(
                     draft.Id),
                 async token =>
                 {
-                    ApplyContent(draft, request.Content);
+                    ApplyContent(draft, request.Content, targets);
                     await drafts.AddAsync(draft, token);
                     await audit.LogUserActionAsync(
                         actorUserId,
@@ -85,21 +92,35 @@ public sealed class AnnouncementDraftService(
                         "AnnouncementDraft",
                         draft.Id,
                         "Announcement draft saved.",
-                        new Dictionary<string, object?> { ["version"] = draft.VersionNo },
+                        new Dictionary<string, object?>
+                        {
+                            ["version"] = draft.VersionNo,
+                            ["targetCount"] = targets.Count
+                        },
                         token);
+                    if (distributionStore is not null)
+                    {
+                        await distributionStore.StageCreatedDraftTargetsAsync(
+                            currentTenant.TenantId,
+                            draft.Id,
+                            targets,
+                            token);
+                    }
                     return draft;
                 },
                 async (draftId, token) => await drafts.GetAsync(draftId, token),
                 cancellationToken);
 
-            return result.Disposition switch
+            if (result.Disposition is IdempotentCreateDisposition.Created or IdempotentCreateDisposition.Replayed &&
+                result.Value is not null &&
+                await CanAccessDraftAsync(actorUserId, result.Value, cancellationToken))
             {
-                IdempotentCreateDisposition.Created or IdempotentCreateDisposition.Replayed when result.Value is not null &&
-                    await CanAccessDraftAsync(actorUserId, result.Value, cancellationToken) =>
-                    Result<AnnouncementDraftResponse>.Success(ToResponse(result.Value)),
-                IdempotentCreateDisposition.RequestMismatch => IdempotencyConflict<AnnouncementDraftResponse>(),
-                _ => ReplayUnavailable<AnnouncementDraftResponse>()
-            };
+                return Result<AnnouncementDraftResponse>.Success(
+                    await ToResponseAsync(result.Value, cancellationToken));
+            }
+            return result.Disposition == IdempotentCreateDisposition.RequestMismatch
+                ? IdempotencyConflict<AnnouncementDraftResponse>()
+                : ReplayUnavailable<AnnouncementDraftResponse>();
         }
         catch (Exception exception) when (IsConcurrencyConflict(exception))
         {
@@ -147,7 +168,7 @@ public sealed class AnnouncementDraftService(
 
         var draft = await drafts.GetAsync(draftId, cancellationToken);
         return draft is not null && await CanAccessDraftAsync(actorUserId, draft, cancellationToken)
-            ? Result<AnnouncementDraftResponse>.Success(ToResponse(draft))
+            ? Result<AnnouncementDraftResponse>.Success(await ToResponseAsync(draft, cancellationToken))
             : NotFound<AnnouncementDraftResponse>();
     }
 
@@ -177,13 +198,19 @@ public sealed class AnnouncementDraftService(
             return Stale<AnnouncementDraftResponse>();
         }
 
-        var validation = await ValidateContentAsync(actorUserId, request.Content, clock.UtcNow, cancellationToken);
+        var targetsResult = NormalizeTargets(request.Content);
+        if (!targetsResult.IsSuccess)
+        {
+            return Result<AnnouncementDraftResponse>.Failure(targetsResult.ErrorDetail!);
+        }
+        var targets = targetsResult.Value!;
+        var validation = await ValidateContentAsync(actorUserId, request.Content, targets, clock.UtcNow, cancellationToken);
         if (!validation.IsSuccess)
         {
             return Result<AnnouncementDraftResponse>.Failure(validation.ErrorDetail!);
         }
 
-        ApplyContent(draft, request.Content);
+        ApplyContent(draft, request.Content, targets);
         draft.VersionNo = checked(draft.VersionNo + 1);
         await audit.LogUserActionAsync(
             actorUserId,
@@ -191,17 +218,38 @@ public sealed class AnnouncementDraftService(
             "AnnouncementDraft",
             draft.Id,
             "Announcement draft updated.",
-            new Dictionary<string, object?> { ["version"] = draft.VersionNo },
+            new Dictionary<string, object?>
+            {
+                ["version"] = draft.VersionNo,
+                ["targetCount"] = targets.Count
+            },
             cancellationToken);
 
         try
         {
-            await unitOfWork.SaveChangesAsync(cancellationToken);
-            return Result<AnnouncementDraftResponse>.Success(ToResponse(draft));
+            if (distributionStore is not null)
+            {
+                await distributionStore.CommitDraftSaveAsync(
+                    currentTenant.TenantId,
+                    draft.Id,
+                    targets,
+                    cancellationToken);
+            }
+            else
+            {
+                await unitOfWork.SaveChangesAsync(cancellationToken);
+            }
+            return Result<AnnouncementDraftResponse>.Success(await ToResponseAsync(draft, cancellationToken));
         }
         catch (Exception exception) when (IsConcurrencyConflict(exception))
         {
             return Stale<AnnouncementDraftResponse>();
+        }
+        catch (InvalidOperationException)
+        {
+            return Failure<AnnouncementDraftResponse>(
+                "ANNOUNCEMENT_DRAFT_PERSISTENCE_UNAVAILABLE",
+                "The announcement draft could not be saved.");
         }
     }
 
@@ -216,14 +264,8 @@ public sealed class AnnouncementDraftService(
             idempotencyKey,
             PublishOperation,
             Fingerprint(request),
-            async (draft, actorUserId, token) =>
+            async (draft, actorUserId, _, token) =>
             {
-                // “Publish now” is still a durable due-time request. The
-                // command never creates an Announcement itself: it queues an
-                // immediate UTC schedule, then the worker reauthorizes the
-                // retained audience before the only Scheduled -> Published
-                // mutation. This keeps Draft -> Scheduled -> Published true
-                // for both immediate and user-scheduled delivery.
                 var dueAtUtc = clock.UtcNow;
                 if (draft.ExpiresAt.HasValue && draft.ExpiresAt.Value <= dueAtUtc)
                 {
@@ -275,20 +317,22 @@ public sealed class AnnouncementDraftService(
             idempotencyKey,
             ScheduleOperation,
             Fingerprint(request),
-            async (draft, actorUserId, token) =>
+            async (draft, actorUserId, targets, token) =>
             {
                 var accepted = resolution.Value!;
-                var authoritativeZone = await scheduleTimeZones.ResolveAsync(
-                    currentTenant.TenantId,
-                    draft.WorkspaceId,
-                    token);
-                if (!string.Equals(
-                    authoritativeZone.Id,
-                    accepted.TimeZoneId,
-                    StringComparison.Ordinal))
+                foreach (var workspaceId in targets.Select(target => target.WorkspaceId).Distinct())
                 {
-                    throw new AnnouncementTransitionValidationException(
-                        "The organizational time zone changed. Review the displayed schedule and try again.");
+                    var authoritativeZone = await scheduleTimeZones.ResolveAsync(
+                        currentTenant.TenantId,
+                        workspaceId,
+                        token);
+                    if (!string.Equals(authoritativeZone.Id, accepted.TimeZoneId, StringComparison.Ordinal))
+                    {
+                        throw new AnnouncementTransitionValidationException(
+                            targets.Count > 1
+                                ? "Selected audiences use different organizational time zones. Publish now or select audiences that share one time zone."
+                                : "The organizational time zone changed. Review the displayed schedule and try again.");
+                    }
                 }
                 if (accepted.DueAtUtc <= clock.UtcNow)
                 {
@@ -320,7 +364,8 @@ public sealed class AnnouncementDraftService(
                     {
                         ["version"] = draft.VersionNo,
                         ["scheduledForUtc"] = accepted.DueAtUtc,
-                        ["timeZoneId"] = accepted.TimeZoneId
+                        ["timeZoneId"] = accepted.TimeZoneId,
+                        ["targetCount"] = targets.Count
                     },
                     token);
             },
@@ -353,28 +398,41 @@ public sealed class AnnouncementDraftService(
             return;
         }
 
-        var validation = await ValidateContentAsync(draft.AuthorUserId, ToContent(draft), now, cancellationToken);
+        var targets = await GetDraftTargetsAsync(draft, cancellationToken);
+        var validation = await ValidateContentAsync(
+            draft.AuthorUserId,
+            ToContent(draft, targets),
+            targets,
+            now,
+            cancellationToken);
         if (!validation.IsSuccess)
         {
             await DeferClaimAsync(draft, "DraftValidationFailed", now, retryDelay, cancellationToken);
             return;
         }
 
-        var authorized = await audiences.IsAuthorizedForActorAsync(
-            draft.AuthorUserId,
-            draft.WorkspaceId,
-            draft.GroupId,
-            draft.ChannelId,
-            cancellationToken);
-        if (!authorized.IsSuccess)
+        // ValidateContentAsync is the first current-authorization check. Keep a
+        // second explicit dispatch check so a scope revoked between validation
+        // and recipient resolution fails closed before any delivery ledger row
+        // is created.
+        foreach (var target in targets)
         {
-            await DeferClaimAsync(draft, PublicationWorkerRetry, now, retryDelay, cancellationToken);
-            return;
-        }
-        if (authorized.Value != true)
-        {
-            await DeferClaimAsync(draft, AudienceNoLongerAuthorized, now, retryDelay, cancellationToken);
-            return;
+            var authorized = await audiences.IsAuthorizedForActorAsync(
+                draft.AuthorUserId,
+                target.WorkspaceId,
+                target.GroupId,
+                target.ChannelId,
+                cancellationToken);
+            if (!authorized.IsSuccess)
+            {
+                await DeferClaimAsync(draft, PublicationWorkerRetry, now, retryDelay, cancellationToken);
+                return;
+            }
+            if (authorized.Value != true)
+            {
+                await DeferClaimAsync(draft, AudienceNoLongerAuthorized, now, retryDelay, cancellationToken);
+                return;
+            }
         }
 
         if (draft.ExpiresAt.HasValue && draft.ExpiresAt.Value <= now)
@@ -383,8 +441,8 @@ public sealed class AnnouncementDraftService(
             return;
         }
 
-        await PublishDraftAsync(draft, now, cancellationToken);
-        await unitOfWork.SaveChangesAsync(cancellationToken);
+        var recipients = await ResolveRecipientsAsync(draft, targets, cancellationToken);
+        await PublishDraftAsync(draft, targets, recipients, now, cancellationToken);
     }
 
     public async Task RecordFailureAsync(
@@ -406,7 +464,7 @@ public sealed class AnnouncementDraftService(
         string idempotencyKey,
         string operation,
         string fingerprint,
-        Func<AnnouncementDraft, Guid, CancellationToken, Task> stageTransition,
+        Func<AnnouncementDraft, Guid, IReadOnlyList<AnnouncementDraftTargetRequest>, CancellationToken, Task> stageTransition,
         CancellationToken cancellationToken)
     {
         if (!TryCurrentActor(out var actorUserId, out _))
@@ -436,18 +494,10 @@ public sealed class AnnouncementDraftService(
                     draft.Id),
                 async token =>
                 {
-                    // The previously fetched target was only a read shortcut.
-                    // Every accepted transition rechecks current scope inside
-                    // the transaction that stores it.
                     if (!await CanAccessDraftAsync(actorUserId, draft, token))
                     {
                         throw new AnnouncementTransitionValidationException("The selected audience is no longer authorized.");
                     }
-                    // This validation deliberately lives inside the
-                    // idempotency coordinator. A client that lost the first
-                    // response must be able to replay the exact accepted
-                    // transition even though the persisted draft is now
-                    // Scheduled or Published.
                     if (draft.Status != AnnouncementDraftStatus.Draft)
                     {
                         throw new AnnouncementTransitionNotReadyException();
@@ -456,26 +506,35 @@ public sealed class AnnouncementDraftService(
                     {
                         throw new AnnouncementTransitionConflictException();
                     }
-                    var validation = await ValidateContentAsync(actorUserId, ToContent(draft), clock.UtcNow, token);
+
+                    var targets = await GetDraftTargetsAsync(draft, token);
+                    var validation = await ValidateContentAsync(
+                        actorUserId,
+                        ToContent(draft, targets),
+                        targets,
+                        clock.UtcNow,
+                        token);
                     if (!validation.IsSuccess)
                     {
                         throw new AnnouncementTransitionValidationException(
                             validation.ErrorDetail?.Message ?? "Announcement draft is invalid.");
                     }
-                    await stageTransition(draft, actorUserId, token);
+                    await stageTransition(draft, actorUserId, targets, token);
                     return draft;
                 },
                 async (existingDraftId, token) => await drafts.GetAsync(existingDraftId, token),
                 cancellationToken);
 
-            return result.Disposition switch
+            if (result.Disposition is IdempotentCreateDisposition.Created or IdempotentCreateDisposition.Replayed &&
+                result.Value is not null &&
+                await CanAccessDraftAsync(actorUserId, result.Value, cancellationToken))
             {
-                IdempotentCreateDisposition.Created or IdempotentCreateDisposition.Replayed when result.Value is not null &&
-                    await CanAccessDraftAsync(actorUserId, result.Value, cancellationToken) =>
-                    Result<AnnouncementDraftResponse>.Success(ToResponse(result.Value)),
-                IdempotentCreateDisposition.RequestMismatch => IdempotencyConflict<AnnouncementDraftResponse>(),
-                _ => ReplayUnavailable<AnnouncementDraftResponse>()
-            };
+                return Result<AnnouncementDraftResponse>.Success(
+                    await ToResponseAsync(result.Value, cancellationToken));
+            }
+            return result.Disposition == IdempotentCreateDisposition.RequestMismatch
+                ? IdempotencyConflict<AnnouncementDraftResponse>()
+                : ReplayUnavailable<AnnouncementDraftResponse>();
         }
         catch (AnnouncementTransitionConflictException)
         {
@@ -503,17 +562,49 @@ public sealed class AnnouncementDraftService(
         }
     }
 
+    private async Task<IReadOnlyList<AnnouncementTargetUser>> ResolveRecipientsAsync(
+        AnnouncementDraft draft,
+        IReadOnlyList<AnnouncementDraftTargetRequest> targets,
+        CancellationToken cancellationToken)
+    {
+        var recipients = new Dictionary<Guid, AnnouncementTargetUser>();
+        foreach (var target in targets)
+        {
+            var prototype = new Announcement
+            {
+                TenantId = draft.TenantId,
+                WorkspaceId = target.WorkspaceId,
+                GroupId = target.GroupId,
+                ChannelId = target.ChannelId,
+                AuthorUserId = draft.AuthorUserId,
+                Title = draft.Title,
+                Body = draft.Body,
+                Priority = draft.Priority,
+                PublishedAt = clock.UtcNow
+            };
+            foreach (var recipient in await announcements.ListTargetUsersAsync(prototype, cancellationToken))
+            {
+                recipients.TryAdd(recipient.UserId, recipient);
+            }
+        }
+
+        return recipients.Values.OrderBy(recipient => recipient.UserId).ToArray();
+    }
+
     private async Task PublishDraftAsync(
         AnnouncementDraft draft,
+        IReadOnlyList<AnnouncementDraftTargetRequest> targets,
+        IReadOnlyList<AnnouncementTargetUser> recipients,
         DateTimeOffset publishedAtUtc,
         CancellationToken cancellationToken)
     {
+        var primary = targets[0];
         var announcement = new Announcement
         {
             TenantId = draft.TenantId,
-            WorkspaceId = draft.WorkspaceId,
-            GroupId = draft.GroupId,
-            ChannelId = draft.ChannelId,
+            WorkspaceId = primary.WorkspaceId,
+            GroupId = primary.GroupId,
+            ChannelId = primary.ChannelId,
             AuthorUserId = draft.AuthorUserId,
             Title = draft.Title,
             Body = draft.Body,
@@ -524,31 +615,75 @@ public sealed class AnnouncementDraftService(
             ExpiresAt = draft.ExpiresAt
         };
 
-        await announcements.AddAsync(announcement, cancellationToken);
-        var recipients = await announcements.ListTargetUsersAsync(announcement, cancellationToken);
+        async Task StagePublication(CancellationToken token)
+        {
+            await announcements.AddAsync(announcement, token);
 
-        draft.Status = AnnouncementDraftStatus.Published;
-        draft.PublishedAnnouncementId = announcement.Id;
-        draft.PublishedAtUtc = publishedAtUtc;
-        draft.NextPublicationAttemptAtUtc = null;
-        draft.LastPublicationFailureCode = null;
-        ClearClaim(draft);
-        draft.VersionNo = checked(draft.VersionNo + 1);
+            draft.Status = AnnouncementDraftStatus.Published;
+            draft.PublishedAnnouncementId = announcement.Id;
+            draft.PublishedAtUtc = publishedAtUtc;
+            draft.NextPublicationAttemptAtUtc = null;
+            draft.LastPublicationFailureCode = null;
+            ClearClaim(draft);
+            draft.VersionNo = checked(draft.VersionNo + 1);
 
-        await audit.LogUserActionAsync(
-            draft.AuthorUserId,
-            "AnnouncementPublished",
-            "Announcement",
-            announcement.Id,
-            "Announcement published from durable draft.",
-            new Dictionary<string, object?> { ["draftId"] = draft.Id, ["draftVersion"] = draft.VersionNo },
-            cancellationToken);
-        await invalidations.AnnouncementChangedAsync(
-            announcement,
-            draft.AuthorUserId,
-            "created",
-            recipients.Select(recipient => recipient.UserId),
-            cancellationToken);
+            await audit.LogUserActionAsync(
+                draft.AuthorUserId,
+                "AnnouncementPublished",
+                "Announcement",
+                announcement.Id,
+                "Announcement published from durable draft.",
+                new Dictionary<string, object?>
+                {
+                    ["draftId"] = draft.Id,
+                    ["draftVersion"] = draft.VersionNo,
+                    ["targetCount"] = targets.Count,
+                    ["recipientCount"] = recipients.Count
+                },
+                token);
+            await invalidations.AnnouncementChangedAsync(
+                announcement,
+                draft.AuthorUserId,
+                "created",
+                recipients.Select(recipient => recipient.UserId),
+                token);
+
+            if (notifications is null)
+            {
+                return;
+            }
+
+            var decodedBody = AnnouncementContentContract.Decode(draft.Body).Body;
+            var notificationBody = decodedBody.Length > 500 ? decodedBody[..500] : decodedBody;
+            var logicalKey = AnnouncementDistributionContract.DeliveryLogicalKey(announcement.Id);
+            foreach (var recipient in recipients)
+            {
+                await notifications.CreateOrGetByLogicalKeyAsync(
+                    recipient.UserId,
+                    NotificationType.Announcement,
+                    announcement.Title,
+                    notificationBody,
+                    "Announcement",
+                    announcement.Id,
+                    logicalKey,
+                    token);
+            }
+        }
+
+        if (distributionStore is not null)
+        {
+            await distributionStore.CommitPublicationAsync(
+                draft.TenantId,
+                announcement.Id,
+                targets,
+                StagePublication,
+                cancellationToken);
+        }
+        else
+        {
+            await StagePublication(cancellationToken);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+        }
     }
 
     private async Task DeferClaimAsync(
@@ -583,24 +718,51 @@ public sealed class AnnouncementDraftService(
             return false;
         }
 
-        var authorization = await audiences.IsAuthorizedForActorAsync(
-            actorUserId,
-            draft.WorkspaceId,
-            draft.GroupId,
-            draft.ChannelId,
-            cancellationToken);
-        return authorization.IsSuccess && authorization.Value == true;
+        foreach (var target in await GetDraftTargetsAsync(draft, cancellationToken))
+        {
+            var authorization = await audiences.IsAuthorizedForActorAsync(
+                actorUserId,
+                target.WorkspaceId,
+                target.GroupId,
+                target.ChannelId,
+                cancellationToken);
+            if (!authorization.IsSuccess || authorization.Value != true)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private async Task<IReadOnlyList<AnnouncementDraftTargetRequest>> GetDraftTargetsAsync(
+        AnnouncementDraft draft,
+        CancellationToken cancellationToken)
+    {
+        if (distributionStore is not null)
+        {
+            var stored = await distributionStore.GetDraftTargetsAsync(
+                draft.TenantId,
+                draft.Id,
+                cancellationToken);
+            if (stored.Count > 0)
+            {
+                return stored;
+            }
+        }
+
+        return [new AnnouncementDraftTargetRequest(draft.WorkspaceId, draft.GroupId, draft.ChannelId)];
     }
 
     private async Task<Result> ValidateContentAsync(
         Guid actorUserId,
         AnnouncementDraftContentRequest content,
+        IReadOnlyList<AnnouncementDraftTargetRequest> targets,
         DateTimeOffset publicationTime,
         CancellationToken cancellationToken)
     {
-        if (content is null || content.Target is null)
+        if (content is null || content.Target is null || targets.Count == 0)
         {
-            return Failure("ANNOUNCEMENT_DRAFT_VALIDATION_FAILED", "An announcement audience is required.");
+            return Failure("ANNOUNCEMENT_DRAFT_VALIDATION_FAILED", "At least one announcement audience is required.");
         }
         if (string.IsNullOrWhiteSpace(content.Title) || content.Title.Trim().Length > 200)
         {
@@ -610,7 +772,7 @@ public sealed class AnnouncementDraftService(
         {
             return Failure("ANNOUNCEMENT_DRAFT_VALIDATION_FAILED", "Announcement body is required and must be 20,000 characters or fewer.");
         }
-        if (!Enum.IsDefined(content.Priority) || !HasValidTargetShape(content.Target))
+        if (!Enum.IsDefined(content.Priority) || targets.Any(target => !HasValidTargetShape(target)))
         {
             return Failure("ANNOUNCEMENT_DRAFT_VALIDATION_FAILED", "Announcement content is invalid.");
         }
@@ -619,15 +781,71 @@ public sealed class AnnouncementDraftService(
             return Failure("ANNOUNCEMENT_DRAFT_VALIDATION_FAILED", "Announcement expiration must be in the future.");
         }
 
-        var authorized = await audiences.IsAuthorizedForActorAsync(
-            actorUserId,
-            content.Target.WorkspaceId,
-            content.Target.GroupId,
-            content.Target.ChannelId,
-            cancellationToken);
-        return authorized.IsSuccess && authorized.Value == true
-            ? Result.Success()
-            : Failure("ANNOUNCEMENT_DRAFT_AUDIENCE_DENIED", "The selected announcement audience is not authorized.");
+        foreach (var target in targets)
+        {
+            var authorized = await audiences.IsAuthorizedForActorAsync(
+                actorUserId,
+                target.WorkspaceId,
+                target.GroupId,
+                target.ChannelId,
+                cancellationToken);
+            if (!authorized.IsSuccess || authorized.Value != true)
+            {
+                return Failure(
+                    "ANNOUNCEMENT_DRAFT_AUDIENCE_DENIED",
+                    "One or more selected announcement audiences are not authorized.");
+            }
+        }
+        return Result.Success();
+    }
+
+    private static Result<IReadOnlyList<AnnouncementDraftTargetRequest>> NormalizeTargets(
+        AnnouncementDraftContentRequest content)
+    {
+        if (content is null || content.Target is null)
+        {
+            return Failure<IReadOnlyList<AnnouncementDraftTargetRequest>>(
+                "ANNOUNCEMENT_DRAFT_VALIDATION_FAILED",
+                "At least one announcement audience is required.");
+        }
+
+        var requested = content.Targets is { Count: > 0 }
+            ? content.Targets
+            : [content.Target];
+        if (requested.Count is < 1 or > AnnouncementDistributionContract.MaximumTargetCount)
+        {
+            return Failure<IReadOnlyList<AnnouncementDraftTargetRequest>>(
+                "ANNOUNCEMENT_DRAFT_VALIDATION_FAILED",
+                $"Select between 1 and {AnnouncementDistributionContract.MaximumTargetCount} announcement audiences.");
+        }
+        if (requested.Any(target => target is null || !HasValidTargetShape(target)))
+        {
+            return Failure<IReadOnlyList<AnnouncementDraftTargetRequest>>(
+                "ANNOUNCEMENT_DRAFT_VALIDATION_FAILED",
+                "One or more announcement audiences are invalid.");
+        }
+        if (requested.Count > 1 && requested.Any(target => !target.GroupId.HasValue && !target.ChannelId.HasValue))
+        {
+            return Failure<IReadOnlyList<AnnouncementDraftTargetRequest>>(
+                "ANNOUNCEMENT_DRAFT_VALIDATION_FAILED",
+                "Multiple-audience delivery supports Group and Channel targets only.");
+        }
+
+        var normalized = requested
+            .Select(target => new AnnouncementDraftTargetRequest(target.WorkspaceId, target.GroupId, target.ChannelId))
+            .ToArray();
+        var distinctCount = normalized
+            .Select(target => (target.WorkspaceId, target.GroupId, target.ChannelId))
+            .Distinct()
+            .Count();
+        if (distinctCount != normalized.Length)
+        {
+            return Failure<IReadOnlyList<AnnouncementDraftTargetRequest>>(
+                "ANNOUNCEMENT_DRAFT_VALIDATION_FAILED",
+                "The same announcement audience cannot be selected more than once.");
+        }
+
+        return Result<IReadOnlyList<AnnouncementDraftTargetRequest>>.Success(normalized);
     }
 
     private static Result<ScheduleResolution> ResolveSchedule(ScheduleAnnouncementDraftRequest request)
@@ -692,11 +910,15 @@ public sealed class AnnouncementDraftService(
             request.AmbiguousTimeOffsetMinutes));
     }
 
-    private static void ApplyContent(AnnouncementDraft draft, AnnouncementDraftContentRequest content)
+    private static void ApplyContent(
+        AnnouncementDraft draft,
+        AnnouncementDraftContentRequest content,
+        IReadOnlyList<AnnouncementDraftTargetRequest> targets)
     {
-        draft.WorkspaceId = content.Target.WorkspaceId;
-        draft.GroupId = content.Target.GroupId;
-        draft.ChannelId = content.Target.ChannelId;
+        var primary = targets[0];
+        draft.WorkspaceId = primary.WorkspaceId;
+        draft.GroupId = primary.GroupId;
+        draft.ChannelId = primary.ChannelId;
         draft.Title = content.Title.Trim();
         draft.Body = content.Body.Trim();
         draft.Priority = content.Priority;
@@ -705,14 +927,17 @@ public sealed class AnnouncementDraftService(
         draft.ExpiresAt = content.ExpiresAt;
     }
 
-    private static AnnouncementDraftContentRequest ToContent(AnnouncementDraft draft) => new(
-        new AnnouncementDraftTargetRequest(draft.WorkspaceId, draft.GroupId, draft.ChannelId),
+    private static AnnouncementDraftContentRequest ToContent(
+        AnnouncementDraft draft,
+        IReadOnlyList<AnnouncementDraftTargetRequest> targets) => new(
+        targets[0],
         draft.Title,
         draft.Body,
         draft.Priority,
         draft.IsPinned,
         draft.RequiresReadConfirmation,
-        draft.ExpiresAt);
+        draft.ExpiresAt,
+        Targets: targets);
 
     private static bool HasValidTargetShape(AnnouncementDraftTargetRequest target) =>
         target.ChannelId.HasValue
@@ -754,28 +979,35 @@ public sealed class AnnouncementDraftService(
         draft.PublicationClaimExpiresAtUtc = null;
     }
 
-    private static AnnouncementDraftResponse ToResponse(AnnouncementDraft draft) => new(
-        draft.Id,
-        draft.VersionNo,
-        draft.Status,
-        draft.WorkspaceId,
-        draft.GroupId,
-        draft.ChannelId,
-        draft.Title,
-        draft.Body,
-        draft.Priority,
-        draft.IsPinned,
-        draft.RequiresReadConfirmation,
-        draft.ExpiresAt,
-        draft.ScheduledForUtc,
-        draft.ScheduleTimeZoneId,
-        draft.ScheduleLocalDateTime,
-        draft.ScheduleUtcOffsetMinutes,
-        draft.PublishedAnnouncementId,
-        draft.PublishedAtUtc,
-        draft.LastPublicationFailureCode,
-        draft.CreatedAt,
-        draft.UpdatedAt);
+    private async Task<AnnouncementDraftResponse> ToResponseAsync(
+        AnnouncementDraft draft,
+        CancellationToken cancellationToken)
+    {
+        var targets = await GetDraftTargetsAsync(draft, cancellationToken);
+        return new AnnouncementDraftResponse(
+            draft.Id,
+            draft.VersionNo,
+            draft.Status,
+            draft.WorkspaceId,
+            draft.GroupId,
+            draft.ChannelId,
+            draft.Title,
+            draft.Body,
+            draft.Priority,
+            draft.IsPinned,
+            draft.RequiresReadConfirmation,
+            draft.ExpiresAt,
+            draft.ScheduledForUtc,
+            draft.ScheduleTimeZoneId,
+            draft.ScheduleLocalDateTime,
+            draft.ScheduleUtcOffsetMinutes,
+            draft.PublishedAnnouncementId,
+            draft.PublishedAtUtc,
+            draft.LastPublicationFailureCode,
+            draft.CreatedAt,
+            draft.UpdatedAt,
+            targets);
+    }
 
     private static AnnouncementDraftListItemResponse ToListItem(AnnouncementDraft draft) => new(
         draft.Id,
@@ -823,15 +1055,7 @@ public sealed class AnnouncementDraftService(
         DateTime LocalDateTime,
         int? AmbiguousTimeOffsetMinutes);
 
-    private sealed class AnnouncementTransitionConflictException : Exception
-    {
-    }
-
-    private sealed class AnnouncementTransitionNotReadyException : Exception
-    {
-    }
-
-    private sealed class AnnouncementTransitionValidationException(string message) : Exception(message)
-    {
-    }
+    private sealed class AnnouncementTransitionConflictException : Exception;
+    private sealed class AnnouncementTransitionNotReadyException : Exception;
+    private sealed class AnnouncementTransitionValidationException(string message) : Exception(message);
 }

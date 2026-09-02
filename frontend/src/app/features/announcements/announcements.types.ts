@@ -64,7 +64,10 @@ export interface AnnouncementEditorSubmission {
   readonly title: string;
   readonly body: string;
   readonly priority: AnnouncementPriority;
+  /** Backwards-compatible primary target. */
   readonly audience: AnnouncementAudienceOption;
+  /** #388 target set. When absent, audience is the complete target set. */
+  readonly audiences?: readonly AnnouncementAudienceOption[];
   readonly requiresReadConfirmation: boolean;
   readonly cta?: AnnouncementActionLink;
   readonly attachment?: AnnouncementActionLink;
@@ -86,6 +89,7 @@ export interface AnnouncementLocalPreview {
   readonly body: string;
   readonly priority: AnnouncementPriority;
   readonly audience: AnnouncementAudienceOption;
+  readonly audiences?: readonly AnnouncementAudienceOption[];
   readonly requiresReadConfirmation: boolean;
   readonly cta?: AnnouncementActionLink;
   readonly attachment?: AnnouncementActionLink;
@@ -152,7 +156,10 @@ export interface AnnouncementEditorDraft {
   readonly title: string;
   readonly body: string;
   readonly priority: AnnouncementPriority;
+  /** Backwards-compatible primary selected audience. */
   readonly audienceKey: string;
+  /** Ordered #388 selection. When absent, audienceKey is the only target. */
+  readonly audienceKeys?: readonly string[];
   readonly availableAudiences: readonly AnnouncementAudienceOption[];
   readonly requiresReadConfirmation: boolean;
   readonly cta?: AnnouncementActionLink;

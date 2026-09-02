@@ -3,6 +3,8 @@ import {
   WorkspaceCardViewModel,
   WorkspaceDashboardAccessSource,
   WorkspaceMembershipRole,
+  WorkspaceNeedsAttentionItemViewModel,
+  WorkspaceNeedsAttentionKind,
   WorkspacePageCapability,
   WorkspaceRoleLabel,
   WorkspaceCreateInput,
@@ -29,6 +31,8 @@ export interface WorkspaceDashboardListItemDto {
   readonly inProgressProjectCount?: unknown;
   readonly runningProjectCount?: unknown;
   readonly needsReviewProjectCount?: unknown;
+  readonly needsAttentionCount?: unknown;
+  readonly needsAttentionItems?: unknown;
   readonly hasExternalShares?: unknown;
   readonly externalShareCount?: unknown;
   readonly canInspectSharing?: unknown;
@@ -68,6 +72,9 @@ export interface WorkspaceCreateSuccess {
   readonly data: WorkspaceCreatedDto;
   readonly warnings: readonly unknown[];
 }
+
+const CANONICAL_TASK_ROUTE =
+  /^\/projects\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/tasks\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 
 export function canonicalizeWorkspaceCreateInput(
   input: WorkspaceCreateInput,
@@ -171,6 +178,9 @@ export function mapWorkspaceDashboardItem(
   const unreadConversationCount = nonNegativeInteger(workspace.unreadConversationCount);
   const runningProjectCount = nonNegativeInteger(workspace.runningProjectCount);
   const needsReviewProjectCount = nonNegativeInteger(workspace.needsReviewProjectCount);
+  const mappedNeedsAttentionItems = needsAttentionItems(workspace.needsAttentionItems);
+  const needsAttentionCount =
+    nonNegativeInteger(workspace.needsAttentionCount) ?? mappedNeedsAttentionItems.length;
   const canInspectSharing = workspace.canInspectSharing === true;
   const activeProjectCount =
     nonNegativeInteger(workspace.inProgressProjectCount) ??
@@ -190,6 +200,8 @@ export function mapWorkspaceDashboardItem(
     activeProjectCount,
     runningProjectCount,
     needsReviewProjectCount,
+    needsAttentionCount,
+    needsAttentionItems: mappedNeedsAttentionItems,
     hasExternalShares: workspace.hasExternalShares === true,
     externalShareCount: canInspectSharing
       ? nonNegativeInteger(workspace.externalShareCount)
@@ -255,6 +267,47 @@ function memberPreview(value: unknown): readonly { readonly id: string; readonly
   });
 }
 
+function needsAttentionItems(value: unknown): readonly WorkspaceNeedsAttentionItemViewModel[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((item) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      return [];
+    }
+
+    const record = item as Record<string, unknown>;
+    const id = stringValue(record['id']);
+    const kind = needsAttentionKind(record['kind']);
+    const targetRoute = stringValue(record['targetRoute']);
+    if (!id || !kind || !targetRoute || !CANONICAL_TASK_ROUTE.test(targetRoute)) {
+      return [];
+    }
+
+    return [{
+      id,
+      kind,
+      label: needsAttentionLabel(kind),
+      targetRoute,
+      occurredAtLabel: dateTimeLabel(record['occurredAt']),
+    }];
+  });
+}
+
+function needsAttentionKind(value: unknown): WorkspaceNeedsAttentionKind | null {
+  return value === 'ReviewRequired' || value === 'ResearchFailed' ? value : null;
+}
+
+function needsAttentionLabel(kind: WorkspaceNeedsAttentionKind): string {
+  switch (kind) {
+    case 'ReviewRequired':
+      return '確認が必要なTaskがあります';
+    case 'ResearchFailed':
+      return 'Researchの実行に失敗しました';
+  }
+}
+
 function membershipRole(value: unknown): WorkspaceMembershipRole | null {
   return value === 'Owner' ||
     value === 'Admin' ||
@@ -304,6 +357,18 @@ function dateLabel(value: unknown): string | null {
 
   const date = new Date(raw);
   return Number.isNaN(date.getTime()) ? null : date.toLocaleDateString('ja-JP');
+}
+
+function dateTimeLabel(value: unknown): string | null {
+  const raw = stringValue(value);
+  if (!raw) {
+    return null;
+  }
+
+  const date = new Date(raw);
+  return Number.isNaN(date.getTime())
+    ? null
+    : date.toLocaleString('ja-JP', { dateStyle: 'short', timeStyle: 'short' });
 }
 
 function stringValue(value: unknown): string | null {

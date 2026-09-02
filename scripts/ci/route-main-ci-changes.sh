@@ -100,6 +100,10 @@ add_backend_scope() {
   backend=true
   backend_tests=true
 
+  if [[ "$scope" == "PostgreSql" ]]; then
+    backend_ef=true
+  fi
+
   if [[ "$backend_test_full" == "true" ]]; then
     return 0
   fi
@@ -116,6 +120,7 @@ add_backend_scope() {
 
 mark_backend_full() {
   backend=true
+  backend_ef=true
   backend_tests=true
   backend_test_full=true
 }

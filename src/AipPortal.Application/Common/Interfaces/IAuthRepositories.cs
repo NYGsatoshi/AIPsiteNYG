@@ -18,6 +18,14 @@ public interface IUserRepository
 public interface IInviteRepository
 {
     Task<Invite?> GetByTokenHashAsync(string tokenHash, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Loads the invite for an acceptance mutation while holding a provider-level
+    /// write lock for the surrounding transaction. Non-relational/test providers
+    /// may fall back to the ordinary tracked read.
+    /// </summary>
+    Task<Invite?> GetByTokenHashForUpdateAsync(string tokenHash, CancellationToken cancellationToken = default) =>
+        GetByTokenHashAsync(tokenHash, cancellationToken);
 }
 
 public interface ISessionRepository
@@ -34,6 +42,29 @@ public interface ISessionRepository
 public interface IUnitOfWork
 {
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Executes a complete application operation in one database transaction.
+    /// The default keeps lightweight/non-relational test implementations source
+    /// compatible; relational infrastructure overrides it with a real transaction.
+    /// </summary>
+    Task<T> ExecuteInTransactionAsync<T>(
+        Func<CancellationToken, Task<T>> operation,
+        CancellationToken cancellationToken = default) =>
+        operation(cancellationToken);
+
+    /// <summary>
+    /// Serializes Invite acceptance against concurrent administrative Tenant and
+    /// Workspace membership lifecycle changes. Relational infrastructure locks
+    /// existing membership rows in a fixed order inside the acceptance transaction;
+    /// lightweight test implementations may safely no-op.
+    /// </summary>
+    Task LockInviteAcceptanceMembershipsAsync(
+        Guid tenantId,
+        Guid workspaceId,
+        Guid userId,
+        CancellationToken cancellationToken = default) =>
+        Task.CompletedTask;
 }
 
 /// <summary>

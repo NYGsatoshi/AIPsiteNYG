@@ -89,6 +89,7 @@ export class ProjectCreateFacade {
   private mutationCancellation = new Subject<void>();
   private createAttempt: ProjectCreateAttempt | null = null;
   private activeCreateAttempt: ProjectCreateAttempt | null = null;
+  private activeCreateHasDispatched = false;
   private committedCreate: CommittedProjectCreate | null = null;
 
   readonly options = this.optionsState.asReadonly();
@@ -221,6 +222,7 @@ export class ProjectCreateFacade {
 
     const attempt = this.getOrCreateAttempt(identityKey, workspaceId, request);
     this.activeCreateAttempt = attempt;
+    this.activeCreateHasDispatched = false;
     this.cancelMutationRequest();
     const cancellation = this.mutationCancellation;
     const generation = this.scopeGeneration;
@@ -233,6 +235,7 @@ export class ProjectCreateFacade {
           .createProject(workspaceId, request, attempt.idempotencyKey, () => {
             if (this.activeCreateAttempt === attempt) {
               attempt.hasDispatched = true;
+              this.activeCreateHasDispatched = true;
             }
           })
           .pipe(takeUntil(cancellation)),
@@ -246,6 +249,7 @@ export class ProjectCreateFacade {
     } finally {
       if (this.activeCreateAttempt === attempt) {
         this.activeCreateAttempt = null;
+        this.activeCreateHasDispatched = false;
       }
     }
 
@@ -392,20 +396,41 @@ export class ProjectCreateFacade {
       attempt.identityKey === this.currentIdentityKey() &&
       attempt.workspaceId === this.scopeWorkspaceId;
     const attemptWasDispatched = preserveUncertainAttempt && attempt?.hasDispatched === true;
+    const preserveDispatchedMutation =
+      attemptWasDispatched &&
+      attempt !== null &&
+      this.activeCreateAttempt === attempt &&
+      this.activeCreateHasDispatched;
+    const preserveCommittedContinuation =
+      preserveCommitted && this.mutationState().status === 'submitting';
+    const preserveActiveMutation =
+      preserveDispatchedMutation || preserveCommittedContinuation;
 
-    this.scopeGeneration += 1;
+    // Once this exact invocation has dispatched its canonical idempotent POST,
+    // an authorization invalidation must not abort the response. After the
+    // strict 201, the confirmation GET/navigation may also stay alive because
+    // those follow-up reads reauthorize on the server. Pre-dispatch requests
+    // and all session/Tenant/Workspace boundary changes remain cancellable.
+    if (!preserveActiveMutation) {
+      this.scopeGeneration += 1;
+    }
     this.cancelOptionsRequest();
-    this.cancelMutationRequest();
+    if (!preserveActiveMutation) {
+      this.cancelMutationRequest();
+    }
 
     if (preserveCommitted && committed) {
-      // An own-command authorization invalidation may arrive between the
-      // verified 201 and follow-up GET/navigation. Clear all server-projected
-      // options and form state, but retain the committed command internally so
-      // recovery can only issue GET/navigation and never a second POST.
       this.scopeIdentityKey = committed.identityKey;
       this.scopeWorkspaceId = committed.workspaceId;
       this.createAttempt = null;
       this.optionsState.set(EMPTY_PROJECT_CREATE_OPTIONS);
+      if (preserveCommittedContinuation) {
+        // Keep the already-started authoritative GET/navigation chain alive.
+        // A denied confirmation still falls back to pending recovery, while a
+        // successful confirmation can finish navigation without a stale UI
+        // transition racing the router.
+        return;
+      }
       this.mutationState.set({
         status: 'committedPendingNavigation',
         fieldErrors: [],
@@ -431,6 +456,10 @@ export class ProjectCreateFacade {
         workspaceId: attempt.workspaceId,
         message: 'Project creation options changed and must be checked again.',
       });
+      if (preserveDispatchedMutation) {
+        this.mutationState.set({ status: 'submitting', fieldErrors: [] });
+        return;
+      }
       this.mutationState.set({
         status: 'error',
         fieldErrors: [],

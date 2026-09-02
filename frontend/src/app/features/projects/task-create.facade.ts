@@ -504,10 +504,25 @@ export class TaskCreateFacade {
           }
         : null;
     const attemptWasDispatched = preserveUncertainAttempt && attempt?.hasDispatched === true;
+    const preserveDispatchedMutation =
+      attemptWasDispatched &&
+      attempt !== null &&
+      this.activeCreateAttempt === attempt;
 
-    this.scopeGeneration += 1;
+    // An authorization invalidation can race a canonical idempotent create after
+    // the browser has dispatched the POST but before its strict 201 arrives. At
+    // that point aborting the XHR cannot undo a server commit; it only destroys
+    // the result and leaves the client in an unnecessarily uncertain state.
+    // Keep the create request/generation alive only for that same authenticated
+    // Project/Workspace scope. Session, Tenant, and Workspace boundaries still
+    // cancel it below, and every follow-up Task route reauthorizes over HTTP.
+    if (!preserveDispatchedMutation) {
+      this.scopeGeneration += 1;
+    }
     this.cancelOptionsRequest();
-    this.cancelMutationRequest();
+    if (!preserveDispatchedMutation) {
+      this.cancelMutationRequest();
+    }
     this.refreshInFlight = false;
     this.refreshQueued = false;
 
@@ -538,6 +553,13 @@ export class TaskCreateFacade {
         projectId: attempt.projectId,
         message: 'Task creation options changed and must be checked again.',
       });
+      if (preserveDispatchedMutation) {
+        // Keep the mutation presentation pending until this exact dispatched
+        // request returns. The response is still accepted only if its strict
+        // canonical 201 maps back to the same Project/Workspace identifiers.
+        this.mutationState.set({ status: 'submitting', fieldErrors: [] });
+        return;
+      }
       this.mutationState.set({
         status: 'error',
         fieldErrors: [],

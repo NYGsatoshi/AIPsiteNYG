@@ -34,7 +34,12 @@ public sealed class Invite : AuditableEntity, ITenantEntity
     public string Email { get; set; } = string.Empty;
     public string NormalizedEmail { get; set; } = string.Empty;
     public string TokenHash { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Workspace-scoped role granted by this invite. It must never be translated into TenantUserRole authority.
+    /// </summary>
     public WorkspaceRole Role { get; set; } = WorkspaceRole.Member;
+
     public DateTimeOffset ExpiresAt { get; set; }
     public DateTimeOffset? AcceptedAt { get; set; }
     public DateTimeOffset? RevokedAt { get; set; }

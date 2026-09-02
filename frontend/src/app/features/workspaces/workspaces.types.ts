@@ -20,6 +20,16 @@ export interface WorkspaceMemberPreview {
   readonly displayName: string;
 }
 
+export type WorkspaceNeedsAttentionKind = 'ReviewRequired' | 'ResearchFailed';
+
+export interface WorkspaceNeedsAttentionItemViewModel {
+  readonly id: string;
+  readonly kind: WorkspaceNeedsAttentionKind;
+  readonly label: string;
+  readonly targetRoute: string;
+  readonly occurredAtLabel: string | null;
+}
+
 export type WorkspacePageCapability = 'createWorkspace';
 
 export type WorkspaceDashboardStatus =
@@ -45,6 +55,8 @@ export interface WorkspaceCardViewModel {
   readonly activeProjectCount: number | null;
   readonly runningProjectCount: number | null;
   readonly needsReviewProjectCount: number | null;
+  readonly needsAttentionCount?: number;
+  readonly needsAttentionItems?: readonly WorkspaceNeedsAttentionItemViewModel[];
   readonly hasExternalShares?: boolean;
   readonly externalShareCount?: number | null;
   readonly memberPreview?: readonly WorkspaceMemberPreview[];
