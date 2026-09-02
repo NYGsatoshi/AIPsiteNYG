@@ -118,7 +118,8 @@ public sealed class MessageCanonicalAttachmentPostgreSqlTests
                     message.AuthorUserId == graph.UserId &&
                     message.ClientRequestId == clientRequestId);
             var relation = Assert.Single(persisted.Attachments);
-            var persistedAttachment = Assert.NotNull(relation.Attachment);
+            Assert.NotNull(relation.Attachment);
+            var persistedAttachment = relation.Attachment!;
 
             Assert.Equal(graph.TenantId, relation.TenantId);
             Assert.Equal(graph.TenantId, persistedAttachment.TenantId);
