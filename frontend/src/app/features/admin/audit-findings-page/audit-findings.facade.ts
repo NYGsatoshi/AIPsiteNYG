@@ -77,18 +77,21 @@ export class AuditFindingsFacade {
   private readonly state = signal<AuditFindingsViewModel>(emptyState('idle'));
   private readonly savingState = signal(false);
   private readonly mutationErrorState = signal<string | null>(null);
+  private readonly mutationNoticeState = signal<string | null>(null);
   private requestVersion = 0;
   private lastRequest: { artifactVersionId: string; filters: AuditFindingFilters } | null = null;
 
   readonly viewModel = this.state.asReadonly();
   readonly saving = this.savingState.asReadonly();
   readonly mutationError = this.mutationErrorState.asReadonly();
+  readonly mutationNotice = this.mutationNoticeState.asReadonly();
 
   clear(): void {
     this.requestVersion += 1;
     this.lastRequest = null;
     this.state.set(emptyState('idle'));
     this.mutationErrorState.set(null);
+    this.mutationNoticeState.set(null);
   }
 
   load(artifactVersionId: string, filters: AuditFindingFilters): void {
@@ -200,6 +203,7 @@ export class AuditFindingsFacade {
 
     this.savingState.set(true);
     this.mutationErrorState.set(null);
+    this.mutationNoticeState.set(null);
     this.http
       .patch<void>(
         `/api/admin/audit/findings/${encodeURIComponent(findingId)}/triage`,
@@ -233,6 +237,7 @@ export class AuditFindingsFacade {
 
     this.savingState.set(true);
     this.mutationErrorState.set(null);
+    this.mutationNoticeState.set(null);
     this.http
       .patch<void>(
         `/api/admin/audit/findings/${encodeURIComponent(findingId)}/workflow`,
@@ -257,6 +262,40 @@ export class AuditFindingsFacade {
                 : error.status === 400
                   ? 'The review workflow could not be saved. The selected owner may no longer be eligible.'
                   : 'The review workflow change could not be saved.',
+          );
+        },
+      });
+  }
+
+  mentionReviewer(findingId: string, userId: string): void {
+    if (this.savingState() || !userId.trim()) {
+      return;
+    }
+
+    this.savingState.set(true);
+    this.mutationErrorState.set(null);
+    this.mutationNoticeState.set(null);
+    this.http
+      .post<void>(
+        `/api/admin/audit/findings/${encodeURIComponent(findingId)}/mentions`,
+        { userId: userId.trim(), requestId: crypto.randomUUID() },
+        { withCredentials: true },
+      )
+      .subscribe({
+        next: () => {
+          this.savingState.set(false);
+          this.mutationNoticeState.set('Reviewer mention sent.');
+        },
+        error: (error: { status?: number }) => {
+          this.savingState.set(false);
+          this.mutationErrorState.set(
+            error.status === 401 || error.status === 403
+              ? 'Audit review permission is required to mention a reviewer.'
+              : error.status === 404
+                ? 'The finding is no longer available in the current authorized scope.'
+                : error.status === 400
+                  ? 'The reviewer could not be mentioned because they are no longer eligible.'
+                  : 'The reviewer mention could not be sent.',
           );
         },
       });
