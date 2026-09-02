@@ -7,7 +7,9 @@ namespace AipPortal.Web.Controllers;
 
 [ApiController]
 [Authorize]
-public sealed class AuditFindingsController(IAuditFindingsService findings) : ControllerBase
+public sealed class AuditFindingsController(
+    IAuditFindingsService findings,
+    IAuditFindingReviewerMentionsService mentions) : ControllerBase
 {
     [HttpGet("api/admin/audit/findings")]
     public async Task<IActionResult> List(
@@ -70,6 +72,21 @@ public sealed class AuditFindingsController(IAuditFindingsService findings) : Co
         return Error(result.ErrorDetail, result.Error, "AuditFindingWorkflowFailed");
     }
 
+    [HttpPost("api/admin/audit/findings/{findingId:guid}/mentions")]
+    public async Task<IActionResult> MentionReviewer(
+        Guid findingId,
+        [FromBody] MentionAuditFindingReviewerRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await mentions.MentionAsync(findingId, request, cancellationToken);
+        if (result.IsSuccess)
+        {
+            return NoContent();
+        }
+
+        return Error(result.ErrorDetail, result.Error, "AuditFindingMentionFailed");
+    }
+
     private IActionResult Error(
         AipPortal.Application.Common.ApplicationErrorDetail? detail,
         string? fallback,
@@ -80,7 +97,7 @@ public sealed class AuditFindingsController(IAuditFindingsService findings) : Co
             "AuthenticationRequired" => StatusCodes.Status401Unauthorized,
             "CapabilityDenied" or "TenantMembershipRequired" => StatusCodes.Status403Forbidden,
             "ArtifactVersionNotFound" or "FindingNotFound" => StatusCodes.Status404NotFound,
-            "ReasonRequired" or "ValidationFailed" or "OwnerNotEligible" => StatusCodes.Status400BadRequest,
+            "ReasonRequired" or "ValidationFailed" or "OwnerNotEligible" or "MentionTargetNotEligible" => StatusCodes.Status400BadRequest,
             _ => StatusCodes.Status400BadRequest
         };
 
