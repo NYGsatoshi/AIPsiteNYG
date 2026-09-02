@@ -112,6 +112,131 @@ public sealed class InviteAcceptancePostgreSqlTests
     }
 
     [PostgreSqlFact]
+    public async Task AdministrativeTenantLifecycleStatesCannotBeReactivatedByInvite()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+        var blockedStatuses = new[]
+        {
+            TenantUserStatus.Suspended,
+            TenantUserStatus.Left,
+            TenantUserStatus.Archived
+        };
+
+        foreach (var blockedStatus in blockedStatuses)
+        {
+            await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(connectionString, async database =>
+            {
+                await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+                var graph = await SeedInviteAsync(
+                    database,
+                    seedExistingEligibleUser: true,
+                    existingTenantStatus: blockedStatus);
+
+                await using (var scope = CreateTenantScope(database, graph.Tenant))
+                {
+                    var service = CreateService(scope.Context, scope.CurrentTenant);
+                    var result = await service.AcceptInviteAsync(new AcceptInviteRequest(Token, "Ignored", InvitePassword));
+
+                    Assert.False(result.IsSuccess);
+                    Assert.Equal("Invite is invalid or expired.", result.Error);
+                }
+
+                await using var verify = PostgreSqlMigrationTestDatabase.CreatePlatformContext(database);
+                var tenantMembership = await verify.TenantUsers.SingleAsync(item =>
+                    item.TenantId == graph.Tenant.Id && item.UserId == graph.ExistingUser!.Id);
+                var workspaceMembership = await verify.WorkspaceMembers.SingleAsync(item =>
+                    item.WorkspaceId == graph.Workspace.Id && item.UserId == graph.ExistingUser!.Id);
+
+                Assert.Equal(blockedStatus, tenantMembership.Status);
+                Assert.Equal(MembershipStatus.Active, workspaceMembership.Status);
+                Assert.False(await verify.Sessions.AnyAsync(item => item.UserId == graph.ExistingUser!.Id));
+                Assert.Null((await verify.Invites.SingleAsync(item => item.Id == graph.Invite.Id)).AcceptedAt);
+                Assert.True(await verify.AuditLogs.IgnoreQueryFilters().AnyAsync(item =>
+                    item.Action == "InviteAcceptanceDenied" &&
+                    item.MetadataJson != null &&
+                    item.MetadataJson.Contains("TenantMembershipUnavailable")));
+            });
+        }
+    }
+
+    [PostgreSqlFact]
+    public async Task SuspendedWorkspaceMembershipCannotBeReactivatedByInvite()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+
+        await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(connectionString, async database =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+            var graph = await SeedInviteAsync(
+                database,
+                seedExistingEligibleUser: true,
+                existingWorkspaceStatus: MembershipStatus.Suspended);
+
+            await using (var scope = CreateTenantScope(database, graph.Tenant))
+            {
+                var service = CreateService(scope.Context, scope.CurrentTenant);
+                var result = await service.AcceptInviteAsync(new AcceptInviteRequest(Token, "Ignored", InvitePassword));
+
+                Assert.False(result.IsSuccess);
+                Assert.Equal("Invite is invalid or expired.", result.Error);
+            }
+
+            await using var verify = PostgreSqlMigrationTestDatabase.CreatePlatformContext(database);
+            var tenantMembership = await verify.TenantUsers.SingleAsync(item =>
+                item.TenantId == graph.Tenant.Id && item.UserId == graph.ExistingUser!.Id);
+            var workspaceMembership = await verify.WorkspaceMembers.SingleAsync(item =>
+                item.WorkspaceId == graph.Workspace.Id && item.UserId == graph.ExistingUser!.Id);
+
+            Assert.Equal(TenantUserStatus.Active, tenantMembership.Status);
+            Assert.Equal(MembershipStatus.Suspended, workspaceMembership.Status);
+            Assert.False(await verify.Sessions.AnyAsync(item => item.UserId == graph.ExistingUser!.Id));
+            Assert.Null((await verify.Invites.SingleAsync(item => item.Id == graph.Invite.Id)).AcceptedAt);
+            Assert.True(await verify.AuditLogs.IgnoreQueryFilters().AnyAsync(item =>
+                item.Action == "InviteAcceptanceDenied" &&
+                item.MetadataJson != null &&
+                item.MetadataJson.Contains("WorkspaceMembershipUnavailable")));
+        });
+    }
+
+    [PostgreSqlFact]
+    public async Task InvitedTenantAndPendingWorkspaceMembershipCanActivateFromInvite()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+
+        await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(connectionString, async database =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+            var graph = await SeedInviteAsync(
+                database,
+                seedExistingEligibleUser: true,
+                role: WorkspaceRole.Admin,
+                existingTenantStatus: TenantUserStatus.Invited,
+                existingWorkspaceStatus: MembershipStatus.Pending);
+
+            await using (var scope = CreateTenantScope(database, graph.Tenant))
+            {
+                var service = CreateService(scope.Context, scope.CurrentTenant);
+                var result = await service.AcceptInviteAsync(new AcceptInviteRequest(Token, "Ignored", InvitePassword));
+
+                Assert.True(result.IsSuccess, result.Error);
+            }
+
+            await using var verify = PostgreSqlMigrationTestDatabase.CreatePlatformContext(database);
+            var tenantMembership = await verify.TenantUsers.SingleAsync(item =>
+                item.TenantId == graph.Tenant.Id && item.UserId == graph.ExistingUser!.Id);
+            var workspaceMembership = await verify.WorkspaceMembers.SingleAsync(item =>
+                item.WorkspaceId == graph.Workspace.Id && item.UserId == graph.ExistingUser!.Id);
+
+            Assert.Equal(TenantUserStatus.Active, tenantMembership.Status);
+            Assert.Equal(TenantUserRole.Member, tenantMembership.Role);
+            Assert.Equal(MembershipStatus.Active, workspaceMembership.Status);
+            Assert.Equal(WorkspaceRole.Admin, workspaceMembership.Role);
+            Assert.Equal(1, await verify.Sessions.CountAsync(item => item.UserId == graph.ExistingUser!.Id));
+            Assert.NotNull((await verify.Invites.SingleAsync(item => item.Id == graph.Invite.Id)).AcceptedAt);
+        });
+    }
+
+    [PostgreSqlFact]
     public async Task CrossTenantInviteFailsClosedWithoutCreatingIdentityOrMembershipState()
     {
         var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
@@ -213,7 +338,9 @@ public sealed class InviteAcceptancePostgreSqlTests
         string connectionString,
         bool seedExistingEligibleUser = false,
         bool crossTenantWorkspace = false,
-        WorkspaceRole role = WorkspaceRole.Member)
+        WorkspaceRole role = WorkspaceRole.Member,
+        TenantUserStatus existingTenantStatus = TenantUserStatus.Active,
+        MembershipStatus existingWorkspaceStatus = MembershipStatus.Active)
     {
         var hasher = new Pbkdf2PasswordHasher();
         var tokenHasher = new Sha256TokenHasher();
@@ -294,7 +421,7 @@ public sealed class InviteAcceptancePostgreSqlTests
                 TenantId = tenant.Id,
                 UserId = existingUser.Id,
                 Role = TenantUserRole.Member,
-                Status = TenantUserStatus.Active,
+                Status = existingTenantStatus,
                 JoinedAt = Now.AddDays(-2),
                 InvitedByUserId = inviter.Id
             });
@@ -304,7 +431,7 @@ public sealed class InviteAcceptancePostgreSqlTests
                 WorkspaceId = workspace.Id,
                 UserId = existingUser.Id,
                 Role = WorkspaceRole.Member,
-                Status = MembershipStatus.Active,
+                Status = existingWorkspaceStatus,
                 JoinedAt = Now.AddDays(-2)
             });
         }
