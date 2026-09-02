@@ -31,7 +31,6 @@ describe('TaskExecutionResultComponent', () => {
   });
 
   it('loads and renders the durable server report without interpreting Markdown as HTML', () => {
-    flushCapability(false);
     const request = http.expectOne(`/api/tasks/${TASK_ID}/execution-result`);
     expect(request.request.method).toBe('GET');
     expect(request.request.withCredentials).toBe(true);
@@ -47,7 +46,6 @@ describe('TaskExecutionResultComponent', () => {
 
   it('polls non-terminal state and stops after a terminal response', () => {
     vi.useFakeTimers();
-    flushCapability(false);
 
     http.expectOne(`/api/tasks/${TASK_ID}/execution-result`).flush(runningResult());
     fixture.detectChanges();
@@ -63,7 +61,6 @@ describe('TaskExecutionResultComponent', () => {
   });
 
   it('uses a redacted empty state for unauthorized or missing results', () => {
-    flushCapability(false);
     http.expectOne(`/api/tasks/${TASK_ID}/execution-result`).flush(
       { error: { message: 'secret/path/report.md' } },
       { status: 404, statusText: 'Not Found' },
@@ -76,7 +73,6 @@ describe('TaskExecutionResultComponent', () => {
   });
 
   it('rejects a succeeded projection that has no durable report', () => {
-    flushCapability(false);
     http.expectOne(`/api/tasks/${TASK_ID}/execution-result`).flush({
       ...succeededResult('# Missing'),
       report: null,
@@ -87,7 +83,7 @@ describe('TaskExecutionResultComponent', () => {
   });
 
   it('keeps direction correction and destructive stop as separate controls', () => {
-    flushCapability(true);
+    setInterventionPermission(true);
     http.expectOne(`/api/tasks/${TASK_ID}/execution-result`).flush(runningResult());
     fixture.detectChanges();
 
@@ -101,7 +97,7 @@ describe('TaskExecutionResultComponent', () => {
   });
 
   it('requires explicit confirmation before sending a destructive stop command', () => {
-    flushCapability(true);
+    setInterventionPermission(true);
     http.expectOne(`/api/tasks/${TASK_ID}/execution-result`).flush(runningResult());
     fixture.detectChanges();
 
@@ -132,7 +128,7 @@ describe('TaskExecutionResultComponent', () => {
   });
 
   it('redirects to a successor run and displays the truthful resume point', () => {
-    flushCapability(true);
+    setInterventionPermission(true);
     http.expectOne(`/api/tasks/${TASK_ID}/execution-result`).flush(runningResult());
     fixture.detectChanges();
 
@@ -158,7 +154,6 @@ describe('TaskExecutionResultComponent', () => {
   });
 
   it('does not render intervention controls for users without management permission', () => {
-    flushCapability(false);
     http.expectOne(`/api/tasks/${TASK_ID}/execution-result`).flush(runningResult());
     fixture.detectChanges();
 
@@ -168,11 +163,9 @@ describe('TaskExecutionResultComponent', () => {
     expect(native.querySelector('[data-testid="task-execution-correct-direction"]')).toBeNull();
   });
 
-  function flushCapability(canManage: boolean): void {
-    const request = http.expectOne(`/api/tasks/${TASK_ID}/execution-scope`);
-    expect(request.request.method).toBe('GET');
-    expect(request.request.withCredentials).toBe(true);
-    request.flush({ canManage });
+  function setInterventionPermission(canManage: boolean): void {
+    fixture.componentRef.setInput('interventionCanManage', canManage);
+    fixture.detectChanges();
   }
 });
 
