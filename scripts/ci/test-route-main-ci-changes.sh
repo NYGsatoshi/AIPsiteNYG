@@ -136,6 +136,29 @@ assert_eq true "$(value_of "$output" backend_pr07b)" "PR07-B route"
 assert_eq false "$(value_of "$output" backend_pr07c)" "PR07-C isolation"
 assert_eq false "$(value_of "$output" backend_pr07d)" "PR07-D isolation"
 
+# A normal backend test file can carry no TASK-V1-PR07 traits. Classifying it
+# must remain successful under set -e and must not fabricate a PR07 gate.
+repo="$tmp_root/ordinary-backend-test"
+init_repo "$repo" Projects
+printf '%s\n' \
+  'namespace AipPortal.Tests.Projects;' \
+  'public sealed class ResearchPlanServiceTests { /* Issue364 */ }' \
+  > "$repo/tests/AipPortal.Tests/Projects/ResearchPlanServiceTests.cs"
+base="$(commit_all "$repo" base)"
+printf '%s\n' \
+  'namespace AipPortal.Tests.Projects;' \
+  'public sealed class ResearchPlanServiceTests { /* Issue364 Issue366 */ }' \
+  > "$repo/tests/AipPortal.Tests/Projects/ResearchPlanServiceTests.cs"
+head="$(commit_all "$repo" head)"
+output="$(route_repo "$repo" "$base" "$head")"
+assert_eq true "$(value_of "$output" backend)" "ordinary backend test backend"
+assert_eq true "$(value_of "$output" backend_tests)" "ordinary backend test tests"
+assert_eq scoped "$(value_of "$output" backend_test_scope)" "ordinary backend test scope"
+assert_contains "$(value_of "$output" backend_test_filter)" 'AipPortal.Tests.Projects' "ordinary backend test filter"
+assert_eq false "$(value_of "$output" backend_pr07b)" "ordinary backend test PR07-B"
+assert_eq false "$(value_of "$output" backend_pr07c)" "ordinary backend test PR07-C"
+assert_eq false "$(value_of "$output" backend_pr07d)" "ordinary backend test PR07-D"
+
 # Cross-cutting Common changes intentionally fail safe to the full backend suite.
 repo="$tmp_root/common"
 init_repo "$repo" Announcements
