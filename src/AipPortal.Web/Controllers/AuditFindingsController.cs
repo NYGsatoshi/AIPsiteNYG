@@ -15,10 +15,22 @@ public sealed class AuditFindingsController(IAuditFindingsService findings) : Co
         [FromQuery] string? status,
         [FromQuery] string? severity,
         [FromQuery] bool openOnly,
+        [FromQuery] string? workflowStatus,
+        [FromQuery] bool myReviews,
+        [FromQuery] bool overdue,
+        [FromQuery] bool unassigned,
         CancellationToken cancellationToken)
     {
         var result = await findings.ListAsync(
-            new AuditFindingsQuery(artifactVersionId, status, severity, openOnly),
+            new AuditFindingsQuery(
+                artifactVersionId,
+                status,
+                severity,
+                openOnly,
+                workflowStatus,
+                myReviews,
+                overdue,
+                unassigned),
             cancellationToken);
         if (result.IsSuccess)
         {
@@ -41,6 +53,21 @@ public sealed class AuditFindingsController(IAuditFindingsService findings) : Co
         }
 
         return Error(result.ErrorDetail, result.Error, "AuditFindingTriageFailed");
+    }
+
+    [HttpPatch("api/admin/audit/findings/{findingId:guid}/workflow")]
+    public async Task<IActionResult> UpdateWorkflow(
+        Guid findingId,
+        [FromBody] UpdateAuditFindingWorkflowRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await findings.UpdateWorkflowAsync(findingId, request, cancellationToken);
+        if (result.IsSuccess)
+        {
+            return NoContent();
+        }
+
+        return Error(result.ErrorDetail, result.Error, "AuditFindingWorkflowFailed");
     }
 
     private IActionResult Error(
