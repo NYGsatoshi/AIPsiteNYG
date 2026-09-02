@@ -153,6 +153,28 @@ public sealed class EfUnitOfWork(
         }
     }
 
+    public async Task LockInviteAcceptanceMembershipsAsync(
+        Guid tenantId,
+        Guid workspaceId,
+        Guid userId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!dbContext.Database.IsRelational() || dbContext.Database.CurrentTransaction is null)
+        {
+            return;
+        }
+
+        // Keep lock ordering stable across every Invite acceptance. This prevents a
+        // concurrent Tenant/Workspace suspension from being read as an older state
+        // and then overwritten by acceptance after the administrator commits.
+        await dbContext.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT 1 FROM tenant_users WHERE \"TenantId\" = {tenantId} AND \"UserId\" = {userId} FOR UPDATE",
+            cancellationToken);
+        await dbContext.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT 1 FROM workspace_members WHERE \"WorkspaceId\" = {workspaceId} AND \"UserId\" = {userId} FOR UPDATE",
+            cancellationToken);
+    }
+
     public async Task<TaskCommandSaveOutcome> SaveTaskCommandAsync(CancellationToken cancellationToken = default)
     {
         try
