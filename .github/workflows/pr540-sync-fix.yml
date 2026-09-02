@@ -1,0 +1,68 @@
+name: PR 540 merge-readiness fix
+
+on:
+  push:
+    branches:
+      - fix/528-canonical-message-attachments
+    paths:
+      - .github/workflows/pr540-sync-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  sync-fix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/528-canonical-message-attachments
+          fetch-depth: 0
+
+      - name: Merge latest main and apply Issue 528 audit fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git merge --no-edit origin/main
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          service_path = Path("src/AipPortal.Application/Messaging/ConversationService.cs")
+          service = service_path.read_text()
+          old = """        var fileObject = source.FileObject;\n        if (fileObject.TenantId != conversation.TenantId ||\n            fileObject.WorkspaceId != conversation.WorkspaceId ||\n            fileObject.DeletedAt.HasValue ||\n"""
+          new = """        var fileObject = source.FileObject;\n        // Message search currently treats only workspace-scoped FileObjects as\n        // canonical Message attachments. Keep send-side promotion inside that\n        // same fail-closed contract until project-scoped search is specified.\n        if (fileObject.TenantId != conversation.TenantId ||\n            fileObject.WorkspaceId != conversation.WorkspaceId ||\n            fileObject.ProjectId.HasValue ||\n            fileObject.DeletedAt.HasValue ||\n"""
+          if old not in service:
+              raise SystemExit("ConversationService anchor not found")
+          service_path.write_text(service.replace(old, new, 1))
+
+          test_path = Path("tests/AipPortal.Tests/PostgreSql/MessageCanonicalAttachmentPostgreSqlTests.cs")
+          tests = test_path.read_text()
+          insert_anchor = """    private static async Task AssertDeniedAsync(\n"""
+          test_method = """    [PostgreSqlFact]\n    [Trait(\"Category\", \"PostgreSQLIntegration\")]\n    public async Task ProjectScopedFileObjectIsDeniedToPreserveMessageAttachmentSearchContract()\n    {\n        var baseConnectionString = PostgreSqlTestEnvironment.RequireConnectionString();\n        await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(baseConnectionString, async connectionString =>\n        {\n            await PostgreSqlMigrationTestDatabase.MigrateAsync(connectionString);\n            var graph = await TaskV1MigrationRawSqlSeed.CreateGraphAsync(connectionString, $\"issue528-project-{Guid.NewGuid():N}\");\n            await using var fixture = CreateFixture(connectionString, graph);\n\n            var conversation = await fixture.SeedConversationAsync(graph.WorkspaceId, graph.UserId, graph.ProjectId);\n            var sourceMessage = await fixture.SeedMessageAsync(conversation, graph.UserId, \"project source\");\n            var projectFile = await fixture.SeedFileObjectAsync(\n                graph.WorkspaceId,\n                graph.UserId,\n                FileObjectStatus.Active,\n                \"project-scoped-secret.txt\",\n                \"tenant/server/project-scoped-secret.txt\",\n                graph.ProjectId);\n            var source = await fixture.SeedMessageAttachmentAsync(\n                sourceMessage,\n                projectFile,\n                graph.UserId,\n                FileScanStatus.Clean);\n            await fixture.Db.SaveChangesAsync();\n            fixture.Db.ChangeTracker.Clear();\n\n            await AssertDeniedAsync(\n                fixture,\n                conversation.Id,\n                source.Id,\n                Guid.NewGuid(),\n                projectFile.OriginalFileName,\n                projectFile.StorageKey);\n        });\n    }\n\n"""
+          if insert_anchor not in tests:
+              raise SystemExit("test insertion anchor not found")
+          tests = tests.replace(insert_anchor, test_method + insert_anchor, 1)
+
+          old_conversation = """        public async Task<Conversation> SeedConversationAsync(Guid workspaceId, Guid userId)\n        {\n            var conversation = new Conversation\n            {\n                TenantId = Tenant.TenantId,\n                WorkspaceId = workspaceId,\n                Type = ConversationType.DirectMessage,\n                CreatedByUserId = userId\n            };\n"""
+          new_conversation = """        public async Task<Conversation> SeedConversationAsync(Guid workspaceId, Guid userId, Guid? projectId = null)\n        {\n            var conversation = new Conversation\n            {\n                TenantId = Tenant.TenantId,\n                WorkspaceId = workspaceId,\n                ProjectId = projectId,\n                Type = projectId.HasValue ? ConversationType.ProjectChannel : ConversationType.DirectMessage,\n                CreatedByUserId = userId\n            };\n"""
+          if old_conversation not in tests:
+              raise SystemExit("SeedConversationAsync anchor not found")
+          tests = tests.replace(old_conversation, new_conversation, 1)
+
+          old_file = """        public async Task<FileObject> SeedFileObjectAsync(\n            Guid workspaceId,\n            Guid userId,\n            FileObjectStatus status,\n            string fileName,\n            string storageKey)\n        {\n            var file = new FileObject\n            {\n                TenantId = Tenant.TenantId,\n                WorkspaceId = workspaceId,\n                UploadedByUserId = userId,\n"""
+          new_file = """        public async Task<FileObject> SeedFileObjectAsync(\n            Guid workspaceId,\n            Guid userId,\n            FileObjectStatus status,\n            string fileName,\n            string storageKey,\n            Guid? projectId = null)\n        {\n            var file = new FileObject\n            {\n                TenantId = Tenant.TenantId,\n                WorkspaceId = workspaceId,\n                ProjectId = projectId,\n                UploadedByUserId = userId,\n"""
+          if old_file not in tests:
+              raise SystemExit("SeedFileObjectAsync anchor not found")
+          tests = tests.replace(old_file, new_file, 1)
+          test_path.write_text(tests)
+          PY
+
+          rm .github/workflows/pr540-sync-fix.yml
+          git add -A
+          git commit -m "fix(messaging): preserve attachment search scope"
+          git push origin HEAD:fix/528-canonical-message-attachments
