@@ -1,0 +1,45 @@
+name: PR 540 project-scope fixture repair
+
+on:
+  push:
+    branches:
+      - fix/528-canonical-message-attachments
+    paths:
+      - .github/workflows/pr540-fix-project-scope-fixture.yml
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/528-canonical-message-attachments
+          fetch-depth: 0
+
+      - name: Seed canonical Project access in regression fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("tests/AipPortal.Tests/PostgreSql/MessageCanonicalAttachmentPostgreSqlTests.cs")
+          text = path.read_text()
+          anchor = """            await using var fixture = CreateFixture(connectionString, graph);\n\n            var conversation = await fixture.SeedConversationAsync(graph.WorkspaceId, graph.UserId, graph.ProjectId);\n"""
+          replacement = """            await using var fixture = CreateFixture(connectionString, graph);\n\n            // The raw migration graph creates the Project row but intentionally has\n            // no Workspace/Project memberships. Seed the canonical read boundary so\n            // this regression reaches Message attachment validation instead of being\n            // rejected earlier by ProjectChannel authorization.\n            fixture.Db.WorkspaceMembers.Add(new WorkspaceMember\n            {\n                TenantId = graph.TenantId,\n                WorkspaceId = graph.WorkspaceId,\n                UserId = graph.UserId,\n                Role = WorkspaceRole.Member,\n                Status = MembershipStatus.Active,\n                JoinedAt = DateTimeOffset.UtcNow\n            });\n            fixture.Db.ProjectMembers.Add(new ProjectMember\n            {\n                TenantId = graph.TenantId,\n                ProjectId = graph.ProjectId,\n                UserId = graph.UserId,\n                Role = ProjectRole.Owner,\n                JoinedAt = DateTimeOffset.UtcNow\n            });\n            await fixture.Db.SaveChangesAsync();\n            fixture.Db.ChangeTracker.Clear();\n\n            var conversation = await fixture.SeedConversationAsync(graph.WorkspaceId, graph.UserId, graph.ProjectId);\n"""
+          if anchor not in text:
+              raise SystemExit("project-scope regression anchor not found")
+          path.write_text(text.replace(anchor, replacement, 1))
+          PY
+
+          rm .github/workflows/pr540-fix-project-scope-fixture.yml
+          git add -A
+          git commit -m "test(messaging): seed project access for attachment regression"
+          git push origin HEAD:fix/528-canonical-message-attachments
