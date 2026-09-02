@@ -132,6 +132,11 @@ describe('FilesPageComponent issue #356', () => {
     expect(fixture.componentInstance.inspectorTab()).toBe('activity');
     expect(document.activeElement).toBe(activity);
 
+    TestBed.inject(HttpTestingController)
+      .expectOne(`/api/files/${FILE_ID}/activity`)
+      .flush({ fileObjectId: FILE_ID, items: [] });
+    fixture.detectChanges();
+
     activity.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
     fixture.detectChanges();
     await Promise.resolve();
@@ -143,9 +148,15 @@ describe('FilesPageComponent issue #356', () => {
     fixture.destroy();
   }, 15_000);
 
-  it('uses a safe Activity handoff without querying Audit or exposing unavailable metadata', async () => {
+  it('hands Activity to the authorized File endpoint without querying the broader Audit API', async () => {
     const fixture = await renderFilesPage();
     fixture.componentInstance.selectInspectorTab('activity');
+    fixture.detectChanges();
+
+    const http = TestBed.inject(HttpTestingController);
+    const activityRequest = http.expectOne(`/api/files/${FILE_ID}/activity`);
+    expect(activityRequest.request.method).toBe('GET');
+    activityRequest.flush({ fileObjectId: FILE_ID, items: [] });
     fixture.detectChanges();
 
     const panel = (fixture.nativeElement as HTMLElement).querySelector(
@@ -153,9 +164,8 @@ describe('FilesPageComponent issue #356', () => {
     ) as HTMLElement;
     expect(panel.textContent).toContain('No file activity or version history is available');
     expect(panel.textContent).toContain('does not query the broader Audit log');
-    TestBed.inject(HttpTestingController).expectNone((request) => request.url.includes('audit'));
-    TestBed.inject(HttpTestingController).expectNone((request) => request.url.includes('activity'));
-    TestBed.inject(HttpTestingController).expectNone((request) => request.url.includes('version'));
+    http.expectNone((request) => request.url.includes('/api/audit'));
+    http.expectNone((request) => request.url.includes('/versions/'));
   }, 15_000);
 
   it('returns to Preview when another file opens or the inspector closes', async () => {

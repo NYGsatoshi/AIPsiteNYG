@@ -503,9 +503,7 @@
               tabindex="0"
               data-testid="files-inspector-panel-activity"
             >
-              <h3>{{ i18n.translate('files.activity.title') }}</h3>
-              <p>{{ i18n.translate('files.activity.empty') }}</p>
-              <p>{{ i18n.translate('files.activity.note') }}</p>
+              <app-file-activity-panel [file]="file" />
             </section>
           }
         } @else {
