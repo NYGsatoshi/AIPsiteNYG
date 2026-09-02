@@ -11,6 +11,34 @@ public sealed record FileOwnerContext(
     Guid? ChannelId = null,
     Guid? AuthorUserId = null);
 
+/// <summary>
+/// Immutable File-version projection. StorageKey stays inside the application
+/// boundary and is never serialized by the Files Activity API.
+/// </summary>
+public sealed record FileVersionRecord(
+    Guid Id,
+    Guid FileObjectId,
+    int VersionNumber,
+    string OriginalFileName,
+    string StorageKey,
+    string ContentType,
+    long SizeBytes,
+    string? HashSha256,
+    Guid CreatedByUserId,
+    string CreatedByDisplayName,
+    DateTimeOffset CreatedAt);
+
+/// <summary>
+/// The only generic-audit subset the Files Activity projection may consume.
+/// Callers must allow-list fields from MetadataJson before returning anything
+/// to the browser.
+/// </summary>
+public sealed record FileSharingActivityRecord(
+    Guid Id,
+    string ActorDisplayName,
+    DateTimeOffset OccurredAt,
+    string? MetadataJson);
+
 public interface IFileRepository
 {
     Task<FileObject?> GetFileObjectAsync(Guid fileObjectId, CancellationToken cancellationToken = default);
@@ -43,6 +71,27 @@ public interface IFileRepository
     Task<Attachment?> GetAttachmentByFileObjectAsync(Guid fileObjectId, CancellationToken cancellationToken = default);
 
     Task AddAttachmentAsync(Attachment attachment, CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<FileVersionRecord>> ListFileVersionsAsync(
+        Guid tenantId,
+        Guid fileObjectId,
+        int limit,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<FileVersionRecord>>([]);
+
+    Task<FileVersionRecord?> GetFileVersionAsync(
+        Guid tenantId,
+        Guid fileObjectId,
+        Guid versionId,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<FileVersionRecord?>(null);
+
+    Task<IReadOnlyList<FileSharingActivityRecord>> ListFileSharingActivityAsync(
+        Guid tenantId,
+        Guid fileObjectId,
+        int limit,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<FileSharingActivityRecord>>([]);
 
     Task<IReadOnlyList<Attachment>> ListTaskAttachmentsAsync(Guid taskItemId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Attachment>>([]);
     Task<PagedResponse<Attachment>> ListTaskAttachmentsPageAsync(Guid taskItemId, int page, int pageSize, CancellationToken cancellationToken = default) => Task.FromResult(new PagedResponse<Attachment>([], page, pageSize, 0));
