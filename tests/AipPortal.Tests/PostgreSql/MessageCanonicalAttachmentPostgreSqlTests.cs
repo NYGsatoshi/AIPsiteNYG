@@ -260,6 +260,44 @@ public sealed class MessageCanonicalAttachmentPostgreSqlTests
         });
     }
 
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    public async Task ProjectScopedFileObjectIsDeniedToPreserveMessageAttachmentSearchContract()
+    {
+        var baseConnectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+        await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(baseConnectionString, async connectionString =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(connectionString);
+            var graph = await TaskV1MigrationRawSqlSeed.CreateGraphAsync(connectionString, $"issue528-project-{Guid.NewGuid():N}");
+            await using var fixture = CreateFixture(connectionString, graph);
+
+            var conversation = await fixture.SeedConversationAsync(graph.WorkspaceId, graph.UserId, graph.ProjectId);
+            var sourceMessage = await fixture.SeedMessageAsync(conversation, graph.UserId, "project source");
+            var projectFile = await fixture.SeedFileObjectAsync(
+                graph.WorkspaceId,
+                graph.UserId,
+                FileObjectStatus.Active,
+                "project-scoped-secret.txt",
+                "tenant/server/project-scoped-secret.txt",
+                graph.ProjectId);
+            var source = await fixture.SeedMessageAttachmentAsync(
+                sourceMessage,
+                projectFile,
+                graph.UserId,
+                FileScanStatus.Clean);
+            await fixture.Db.SaveChangesAsync();
+            fixture.Db.ChangeTracker.Clear();
+
+            await AssertDeniedAsync(
+                fixture,
+                conversation.Id,
+                source.Id,
+                Guid.NewGuid(),
+                projectFile.OriginalFileName,
+                projectFile.StorageKey);
+        });
+    }
+
     private static async Task AssertDeniedAsync(
         Fixture fixture,
         Guid conversationId,
@@ -336,13 +374,14 @@ public sealed class MessageCanonicalAttachmentPostgreSqlTests
             return workspace;
         }
 
-        public async Task<Conversation> SeedConversationAsync(Guid workspaceId, Guid userId)
+        public async Task<Conversation> SeedConversationAsync(Guid workspaceId, Guid userId, Guid? projectId = null)
         {
             var conversation = new Conversation
             {
                 TenantId = Tenant.TenantId,
                 WorkspaceId = workspaceId,
-                Type = ConversationType.DirectMessage,
+                ProjectId = projectId,
+                Type = projectId.HasValue ? ConversationType.ProjectChannel : ConversationType.DirectMessage,
                 CreatedByUserId = userId
             };
             await Db.Conversations.AddAsync(conversation);
@@ -382,12 +421,14 @@ public sealed class MessageCanonicalAttachmentPostgreSqlTests
             Guid userId,
             FileObjectStatus status,
             string fileName,
-            string storageKey)
+            string storageKey,
+            Guid? projectId = null)
         {
             var file = new FileObject
             {
                 TenantId = Tenant.TenantId,
                 WorkspaceId = workspaceId,
+                ProjectId = projectId,
                 UploadedByUserId = userId,
                 OriginalFileName = fileName,
                 StorageKey = storageKey,

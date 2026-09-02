@@ -688,8 +688,12 @@ public sealed class ConversationService(
         }
 
         var fileObject = source.FileObject;
+        // Message search currently treats only workspace-scoped FileObjects as
+        // canonical Message attachments. Keep send-side promotion inside that
+        // same fail-closed contract until project-scoped search is specified.
         if (fileObject.TenantId != conversation.TenantId ||
             fileObject.WorkspaceId != conversation.WorkspaceId ||
+            fileObject.ProjectId.HasValue ||
             fileObject.DeletedAt.HasValue ||
             fileObject.Status != FileObjectStatus.Active ||
             source.ScanStatus is FileScanStatus.Pending or FileScanStatus.Infected or FileScanStatus.Failed ||
