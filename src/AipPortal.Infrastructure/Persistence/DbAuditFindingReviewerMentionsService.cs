@@ -141,7 +141,7 @@ public sealed class DbAuditFindingReviewerMentionsService(
             .SingleOrDefaultAsync(cancellationToken);
     }
 
-    private Task<bool> HasAuditReviewAuthorityAsync(
+    private async Task<bool> HasAuditReviewAuthorityAsync(
         Guid tenantId,
         ReviewerCandidate candidate,
         CancellationToken cancellationToken)
@@ -149,10 +149,22 @@ public sealed class DbAuditFindingReviewerMentionsService(
         if (candidate.SystemRole is SystemRole.PlatformAdmin or SystemRole.SystemAdmin ||
             candidate.TenantRole is TenantUserRole.Owner or TenantUserRole.Admin)
         {
-            return Task.FromResult(true);
+            return true;
         }
 
-        return capabilityGrants.HasActiveGrantAsync(
+        var canView = await capabilityGrants.HasActiveGrantAsync(
+            candidate.UserId,
+            tenantId,
+            CapabilityKeys.AuditView,
+            CapabilityScopeType.Tenant,
+            tenantId,
+            cancellationToken);
+        if (!canView)
+        {
+            return false;
+        }
+
+        return await capabilityGrants.HasActiveGrantAsync(
             candidate.UserId,
             tenantId,
             CapabilityKeys.AuditReview,
