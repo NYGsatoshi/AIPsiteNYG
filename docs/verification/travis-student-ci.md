@@ -16,32 +16,34 @@ also executed by GitHub Actions.
 - Docker / Docker Compose
 - PostgreSQL 18 Alpine
 
-The backend Travis job owns its PostgreSQL database name, credentials, host
-port, `ConnectionStrings__DefaultConnection`, and
-`POSTGRES_TEST_CONNECTION_STRING`. The connection strings are exported by the
-backend shell entry point rather than serialized through `.travis.yml` because
-they contain shell-significant semicolons. The job verifies the requested
-PostgreSQL database/user with `select 1` before EF or xUnit runs, so conditional
-PostgreSQL tests cannot silently pass against a missing or unintended database.
+The backend Travis entry point owns its PostgreSQL environment locally inside
+the shell process. Connection strings are assembled after startup rather than
+serialized through Travis YAML, because the semicolon-delimited .NET connection
+string must remain one shell value. A `psql select 1` probe fails the job before
+EF or xUnit if the database/user/port contract is not actually usable.
 
 ## Job split
 
-The Student plan is expected to serialize jobs. The repository therefore uses
-separate provider jobs rather than one oversized full-stack command:
+The Student plan serializes jobs. Backend verification is deliberately split
+into separate failure domains so provider summaries identify whether a failure
+belongs to compilation, EF/PostgreSQL, the full suite, or required acceptance
+gates without requiring access to private Travis job logs.
 
 | Travis stage | Responsibility |
 | --- | --- |
 | `preflight` | toolchain, lockfile/install policy, documentation integrity |
-| `backend` | Release build, migrations, full PostgreSQL suite, PR07/WPC manifests |
+| `backend-build` | exact restore and Release solution build |
+| `backend-ef` | PostgreSQL 18 probe, migration apply, pending-model check |
+| `backend-tests` | full backend suite with real PostgreSQL |
+| `backend-gates` | focused PR07/WPC acceptance run plus required-test manifests |
 | `frontend` | lint/type/architecture, Angular, Storybook, static Playwright |
 | `security` | Gitleaks, npm/NuGet checks, Compose/migration, image/Trivy |
 | `acceptance` | P0, My Tasks, MBJ-02, MBJ-03 real-backend suites |
 | `manual` | MBJ-01, general real-backend smoke, Qodana API-triggered suites |
 
-Each former specialized PostgreSQL workflow is represented by the full backend
-TRX plus its existing required-test manifest. This preserves the proof that the
-named acceptance tests actually executed while avoiding a second build/restore
-of the same commit.
+The required-test manifests are checked against a dedicated focused backend
+TRX. The ordinary full-suite job is therefore a pure full-suite result and a
+manifest mismatch cannot disguise itself as an application-test failure.
 
 ## Repository entry points
 
