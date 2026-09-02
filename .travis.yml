@@ -46,7 +46,10 @@ install: skip
 
 stages:
   - name: preflight
-  - name: backend
+  - name: backend-build
+  - name: backend-ef
+  - name: backend-tests
+  - name: backend-gates
   - name: frontend
   - name: security
   - name: acceptance
@@ -60,10 +63,25 @@ jobs:
       if: type != api
       script: bash scripts/ci/run-travis-preflight.sh
 
-    - stage: backend
-      name: "Backend / PostgreSQL 18"
+    - stage: backend-build
+      name: "Backend / restore + build"
       if: type != api
-      script: bash scripts/ci/run-travis-backend.sh
+      script: bash scripts/ci/run-travis-backend.sh build
+
+    - stage: backend-ef
+      name: "Backend / PostgreSQL + EF gate"
+      if: type != api
+      script: bash scripts/ci/run-travis-backend.sh ef
+
+    - stage: backend-tests
+      name: "Backend / full PostgreSQL tests"
+      if: type != api
+      script: bash scripts/ci/run-travis-backend.sh tests
+
+    - stage: backend-gates
+      name: "Backend / PR07 + WPC required gates"
+      if: type != api
+      script: bash scripts/ci/run-travis-backend.sh gates
 
     - stage: frontend
       name: "Frontend / quality / static browser"
