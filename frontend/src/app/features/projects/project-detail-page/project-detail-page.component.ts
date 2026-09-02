@@ -51,6 +51,9 @@ export class ProjectDetailPageComponent implements OnDestroy {
   private previousActivationStatus = 'idle';
   private activationCompletionInterrupted = false;
   private activationInterruptionFallbackFocused = false;
+  private readonly pendingTaskCreateProjectId = signal<string | null>(null);
+  private readonly taskCreateNavigationInterrupted = signal(false);
+  private readonly taskCreateNavigationInFlight = signal(false);
   private readonly operationalTabs: readonly { id: ProjectDetailTab; label: string }[] = [{ id: 'overview', label: 'Overview' }, { id: 'tasks', label: 'Tasks' }, { id: 'list', label: 'List' }, { id: 'schedule', label: 'Schedule' }, { id: 'workload', label: 'Workload' }, { id: 'members', label: 'Members' }];
   readonly tabs = computed<readonly { id: ProjectDetailTab; label: string }[]>(() =>
     this.page().project?.isOperational === true
@@ -86,6 +89,8 @@ export class ProjectDetailPageComponent implements OnDestroy {
       this.previousActivationStatus = 'idle';
       this.activationCompletionInterrupted = false;
       this.activationInterruptionFallbackFocused = false;
+      this.pendingTaskCreateProjectId.set(null);
+      this.taskCreateNavigationInterrupted.set(false);
       if (projectId) this.facade.load(projectId);
       else this.facade.release();
     });
@@ -128,13 +133,58 @@ export class ProjectDetailPageComponent implements OnDestroy {
         });
       }
     });
+    effect(() => {
+      const pendingProjectId = this.pendingTaskCreateProjectId();
+      if (!pendingProjectId) {
+        return;
+      }
+
+      const project = this.page().project;
+      if (
+        project?.id !== pendingProjectId ||
+        project.isOperational !== true ||
+        project.canCreateTask !== true
+      ) {
+        this.taskCreateNavigationInterrupted.set(true);
+        return;
+      }
+
+      if (!this.taskCreateNavigationInterrupted() || this.taskCreateNavigationInFlight()) {
+        return;
+      }
+
+      this.taskCreateNavigationInterrupted.set(false);
+      void this.navigateToTaskCreate(pendingProjectId);
+    });
   }
 
   ngOnDestroy(): void { this.facade.release(); }
   openCreateTask(): void {
     const project = this.page().project;
     if (project?.isOperational === true && project.canCreateTask === true) {
-      void this.router.navigate(['/projects', project.id, 'tasks', 'new']);
+      this.pendingTaskCreateProjectId.set(project.id);
+      this.taskCreateNavigationInterrupted.set(false);
+      void this.navigateToTaskCreate(project.id);
+    }
+  }
+  private async navigateToTaskCreate(projectId: string): Promise<void> {
+    if (this.taskCreateNavigationInFlight()) {
+      return;
+    }
+
+    this.taskCreateNavigationInFlight.set(true);
+    try {
+      const navigated = await this.router.navigate(['/projects', projectId, 'tasks', 'new']);
+      if (navigated && this.pendingTaskCreateProjectId() === projectId) {
+        this.pendingTaskCreateProjectId.set(null);
+        this.taskCreateNavigationInterrupted.set(false);
+      }
+    } catch {
+      // A concurrent authorization refresh can supersede navigation. The
+      // pending opaque Project id is retried only if the live Project scope is
+      // actually interrupted and later reauthorized by the server.
+    } finally {
+      this.taskCreateNavigationInFlight.set(false);
     }
   }
   openTask(row: TaskGridRow): void { void this.router.navigate(['/projects', row.projectId, 'tasks', row.id]); }
