@@ -24,6 +24,7 @@ import { AipDialogComponent } from '../../../shared/ui/aip-dialog/aip-dialog.com
 import { AipFilterChipComponent } from '../../../shared/ui/aip-filter-chip/aip-filter-chip.component';
 import { AipFileUploaderComponent } from '../../../shared/ui/adapters/syncfusion/aip-file-uploader.component';
 import { AttachmentPickerDialogComponent } from '../attachment-picker-dialog/attachment-picker-dialog.component';
+import { FileActivityPanelComponent } from '../file-activity-panel/file-activity-panel.component';
 import { FileFolderStore } from '../file-folders.service';
 import { FileMoveDialogComponent } from '../file-move-dialog/file-move-dialog.component';
 import { FilePreviewService } from '../file-preview.service';
@@ -60,6 +61,7 @@ const PREVIEW_OVERLAY_MAX_WIDTH = 860;
     AipFileUploaderComponent,
     AppDataGridComponent,
     AttachmentPickerDialogComponent,
+    FileActivityPanelComponent,
     FileMoveDialogComponent,
     FileQuotaStateComponent,
     FileBrowserSidebarComponent,
