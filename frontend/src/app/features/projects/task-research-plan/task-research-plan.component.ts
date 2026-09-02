@@ -31,13 +31,55 @@ interface ResearchPlan {
 }
 
 interface EditableStep {
+  readonly baseStepId: string | null;
   readonly title: string;
   readonly objective: string;
   readonly scopeSummary: string;
   readonly status: StepStatus;
 }
 
+interface ProposedStep extends EditableStep {
+  readonly position: number;
+}
+
+interface StepDiff {
+  readonly kinds: readonly string[];
+  readonly baseStepId: string | null;
+  readonly beforePosition: number | null;
+  readonly afterPosition: number | null;
+  readonly before: PlanStep | null;
+  readonly after: ProposedStep | null;
+  readonly changedFields: readonly string[];
+}
+
+interface ImpactItem {
+  readonly kind: string;
+  readonly message: string;
+  readonly stepPosition: number | null;
+}
+
+interface ImpactSummary {
+  readonly beforeStepCount: number;
+  readonly afterStepCount: number;
+  readonly executionStepCountChanged: boolean;
+  readonly executionOrderChanged: boolean;
+  readonly sourceScopeGuidanceChanged: boolean;
+  readonly deliverableAlignmentReviewRequired: boolean;
+  readonly items: readonly ImpactItem[];
+}
+
+interface PlanPreview {
+  readonly baseVersion: number;
+  readonly baseRevisionId: string | null;
+  readonly baseRevisionNumber: number | null;
+  readonly fingerprint: string;
+  readonly proposedSteps: readonly ProposedStep[];
+  readonly changes: readonly StepDiff[];
+  readonly impact: ImpactSummary;
+}
+
 const EMPTY_STEP: EditableStep = Object.freeze({
+  baseStepId: null,
   title: '',
   objective: '',
   scopeSummary: '',
@@ -47,6 +89,8 @@ const EMPTY_STEP: EditableStep = Object.freeze({
 /**
  * Editor for the current Task-owned Research Plan revision. Reordering uses
  * explicit move buttons so it remains available to keyboard and touch users.
+ * Issue #366 requires an authoritative server diff review before a changed
+ * draft can be saved as the next immutable revision.
  */
 @Component({
   selector: 'app-task-research-plan',
@@ -61,18 +105,29 @@ export class TaskResearchPlanComponent implements OnChanges, OnDestroy {
 
   private readonly http = inject(HttpClient, { optional: true });
   private loadRequest: Subscription | null = null;
+  private previewRequest: Subscription | null = null;
   private saveRequest: Subscription | null = null;
   private readonly generation = signal(0);
   private readonly state = signal<ResearchPlan | null>(null);
   readonly loading = signal(false);
+  readonly previewing = signal(false);
   readonly saving = signal(false);
   readonly error = signal<string | null>(null);
   readonly feedback = signal<string | null>(null);
   readonly draft = signal<EditableStep[]>([]);
   readonly loadedDraft = signal<EditableStep[]>([]);
+  readonly preview = signal<PlanPreview | null>(null);
   readonly plan = this.state.asReadonly();
   readonly canManage = computed(() => this.state()?.canManage ?? false);
   readonly dirty = computed(() => JSON.stringify(this.draft()) !== JSON.stringify(this.loadedDraft()));
+  readonly reviewedChanges = computed(() => this.preview()?.changes.length ?? 0);
+  readonly canSaveReviewed = computed(() =>
+    this.dirty() &&
+    !this.previewing() &&
+    !this.saving() &&
+    this.preview() !== null &&
+    this.reviewedChanges() > 0 &&
+    this.preview()!.baseVersion === this.state()?.version);
   readonly statuses: readonly StepStatus[] = ['Planned', 'Ready', 'Blocked', 'Deferred'];
 
   constructor() {
@@ -86,26 +141,30 @@ export class TaskResearchPlanComponent implements OnChanges, OnDestroy {
   ngOnDestroy(): void {
     this.generation.update(value => value + 1);
     this.loadRequest?.unsubscribe();
+    this.previewRequest?.unsubscribe();
     this.saveRequest?.unsubscribe();
   }
 
   retry(): void { this.load(); }
 
   addStep(): void {
-    if (!this.canManage() || this.saving()) return;
+    if (!this.canManage() || this.busy()) return;
+    this.invalidateReview();
     this.draft.update(steps => [...steps, { ...EMPTY_STEP }]);
   }
 
   removeStep(index: number): void {
-    if (!this.canManage() || this.saving()) return;
+    if (!this.canManage() || this.busy()) return;
+    this.invalidateReview();
     this.draft.update(steps => steps.filter((_, candidate) => candidate !== index));
   }
 
   moveStep(index: number, direction: -1 | 1): void {
-    if (!this.canManage() || this.saving()) return;
+    if (!this.canManage() || this.busy()) return;
     const next = index + direction;
     this.draft.update(steps => {
       if (next < 0 || next >= steps.length) return steps;
+      this.invalidateReview();
       const reordered = [...steps];
       [reordered[index], reordered[next]] = [reordered[next], reordered[index]];
       return reordered;
@@ -113,25 +172,73 @@ export class TaskResearchPlanComponent implements OnChanges, OnDestroy {
   }
 
   updateText(index: number, field: 'title' | 'objective' | 'scopeSummary', value: string): void {
-    if (!this.canManage() || this.saving()) return;
+    if (!this.canManage() || this.busy()) return;
+    this.invalidateReview();
     this.draft.update(steps => steps.map((step, candidate) => candidate === index ? { ...step, [field]: value } : step));
   }
 
   updateStatus(index: number, value: string): void {
-    if (!this.canManage() || this.saving() || !this.statuses.includes(value as StepStatus)) return;
+    if (!this.canManage() || this.busy() || !this.statuses.includes(value as StepStatus)) return;
+    this.invalidateReview();
     this.draft.update(steps => steps.map((step, candidate) => candidate === index ? { ...step, status: value as StepStatus } : step));
   }
 
   discard(): void {
-    if (this.saving()) return;
+    if (this.busy()) return;
+    this.preview.set(null);
     this.draft.set(copySteps(this.loadedDraft()));
     this.feedback.set('Unsaved Research Plan edits were discarded.');
+    this.error.set(null);
+  }
+
+  reviewChanges(): void {
+    const http = this.http;
+    const current = this.state();
+    if (!http || !current || !current.canManage || this.busy() || !this.dirty() || !this.normalizedTaskId()) return;
+
+    this.previewing.set(true);
+    this.preview.set(null);
+    this.error.set(null);
+    this.feedback.set(null);
+    const requestGeneration = this.generation();
+    this.previewRequest?.unsubscribe();
+    this.previewRequest = http.post<unknown>(
+      `/api/tasks/${encodeURIComponent(this.normalizedTaskId())}/research-plan/preview`,
+      {
+        expectedVersion: current.version,
+        steps: this.requestSteps()
+      },
+      { withCredentials: true }).subscribe({
+      next: response => {
+        if (requestGeneration !== this.generation()) return;
+        const mapped = mapPreview(response);
+        if (!mapped || mapped.baseVersion !== current.version) {
+          this.error.set('The Research Plan change preview could not be read. Reload and try again.');
+          return;
+        }
+        this.preview.set(mapped);
+        this.feedback.set(mapped.changes.length
+          ? 'Review the diff and impact summary before saving.'
+          : 'The normalized draft matches the current saved Research Plan.');
+      },
+      error: error => {
+        if (requestGeneration !== this.generation()) return;
+        const apiError = normalizeApiError(error);
+        this.error.set(apiError.message || 'The Research Plan changes could not be reviewed.');
+        this.previewing.set(false);
+        if (apiError.httpStatus === 409) this.load();
+      },
+      complete: () => {
+        if (requestGeneration === this.generation()) this.previewing.set(false);
+      }
+    });
   }
 
   save(): void {
     const http = this.http;
     const current = this.state();
-    if (!http || !current || !current.canManage || this.saving() || !this.normalizedTaskId()) return;
+    const reviewed = this.preview();
+    if (!http || !current || !current.canManage || !reviewed || !this.canSaveReviewed() || !this.normalizedTaskId()) return;
 
     this.saving.set(true);
     this.error.set(null);
@@ -142,12 +249,8 @@ export class TaskResearchPlanComponent implements OnChanges, OnDestroy {
       `/api/tasks/${encodeURIComponent(this.normalizedTaskId())}/research-plan`,
       {
         expectedVersion: current.version,
-        steps: this.draft().map(step => ({
-          title: step.title,
-          objective: step.objective,
-          scopeSummary: step.scopeSummary,
-          status: step.status
-        }))
+        steps: this.requestSteps(),
+        previewFingerprint: reviewed.fingerprint
       },
       { withCredentials: true }).subscribe({
       next: response => {
@@ -158,12 +261,14 @@ export class TaskResearchPlanComponent implements OnChanges, OnDestroy {
           return;
         }
         this.applyPlan(plan);
-        this.feedback.set(`Research Plan revision ${plan.currentRevision?.number ?? ''} saved.`.trim());
+        this.feedback.set(`Research Plan revision ${plan.currentRevision?.number ?? ''} saved from the reviewed diff.`.trim());
       },
       error: error => {
         if (requestGeneration !== this.generation()) return;
         const apiError = normalizeApiError(error);
         this.error.set(apiError.message || 'The Research Plan could not be saved.');
+        this.saving.set(false);
+        this.preview.set(null);
         if (apiError.httpStatus === 409) this.load();
       },
       complete: () => {
@@ -178,8 +283,11 @@ export class TaskResearchPlanComponent implements OnChanges, OnDestroy {
     this.generation.update(value => value + 1);
     const requestGeneration = this.generation();
     this.loadRequest?.unsubscribe();
+    this.previewRequest?.unsubscribe();
     this.saveRequest?.unsubscribe();
+    this.previewing.set(false);
     this.saving.set(false);
+    this.preview.set(null);
     this.error.set(null);
     this.feedback.set(null);
     if (!http || !taskId) {
@@ -209,6 +317,7 @@ export class TaskResearchPlanComponent implements OnChanges, OnDestroy {
         this.draft.set([]);
         this.loadedDraft.set([]);
         this.error.set(normalizeApiError(error).message || 'The Research Plan could not be loaded.');
+        this.loading.set(false);
       },
       complete: () => {
         if (requestGeneration === this.generation()) this.loading.set(false);
@@ -218,16 +327,35 @@ export class TaskResearchPlanComponent implements OnChanges, OnDestroy {
 
   private applyPlan(plan: ResearchPlan): void {
     const steps = (plan.currentRevision?.steps ?? []).map(step => ({
+      baseStepId: step.id,
       title: step.title,
       objective: step.objective,
       scopeSummary: step.scopeSummary,
       status: step.status
     }));
     this.state.set(plan);
+    this.preview.set(null);
     this.draft.set(copySteps(steps));
     this.loadedDraft.set(copySteps(steps));
   }
 
+  private invalidateReview(): void {
+    this.preview.set(null);
+    this.feedback.set(null);
+    this.error.set(null);
+  }
+
+  private requestSteps(): readonly Record<string, unknown>[] {
+    return this.draft().map(step => ({
+      title: step.title,
+      objective: step.objective,
+      scopeSummary: step.scopeSummary,
+      status: step.status,
+      baseStepId: step.baseStepId
+    }));
+  }
+
+  private busy(): boolean { return this.previewing() || this.saving(); }
   private normalizedTaskId(): string { return this.taskId.trim(); }
 }
 
@@ -259,6 +387,76 @@ function mapRevision(value: unknown): PlanRevision | null {
 function mapStep(value: unknown): PlanStep | null {
   if (!isRecord(value) || typeof value['id'] !== 'string' || typeof value['position'] !== 'number' || typeof value['title'] !== 'string' || typeof value['objective'] !== 'string' || typeof value['scopeSummary'] !== 'string' || !isStepStatus(value['status'])) return null;
   return { id: value['id'], position: value['position'], title: value['title'], objective: value['objective'], scopeSummary: value['scopeSummary'], status: value['status'] };
+}
+
+function mapProposedStep(value: unknown): ProposedStep | null {
+  if (!isRecord(value) || typeof value['position'] !== 'number' || typeof value['title'] !== 'string' || typeof value['objective'] !== 'string' || typeof value['scopeSummary'] !== 'string' || !isStepStatus(value['status'])) return null;
+  const rawBaseStepId = value['baseStepId'];
+  if (rawBaseStepId !== null && typeof rawBaseStepId !== 'string') return null;
+  const baseStepId: string | null = typeof rawBaseStepId === 'string' ? rawBaseStepId : null;
+  return { baseStepId, position: value['position'], title: value['title'], objective: value['objective'], scopeSummary: value['scopeSummary'], status: value['status'] };
+}
+
+function mapDiff(value: unknown): StepDiff | null {
+  if (!isRecord(value) || !Array.isArray(value['kinds']) || !value['kinds'].every(kind => typeof kind === 'string') || !Array.isArray(value['changedFields']) || !value['changedFields'].every(field => typeof field === 'string')) return null;
+  const rawBaseStepId = value['baseStepId'];
+  const rawBeforePosition = value['beforePosition'];
+  const rawAfterPosition = value['afterPosition'];
+  if (rawBaseStepId !== null && typeof rawBaseStepId !== 'string') return null;
+  if (rawBeforePosition !== null && typeof rawBeforePosition !== 'number') return null;
+  if (rawAfterPosition !== null && typeof rawAfterPosition !== 'number') return null;
+  const baseStepId: string | null = typeof rawBaseStepId === 'string' ? rawBaseStepId : null;
+  const beforePosition: number | null = typeof rawBeforePosition === 'number' ? rawBeforePosition : null;
+  const afterPosition: number | null = typeof rawAfterPosition === 'number' ? rawAfterPosition : null;
+  const before = value['before'] === null ? null : mapStep(value['before']);
+  const after = value['after'] === null ? null : mapProposedStep(value['after']);
+  if (value['before'] !== null && before === null) return null;
+  if (value['after'] !== null && after === null) return null;
+  return { kinds: value['kinds'], baseStepId, beforePosition, afterPosition, before, after, changedFields: value['changedFields'] };
+}
+
+function mapImpact(value: unknown): ImpactSummary | null {
+  if (!isRecord(value) || typeof value['beforeStepCount'] !== 'number' || typeof value['afterStepCount'] !== 'number' || typeof value['executionStepCountChanged'] !== 'boolean' || typeof value['executionOrderChanged'] !== 'boolean' || typeof value['sourceScopeGuidanceChanged'] !== 'boolean' || typeof value['deliverableAlignmentReviewRequired'] !== 'boolean' || !Array.isArray(value['items'])) return null;
+  const items = value['items'].map(item => {
+    if (!isRecord(item) || typeof item['kind'] !== 'string' || typeof item['message'] !== 'string') return null;
+    const rawStepPosition = item['stepPosition'];
+    if (rawStepPosition !== null && typeof rawStepPosition !== 'number') return null;
+    const stepPosition: number | null = typeof rawStepPosition === 'number' ? rawStepPosition : null;
+    return { kind: item['kind'], message: item['message'], stepPosition } satisfies ImpactItem;
+  });
+  if (!items.every((item): item is ImpactItem => item !== null)) return null;
+  return {
+    beforeStepCount: value['beforeStepCount'],
+    afterStepCount: value['afterStepCount'],
+    executionStepCountChanged: value['executionStepCountChanged'],
+    executionOrderChanged: value['executionOrderChanged'],
+    sourceScopeGuidanceChanged: value['sourceScopeGuidanceChanged'],
+    deliverableAlignmentReviewRequired: value['deliverableAlignmentReviewRequired'],
+    items
+  };
+}
+
+function mapPreview(value: unknown): PlanPreview | null {
+  if (!isRecord(value) || typeof value['baseVersion'] !== 'number' || typeof value['fingerprint'] !== 'string' || !Array.isArray(value['proposedSteps']) || !Array.isArray(value['changes'])) return null;
+  const rawBaseRevisionId = value['baseRevisionId'];
+  const rawBaseRevisionNumber = value['baseRevisionNumber'];
+  if (rawBaseRevisionId !== null && typeof rawBaseRevisionId !== 'string') return null;
+  if (rawBaseRevisionNumber !== null && typeof rawBaseRevisionNumber !== 'number') return null;
+  const baseRevisionId: string | null = typeof rawBaseRevisionId === 'string' ? rawBaseRevisionId : null;
+  const baseRevisionNumber: number | null = typeof rawBaseRevisionNumber === 'number' ? rawBaseRevisionNumber : null;
+  const proposedSteps = value['proposedSteps'].map(mapProposedStep);
+  const changes = value['changes'].map(mapDiff);
+  const impact = mapImpact(value['impact']);
+  if (!proposedSteps.every((step): step is ProposedStep => step !== null) || !changes.every((change): change is StepDiff => change !== null) || !impact) return null;
+  return {
+    baseVersion: value['baseVersion'],
+    baseRevisionId,
+    baseRevisionNumber,
+    fingerprint: value['fingerprint'],
+    proposedSteps,
+    changes,
+    impact
+  };
 }
 
 function isStepStatus(value: unknown): value is StepStatus {

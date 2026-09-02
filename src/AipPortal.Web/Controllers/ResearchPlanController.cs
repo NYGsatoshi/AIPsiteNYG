@@ -7,7 +7,8 @@ namespace AipPortal.Web.Controllers;
 
 /// <summary>
 /// Task-bound Research Plan API. The server owns authorization, plan version,
-/// and immutable revision history; clients only submit a proposed next plan.
+/// immutable revision history, and the normalized diff shown before a save.
+/// Clients only submit a proposed next plan.
 /// </summary>
 [ApiController]
 [Authorize]
@@ -16,6 +17,13 @@ public sealed class ResearchPlanController(IResearchPlanService researchPlans) :
     [HttpGet("api/tasks/{taskItemId:guid}/research-plan")]
     public async Task<IActionResult> Get(Guid taskItemId, CancellationToken cancellationToken) =>
         ToActionResult(await researchPlans.GetAsync(taskItemId, cancellationToken));
+
+    [HttpPost("api/tasks/{taskItemId:guid}/research-plan/preview")]
+    public async Task<IActionResult> Preview(
+        Guid taskItemId,
+        PreviewResearchPlanRequest request,
+        CancellationToken cancellationToken) =>
+        ToActionResult(await researchPlans.PreviewAsync(taskItemId, request, cancellationToken));
 
     [HttpPut("api/tasks/{taskItemId:guid}/research-plan")]
     public async Task<IActionResult> Replace(
@@ -35,7 +43,7 @@ public sealed class ResearchPlanController(IResearchPlanService researchPlans) :
         var status = code switch
         {
             "RESEARCH_PLAN_NOT_FOUND" => StatusCodes.Status404NotFound,
-            "RESEARCH_PLAN_STALE_VERSION" => StatusCodes.Status409Conflict,
+            "RESEARCH_PLAN_STALE_VERSION" or "RESEARCH_PLAN_PREVIEW_MISMATCH" => StatusCodes.Status409Conflict,
             _ => StatusCodes.Status400BadRequest
         };
 
