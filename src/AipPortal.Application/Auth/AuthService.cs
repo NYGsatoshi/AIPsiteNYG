@@ -222,10 +222,22 @@ public sealed class AuthService(
 
         if (existingUser is not null)
         {
+            var existingTenantMembership = await tenants.GetTenantUserAsync(invite.TenantId, existingUser.Id, cancellationToken);
+            if (existingTenantMembership is not null &&
+                existingTenantMembership.Status is TenantUserStatus.Suspended or TenantUserStatus.Left or TenantUserStatus.Archived)
+            {
+                return await RejectInviteAcceptanceAsync(GenericInviteError, "TenantMembershipUnavailable", invite, cancellationToken);
+            }
+
             var existingWorkspaceMembership = await workspaces.GetMemberAsync(invite.WorkspaceId, existingUser.Id, cancellationToken);
             if (existingWorkspaceMembership is not null && existingWorkspaceMembership.TenantId != invite.TenantId)
             {
                 return await RejectInviteAcceptanceAsync(GenericInviteError, "MembershipScopeMismatch", invite, cancellationToken);
+            }
+
+            if (existingWorkspaceMembership is { Status: MembershipStatus.Suspended })
+            {
+                return await RejectInviteAcceptanceAsync(GenericInviteError, "WorkspaceMembershipUnavailable", invite, cancellationToken);
             }
         }
 
@@ -410,9 +422,14 @@ public sealed class AuthService(
             return;
         }
 
-        // A Workspace invite may reactivate Tenant presence, but it does not own
-        // the existing Tenant-level role and therefore must not upgrade/downgrade it.
-        membership.Status = TenantUserStatus.Active;
+        // Invite acceptance may promote only the pre-membership Invited state.
+        // Suspended/Left/Archived are administrative lifecycle boundaries and are
+        // rejected before this mutation path is entered.
+        if (membership.Status == TenantUserStatus.Invited)
+        {
+            membership.Status = TenantUserStatus.Active;
+        }
+
         if (membership.JoinedAt == default)
         {
             membership.JoinedAt = now;
@@ -439,7 +456,10 @@ public sealed class AuthService(
         }
 
         membership.Role = invite.Role;
-        membership.Status = MembershipStatus.Active;
+        if (membership.Status == MembershipStatus.Pending)
+        {
+            membership.Status = MembershipStatus.Active;
+        }
         membership.JoinedAt ??= now;
     }
 
