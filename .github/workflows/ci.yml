@@ -130,6 +130,9 @@ jobs:
       - name: Use repository npm version
         run: npm install --global npm@11.17.0
 
+      - name: Verify MVP-A accessibility coverage contract
+        run: node scripts/ci/verify-mvp-a-required-a11y-tests.mjs
+
       - name: Install UI runner dependencies
         run: npm ci
 
