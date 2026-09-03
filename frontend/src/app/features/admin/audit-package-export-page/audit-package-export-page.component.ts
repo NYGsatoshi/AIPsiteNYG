@@ -5,35 +5,17 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { distinctUntilChanged, map, timer } from 'rxjs';
 
-interface AuditPackageSectionPreviewDto {
-  readonly key: string;
-  readonly label: string;
-  readonly itemCount: number;
-}
-
-interface AuditPackagePreviewDto {
-  readonly artifactId: string;
-  readonly artifactVersionId: string;
-  readonly artifactVersionNumber: number;
-  readonly artifactTitle: string;
-  readonly scopeLabel: string;
-  readonly canExport: boolean;
-  readonly sensitiveMetadataIncluded: boolean;
-  readonly sections: readonly AuditPackageSectionPreviewDto[];
-}
-
-interface AuditPackageJobDto {
-  readonly jobId: string;
-  readonly artifactVersionId: string;
-  readonly fileName: string;
-  readonly state: 'Queued' | 'Processing' | 'Completed' | 'Failed' | string;
-  readonly progressPercent: number;
-  readonly errorCode?: string | null;
-  readonly createdAt: string;
-  readonly completedAt?: string | null;
-}
-
-type LoadState = 'idle' | 'loading' | 'ready' | 'permissionDenied' | 'notFound' | 'error';
+import {
+  auditPackageFailureLabel,
+  describeAuditPackageStatus,
+  formatAuditPackageTimestamp,
+  isAuditPackageGuid,
+} from './audit-package-export-page.models';
+import type {
+  AuditPackageJobDto,
+  AuditPackageLoadState,
+  AuditPackagePreviewDto,
+} from './audit-package-export-page.models';
 
 @Component({
   selector: 'app-audit-package-export-page',
@@ -60,7 +42,7 @@ export class AuditPackageExportPageComponent {
   private jobRequestInFlight = false;
 
   readonly versionInput = signal(this.route.snapshot.queryParamMap.get('artifactVersion') ?? '');
-  readonly loadState = signal<LoadState>('idle');
+  readonly loadState = signal<AuditPackageLoadState>('idle');
   readonly preview = signal<AuditPackagePreviewDto | null>(null);
   readonly job = signal<AuditPackageJobDto | null>(null);
   readonly confirmed = signal(false);
@@ -70,7 +52,18 @@ export class AuditPackageExportPageComponent {
   readonly jobLastUpdatedAt = signal<string | null>(null);
   readonly message = signal<string | null>(null);
   readonly inputError = signal<string | null>(null);
-  readonly accessibilityStatus = computed(() => this.describeStatus());
+  readonly failureLabel = auditPackageFailureLabel;
+  readonly formatTimestamp = formatAuditPackageTimestamp;
+  readonly accessibilityStatus = computed(() => describeAuditPackageStatus({
+    busy: this.busy(),
+    hasPreview: this.preview() !== null,
+    job: this.job(),
+    jobLastUpdatedAt: this.jobLastUpdatedAt(),
+    jobRefreshBusy: this.jobRefreshBusy(),
+    jobStatusStale: this.jobStatusStale(),
+    loadState: this.loadState(),
+    message: this.message(),
+  }));
 
   constructor() {
     effect(() => {
@@ -89,11 +82,10 @@ export class AuditPackageExportPageComponent {
 
   openVersion(): void {
     const artifactVersionId = this.versionInput().trim();
-    if (!isGuid(artifactVersionId)) {
+    if (!isAuditPackageGuid(artifactVersionId)) {
       this.inputError.set('Enter a valid artifact version ID.');
       return;
     }
-
     this.inputError.set(null);
     void this.router.navigate([], {
       relativeTo: this.route,
@@ -111,7 +103,6 @@ export class AuditPackageExportPageComponent {
     if (!preview || !preview.canExport || !this.confirmed() || this.busy()) {
       return;
     }
-
     this.busy.set(true);
     this.message.set(null);
     this.http.post<AuditPackageJobDto>(
@@ -138,7 +129,6 @@ export class AuditPackageExportPageComponent {
     if (!current || current.state !== 'Failed' || this.busy()) {
       return;
     }
-
     this.busy.set(true);
     this.message.set(null);
     this.http.post<AuditPackageJobDto>(
@@ -165,7 +155,6 @@ export class AuditPackageExportPageComponent {
     if (!current || current.state !== 'Completed') {
       return;
     }
-
     const anchor = document.createElement('a');
     anchor.href = `/api/admin/audit/package-exports/${encodeURIComponent(current.jobId)}/download`;
     anchor.rel = 'noopener';
@@ -177,31 +166,9 @@ export class AuditPackageExportPageComponent {
     if (!current || this.jobRefreshBusy() || this.busy()) {
       return;
     }
-
     this.jobRefreshBusy.set(true);
     this.message.set(null);
     this.fetchJob(current.jobId);
-  }
-
-  failureLabel(code: string | null | undefined): string {
-    switch (code) {
-      case 'AuthorizationChanged': return 'Authorization changed while the package was being generated.';
-      case 'ArtifactVersionUnavailable': return 'The artifact version is no longer available.';
-      case 'WorkerInterrupted': return 'Processing was interrupted before completion.';
-      case 'PackageTooLarge': return 'The package exceeded the current export size limit.';
-      case 'StorageWriteFailed': return 'The package could not be written to export storage.';
-      case 'ExportJobCorrupt': return 'The export job metadata is invalid.';
-      case 'PackageBuildFailed': return 'The package could not be generated.';
-      default: return 'The package export failed.';
-    }
-  }
-
-  formatTimestamp(value: string | null | undefined): string {
-    if (!value) {
-      return '—';
-    }
-    const parsed = new Date(value);
-    return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
   }
 
   private loadFromRoute(artifactVersionId: string | null): void {
@@ -218,19 +185,16 @@ export class AuditPackageExportPageComponent {
     this.jobLastUpdatedAt.set(null);
     this.message.set(null);
     this.versionInput.set(artifactVersionId ?? '');
-
     if (!artifactVersionId) {
       this.loadState.set('idle');
       this.inputError.set(null);
       return;
     }
-
-    if (!isGuid(artifactVersionId)) {
+    if (!isAuditPackageGuid(artifactVersionId)) {
       this.loadState.set('idle');
       this.inputError.set('Enter a valid artifact version ID.');
       return;
     }
-
     this.inputError.set(null);
     this.loadPreview(artifactVersionId);
   }
@@ -289,7 +253,6 @@ export class AuditPackageExportPageComponent {
     if (this.jobRequestInFlight) {
       return;
     }
-
     const requestVersion = ++this.jobRequestVersion;
     this.jobRequestInFlight = true;
     this.http.get<AuditPackageJobDto>(
@@ -329,47 +292,8 @@ export class AuditPackageExportPageComponent {
     this.jobLastUpdatedAt.set(new Date().toISOString());
   }
 
-  private describeStatus(): string {
-    if (this.loadState() === 'loading') {
-      return 'Loading authorized Audit export scope.';
-    }
-    if (this.busy()) {
-      return this.job()?.state === 'Failed'
-        ? 'Queuing Audit package export retry.'
-        : 'Queuing Audit package export.';
-    }
-    if (this.jobRefreshBusy()) {
-      return 'Refreshing Audit package export status.';
-    }
-
-    const job = this.job();
-    if (this.jobStatusStale() && job) {
-      return `Export status refresh failed. Showing the last known ${job.state} state from ${this.formatTimestamp(this.jobLastUpdatedAt())}.`;
-    }
-    if (this.message()) {
-      return this.message() ?? '';
-    }
-    if (job) {
-      switch (job.state) {
-        case 'Queued': return 'Audit package export queued.';
-        case 'Processing': return `Audit package export processing, ${job.progressPercent}% complete.`;
-        case 'Completed': return 'Audit package export completed. Download is ready.';
-        case 'Failed': return `Audit package export failed. ${this.failureLabel(job.errorCode)}`;
-        default: return `Audit package export status: ${job.state}.`;
-      }
-    }
-    if (this.preview()) {
-      return 'Authorized Audit export scope loaded.';
-    }
-    return '';
-  }
-
   private stopPolling(): void {
     this.pollSubscription?.unsubscribe();
     this.pollSubscription = null;
   }
-}
-
-function isGuid(value: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i.test(value.trim());
 }
