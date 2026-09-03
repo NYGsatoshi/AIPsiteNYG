@@ -111,15 +111,23 @@
             (publishRequested)="publishAnnouncement($event)"
           />
         } @else {
-          <app-announcement-detail
-            [announcement]="selectedAnnouncement()"
-            [canEdit]="canEdit()"
-            [mobileFocusRequest]="detailFocusRequest()"
-            [mobileDetailActive]="detailRouteActive()"
-            (editRequested)="showEditEditor()"
-            (markReadRequested)="markRead($event)"
-            (backRequested)="returnToList()"
-          />
+          @if (selectedAnnouncement(); as selected) {
+            <app-announcement-detail
+              [announcement]="selected"
+              [canEdit]="canEdit()"
+              [acknowledged]="isAcknowledged(selected.id)"
+              [acknowledgementPending]="isAcknowledgementPending(selected.id)"
+              [acknowledgementError]="hasAcknowledgementError(selected.id)"
+              [mobileFocusRequest]="detailFocusRequest()"
+              [mobileDetailActive]="detailRouteActive()"
+              (editRequested)="showEditEditor()"
+              (markReadRequested)="markRead($event)"
+              (acknowledgeRequested)="acknowledge($event)"
+              (ctaClicked)="trackCtaClick($event)"
+              (backRequested)="returnToList()"
+            />
+            <app-announcement-analytics-panel [announcementId]="selected.id" />
+          }
         }
       </div>
     </div>
