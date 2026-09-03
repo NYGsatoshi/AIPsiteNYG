@@ -107,29 +107,31 @@
       </div>
     }
 
+    <!-- eslint-disable @angular-eslint/template/i18n, @angular-eslint/template/cyclomatic-complexity, @angular-eslint/template/no-call-expression -->
     @if (announcement.readState.requiresReadConfirmation) {
       <div class="announcement-detail__read-action" data-testid="announcement-acknowledgement">
-        @if (acknowledgementError) {
+        @if (acknowledgementError()) {
           <p class="announcement-detail__read-error" role="alert" data-testid="announcement-acknowledgement-error">
             確認状態を記録できませんでした。もう一度お試しください。
           </p>
         }
-        @if (acknowledged) {
+        @if (acknowledged()) {
           <p role="status" data-testid="announcement-acknowledged-status">確認済みとして記録しました。</p>
         } @else {
           <button
             type="button"
             class="announcement-detail__mark-read"
             data-testid="announcement-acknowledge-action"
-            [disabled]="acknowledgementPending"
-            [attr.aria-busy]="acknowledgementPending"
+            [disabled]="acknowledgementPending()"
+            [attr.aria-busy]="acknowledgementPending()"
             (click)="requestAcknowledgement()"
           >
-            {{ acknowledgementPending ? '記録中…' : '内容を確認しました' }}
+            {{ acknowledgementPending() ? '記録中…' : '内容を確認しました' }}
           </button>
         }
       </div>
     }
+    <!-- eslint-enable @angular-eslint/template/i18n, @angular-eslint/template/cyclomatic-complexity, @angular-eslint/template/no-call-expression -->
 
     @if (announcement.detailState === 'loaded') {
       <p class="announcement-detail__body" data-testid="announcement-body-text">{{ announcement.body }}</p>
