@@ -23,6 +23,7 @@ describe('AuditPackageExportPageComponent', () => {
     httpMock = TestBed.inject(HttpTestingController);
     fixture = TestBed.createComponent(AuditPackageExportPageComponent);
     component = fixture.componentInstance;
+    fixture.detectChanges();
   });
 
   afterEach(() => {
