@@ -124,7 +124,10 @@ export class AnnouncementDetailComponent implements AfterViewChecked {
 
   public recordCtaClick(): void {
     const { announcement } = this;
-    if (announcement === null || announcement.cta === undefined) {
+    if (announcement === null) {
+      return;
+    }
+    if (typeof announcement.cta === 'undefined') {
       return;
     }
 
