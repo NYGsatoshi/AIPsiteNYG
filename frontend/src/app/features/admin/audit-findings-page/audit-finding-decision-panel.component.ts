@@ -40,6 +40,8 @@ type PanelState =
   styleUrl: './audit-finding-decision-panel.component.scss',
 })
 export class AuditFindingDecisionPanelComponent {
+  public readonly saveAnnouncement = signal('');
+
   private readonly http = inject(HttpClient);
   private requestVersion = 0;
 
@@ -50,7 +52,6 @@ export class AuditFindingDecisionPanelComponent {
   readonly saving = signal(false);
   readonly validationError = signal<string | null>(null);
   readonly mutationError = signal<string | null>(null);
-  readonly saveAnnouncement = signal('');
 
   readonly selectedOption = computed(() => {
     const response = this.state().response;
@@ -117,11 +118,11 @@ export class AuditFindingDecisionPanelComponent {
           this.saving.set(false);
           this.applyResponse(response);
           const savedState = this.state();
-          this.saveAnnouncement.set(
-            savedState.status === 'ready' && savedState.response.reviewCompleted
-              ? 'Structured decision saved. Review complete.'
-              : 'Structured decision saved.',
-          );
+          if (savedState.status === 'ready' && savedState.response.reviewCompleted) {
+            this.saveAnnouncement.set('Structured decision saved. Review complete.');
+          } else {
+            this.saveAnnouncement.set('Structured decision saved.');
+          }
         },
         error: (error: { status?: number }) => {
           if (requestVersion !== this.requestVersion) {
