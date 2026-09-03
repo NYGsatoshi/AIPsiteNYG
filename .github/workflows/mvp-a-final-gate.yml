@@ -1,0 +1,52 @@
+name: MVP-A Final Gate
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: mvp-a-final-gate-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  checks: read
+
+jobs:
+  mvp-a-final-gate:
+    name: mvp-a-final-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Require main candidate
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "MVP-A final gate must be dispatched against main; got $GITHUB_REF." >&2
+            exit 1
+          fi
+
+      - name: Checkout final candidate
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Revalidate repository gate topology
+        run: |
+          python3 scripts/ci/check-publication-readiness.py
+          python3 scripts/ci/check-required-pr-checks.py
+          node scripts/ci/verify-mvp-a-required-a11y-tests.mjs
+
+      - name: Validate final-gate acceptance runner syntax
+        shell: bash
+        run: |
+          node --check tests/ui/mvp-a-authz-boundary-acceptance.mjs
+          node --check scripts/ci/verify-mvp-a-final-checks.mjs
+          bash -n scripts/ci/run-mvp-a-authz-boundary-acceptance.sh
+
+      - name: Require green MVP-A checks on this exact commit
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/ci/verify-mvp-a-final-checks.mjs
