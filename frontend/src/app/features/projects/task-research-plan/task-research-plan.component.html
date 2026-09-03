@@ -28,7 +28,7 @@
           <div class="task-research-plan__step-heading">
             <h3>Step {{ index + 1 }}</h3>
             @if (canManage()) {
-              <div class="task-research-plan__step-actions" aria-label="Reorder and remove Step {{ index + 1 }}">
+              <div class="task-research-plan__step-actions" [attr.aria-label]="`Reorder and remove Step ${index + 1}`">
                 <button type="button" [disabled]="previewing() || saving() || index === 0" (click)="moveStep(index, -1)" [attr.aria-label]="'Move Step ' + (index + 1) + ' up'">Move up</button>
                 <button type="button" [disabled]="previewing() || saving() || index === draft().length - 1" (click)="moveStep(index, 1)" [attr.aria-label]="'Move Step ' + (index + 1) + ' down'">Move down</button>
                 <button type="button" [disabled]="previewing() || saving()" (click)="removeStep(index)" [attr.aria-label]="'Remove Step ' + (index + 1)">Remove</button>

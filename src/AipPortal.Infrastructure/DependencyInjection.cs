@@ -79,6 +79,7 @@ public static class DependencyInjection
         services.AddScoped<IArtifactRepository, ArtifactRepository>();
         services.AddScoped<IArtifactEvidenceRepository, ArtifactEvidenceRepository>();
         services.AddScoped<AipPortal.Application.Artifacts.IArtifactReportService, DbArtifactReportService>();
+        services.AddScoped<AipPortal.Application.Artifacts.IArtifactReportRefinementService, GuardedArtifactReportRefinementService>();
         services.AddScoped<IPlanningRepository, PlanningRepository>();
         services.AddScoped<IUiShellRepository, UiShellRepository>();
         services.AddScoped<IAnnouncementRepository, AnnouncementRepository>();

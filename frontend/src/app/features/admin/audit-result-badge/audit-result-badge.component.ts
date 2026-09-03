@@ -6,7 +6,7 @@ import { AuditResultDisplay } from '../admin.types';
   selector: 'app-audit-result-badge',
   standalone: true,
   template: `
-    <span class="admin-badge" [class]="'admin-badge admin-badge--' + result" data-testid="audit-result-badge">
+    <span [class]="'admin-badge admin-badge--' + result" data-testid="audit-result-badge">
       <span class="admin-badge__icon" aria-hidden="true"></span>{{ label }}
     </span>
   `,
