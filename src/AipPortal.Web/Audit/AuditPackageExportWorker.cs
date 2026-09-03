@@ -1,5 +1,5 @@
 using AipPortal.Application.Audit;
-using AipPortal.Application.Common.Tenancy;
+using AipPortal.Application.Common.Interfaces;
 
 namespace AipPortal.Web.Audit;
 
@@ -72,7 +72,7 @@ public sealed class AuditPackageExportWorker(
             await using var tenantScope = scopeFactory.CreateAsyncScope();
             var tenant = tenantScope.ServiceProvider.GetRequiredService<ICurrentTenantAccessor>();
             var processor = tenantScope.ServiceProvider.GetRequiredService<IAuditPackageExportProcessor>();
-            tenant.SetTenant(tenantId);
+            tenant.SetTenant(tenantId, "audit-package-export");
 
             await processor.RecoverStaleRunningAsync(
                 staleBefore,
