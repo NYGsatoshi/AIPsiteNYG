@@ -96,6 +96,17 @@ test.describe('Audit WCAG 2.2 AA regression', () => {
       ],
     });
 
+    await page.route('**/api/security/csrf-token', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json; charset=utf-8',
+        body: JSON.stringify({
+          token: 'audit-accessibility-csrf-token',
+          headerName: 'X-CSRF-Token',
+        }),
+      });
+    });
+
     await page.route('**/api/admin/audit/findings**', async (route) => {
       const request = route.request();
       const pathname = new URL(request.url()).pathname;
