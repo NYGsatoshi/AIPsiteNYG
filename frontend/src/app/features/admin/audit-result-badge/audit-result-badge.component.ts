@@ -7,7 +7,7 @@ import { AuditResultDisplay } from '../admin.types';
   standalone: true,
   template: `
     <span class="admin-badge" [class]="'admin-badge admin-badge--' + result" data-testid="audit-result-badge">
-      {{ label }}
+      <span class="admin-badge__icon" aria-hidden="true"></span>{{ label }}
     </span>
   `,
   styles: [
@@ -25,22 +25,25 @@ import { AuditResultDisplay } from '../admin.types';
         font-weight: 700;
       }
 
-      .admin-badge::before {
+      .admin-badge__icon::before {
         content: '?';
+      }
+
+      .admin-badge__icon {
         inline-size: 1em;
         flex: 0 0 auto;
         text-align: center;
       }
 
-      .admin-badge--success::before {
+      .admin-badge--success .admin-badge__icon::before {
         content: '✓';
       }
 
-      .admin-badge--denied::before {
+      .admin-badge--denied .admin-badge__icon::before {
         content: '⊘';
       }
 
-      .admin-badge--failed::before {
+      .admin-badge--failed .admin-badge__icon::before {
         content: '!';
       }
 
