@@ -32,7 +32,7 @@
     <OpenApiGenerateDocuments>$(GenerateSecurityOpenApiContract)</OpenApiGenerateDocuments>
     <OpenApiGenerateDocumentsOnBuild>$(GenerateSecurityOpenApiContract)</OpenApiGenerateDocumentsOnBuild>
     <OpenApiDocumentsDirectory>$(MSBuildProjectDirectory)/../../artifacts/openapi</OpenApiDocumentsDirectory>
-    <OpenApiGenerateDocumentsOptions>--file-name aipportal.openapi --openapi-version OpenApi3_1</OpenApiGenerateDocumentsOptions>
+    <OpenApiGenerateDocumentsOptions>--file-name aipportal-openapi --openapi-version OpenApi3_1</OpenApiGenerateDocumentsOptions>
   </PropertyGroup>
 
   <PropertyGroup>
