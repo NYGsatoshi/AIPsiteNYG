@@ -1,0 +1,73 @@
+@if (analytics(); as vm) {
+  <section
+    class="announcement-analytics"
+    aria-labelledby="announcement-analytics-title"
+    data-testid="announcement-analytics"
+  >
+    <header class="announcement-analytics__header">
+      <div>
+        <p>管理者向け集計</p>
+        <h3 id="announcement-analytics-title">配信状況</h3>
+      </div>
+      <span>個人別データは表示しません</span>
+    </header>
+
+    <div class="announcement-analytics__metrics">
+      <article data-testid="announcement-analytics-read">
+        <span>既読率</span>
+        <strong>{{ percentage(vm.readRate) }}</strong>
+        <progress [value]="vm.readRate" max="1" aria-label="既読率"></progress>
+        <small>{{ vm.readCount }} / {{ vm.recipientCount }} 人</small>
+      </article>
+
+      @if (vm.acknowledgementRate !== undefined && vm.acknowledgedCount !== undefined) {
+        <article data-testid="announcement-analytics-acknowledgement">
+          <span>確認率</span>
+          <strong>{{ percentage(vm.acknowledgementRate) }}</strong>
+          <progress [value]="vm.acknowledgementRate" max="1" aria-label="確認率"></progress>
+          <small>{{ vm.acknowledgedCount }} / {{ vm.recipientCount }} 人</small>
+        </article>
+      }
+
+      @if (vm.ctaClickThroughRate !== undefined && vm.ctaClickCount !== undefined) {
+        <article data-testid="announcement-analytics-cta">
+          <span>CTA click-through</span>
+          <strong>{{ percentage(vm.ctaClickThroughRate) }}</strong>
+          <progress [value]="vm.ctaClickThroughRate" max="1" aria-label="CTA click-through率"></progress>
+          <small>{{ vm.ctaClickCount }} / {{ vm.recipientCount }} 人</small>
+        </article>
+      }
+    </div>
+
+    @if (vm.medianTimeToRecognitionSeconds !== undefined) {
+      <p class="announcement-analytics__recognition" data-testid="announcement-analytics-recognition">
+        既読までの中央値: <strong>{{ duration(vm.medianTimeToRecognitionSeconds) }}</strong>
+      </p>
+    }
+
+    <dl class="announcement-analytics__definition">
+      <div>
+        <dt>分母</dt>
+        <dd data-testid="announcement-analytics-denominator">
+          @if (vm.denominatorKind === 'frozenDeliveryCohort') {
+            配信時に確定した delivery cohort（{{ vm.recipientCount }} 人）
+          } @else {
+            旧データ: 現在認可されている audience（{{ vm.recipientCount }} 人）
+          }
+        </dd>
+      </div>
+      <div>
+        <dt>集計期間</dt>
+        <dd data-testid="announcement-analytics-period">
+          {{ vm.periodStartLabel }} 〜 {{ vm.periodEndLabel }}
+        </dd>
+      </div>
+      @if (vm.ctaMetric === 'clickThrough') {
+        <div>
+          <dt>CTA 指標</dt>
+          <dd>リンクの初回 click-through。外部サイト上の完了は計測しません。</dd>
+        </div>
+      }
+    </dl>
+  </section>
+}
