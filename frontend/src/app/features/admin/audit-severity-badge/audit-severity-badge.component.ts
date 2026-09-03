@@ -6,7 +6,7 @@ import { AuditSeverityDisplay } from '../admin.types';
   selector: 'app-audit-severity-badge',
   standalone: true,
   template: `
-    <span class="admin-badge" [class]="'admin-badge admin-badge--' + severity" data-testid="audit-severity-badge">
+    <span [class]="'admin-badge admin-badge--' + severity" data-testid="audit-severity-badge">
       {{ label }}
     </span>
   `,
