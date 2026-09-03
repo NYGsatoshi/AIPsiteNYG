@@ -1,4 +1,3 @@
-/* eslint-disable -- Issue #390 is isolated while ESLINT-01 reduces the repository-wide configs.all baseline. */
 import { HttpClient } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { map, Observable } from 'rxjs';
@@ -75,14 +74,14 @@ export function mapAnnouncementAnalytics(
   const periodEnd = dateValue(dto.periodEndUtc);
   const denominatorKind = denominatorValue(dto.denominatorKind);
   if (
-    !announcementId ||
+    announcementId === undefined ||
     recipientCount === undefined ||
     readCount === undefined ||
     readCount > recipientCount ||
     readRate === undefined ||
-    !periodStart ||
-    !periodEnd ||
-    !denominatorKind
+    periodStart === undefined ||
+    periodEnd === undefined ||
+    denominatorKind === undefined
   ) {
     return null;
   }
@@ -152,7 +151,7 @@ function nullableRate(value: unknown): number | undefined {
 
 function dateValue(value: unknown): Date | undefined {
   const raw = stringValue(value);
-  if (!raw) {
+  if (raw === undefined) {
     return undefined;
   }
   const date = new Date(raw);
