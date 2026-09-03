@@ -1,10 +1,13 @@
 name: Code Quality
 
-# TEMPORARY CONTEST MODE: keep Qodana available on demand, but do not spend
-# CI runner capacity on every PR/push. Re-enable automatic triggers
-# after the contest window.
+# Restore automatic code-quality coverage after the temporary contest window.
+# Run for every PR update and every change that lands directly on main.
 on:
   workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - main
 
 concurrency:
   group: code-quality-v2-${{ github.ref }}
