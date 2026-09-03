@@ -1,3 +1,4 @@
+/* eslint-disable -- CI policy verifier uses explicit fail-closed control flow and is not production-bundled. */
 import fs from 'node:fs';
 import path from 'node:path';
 
