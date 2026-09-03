@@ -10,7 +10,11 @@ Coverage:
 - Angular HTML templates: all Angular ESLint template rules, including accessibility rules.
 - CSS and SCSS: the coherent Stylelint standard SCSS profile.
 
-The default CI mode is inventory mode: all configured rules run and reports are uploaded, but existing findings do not fail the build. Fatal parser/configuration errors still fail. Run with `--enforce` to fail on any finding after the existing backlog has been baselined or fixed.
+The default invocation is inventory mode: all configured rules run and reports are uploaded, but existing findings do not fail the command. Fatal ESLint parser/configuration errors still fail.
+
+`--enforce` is the blocking regression mode used by the `Frontend Static Analysis` workflow. It compares current findings with the committed `baseline.json` and enforces a debt ceiling for each lint rule. A pull request fails when the repository-wide count for any ESLint or Stylelint rule increases above the accepted baseline. Existing findings remain visible without requiring unrelated PRs to eliminate the backlog wholesale, while each rule's total debt cannot grow.
+
+Line and column positions are deliberately excluded. Fixing an existing finding can offset a new finding of the same rule elsewhere, so the gate is a rule-level debt ceiling rather than an exact per-line baseline.
 
 ```bash
 npm ci
@@ -20,3 +24,12 @@ node tools/frontend-inspections/run.mjs
 node tools/frontend-inspections/run.mjs --verbose
 node tools/frontend-inspections/run.mjs --enforce
 ```
+
+To intentionally replace the accepted baseline after reviewing a lint migration or policy change, run:
+
+```bash
+node tools/frontend-inspections/run.mjs --update-baseline
+git diff -- tools/frontend-inspections/baseline.json
+```
+
+Baseline updates are policy changes: review the diff rather than regenerating the file only to make a failing PR green.
