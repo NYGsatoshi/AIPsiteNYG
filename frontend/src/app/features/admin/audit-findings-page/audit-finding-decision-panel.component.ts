@@ -43,7 +43,7 @@ export class AuditFindingDecisionPanelComponent {
   public readonly saveAnnouncement = signal('');
   public readonly readyStatusMessage = computed(() => {
     const announcement = this.saveAnnouncement(), panel = this.state();
-    if (announcement.length > 0) {
+    if (announcement !== '') {
       return announcement;
     }
     if (panel.status === 'ready' && panel.response.reviewCompleted) {
