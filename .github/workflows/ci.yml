@@ -99,8 +99,8 @@ jobs:
           BootstrapAdmin__Email: ""
         run: |
           set -euo pipefail
-          spec="artifacts/openapi/aipportal.openapi.json"
-          first="${RUNNER_TEMP}/aipportal.openapi.first.json"
+          spec="artifacts/openapi/aipportal-openapi.json"
+          first="${RUNNER_TEMP}/aipportal-openapi.first.json"
 
           generate_openapi() {
             dotnet build src/AipPortal.Web/AipPortal.Web.csproj \
@@ -129,7 +129,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: openapi-3.1-contract
-          path: artifacts/openapi/aipportal.openapi.json
+          path: artifacts/openapi/aipportal-openapi.json
           if-no-files-found: error
           retention-days: 7
 
