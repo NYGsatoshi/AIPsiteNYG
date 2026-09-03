@@ -50,10 +50,10 @@
         </select>
       </label>
 
-      <label>
-        Expires at
+      <div class="admin-invites__form-field">
+        <span>Expires at</span>
         <app-aip-date-time-picker [value]="expiresAt() || null" ariaLabel="Expires at" (valueChanged)="expiresAt.set($event ?? '')" />
-      </label>
+      </div>
     </form>
     <label class="admin-invites__bulk-label">Bulk email addresses (one per line)<textarea [ngModel]="bulkEmails()" (ngModelChange)="bulkEmails.set($event)" name="bulkEmails"></textarea></label>
     <button type="button" (click)="createBulkInvites()" [disabled]="!canSubmit() || !bulkEmails().trim()">Create bulk invites</button>
