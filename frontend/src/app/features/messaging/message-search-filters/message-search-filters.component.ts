@@ -228,7 +228,13 @@ const EMPTY_INBOX: MessagingInboxViewModel = {
       </div>
 
       @if (advancedDrawerOpen()) {
-        <div class="message-discovery__drawer-overlay" role="presentation" (click)="handleDrawerOverlayClick($event)">
+        <div class="message-discovery__drawer-overlay">
+          <button
+            type="button"
+            class="message-discovery__drawer-backdrop"
+            aria-label="Close advanced filters"
+            (click)="cancelAdvancedDrawer()"
+          ></button>
           <section
             #advancedDrawer
             class="message-discovery__drawer"
