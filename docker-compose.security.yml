@@ -1,0 +1,69 @@
+# SEC-02 multi-tenant security-test overlay.
+#
+# This file is intentionally layered on docker-compose.real-backend-smoke.yml so
+# the security stack reuses the production image/migration path without reusing
+# the browser-smoke fixture. It is Test-only and must never be deployed as a
+# production perimeter profile.
+#
+# Example:
+#   AIP_SECURITY_CI_PASSWORD='synthetic-test-password' \
+#   docker compose -p aipsite-security-ci \
+#     -f docker-compose.real-backend-smoke.yml \
+#     -f docker-compose.security.yml up -d postgres migrate app
+
+services:
+  postgres:
+    environment:
+      POSTGRES_DB: aip_portal_security
+      POSTGRES_USER: aip_portal_security
+      POSTGRES_PASSWORD: aip_portal_security_password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aip_portal_security -d aip_portal_security"]
+
+  migrate:
+    environment:
+      ASPNETCORE_ENVIRONMENT: Test
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=aip_portal_security;Username=aip_portal_security;Password=aip_portal_security_password
+      Tenancy__SeedOnStartup: "false"
+
+  app:
+    environment:
+      ASPNETCORE_ENVIRONMENT: Test
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=aip_portal_security;Username=aip_portal_security;Password=aip_portal_security_password
+
+      # Exercise the real multi-tenant resolver instead of the browser-smoke
+      # OnPremSingleTenant shortcut. Header resolution is permitted only because
+      # this stack runs under the Test environment and opts in explicitly.
+      Tenancy__AppMode: SaaS
+      Tenancy__DefaultTenantSlug: security-alpha
+      Tenancy__TenantResolutionStrategy: HeaderForDevelopmentOnly
+      Tenancy__AllowTenantSwitching: "true"
+      Tenancy__AllowDevelopmentHeaderTenantResolution: "true"
+      Tenancy__AllowDevelopmentHeaderInProduction: "false"
+      Tenancy__DevelopmentTenantHeaderName: X-Tenant-Slug
+      Tenancy__SeedOnStartup: "false"
+      UiShell__SeedOnStartup: "false"
+
+      # Keep browser/demo fixtures out of the security database. SEC-02 has its
+      # own explicit Test-only boundary and synthetic credentials.
+      AIP_BROWSER_SMOKE_SEED_ENABLED: "false"
+      AIP_BROWSER_SMOKE_RESPONSE_GATE_ENABLED: "false"
+      AIP_DEMO_DATASET_ENABLED: "false"
+      AIP_SECURITY_CI_FIXTURE_ENABLED: "true"
+      AIP_SECURITY_CI_PASSWORD: ${AIP_SECURITY_CI_PASSWORD:?AIP_SECURITY_CI_PASSWORD is required for the SEC-02 stack}
+
+      # This is the active-scanner application profile, not the perimeter/TLS
+      # profile. CSRF remains enabled. HTTPS/HSTS/rate-limit verification is a
+      # separate security-perimeter test so scanners are not silently reduced to
+      # 429/redirect coverage.
+      Security__CookieSecurePolicy: SameAsRequest
+      Security__RequireHttps: "false"
+      Security__EnableHsts: "false"
+      Security__EnableCsrfProtection: "true"
+      Security__EnableRateLimiting: "false"
+
+  # SEC-02 replaces the browser fixture, so the inherited Playwright service is
+  # opt-in only when this overlay is active. Future SEC-04/06 scanners join the
+  # same Compose network and target http://aip-backend:8080 directly.
+  real-backend-playwright:
+    profiles: ["browser-smoke"]
