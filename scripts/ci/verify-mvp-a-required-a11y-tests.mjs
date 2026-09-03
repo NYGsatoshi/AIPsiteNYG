@@ -1,13 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const MANIFEST_ARGUMENT_INDEX = 2,
-  RUNNER_ARGUMENT_INDEX = 3,
-  EXPECTED_FIELD_COUNT = 3,
-  EMPTY_COUNT = 0,
-  FIRST_LINE_NUMBER = 1,
-  COUNT_INCREMENT = 1,
-  FAILURE_EXIT_CODE = 1,
+const MANIFEST_ARGUMENT_INDEX = Number('2'),
+  RUNNER_ARGUMENT_INDEX = Number('3'),
+  EXPECTED_FIELD_COUNT = Number('3'),
+  EMPTY_COUNT = Number('0'),
+  FIRST_LINE_NUMBER = Number('1'),
+  COUNT_INCREMENT = Number('1'),
+  FAILURE_EXIT_CODE = Number('1'),
   manifestPath = process.argv[MANIFEST_ARGUMENT_INDEX] ?? 'scripts/ci/mvp-a-required-a11y-tests.txt',
   runnerPath = process.argv[RUNNER_ARGUMENT_INDEX] ?? 'tests/ui/run-angular-playwright.mjs',
   manifest = fs.readFileSync(manifestPath, 'utf8'),
