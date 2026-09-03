@@ -53,7 +53,7 @@ export class AppMentionInputComponent implements OnChanges {
 
   constructor() {
     this.query.pipe(debounceTime(200), switchMap(range => this.search(range)), takeUntilDestroyed(this.destroyRef)).subscribe(result => {
-      if (!result || !this.isRangeCurrent(result.range)) return;
+      if (!result || !this.isRangeCurrent(result.range)) {return;}
       if (result.kind === 'error') {
         this.candidates.set([]);
         this.status.set(result.status === 403 ? 'Mention search is not permitted.' : result.status === 429 ? 'Mention search is temporarily rate limited. Retry shortly.' : 'Mention search failed.');
@@ -66,7 +66,7 @@ export class AppMentionInputComponent implements OnChanges {
   }
 
   ngOnChanges(): void {
-    if (this.value === this.lastCanonical && this.taskId === this.lastTaskId) return;
+    if (this.value === this.lastCanonical && this.taskId === this.lastTaskId) {return;}
     this.taskGeneration++;
     this.closeCandidates('');
     const names = new Map(this.knownMentions.map(mention => [mention.userId, mention.displayName]));
@@ -89,11 +89,11 @@ export class AppMentionInputComponent implements OnChanges {
 
   onCaretChange(event: Event): void {
     const textarea = event.target as HTMLTextAreaElement;
-    if (this.queryRange && (textarea.selectionStart !== this.queryRange.selectionStart || textarea.selectionEnd !== this.queryRange.selectionEnd)) this.closeCandidates('Mention suggestions closed because the caret moved.');
+    if (this.queryRange && (textarea.selectionStart !== this.queryRange.selectionStart || textarea.selectionEnd !== this.queryRange.selectionEnd)) {this.closeCandidates('Mention suggestions closed because the caret moved.');}
   }
 
   onKeydown(event: KeyboardEvent): void {
-    if (!this.candidates().length) return;
+    if (!this.candidates().length) {return;}
     if (event.key === 'ArrowDown') { event.preventDefault(); this.selectedIndex.update(index => Math.min(index + 1, this.candidates().length - 1)); }
     else if (event.key === 'ArrowUp') { event.preventDefault(); this.selectedIndex.update(index => Math.max(index - 1, 0)); }
     else if (event.key === 'Enter') { event.preventDefault(); this.select(this.candidates()[this.selectedIndex()]); }
@@ -102,7 +102,7 @@ export class AppMentionInputComponent implements OnChanges {
 
   select(candidate: { userId: string; displayName: string }): void {
     const range = this.queryRange; const textarea = this.editor?.nativeElement;
-    if (!candidate || !range || !textarea || !this.isRangeCurrent(range)) return;
+    if (!candidate || !range || !textarea || !this.isRangeCurrent(range)) {return;}
     const value = this.displayValue(); const replacement = `@${candidate.displayName}`; const next = `${value.slice(0, range.start)}${replacement}${value.slice(range.end)}`;
     const delta = replacement.length - (range.end - range.start);
     this.tokens = [...this.tokens.filter(token => token.end <= range.start || token.start >= range.end).map(token => token.start >= range.end ? { ...token, start: token.start + delta, end: token.end + delta } : token), { userId: candidate.userId, displayName: candidate.displayName, start: range.start, end: range.start + replacement.length }].sort((a, b) => a.start - b.start);
@@ -115,7 +115,7 @@ export class AppMentionInputComponent implements OnChanges {
   optionId(index: number): string { return `${this.textareaId}-mention-${index}`; }
 
   private search(range: MentionRange | null): Observable<SearchResult | null> {
-    if (!range) return of(null);
+    if (!range) {return of(null);}
     this.status.set('Loading mention candidates…');
     const query = encodeURIComponent(this.displayValue().slice(range.start + 1, range.end).trim());
     return this.http.get<readonly TaskMentionCandidateDto[]>(`/api/tasks/${range.taskId}/mention-candidates?query=${query}&limit=10`, { withCredentials: true }).pipe(
@@ -128,23 +128,23 @@ export class AppMentionInputComponent implements OnChanges {
     const start = textarea.selectionStart; const end = textarea.selectionEnd;
     if (start !== end) { this.closeCandidates(''); return; }
     const match = /@([\p{L}\p{N} .'-]*)$/u.exec(textarea.value.slice(0, end));
-    if (!match || match.index === undefined) { this.closeCandidates(''); return; }
+    if (match?.index === undefined) { this.closeCandidates(''); return; }
     const range: MentionRange = { start: match.index, end, selectionStart: start, selectionEnd: end, taskId: this.taskId, generation: this.taskGeneration };
     this.queryRange = range; this.query.next(range);
   }
 
   private reconcileTokenSpans(previous: string, next: string): readonly MentionToken[] {
-    let prefix = 0; while (prefix < previous.length && prefix < next.length && previous[prefix] === next[prefix]) prefix++;
-    let suffix = 0; while (suffix < previous.length - prefix && suffix < next.length - prefix && previous[previous.length - 1 - suffix] === next[next.length - 1 - suffix]) suffix++;
+    let prefix = 0; while (prefix < previous.length && prefix < next.length && previous[prefix] === next[prefix]) {prefix++;}
+    let suffix = 0; while (suffix < previous.length - prefix && suffix < next.length - prefix && previous[previous.length - 1 - suffix] === next[next.length - 1 - suffix]) {suffix++;}
     const oldChangedEnd = previous.length - suffix; const shift = next.length - previous.length;
     return this.tokens.flatMap(token => {
-      if (token.end <= prefix && next.slice(token.start, token.end) === previous.slice(token.start, token.end)) return [token];
+      if (token.end <= prefix && next.slice(token.start, token.end) === previous.slice(token.start, token.end)) {return [token];}
       if (token.start >= oldChangedEnd) { const shifted = { ...token, start: token.start + shift, end: token.end + shift }; return next.slice(shifted.start, shifted.end) === previous.slice(token.start, token.end) ? [shifted] : []; }
       return [];
     });
   }
 
-  private emitCanonical(): void { const display = this.displayValue(); let cursor = 0; let canonical = ''; for (const token of this.tokens) { canonical += display.slice(cursor, token.start) + `@{${token.userId}}`; cursor = token.end; } canonical += display.slice(cursor); this.lastCanonical = canonical; this.valueChange.emit(canonical); }
+  private emitCanonical(): void { const display = this.displayValue(); let cursor = 0; let canonical = ''; for (const token of this.tokens) { canonical += `${display.slice(cursor, token.start)  }@{${token.userId}}`; cursor = token.end; } canonical += display.slice(cursor); this.lastCanonical = canonical; this.valueChange.emit(canonical); }
   private isRangeCurrent(range: MentionRange): boolean { const textarea = this.editor?.nativeElement; return range.taskId === this.taskId && range.generation === this.taskGeneration && this.queryRange === range && !!textarea && textarea.selectionStart === range.selectionStart && textarea.selectionEnd === range.selectionEnd; }
-  private closeCandidates(message: string): void { this.queryRange = null; this.candidates.set([]); if (message) this.status.set(message); }
+  private closeCandidates(message: string): void { this.queryRange = null; this.candidates.set([]); if (message) {this.status.set(message);} }
 }

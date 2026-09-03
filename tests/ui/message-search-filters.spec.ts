@@ -329,9 +329,9 @@ async function installMessagingDiscoveryApi(page: Page): Promise<void> {
         isLater: laterConversationIds.has(conversation.id)
       }));
       const items = authorized.filter((conversation) => {
-        if (view === 'Unread') return conversation.unreadCount > 0;
-        if (view === 'Mentions') return conversation.hasMention;
-        if (view === 'Later') return conversation.isLater;
+        if (view === 'Unread') {return conversation.unreadCount > 0;}
+        if (view === 'Mentions') {return conversation.hasMention;}
+        if (view === 'Later') {return conversation.isLater;}
         return true;
       });
       await route.fulfill({
@@ -357,8 +357,8 @@ async function installMessagingDiscoveryApi(page: Page): Promise<void> {
     const stateMatch = url.pathname.match(/^\/api\/conversations\/([^/]+)\/state$/);
     if (request.method() === 'PATCH' && stateMatch) {
       const body = request.postDataJSON() as { isLater?: unknown };
-      if (body.isLater === true) laterConversationIds.add(stateMatch[1]);
-      if (body.isLater === false) laterConversationIds.delete(stateMatch[1]);
+      if (body.isLater === true) {laterConversationIds.add(stateMatch[1]);}
+      if (body.isLater === false) {laterConversationIds.delete(stateMatch[1]);}
       await route.fulfill({
         status: 200,
         contentType: 'application/json',

@@ -655,7 +655,7 @@ export class MessagingFacade {
   retryMessage(messageId: string): void {
     const page = this.pageState();
     const failed = page.messages.find((message) => message.id === messageId && message.deliveryState === 'failed');
-    if (!failed || !failed.clientRequestId || !this.canPost(page) || this.mockPage) {
+    if (!failed?.clientRequestId || !this.canPost(page) || this.mockPage) {
       return;
     }
     const generation = this.requestGeneration;

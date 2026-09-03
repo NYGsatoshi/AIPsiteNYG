@@ -68,12 +68,12 @@ export class TaskNotificationPreferencesFacade {
 
   refresh(): void {
     const workspaceId = this.activeWorkspace.activeWorkspace()?.id ?? this.state().workspaceId;
-    if (workspaceId) this.load(workspaceId);
+    if (workspaceId) {this.load(workspaceId);}
   }
 
   save(deadlineDigestLocalTime: string | null): void {
     const current = this.state();
-    if (!current.workspaceId || !current.version || current.status === 'saving') return;
+    if (!current.workspaceId || !current.version || current.status === 'saving') {return;}
     if (deadlineDigestLocalTime !== null && !isQuarterHour(deadlineDigestLocalTime)) {
       this.state.set({ ...current, status: 'error', message: 'Choose a 15-minute time between 00:00 and 23:45.' });
       return;
@@ -87,11 +87,11 @@ export class TaskNotificationPreferencesFacade {
       { withCredentials: true },
     ).subscribe({
       next: (response) => {
-        if (generation !== this.requestGeneration) return;
+        if (generation !== this.requestGeneration) {return;}
         this.state.set(this.fromResponse(current.workspaceId!, response));
       },
       error: (error: unknown) => {
-        if (generation !== this.requestGeneration) return;
+        if (generation !== this.requestGeneration) {return;}
         if (error instanceof HttpErrorResponse && error.status === 409) {
           // A conflict is resolved only from an authoritative GET; no local
           // rounding, merge, or storage cache is treated as the source.
@@ -121,11 +121,11 @@ export class TaskNotificationPreferencesFacade {
       { withCredentials: true },
     ).subscribe({
       next: (response) => {
-        if (generation !== this.requestGeneration) return;
+        if (generation !== this.requestGeneration) {return;}
         this.state.set({ ...this.fromResponse(workspaceId, response), message: successMessage });
       },
       error: (error: unknown) => {
-        if (generation !== this.requestGeneration) return;
+        if (generation !== this.requestGeneration) {return;}
         if (error instanceof HttpErrorResponse && (error.status === 401 || error.status === 403 || error.status === 404)) {
           this.state.set({ ...this.empty(), status: 'permissionDenied', message: 'This Workspace preference is no longer available.' });
           return;

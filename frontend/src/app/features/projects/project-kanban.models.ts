@@ -82,7 +82,7 @@ export interface ProjectKanbanCommandResponse {
 
 export function mapProjectKanbanSnapshot(dto: ProjectKanbanSnapshotDto): ProjectKanbanSnapshot {
   const board = dto.board;
-  if (!board) throw new Error('Kanban board metadata is missing.');
+  if (!board) {throw new Error('Kanban board metadata is missing.');}
   const projectId = requiredText(board.projectId, 'projectId');
   const columns = (dto.columns ?? []).map(mapColumn);
   const stageIds = new Set(columns.map((column) => column.workflowStageId));
@@ -107,7 +107,7 @@ export function mapProjectKanbanSnapshot(dto: ProjectKanbanSnapshotDto): Project
 }
 
 export function mapProjectKanbanCommand(dto: ProjectKanbanCommandResponseDto): ProjectKanbanCommandResponse {
-  if (!dto.snapshot) throw new Error('Authoritative Kanban snapshot is missing.');
+  if (!dto.snapshot) {throw new Error('Authoritative Kanban snapshot is missing.');}
   return {
     snapshot: mapProjectKanbanSnapshot(dto.snapshot),
     focusTaskId: optionalText(dto.focusTaskId),
@@ -134,7 +134,7 @@ function mapColumn(dto: ProjectKanbanColumnDto): ProjectKanbanColumn {
 
 function mapCard(dto: ProjectKanbanCardDto, stageIds: ReadonlySet<string>): ProjectKanbanCard {
   const workflowStageId = requiredText(dto.workflowStageId, 'card.workflowStageId');
-  if (!stageIds.has(workflowStageId)) throw new Error('Kanban card references an unavailable Workflow Stage.');
+  if (!stageIds.has(workflowStageId)) {throw new Error('Kanban card references an unavailable Workflow Stage.');}
   return {
     taskId: requiredText(dto.taskId, 'card.taskId'),
     summary: requiredText(dto.summary, 'card.summary'),
@@ -184,7 +184,7 @@ function swimlane(value: unknown): ProjectKanbanSwimlane {
     '4': 'parentTask', parentTask: 'parentTask'
   };
   const mapped = values[String(key)];
-  if (!mapped) throw new Error('Kanban swimlane is invalid.');
+  if (!mapped) {throw new Error('Kanban swimlane is invalid.');}
   return mapped;
 }
 
@@ -199,7 +199,7 @@ function stageCategory(value: unknown): ProjectKanbanStageCategory {
     '5': 'cancelled', cancelled: 'cancelled'
   };
   const mapped = values[key];
-  if (!mapped) throw new Error('Kanban Stage category is invalid.');
+  if (!mapped) {throw new Error('Kanban Stage category is invalid.');}
   return mapped;
 }
 
@@ -209,7 +209,7 @@ function priority(value: unknown): string {
 }
 
 function requiredText(value: unknown, field: string): string {
-  if (typeof value !== 'string' || value.trim().length === 0) throw new Error(`Kanban ${field} is invalid.`);
+  if (typeof value !== 'string' || value.trim().length === 0) {throw new Error(`Kanban ${field} is invalid.`);}
   return value;
 }
 function optionalText(value: unknown): string | null { return typeof value === 'string' && value.length > 0 ? value : null; }
@@ -217,7 +217,7 @@ function boolean(value: unknown): boolean { return value === true; }
 function number(value: unknown): number { return typeof value === 'number' && Number.isFinite(value) ? value : 0; }
 function positiveNumber(value: unknown, field: string): number {
   const result = number(value);
-  if (result <= 0) throw new Error(`Kanban ${field} is invalid.`);
+  if (result <= 0) {throw new Error(`Kanban ${field} is invalid.`);}
   return result;
 }
 function nonNegativeNumber(value: unknown): number { return Math.max(0, number(value)); }
