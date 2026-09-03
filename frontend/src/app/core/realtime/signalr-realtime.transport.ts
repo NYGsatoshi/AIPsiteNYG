@@ -99,7 +99,7 @@ export class SignalrRealtimeTransport implements RealtimeTransport {
     request: RealtimeSubscriptionRequest
   ): Promise<RealtimeSubscriptionResult> {
     const connection = this.connection;
-    if (!connection || connection.state !== 'Connected') {
+    if (connection?.state !== 'Connected') {
       return { allowed: false, code: 'ConnectionUnavailable' };
     }
 

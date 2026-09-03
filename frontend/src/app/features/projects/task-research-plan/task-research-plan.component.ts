@@ -212,7 +212,7 @@ export class TaskResearchPlanComponent implements OnChanges, OnDestroy {
       next: response => {
         if (requestGeneration !== this.generation()) {return;}
         const mapped = mapPreview(response);
-        if (!mapped || mapped.baseVersion !== current.version) {
+        if (mapped?.baseVersion !== current.version) {
           this.error.set('The Research Plan change preview could not be read. Reload and try again.');
           return;
         }
