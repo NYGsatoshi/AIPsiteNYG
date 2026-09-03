@@ -48,11 +48,11 @@ public sealed class ArtifactReportRefinementSectionTests
         var oldSection = await fixture.Context.ArtifactReportSections
             .AsNoTracking()
             .Include(section => section.Citations)
-            .SingleAsync(section => section.ArtifactReportDocument!.ArtifactVersionId == fixture.BaseVersionId);
+            .SingleAsync(section => section.Document!.ArtifactVersionId == fixture.BaseVersionId);
         var newSection = await fixture.Context.ArtifactReportSections
             .AsNoTracking()
             .Include(section => section.Citations)
-            .SingleAsync(section => section.ArtifactReportDocument!.ArtifactVersionId == result.Value.ArtifactVersionId);
+            .SingleAsync(section => section.Document!.ArtifactVersionId == result.Value.ArtifactVersionId);
         Assert.Equal(oldSection.LogicalSectionId, newSection.LogicalSectionId);
         Assert.Equal(oldSection.Heading, newSection.Heading);
         Assert.Equal(oldSection.BodyText, newSection.BodyText);
