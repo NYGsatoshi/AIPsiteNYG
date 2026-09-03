@@ -274,7 +274,7 @@ a:focus-visible {
   font-size: 0.85em;
 }
 
-@media (max-width: 760px) {
+@media (width <= 760px) {
   .audit-export-page {
     padding: 0.75rem;
   }
