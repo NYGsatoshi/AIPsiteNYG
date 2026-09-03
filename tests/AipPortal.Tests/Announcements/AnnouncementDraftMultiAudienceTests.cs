@@ -352,6 +352,15 @@ public sealed class AnnouncementDraftMultiAudienceTests
                     ? targets
                     : (IReadOnlyList<AnnouncementDraftTargetRequest>)[]);
 
+        public Task<IReadOnlyList<AnnouncementDraftTargetRequest>> GetAnnouncementTargetsAsync(
+            Guid tenantId,
+            Guid announcementId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(
+                PublishedTargets.TryGetValue(announcementId, out var targets)
+                    ? targets
+                    : (IReadOnlyList<AnnouncementDraftTargetRequest>)[]);
+
         public async Task CommitPublicationAsync(
             Guid tenantId,
             Guid announcementId,
