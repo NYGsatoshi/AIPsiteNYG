@@ -1,7 +1,7 @@
 name: Code Quality
 
 # TEMPORARY CONTEST MODE: keep Qodana available on demand, but do not spend
-# self-hosted runner capacity on every PR/push. Re-enable automatic triggers
+# CI runner capacity on every PR/push. Re-enable automatic triggers
 # after the contest window.
 on:
   workflow_dispatch:
@@ -16,7 +16,7 @@ permissions:
 jobs:
   qodana-dotnet-community:
     name: Qodana Community / .NET
-    runs-on: [self-hosted, aipsite-ci, general]
+    runs-on: ubuntu-latest
     timeout-minutes: 120
     permissions:
       contents: read
@@ -151,7 +151,7 @@ jobs:
 
   frontend-quality:
     name: Angular / TypeScript / JavaScript / HTML / SCSS / CSS
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     needs: qodana-dotnet-community
     if: ${{ !cancelled() }}
     timeout-minutes: 90

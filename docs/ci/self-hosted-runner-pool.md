@@ -1,3 +1,9 @@
+> [!WARNING]
+> **Deprecated for this repository's public configuration.** Active GitHub
+> Actions workflows use GitHub-hosted runners. Do not attach a persistent
+> self-hosted runner to the public repository. This document is retained only
+> as historical private-operation context.
+
 # Self-hosted GitHub Actions runner pool
 
 ## Purpose
