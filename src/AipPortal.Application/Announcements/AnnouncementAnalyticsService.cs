@@ -16,6 +16,7 @@ public static class AnnouncementEngagementActions
 
 public sealed record AnnouncementEngagementAggregate(
     bool HasFrozenDeliveryCohort,
+    int RecipientCount,
     int ReadCount,
     int AcknowledgedCount,
     int CtaClickedCount,
@@ -113,7 +114,7 @@ public sealed class AnnouncementAnalyticsService(
             recipientIds,
             cancellationToken);
 
-        var recipientCount = recipientIds.Length;
+        var recipientCount = aggregate.RecipientCount;
         var hasCta = AnnouncementContentContract.Decode(announcement.Body).Cta is not null;
         var now = clock.UtcNow;
         var periodStart = announcement.PublishedAt;
@@ -180,13 +181,16 @@ public sealed class AnnouncementAnalyticsService(
             }, cancellationToken);
         }
 
+        // Persist the explicit read before the private sidecar event. If the
+        // sidecar write fails, a retry can safely record acknowledgement later;
+        // an acknowledgement can therefore never exist without its read.
+        await unitOfWork.SaveChangesAsync(cancellationToken);
         await engagementStore.RecordOnceAsync(
             value.Announcement.TenantId,
             value.Announcement.Id,
             value.UserId,
             AnnouncementEngagementActions.Acknowledged,
             cancellationToken);
-        await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result.Success();
     }
 
@@ -217,7 +221,6 @@ public sealed class AnnouncementAnalyticsService(
             value.UserId,
             AnnouncementEngagementActions.CtaClicked,
             cancellationToken);
-        await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result.Success();
     }
 
