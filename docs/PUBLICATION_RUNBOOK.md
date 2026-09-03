@@ -80,9 +80,15 @@ Create a GitHub Environment named `syncfusion-licensed-build`.
 - Require approval for workflows from fork pull requests.
 - Keep protected deployment credentials in environments with required
   reviewers.
+- Do not add `paths` or `paths-ignore` filters to a workflow whose check is
+  required for pull requests. A required workflow must produce its check on
+  every pull request; put optional routing inside jobs instead.
 
-The repository guard rejects active `self-hosted` workflow routing,
-`pull_request_target`, and secret access from pull-request workflows.
+The repository guard rejects active `self-hosted` workflow routing, including
+multi-line runner-label lists; `pull_request_target`; pull-request jobs that
+reference or inherit Actions secrets; write permissions in pull-request
+workflows; and secret-bearing jobs without a static job-local protected
+environment.
 
 ## 5. Pull-request and merge policy
 
@@ -103,16 +109,18 @@ Create rulesets for `main`:
 
 ### CI ruleset
 
-Require stable checks, including:
+Require these stable check-run contexts:
 
-- `CI / build-test`;
-- `CI / frontend-test`;
-- `CI / security-scan`;
-- `Publication Readiness / publication-readiness`; and
+- `build-test`;
+- `frontend-test`;
+- `security-scan`;
+- `publication-readiness`; and
 - any release-specific licensed verification selected by the owner.
 
-Do not give collaborators a CI bypass. Review the exact check names after this
-pull request runs, because GitHub displays workflow and job names together.
+Do not give collaborators or the repository owner a CI bypass. GitHub may show
+workflow and job names together in the web UI, but ruleset status-check contexts
+must match the actual check-run names above. Verify the names again after this
+pull request runs before activating the ruleset.
 
 ## 6. Repository features
 
