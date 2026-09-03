@@ -38,6 +38,16 @@ public interface IAnnouncementDistributionStore
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Reads the immutable selected targets persisted with a published
+    /// Announcement. Consumers must reauthorize every returned target before
+    /// exposing data derived from the combined delivery cohort.
+    /// </summary>
+    Task<IReadOnlyList<AnnouncementDraftTargetRequest>> GetAnnouncementTargetsAsync(
+        Guid tenantId,
+        Guid announcementId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Runs the supplied publication mutation inside one transaction and then
     /// stores the immutable target metadata for the newly-created Announcement.
     /// Recipient delivery notifications are staged by the supplied callback so
