@@ -1,0 +1,12 @@
+# MVP-A required frontend accessibility/regression tests.
+#
+# Format: <spec path>|<required title fragment>
+# The verification script fails closed if the spec or title fragment disappears.
+# These cases are already exercised by the canonical Angular Playwright Docker run.
+
+tests/ui/angular-smoke.spec.ts|desktop shell
+tests/ui/angular-smoke.spec.ts|mobile shell
+tests/ui/audit-security.spec.ts|axe
+tests/ui/audit-security.spec.ts|320px
+tests/ui/workspace-needs-attention.spec.ts|axe
+tests/ui/message-follow-ups.spec.ts|axe
