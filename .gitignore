@@ -26,3 +26,13 @@ secrets/
 syncfusion-license.txt
 **/syncfusion-license.txt
 **/syncfusion_license.txt
+
+# Public-repository audit outputs and private-key containers
+artifacts/
+frontend/storybook-static/
+gitleaks*.json
+trivy*.txt
+*.p12
+*.pfx
+id_rsa
+id_ed25519
