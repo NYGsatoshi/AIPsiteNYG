@@ -1,4 +1,3 @@
-<!-- eslint-disable @angular-eslint/template/i18n, @angular-eslint/template/no-call-expression, @angular-eslint/template/attributes-order, @angular-eslint/template/cyclomatic-complexity -->
 @if (analytics(); as vm) {
   <section
     class="announcement-analytics"
@@ -63,12 +62,10 @@
           {{ vm.periodStartLabel }} 〜 {{ vm.periodEndLabel }}
         </dd>
       </div>
-      @if (vm.ctaMetric === 'clickThrough') {
-        <div>
-          <dt>CTA 指標</dt>
-          <dd>リンクの初回 click-through。外部サイト上の完了は計測しません。</dd>
-        </div>
-      }
+      <div [hidden]="vm.ctaMetric !== 'clickThrough'">
+        <dt>CTA 指標</dt>
+        <dd>リンクの初回 click-through。外部サイト上の完了は計測しません。</dd>
+      </div>
     </dl>
   </section>
 }
