@@ -15,6 +15,14 @@
     </nav>
   </header>
 
+  <p
+    class="state-card"
+    role="status"
+    aria-live="polite"
+    aria-atomic="true"
+    data-testid="audit-export-status"
+  >{{ accessibilityStatus() }}</p>
+
   <section class="panel" aria-labelledby="scope-heading">
     <div class="section-heading">
       <div>
@@ -44,7 +52,7 @@
     </form>
 
     @if (loadState() === 'loading') {
-      <div class="state-card" role="status" aria-live="polite">
+      <div class="state-card">
         <span class="state-dot" aria-hidden="true"></span>
         Loading authorized scope…
       </div>
@@ -142,7 +150,7 @@
         <span class="job-state" [attr.data-state]="exportJob.state">{{ exportJob.state }}</span>
       </div>
 
-      <div class="progress-row" aria-live="polite">
+      <div class="progress-row">
         <progress max="100" [value]="exportJob.progressPercent">
           {{ exportJob.progressPercent }}%
         </progress>
@@ -158,7 +166,21 @@
           <dt>Completed</dt>
           <dd>{{ formatTimestamp(exportJob.completedAt) }}</dd>
         </div>
+        <div>
+          <dt>Last status update</dt>
+          <dd>{{ formatTimestamp(jobLastUpdatedAt()) }}</dd>
+        </div>
       </dl>
+
+      @if (jobStatusStale()) {
+        <div class="state-card" data-testid="audit-export-stale-state">
+          <strong>Export status may be out of date.</strong>
+          <span>
+            The last known {{ exportJob.state }} state is still shown. Last successful status update:
+            {{ formatTimestamp(jobLastUpdatedAt()) }}.
+          </span>
+        </div>
+      }
 
       @if (exportJob.state === 'Failed') {
         <div class="state-card error" role="alert">
@@ -183,7 +205,12 @@
             {{ busy() ? 'Queuing retry…' : 'Retry safely' }}
           </button>
         }
-        <button type="button" class="secondary" [disabled]="busy()" (click)="refreshJob()">Refresh status</button>
+        <button
+          type="button"
+          class="secondary"
+          [disabled]="busy() || jobRefreshBusy()"
+          (click)="refreshJob()"
+        >{{ jobRefreshBusy() ? 'Refreshing…' : 'Refresh status' }}</button>
       </div>
     </section>
   }
