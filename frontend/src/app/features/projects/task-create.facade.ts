@@ -261,8 +261,7 @@ export class TaskCreateFacade {
     const committed = this.committedCreate;
     if (
       !identityKey ||
-      !committed ||
-      committed.identityKey !== identityKey ||
+      committed?.identityKey !== identityKey ||
       committed.projectId !== this.scopeProjectId ||
       committed.workspaceId !== this.scopeWorkspaceId
     ) {
@@ -292,8 +291,7 @@ export class TaskCreateFacade {
   ): Promise<boolean> {
     const committed = this.committedCreate;
     if (
-      !committed ||
-      committed.success !== success ||
+      committed?.success !== success ||
       !this.isScopeCurrent(generation, identityKey, committed.projectId, committed.workspaceId)
     ) {
       return false;

@@ -300,8 +300,7 @@ export class ProjectDetailFacade {
     const current = this.state();
     const project = current.project;
     if (
-      !project ||
-      this.projectId !== project.id ||
+      this.projectId !== project?.id ||
       project.canActivate !== true ||
       !Number.isSafeInteger(project.versionNo) ||
       (project.versionNo ?? 0) <= 0 ||
@@ -807,8 +806,8 @@ export class ProjectDetailFacade {
       result.value.plannedStartDate === item.plannedStartDate &&
       result.value.plannedEndDate === item.plannedEndDate &&
       result.value.milestoneDate === item.milestoneDate;
-    if (!snapshot || !item ||
-        result.value.taskId !== item.taskId ||
+    if (!snapshot ||
+        result.value.taskId !== item?.taskId ||
         result.value.kind !== item.kind ||
         (result.value.version <= intent.expectedVersion && !validNoOpProgress)) {
       this.completeScheduleFailure(
@@ -2037,7 +2036,7 @@ export class ProjectDetailFacade {
     fallback: ProjectActivationViewModel
   ): ProjectActivationViewModel {
     const notice = this.activationNotice;
-    if (!notice || notice.projectId !== projectId)
+    if (notice?.projectId !== projectId)
       {return fallback;}
 
     if (operational) {

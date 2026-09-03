@@ -272,8 +272,7 @@ test.describe('MVP0 real backend browser smoke', () => {
         `/api/conversations/${workspaceGeneral[0].id}`,
         {
           validate: (body) =>
-            body &&
-            body.workspaceId === createdWorkspaceId &&
+            body?.workspaceId === createdWorkspaceId &&
             body.projectId === null &&
             body.type === 'WorkspaceChannel' &&
             body.title === 'general' &&
