@@ -83,21 +83,41 @@ jobs:
 
       - name: Verify deterministic OpenAPI 3.1 generation
         shell: bash
+        env:
+          # Build-time contract generation must be read-only. Point database
+          # access at an unreachable port so any accidental startup query fails.
+          ConnectionStrings__DefaultConnection: Host=127.0.0.1;Port=1;Database=sec01_openapi;Username=unused;Password=unused;Timeout=1;Command Timeout=1
+          Tenancy__AppMode: SaaS
+          Tenancy__SeedOnStartup: "false"
+          UiShell__SeedOnStartup: "false"
+          BrowserSmokeSeed__Enabled: "false"
+          AIP_BROWSER_SMOKE_SEED_ENABLED: "false"
+          DemoDataset__Enabled: "false"
+          AIP_DEMO_DATASET_ENABLED: "false"
+          AIP_SEED_ADMIN_ENABLED: "false"
+          AIP_BOOTSTRAP_ADMIN_EMAIL: ""
+          BootstrapAdmin__Email: ""
         run: |
           set -euo pipefail
           spec="artifacts/openapi/aipportal.openapi.json"
           first="${RUNNER_TEMP}/aipportal.openapi.first.json"
 
+          generate_openapi() {
+            dotnet build src/AipPortal.Web/AipPortal.Web.csproj \
+              --configuration Release \
+              --no-restore \
+              --disable-build-servers \
+              -m:1 \
+              -p:GenerateSecurityOpenApiContract=true
+          }
+
+          rm -f "$spec"
+          generate_openapi
           python3 scripts/ci/verify-openapi.py "$spec"
           cp "$spec" "$first"
+
           rm "$spec"
-
-          dotnet build src/AipPortal.Web/AipPortal.Web.csproj \
-            --configuration Release \
-            --no-restore \
-            --disable-build-servers \
-            -m:1
-
+          generate_openapi
           python3 scripts/ci/verify-openapi.py "$spec"
           if ! cmp --silent "$first" "$spec"; then
             echo "SEC-01 OpenAPI output is not deterministic across repeated builds." >&2
