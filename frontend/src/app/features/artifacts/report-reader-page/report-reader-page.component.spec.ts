@@ -135,8 +135,11 @@ describe('ReportReaderPageComponent localized refinement', () => {
   });
 
   afterEach(() => {
-    http.verify();
-    TestBed.resetTestingModule();
+    try {
+      http.verify();
+    } finally {
+      TestBed.resetTestingModule();
+    }
   });
 
   it('confirms the current itemized source scope before starting a Claim refinement', () => {
@@ -146,11 +149,11 @@ describe('ReportReaderPageComponent localized refinement', () => {
     const claimButton = fixture.nativeElement.querySelector('.claim-refine') as HTMLButtonElement;
     claimButton.click();
 
-    http.expectOne((request) =>
-      request.url === `/api/projects/${PROJECT_ID}/artifact-versions/${VERSION_ID}/report/refinement-preflight` &&
-      request.params.get('targetKind') === 'Claim' &&
-      request.params.get('targetLogicalId') === LOGICAL_CLAIM_ID
-    ).flush(preflightResponse());
+    const preflightRequest = http.expectOne(
+      `/api/projects/${PROJECT_ID}/artifact-versions/${VERSION_ID}/report/refinement-preflight?targetKind=Claim&targetLogicalId=${LOGICAL_CLAIM_ID}`
+    );
+    expect(preflightRequest.request.method).toBe('GET');
+    preflightRequest.flush(preflightResponse());
     http.expectOne(`/api/tasks/${TASK_ID}/execution-scope`).flush(taskScopeResponse());
     fixture.detectChanges();
 
@@ -193,7 +196,11 @@ describe('ReportReaderPageComponent localized refinement', () => {
     const preflight = preflightResponse();
     preflight.targetKind = 'Section';
     preflight.targetLogicalId = LOGICAL_SECTION_ID;
-    http.expectOne((request) => request.url.includes('/report/refinement-preflight')).flush(preflight);
+    const preflightRequest = http.expectOne(
+      `/api/projects/${PROJECT_ID}/artifact-versions/${VERSION_ID}/report/refinement-preflight?targetKind=Section&targetLogicalId=${LOGICAL_SECTION_ID}`
+    );
+    expect(preflightRequest.request.method).toBe('GET');
+    preflightRequest.flush(preflight);
     const scope = taskScopeResponse();
     scope.projectDefaultVersion = 9;
     http.expectOne(`/api/tasks/${TASK_ID}/execution-scope`).flush(scope);
