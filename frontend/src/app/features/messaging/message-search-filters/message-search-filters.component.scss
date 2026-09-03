@@ -126,19 +126,7 @@
   background: var(--aip-color-overlay);
 }
 
-.message-discovery__drawer-backdrop {
-  position: absolute;
-  inset: 0;
-  min-height: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  padding: 0;
-}
-
 .message-discovery__drawer {
-  position: relative;
-  z-index: 1;
   display: grid;
   align-content: start;
   gap: 18px;
