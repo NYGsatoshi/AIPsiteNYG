@@ -22,15 +22,9 @@ export AIP_MBJ02_CROSS_TENANT_EMAIL="${AIP_MBJ02_CROSS_TENANT_EMAIL:-mvpa-authz-
 export AIP_MBJ02_CROSS_TENANT_TOKEN="${AIP_MBJ02_CROSS_TENANT_TOKEN:-mvpa-authz-unused-$(openssl rand -hex 24)}"
 export AIP_MBJ02_CROSS_TENANT_WORKSPACE_ID="${AIP_MBJ02_CROSS_TENANT_WORKSPACE_ID:-22222222-2222-2222-2222-222222222223}"
 
-export AIP_MVPA_AUTHZ_ADMIN_EMAIL="$AIP_MBJ02_ADMIN_EMAIL"
-export AIP_MVPA_AUTHZ_ADMIN_PASSWORD="$AIP_MBJ02_ADMIN_PASSWORD"
-export AIP_MVPA_AUTHZ_MEMBER_EMAIL="$AIP_MBJ02_INVITEE_EMAIL"
-export AIP_MVPA_AUTHZ_MEMBER_DISPLAY_NAME="$AIP_MBJ02_INVITEE_DISPLAY_NAME"
-export AIP_MVPA_AUTHZ_MEMBER_PASSWORD="$AIP_MBJ02_INVITEE_PASSWORD"
-
 if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
-  echo "::add-mask::$AIP_MVPA_AUTHZ_ADMIN_PASSWORD"
-  echo "::add-mask::$AIP_MVPA_AUTHZ_MEMBER_PASSWORD"
+  echo "::add-mask::$AIP_MBJ02_ADMIN_PASSWORD"
+  echo "::add-mask::$AIP_MBJ02_INVITEE_PASSWORD"
   echo "::add-mask::$AIP_MBJ02_CROSS_TENANT_TOKEN"
 fi
 
@@ -46,7 +40,7 @@ cleanup() {
     python3 -c '
 import os, sys
 text = sys.stdin.read()
-for name in ("AIP_MVPA_AUTHZ_ADMIN_PASSWORD", "AIP_MVPA_AUTHZ_MEMBER_PASSWORD", "AIP_MBJ02_CROSS_TENANT_TOKEN"):
+for name in ("AIP_MBJ02_ADMIN_PASSWORD", "AIP_MBJ02_INVITEE_PASSWORD", "AIP_MBJ02_CROSS_TENANT_TOKEN"):
     secret = os.environ.get(name, "")
     if secret:
         text = text.replace(secret, "[REDACTED]")
@@ -88,6 +82,6 @@ wait_healthy postgres
 wait_healthy app
 
 "${compose[@]}" run --build --rm real-backend-playwright \
-  bash -lc "npm ci && node tests/ui/mvp-a-authz-boundary-acceptance.mjs"
+  bash -lc "npm ci && bash scripts/ci/mvp-a-authz-boundary-acceptance.sh"
 
 echo "MVP-A real-backend authorization boundary acceptance passed."
