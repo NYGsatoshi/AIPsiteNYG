@@ -10,6 +10,7 @@ export ASPNETCORE_ENVIRONMENT="Test"
 export POSTGRES_DB="aip_portal_ci"
 export POSTGRES_USER="aip_portal_ci"
 export POSTGRES_PASSWORD="aip_portal_ci_password"
+readonly POSTGRES_IMAGE="${TRAVIS_POSTGRES_IMAGE:-public.ecr.aws/docker/library/postgres:18-alpine}"
 
 postgres_container=""
 cleanup() {
@@ -19,12 +20,30 @@ cleanup() {
 }
 trap cleanup EXIT
 
+pull_postgres_image() {
+  echo "Pulling PostgreSQL image: $POSTGRES_IMAGE"
+  for attempt in 1 2 3; do
+    if docker pull "$POSTGRES_IMAGE"; then
+      return 0
+    fi
+    if [[ "$attempt" -eq 3 ]]; then
+      echo "Unable to pull PostgreSQL image after $attempt attempts: $POSTGRES_IMAGE" >&2
+      return 1
+    fi
+    echo "PostgreSQL image pull failed ($attempt/3); retrying." >&2
+    sleep $((attempt * 5))
+  done
+}
+
 setup_postgres() {
   echo "== PostgreSQL 18 =="
   postgres_container="aipsite-travis-pg-${TRAVIS_JOB_ID:-$$}"
 
-  # GitHub Actions used an automatically assigned service port. Do the same on
-  # Travis instead of assuming that host port 5433 is free on the worker VM.
+  # Travis warns that anonymous Docker Hub pulls can be rate-limited on shared
+  # infrastructure. Use the ECR Public mirror of Docker Official Images and
+  # retry transient pulls. GitHub Actions used an automatically assigned service
+  # port; keep the same collision-free property here.
+  pull_postgres_image
   docker run --detach \
     --name "$postgres_container" \
     --publish 127.0.0.1::5432 \
@@ -36,7 +55,7 @@ setup_postgres() {
     --health-timeout 5s \
     --health-retries 20 \
     --health-start-period 5s \
-    postgres:18-alpine >/dev/null
+    "$POSTGRES_IMAGE" >/dev/null
 
   for attempt in $(seq 1 30); do
     status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$postgres_container")"
