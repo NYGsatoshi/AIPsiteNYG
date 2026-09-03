@@ -176,7 +176,7 @@ export class FilesPageComponent {
     }
     const selected = this.selectedFiles();
     const file = selected.length === 1 ? selected[0] : undefined;
-    return file && file.canonicalFileId && file.downloadPolicy === 'available' &&
+    return file?.canonicalFileId && file.downloadPolicy === 'available' &&
       file.scanStatus === 'allowed' && file.downloadState !== 'pending'
       ? file
       : null;

@@ -60,24 +60,24 @@ export class WorkViewPreferenceService {
 
   loadMyTasksProjection(): MyTasksProjection {
     const identity = this.identity();
-    if (!identity) return 'list';
+    if (!identity) {return 'list';}
     const value = this.readRaw(this.projectionKey(identity));
     // PR04 owns a cross-Project List only. A stale pre-canonical Kanban value
     // must never select an unsupported projection or block /tasks.
-    if (value === 'kanban') this.writeRaw(this.projectionKey(identity), 'list');
+    if (value === 'kanban') {this.writeRaw(this.projectionKey(identity), 'list');}
     return 'list';
   }
 
   saveMyTasksProjection(projection: MyTasksProjection): void {
     const identity = this.identity();
-    if (!identity) return;
+    if (!identity) {return;}
     this.writeRaw(this.projectionKey(identity), projection === 'kanban' ? 'list' : projection);
   }
 
   loadMyTasksSavedFilters(): SavedFiltersResult {
     const identity = this.identity();
-    if (!identity) return { status: 'identityUnavailable', filters: [] };
-    if (!this.storage) return { status: 'storageUnavailable', filters: [] };
+    if (!identity) {return { status: 'identityUnavailable', filters: [] };}
+    if (!this.storage) {return { status: 'storageUnavailable', filters: [] };}
 
     const key = this.savedFiltersKey(identity);
     let raw: string | null;
@@ -86,10 +86,10 @@ export class WorkViewPreferenceService {
     } catch {
       return { status: 'storageUnavailable', filters: [] };
     }
-    if (raw === null) return { status: 'ready', filters: [] };
+    if (raw === null) {return { status: 'ready', filters: [] };}
 
     const parsed = parseStoredSavedFilters(raw);
-    if (parsed) return { status: 'ready', filters: parsed.filters };
+    if (parsed) {return { status: 'ready', filters: parsed.filters };}
 
     try {
       this.storage.removeItem(key);
@@ -101,7 +101,7 @@ export class WorkViewPreferenceService {
 
   saveMyTasksFilter(name: string, snapshot: MyTasksSavedFilterSnapshot): SavedFiltersResult {
     const identity = this.identity();
-    if (!identity) return { status: 'identityUnavailable', filters: [] };
+    if (!identity) {return { status: 'identityUnavailable', filters: [] };}
     const normalizedName = name.trim();
     const normalizedSnapshot = normalizeSnapshot(snapshot);
     if (!isValidName(normalizedName) || !normalizedSnapshot) {
@@ -109,7 +109,7 @@ export class WorkViewPreferenceService {
     }
 
     const current = this.loadMyTasksSavedFilters();
-    if (current.status !== 'ready' && current.status !== 'discarded') return current;
+    if (current.status !== 'ready' && current.status !== 'discarded') {return current;}
     const existing = current.filters.find((filter) => filter.name.toLowerCase() === normalizedName.toLowerCase());
     if (!existing && current.filters.length >= maximumSavedFilters) {
       return { status: 'invalidInput', filters: current.filters };
@@ -128,9 +128,9 @@ export class WorkViewPreferenceService {
 
   deleteMyTasksFilter(filterId: string): SavedFiltersResult {
     const identity = this.identity();
-    if (!identity) return { status: 'identityUnavailable', filters: [] };
+    if (!identity) {return { status: 'identityUnavailable', filters: [] };}
     const current = this.loadMyTasksSavedFilters();
-    if (current.status !== 'ready') return current;
+    if (current.status !== 'ready') {return current;}
     if (!current.filters.some((filter) => filter.id === filterId)) {
       return { status: 'invalidInput', filters: current.filters };
     }
@@ -142,7 +142,7 @@ export class WorkViewPreferenceService {
     filters: readonly MyTasksSavedFilter[],
     persistedFilters: readonly MyTasksSavedFilter[]
   ): SavedFiltersResult {
-    if (!this.storage) return { status: 'storageUnavailable', filters: persistedFilters };
+    if (!this.storage) {return { status: 'storageUnavailable', filters: persistedFilters };}
     const value: StoredSavedFilters = { version: savedFilterVersion, filters };
     try {
       this.storage.setItem(this.savedFiltersKey(identity), JSON.stringify(value));
@@ -163,17 +163,17 @@ export class WorkViewPreferenceService {
       tenant.isPlatformScope ||
       !isIdentityPart(tenant.tenantId) ||
       !isIdentityPart(user?.userId)
-    ) return null;
+    ) {return null;}
     return { tenantId: tenant.tenantId, userId: user.userId };
   }
 
   private readRaw(key: string): string | null {
-    if (!this.storage) return null;
+    if (!this.storage) {return null;}
     try { return this.storage.getItem(key); } catch { return null; }
   }
 
   private writeRaw(key: string, value: string): boolean {
-    if (!this.storage) return false;
+    if (!this.storage) {return false;}
     try {
       this.storage.setItem(key, value);
       return true;
@@ -197,9 +197,9 @@ function parseStoredSavedFilters(raw: string): StoredSavedFilters | null {
     if (!isRecord(value) || !hasExactKeys(value, ['version', 'filters']) || value['version'] !== savedFilterVersion || !Array.isArray(value['filters'])) {
       return null;
     }
-    if (value['filters'].length > maximumSavedFilters) return null;
+    if (value['filters'].length > maximumSavedFilters) {return null;}
     const filters = value['filters'].map(parseSavedFilter);
-    if (!filters.every((filter): filter is MyTasksSavedFilter => filter !== null)) return null;
+    if (!filters.every((filter): filter is MyTasksSavedFilter => filter !== null)) {return null;}
     const ids = new Set(filters.map((filter) => filter.id));
     const names = new Set(filters.map((filter) => filter.name.toLowerCase()));
     return ids.size === filters.length && names.size === filters.length
@@ -211,8 +211,8 @@ function parseStoredSavedFilters(raw: string): StoredSavedFilters | null {
 }
 
 function parseSavedFilter(value: unknown): MyTasksSavedFilter | null {
-  if (!isRecord(value) || !hasExactKeys(value, ['id', 'name', 'snapshot'])) return null;
-  if (typeof value['id'] !== 'string' || !/^saved-[A-Za-z0-9-]{8,80}$/u.test(value['id']) || typeof value['name'] !== 'string' || !isValidName(value['name'])) return null;
+  if (!isRecord(value) || !hasExactKeys(value, ['id', 'name', 'snapshot'])) {return null;}
+  if (typeof value['id'] !== 'string' || !/^saved-[A-Za-z0-9-]{8,80}$/u.test(value['id']) || typeof value['name'] !== 'string' || !isValidName(value['name'])) {return null;}
   const snapshot = parseSnapshot(value['snapshot']);
   return snapshot ? { id: value['id'], name: value['name'], snapshot } : null;
 }
@@ -230,7 +230,7 @@ function normalizeSnapshot(value: MyTasksSavedFilterSnapshot): MyTasksSavedFilte
 }
 
 function parseSnapshot(value: unknown): MyTasksSavedFilterSnapshot | null {
-  if (!isRecord(value) || !hasExactKeys(value, ['selectedTab', 'projectId', 'stageCategory', 'priority', 'blocked', 'search', 'timeGroup'])) return null;
+  if (!isRecord(value) || !hasExactKeys(value, ['selectedTab', 'projectId', 'stageCategory', 'priority', 'blocked', 'search', 'timeGroup'])) {return null;}
   const selectedTab = value['selectedTab'];
   const projectId = value['projectId'];
   const stageCategory = value['stageCategory'];
@@ -246,7 +246,7 @@ function parseSnapshot(value: unknown): MyTasksSavedFilterSnapshot | null {
     !blockedValues.includes(blocked as MyTasksBlockedFilter) ||
     typeof search !== 'string' || search.length > 200 || search !== search.trim() ||
     !(timeGroup === null || urgencyGroups.includes(timeGroup as MyTasksUrgencyGroup))
-  ) return null;
+  ) {return null;}
   return {
     selectedTab: selectedTab as MyTasksTab,
     projectId,
@@ -283,7 +283,7 @@ function createSavedFilterId(): string {
 }
 
 function browserLocalStorage(): WorkViewPreferenceStorage | null {
-  if (typeof window === 'undefined') return null;
+  if (typeof window === 'undefined') {return null;}
   try { return window.localStorage; } catch { return null; }
 }
 

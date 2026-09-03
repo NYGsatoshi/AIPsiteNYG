@@ -165,8 +165,8 @@ export class AipKanbanComponent extends AipAdapterShellInput implements AfterVie
       });
   }
   startsSwimlane(items: readonly object[], index: number): boolean {
-    if (!this.contract.itemSwimlane) return false;
-    if (index === 0) return true;
+    if (!this.contract.itemSwimlane) {return false;}
+    if (index === 0) {return true;}
     return this.contract.itemSwimlane(items[index]).key !== this.contract.itemSwimlane(items[index - 1]).key;
   }
   swimlaneLabel(item: object): string { return this.contract.itemSwimlane?.(item).label ?? ''; }
@@ -174,7 +174,7 @@ export class AipKanbanComponent extends AipAdapterShellInput implements AfterVie
   startDrag(item: object): void { this.draggedItem = item; this.interactionActiveChange.emit(true); }
   endDrag(): void {
     this.draggedItem = null;
-    if (this.movingItemId === null) this.interactionActiveChange.emit(false);
+    if (this.movingItemId === null) {this.interactionActiveChange.emit(false);}
   }
   allowDrop(event: DragEvent): void { event.preventDefault(); }
   dropAtEnd(status: string, event: DragEvent): void {
@@ -206,7 +206,7 @@ export class AipKanbanComponent extends AipAdapterShellInput implements AfterVie
     }
     this.endDrag();
   }
-  activate(item: object): void { if (this.contract.canOpenItem(item)) this.itemActivated.emit(item); }
+  activate(item: object): void { if (this.contract.canOpenItem(item)) {this.itemActivated.emit(item);} }
   openMove(item: object): void {
     this.beginMove(item, this.contract.itemStatus(item), 'end', 'keyboard');
   }
@@ -225,8 +225,8 @@ export class AipKanbanComponent extends AipAdapterShellInput implements AfterVie
   targetRequiresReason(): boolean { return this.requiresReason(this.moveTargetStatus); }
   submitMove(item: object, event: Event): void {
     event.preventDefault();
-    if (!this.contract.canRequestTransition(item, this.moveTargetStatus)) return;
-    if (this.targetRequiresReason() && !this.moveReason.trim()) return;
+    if (!this.contract.canRequestTransition(item, this.moveTargetStatus)) {return;}
+    if (this.targetRequiresReason() && !this.moveReason.trim()) {return;}
     const candidates = this.positionItems(item);
     const before = this.movePosition.startsWith('before:') ? this.movePosition.slice('before:'.length) : this.movePosition === 'start' ? (candidates[0] ? this.contract.itemIdentity(candidates[0]) : null) : null;
     // End of Stage is represented by the empty neighbor pair even when the
@@ -268,7 +268,7 @@ export class AipKanbanComponent extends AipAdapterShellInput implements AfterVie
       this.restoreFocusAfterItemsChange = false;
       return;
     }
-    if (this.restoredFocusId === focusId && !this.restoreFocusAfterItemsChange) return;
+    if (this.restoredFocusId === focusId && !this.restoreFocusAfterItemsChange) {return;}
     this.restoredFocusId = focusId;
     this.restoreFocusAfterItemsChange = false;
     queueMicrotask(() => this.restoredFocusElement = this.focus(focusId));
@@ -641,7 +641,7 @@ export class AipGanttComponent extends AipAdapterShellInput implements OnChanges
   @ViewChild('syncfusionGanttHost', { read: ViewContainerRef })
   set syncfusionGanttHost(host: ViewContainerRef | undefined) {
     this.vendorHost = host;
-    if (host) void this.loadVendor();
+    if (host) {void this.loadVendor();}
   }
 
   get hasCanonicalProjection(): boolean {
@@ -659,7 +659,7 @@ export class AipGanttComponent extends AipAdapterShellInput implements OnChanges
     for (const item of [
       ...(this.contract.canonicalMilestones ?? []),
       ...(this.contract.scheduledItems ?? []).filter((candidate) => candidate.kind === 'milestone')
-    ]) unique.set(item.taskId, item);
+    ]) {unique.set(item.taskId, item);}
     return [...unique.values()];
   }
 
@@ -681,7 +681,7 @@ export class AipGanttComponent extends AipAdapterShellInput implements OnChanges
       ...this.scheduledTasks,
       ...this.canonicalMilestones,
       ...this.unscheduledItems
-    ]) unique.set(item.taskId, item);
+    ]) {unique.set(item.taskId, item);}
     return [...unique.values()];
   }
 
@@ -692,9 +692,9 @@ export class AipGanttComponent extends AipAdapterShellInput implements OnChanges
   }
 
   get editorTitle(): string {
-    if (this.activeEditor === 'progress') return 'Edit progress';
-    if (this.activeEditor === 'addDependency') return 'Add Finish-to-Start dependency';
-    if (this.activeEditor === 'removeDependency') return 'Remove Finish-to-Start dependency';
+    if (this.activeEditor === 'progress') {return 'Edit progress';}
+    if (this.activeEditor === 'addDependency') {return 'Add Finish-to-Start dependency';}
+    if (this.activeEditor === 'removeDependency') {return 'Remove Finish-to-Start dependency';}
     return this.activeItem?.kind === 'milestone' ? 'Edit Milestone date' : 'Edit schedule';
   }
 
@@ -725,8 +725,8 @@ export class AipGanttComponent extends AipAdapterShellInput implements OnChanges
       }
     }
 
-    if (!this.vendorEligible) this.destroyVendor();
-    else if (this.vendorHost) void this.loadVendor();
+    if (!this.vendorEligible) {this.destroyVendor();}
+    else if (this.vendorHost) {void this.loadVendor();}
   }
 
   ngOnDestroy(): void {
@@ -736,12 +736,12 @@ export class AipGanttComponent extends AipAdapterShellInput implements OnChanges
   }
 
   openDetails(item: AipGanttItem): void {
-    if (this.canOpen(item)) this.itemActivated.emit(item);
+    if (this.canOpen(item)) {this.itemActivated.emit(item);}
   }
 
   openSchedule(item: AipGanttItem, event: Event, clear = false): void {
     if (this.isBusy(item)
-      || (!this.canEditSchedule(item) && !(clear && this.canClearSchedule(item)))) return;
+      || (!this.canEditSchedule(item) && !(clear && this.canClearSchedule(item)))) {return;}
     this.beginEditor('schedule', item, event);
     this.plannedStartDate = clear ? '' : item.plannedStartDate ?? '';
     this.plannedEndDate = clear ? '' : item.plannedEndDate ?? '';
@@ -749,19 +749,19 @@ export class AipGanttComponent extends AipAdapterShellInput implements OnChanges
   }
 
   openProgress(item: AipGanttItem, event: Event): void {
-    if (!this.canEditProgress(item) || this.isBusy(item)) return;
+    if (!this.canEditProgress(item) || this.isBusy(item)) {return;}
     this.beginEditor('progress', item, event);
     this.progressPercent = item.progressPercent;
   }
 
   openAddDependency(item: AipGanttItem, event: Event): void {
-    if (!this.canAddDependency(item) || this.isBusy(item)) return;
+    if (!this.canAddDependency(item) || this.isBusy(item)) {return;}
     this.beginEditor('addDependency', item, event);
     this.predecessorTaskId = '';
   }
 
   openRemoveDependency(dependency: AipGanttDependency, event: Event): void {
-    if (!this.canRemoveDependency(dependency) || this.isDependencyBusy(dependency)) return;
+    if (!this.canRemoveDependency(dependency) || this.isDependencyBusy(dependency)) {return;}
     this.activeEditor = 'removeDependency';
     this.activeDependency = dependency;
     this.activeItem = this.allCanonicalItems.find((item) => item.taskId === dependency.successorTaskId) ?? null;
@@ -779,7 +779,7 @@ export class AipGanttComponent extends AipAdapterShellInput implements OnChanges
   submitSchedule(event: Event): void {
     event.preventDefault();
     const item = this.activeItem;
-    if (!item || !this.canEditSchedule(item)) return;
+    if (!item || !this.canEditSchedule(item)) {return;}
 
     if (item.kind === 'milestone') {
       if (!this.validDateOnly(this.milestoneDate)) {
@@ -817,7 +817,7 @@ export class AipGanttComponent extends AipAdapterShellInput implements OnChanges
 
   submitClearSchedule(): void {
     const item = this.activeItem;
-    if (!item || !this.canClearSchedule(item)) return;
+    if (!item || !this.canClearSchedule(item)) {return;}
     this.dispatchEdit({
       kind: 'schedule',
       taskId: item.taskId,
@@ -834,7 +834,7 @@ export class AipGanttComponent extends AipAdapterShellInput implements OnChanges
     event.preventDefault();
     const item = this.activeItem;
     const value = Number(this.progressPercent);
-    if (!item || !this.canEditProgress(item)) return;
+    if (!item || !this.canEditProgress(item)) {return;}
     if (!Number.isInteger(value) || value < 0 || value > 100) {
       this.formError = 'Progress must be a whole number from 0 to 100.';
       return;
@@ -875,7 +875,7 @@ export class AipGanttComponent extends AipAdapterShellInput implements OnChanges
   submitRemoveDependency(event: Event): void {
     event.preventDefault();
     const dependency = this.activeDependency;
-    if (!dependency || !this.canRemoveDependency(dependency)) return;
+    if (!dependency || !this.canRemoveDependency(dependency)) {return;}
     this.dispatchEdit({
       kind: 'removeDependency',
       dependencyId: dependency.dependencyId,
@@ -958,14 +958,14 @@ export class AipGanttComponent extends AipAdapterShellInput implements OnChanges
   }
 
   parentTitle(item: AipGanttItem): string {
-    if (!item.parentTaskId) return 'None';
+    if (!item.parentTaskId) {return 'None';}
     return this.allCanonicalItems.find((candidate) => candidate.taskId === item.parentTaskId)?.title
       ?? 'Authorized parent unavailable';
   }
 
   dateLabel(item: AipGanttItem): string {
-    if (item.kind === 'milestone') return item.milestoneDate ?? 'Milestone date required';
-    if (!item.plannedStartDate && !item.plannedEndDate) return 'Unscheduled';
+    if (item.kind === 'milestone') {return item.milestoneDate ?? 'Milestone date required';}
+    if (!item.plannedStartDate && !item.plannedEndDate) {return 'Unscheduled';}
     return `${item.plannedStartDate ?? 'No start'} to ${item.plannedEndDate ?? 'No end'}`;
   }
 
@@ -1011,23 +1011,23 @@ export class AipGanttComponent extends AipAdapterShellInput implements OnChanges
     this.formError = '';
     this.interactionActiveChange.emit(false);
     queueMicrotask(() => {
-      if (trigger?.isConnected) trigger.focus();
-      else if (this.contract.focusItemId) this.focusItem(this.contract.focusItemId);
+      if (trigger?.isConnected) {trigger.focus();}
+      else if (this.contract.focusItemId) {this.focusItem(this.contract.focusItemId);}
     });
   }
 
   private dispatchEdit(intent: AipGanttEditIntent): void {
-    if (this.editRequested.observed || !this.contract.requestEdit) this.editRequested.emit(intent);
-    else this.contract.requestEdit(intent);
+    if (this.editRequested.observed || !this.contract.requestEdit) {this.editRequested.emit(intent);}
+    else {this.contract.requestEdit(intent);}
   }
 
   private validDateOnly(value: string): boolean {
     const match = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(value);
-    if (!match) return false;
+    if (!match) {return false;}
     const year = Number(match[1]);
     const month = Number(match[2]);
     const day = Number(match[3]);
-    if (year < 1 || month < 1 || month > 12 || day < 1) return false;
+    if (year < 1 || month < 1 || month > 12 || day < 1) {return false;}
     const monthLengths = [
       31,
       year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0) ? 29 : 28,
@@ -1046,11 +1046,11 @@ export class AipGanttComponent extends AipAdapterShellInput implements OnChanges
   }
 
   private async loadVendor(): Promise<void> {
-    if (this.destroyed || !this.vendorEligible || !this.vendorHost || this.vendorComponent || this.vendorLoading) return;
+    if (this.destroyed || !this.vendorEligible || !this.vendorHost || this.vendorComponent || this.vendorLoading) {return;}
     this.vendorLoading = true;
     try {
       const { SyncfusionGanttComponent } = await import('./syncfusion-gantt.component');
-      if (this.destroyed || !this.vendorEligible || !this.vendorHost) return;
+      if (this.destroyed || !this.vendorEligible || !this.vendorHost) {return;}
       this.vendorHost.clear();
       const component = this.vendorHost.createComponent(SyncfusionGanttComponent);
       this.vendorComponent = component;
@@ -1082,7 +1082,7 @@ export class AipGanttComponent extends AipAdapterShellInput implements OnChanges
   private destroyVendor(clearError = true): void {
     this.vendorComponent?.destroy();
     this.vendorComponent = undefined;
-    if (clearError) this.vendorLoadError.set(null);
+    if (clearError) {this.vendorLoadError.set(null);}
   }
 
   private focusItem(itemId: string): HTMLElement | null {
@@ -1100,7 +1100,7 @@ export class AipGanttComponent extends AipAdapterShellInput implements OnChanges
         if (this.destroyed ||
             this.activeEditor !== null ||
             this.contract.focusItemId !== itemId)
-          return;
+          {return;}
         this.restoredFocusId = itemId;
         this.focusItem(itemId);
       }

@@ -91,8 +91,8 @@ export class ProjectDetailPageComponent implements OnDestroy {
       this.activationInterruptionFallbackFocused = false;
       this.pendingTaskCreateProjectId.set(null);
       this.taskCreateNavigationInterrupted.set(false);
-      if (projectId) this.facade.load(projectId);
-      else this.facade.release();
+      if (projectId) {this.facade.load(projectId);}
+      else {this.facade.release();}
     });
     this.breakpoints.observe('(max-width: 40rem)')
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -120,7 +120,7 @@ export class ProjectDetailPageComponent implements OnDestroy {
       this.previousActivationStatus = status;
       if (focusCompletion || focusInterruptedFallback) {
         if (focusInterruptedFallback)
-          this.activationInterruptionFallbackFocused = true;
+          {this.activationInterruptionFallbackFocused = true;}
         if (completed) {
           this.activationCompletionInterrupted = false;
           this.activationInterruptionFallbackFocused = false;
@@ -207,7 +207,7 @@ export class ProjectDetailPageComponent implements OnDestroy {
   openTask(row: TaskGridRow): void { void this.router.navigate(['/projects', row.projectId, 'tasks', row.id]); }
   openKanbanItem(item: object, projectId: string): void {
     const card = item as ProjectKanbanCard;
-    if (card.canOpen) void this.router.navigate(['/projects', projectId, 'tasks', card.taskId]);
+    if (card.canOpen) {void this.router.navigate(['/projects', projectId, 'tasks', card.taskId]);}
   }
   requestKanbanMove(event: AipKanbanMoveRequest<object>): void {
     this.facade.moveTask(event as AipKanbanMoveRequest<ProjectKanbanCard>);
@@ -224,7 +224,7 @@ export class ProjectDetailPageComponent implements OnDestroy {
   reportGanttFailure(): void { this.facade.reportGanttAdapterFailure(); }
   openGanttItem(item: AipGanttItem, projectId: string): void {
     if (item.kind === 'task' && item.scheduleEditPermissions.canOpen)
-      void this.router.navigate(['/projects', projectId, 'tasks', item.taskId]);
+      {void this.router.navigate(['/projects', projectId, 'tasks', item.taskId]);}
   }
   setSwimlane(value: string): void { this.facade.setKanbanSwimlane(value as ProjectKanbanSwimlane); }
   setIncludeOlderCompleted(include: boolean): void { this.facade.setIncludeOlderCompleted(include); }
@@ -242,7 +242,7 @@ export class ProjectDetailPageComponent implements OnDestroy {
   moveConfigColumn(index: number, offset: -1 | 1): void {
     const columns = [...this.configColumns()];
     const target = index + offset;
-    if (target < 0 || target >= columns.length) return;
+    if (target < 0 || target >= columns.length) {return;}
     [columns[index], columns[target]] = [columns[target], columns[index]];
     this.configColumns.set(columns);
   }

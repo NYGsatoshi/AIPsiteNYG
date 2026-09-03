@@ -254,7 +254,7 @@ describe('projects mapper', () => {
     });
     expect(project.canActivate).toBe(false);
     if (project.status === 'planning' && project.activationState === 'neverActivated')
-      expect(project.isOperational).toBe(false);
+      {expect(project.isOperational).toBe(false);}
   });
 
   it('maps only supported visibility and activation vocabularies', () => {

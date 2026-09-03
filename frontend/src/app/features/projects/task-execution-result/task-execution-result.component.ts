@@ -80,7 +80,7 @@ export class TaskExecutionResultComponent implements OnChanges, OnDestroy {
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['taskId'] || changes['interventionCanManage']) {
       this.canManageInterventions.set(this.interventionCanManage);
-      if (!this.interventionCanManage) this.stopConfirmation.set(false);
+      if (!this.interventionCanManage) {this.stopConfirmation.set(false);}
     }
     if (changes['taskId'] || changes['loadExistingResult']) {
       if (this.loadExistingResult) {
@@ -177,34 +177,34 @@ export class TaskExecutionResultComponent implements OnChanges, OnDestroy {
   }
 
   interventionUnavailableReason(status: RunStatus): string {
-    if (!this.canManageInterventions()) return 'You do not have permission to intervene in this Task.';
-    if (status === 'Succeeded') return 'This execution already completed successfully.';
-    if (status === 'Failed') return 'This execution already ended in a failure state.';
-    if (status === 'Stopped') return 'This execution was already stopped.';
-    if (status === 'Redirected') return 'This execution was already redirected to a successor Run.';
+    if (!this.canManageInterventions()) {return 'You do not have permission to intervene in this Task.';}
+    if (status === 'Succeeded') {return 'This execution already completed successfully.';}
+    if (status === 'Failed') {return 'This execution already ended in a failure state.';}
+    if (status === 'Stopped') {return 'This execution was already stopped.';}
+    if (status === 'Redirected') {return 'This execution was already redirected to a successor Run.';}
     return '';
   }
 
   requestStopConfirmation(): void {
     const current = this.result();
-    if (!current || !this.canIntervene(current.status)) return;
+    if (!current || !this.canIntervene(current.status)) {return;}
     this.interventionError.set(null);
     this.stopConfirmation.set(true);
   }
 
   cancelStopConfirmation(): void {
-    if (this.intervening() !== 'stop') this.stopConfirmation.set(false);
+    if (this.intervening() !== 'stop') {this.stopConfirmation.set(false);}
   }
 
   stopExecution(): void {
     const current = this.result();
-    if (!current || !this.canIntervene(current.status) || !this.stopConfirmation()) return;
+    if (!current || !this.canIntervene(current.status) || !this.stopConfirmation()) {return;}
     this.submitIntervention('stop', current.runId);
   }
 
   correctDirection(): void {
     const current = this.result();
-    if (!current || !this.canIntervene(current.status)) return;
+    if (!current || !this.canIntervene(current.status)) {return;}
     this.submitIntervention('correct', current.runId);
   }
 
@@ -223,7 +223,7 @@ export class TaskExecutionResultComponent implements OnChanges, OnDestroy {
   private submitIntervention(action: InterventionAction, runId: string): void {
     const taskId = this.taskId.trim();
     const http = this.http;
-    if (!taskId || !runId || !http || typeof http.post !== 'function' || this.intervening()) return;
+    if (!taskId || !runId || !http || typeof http.post !== 'function' || this.intervening()) {return;}
 
     this.generation++;
     const generation = this.generation;
@@ -239,7 +239,7 @@ export class TaskExecutionResultComponent implements OnChanges, OnDestroy {
       { withCredentials: true },
     ).subscribe({
       next: (response) => {
-        if (!this.isCurrent(generation, taskId)) return;
+        if (!this.isCurrent(generation, taskId)) {return;}
 
         let intervention: InterventionResponse;
         try {
@@ -262,7 +262,7 @@ export class TaskExecutionResultComponent implements OnChanges, OnDestroy {
         this.load(generation);
       },
       error: (error: unknown) => {
-        if (!this.isCurrent(generation, taskId)) return;
+        if (!this.isCurrent(generation, taskId)) {return;}
         this.interventionRequest = null;
         this.intervening.set(null);
         const normalized = normalizeApiError(error);
@@ -440,11 +440,11 @@ function mapExecutionResult(value: unknown): ExecutionResultProjection {
 function mapInterventionResponse(value: unknown): InterventionResponse {
   const record = requiredRecord(value, 'Task execution intervention');
   const action = record['action'];
-  if (action !== 'Stop' && action !== 'CorrectDirection') throw new Error('Intervention action is invalid.');
+  if (action !== 'Stop' && action !== 'CorrectDirection') {throw new Error('Intervention action is invalid.');}
   const closedRun = mapInterventionRun(record['closedRun'], 'Closed Run');
   const resumedRun = record['resumedRun'] == null ? null : mapInterventionRun(record['resumedRun'], 'Resumed Run');
   const resumePoint = record['resumePoint'];
-  if (resumePoint !== 'None' && resumePoint !== 'NewRunFromLatestTaskState') throw new Error('Resume point is invalid.');
+  if (resumePoint !== 'None' && resumePoint !== 'NewRunFromLatestTaskState') {throw new Error('Resume point is invalid.');}
   if (action === 'Stop' && (closedRun.status !== 'Stopped' || resumedRun !== null || resumePoint !== 'None')) {
     throw new Error('Stop intervention response is inconsistent.');
   }
@@ -515,7 +515,7 @@ function requiredStatus(value: unknown): RunStatus {
 }
 
 function requiredStringArray(value: unknown, label: string): readonly string[] {
-  if (!Array.isArray(value) || value.length > 10) throw new Error(`${label} is invalid.`);
+  if (!Array.isArray(value) || value.length > 10) {throw new Error(`${label} is invalid.`);}
   return value.map((item, index) => requiredString(item, `${label} ${index + 1}`, 100));
 }
 

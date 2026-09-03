@@ -525,7 +525,8 @@ public enum ExportJobStatus
 
 public enum TenantExportType
 {
-    Metadata = 0
+    Metadata = 0,
+    AuditPackage = 1
 }
 
 public enum IntegrationProvider
