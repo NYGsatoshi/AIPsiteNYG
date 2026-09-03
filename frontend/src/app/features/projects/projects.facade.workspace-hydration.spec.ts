@@ -1,16 +1,17 @@
-import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
-import { TestBed } from '@angular/core/testing';
-import { EMPTY } from 'rxjs';
-
-import { RealtimeFacade } from '../../core/realtime/realtime.facade';
 import { ActiveWorkspaceFacade } from '../../core/workspace/active-workspace.facade';
 import { ContinueWorkingHistoryService } from '../../shared/continue-working/continue-working-history.service';
-import type { TaskDto } from './projects.api';
-import { ProjectsFacade } from './projects.facade';
+import { EMPTY } from 'rxjs';
 import { MyTasksFacade } from './my-tasks.facade';
+import { ProjectsFacade } from './projects.facade';
+import { provideHttpClient } from '@angular/common/http';
+import { RealtimeFacade } from '../../core/realtime/realtime.facade';
+import type { TaskDto } from './projects.api';
+import { TestBed } from '@angular/core/testing';
 
-const cleanup = vi.fn(),
+let activeWorkspace: ActiveWorkspaceFacade, facade: ProjectsFacade, http: HttpTestingController;
+
+const cleanup = (): void => {},
   detail = {
     checklist: [],
     comments: { items: [] },
@@ -41,59 +42,52 @@ const cleanup = vi.fn(),
     uiPermissions: { canCreateTask: true },
     workspaceId: 'workspace-1',
   },
-  registerCleanup = (): (() => void) => cleanup;
-
-let activeWorkspace: ActiveWorkspaceFacade, facade: ProjectsFacade, http: HttpTestingController;
-
-function configureFacade(): void {
-  TestBed.configureTestingModule({
-    providers: [
-      provideHttpClient(),
-      provideHttpClientTesting(),
-      {
-        provide: RealtimeFacade,
-        useValue: {
-          durableEvents$: EMPTY,
-          registerCatchUp: registerCleanup,
-          registerProtectedStateClearer: registerCleanup,
-          registerSubscription: registerCleanup,
+  registerCleanup = (): (() => void) => cleanup,
+  configureFacade = (): void => {
+    TestBed.configureTestingModule({
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        {
+          provide: RealtimeFacade,
+          useValue: {
+            durableEvents$: EMPTY,
+            registerCatchUp: registerCleanup,
+            registerProtectedStateClearer: registerCleanup,
+            registerSubscription: registerCleanup,
+          },
         },
-      },
-      { provide: MyTasksFacade, useValue: { refreshIfLoaded: vi.fn() } },
-      { provide: ContinueWorkingHistoryService, useValue: { touchProject: vi.fn() } },
-    ],
-  });
-  activeWorkspace = TestBed.inject(ActiveWorkspaceFacade);
-  facade = TestBed.inject(ProjectsFacade);
-  http = TestBed.inject(HttpTestingController);
-}
-
-function flushColdReadAcrossHydration(): void {
-  facade.ensureTaskDetail('project-1', 'task-1');
-  const coldTaskRead = http.expectOne('/api/tasks/task-1');
-  activeWorkspace.setActiveWorkspace({ id: 'workspace-1', label: 'Workspace 1' });
-  coldTaskRead.flush(detail);
-  http.expectNone('/api/projects/project-1');
-  expect(facade.getTaskDetail('project-1', 'task-1').detail).toBeUndefined();
-}
-
-function flushReauthorizedRead(): void {
-  TestBed.tick();
-  http.expectOne('/api/tasks/task-1').flush(detail);
-  http.expectOne('/api/projects/project-1').flush(project);
-}
-
-function expectAuthorizedDetail(): void {
-  expect(facade.getTaskDetail('project-1', 'task-1')).toMatchObject({
-    project: { id: 'project-1', name: 'Hydration race project' },
-    status: 'ready',
-    task: { id: 'task-1', title: 'Hydration race task' },
-  });
-}
+        { provide: MyTasksFacade, useValue: { refreshIfLoaded: vi.fn() } },
+        { provide: ContinueWorkingHistoryService, useValue: { touchProject: vi.fn() } },
+      ],
+    });
+    activeWorkspace = TestBed.inject(ActiveWorkspaceFacade);
+    facade = TestBed.inject(ProjectsFacade);
+    http = TestBed.inject(HttpTestingController);
+  },
+  flushColdReadAcrossHydration = (): void => {
+    facade.ensureTaskDetail('project-1', 'task-1');
+    const coldTaskRead = http.expectOne('/api/tasks/task-1');
+    activeWorkspace.setActiveWorkspace({ id: 'workspace-1', label: 'Workspace 1' });
+    coldTaskRead.flush(detail);
+    http.expectNone('/api/projects/project-1');
+    expect(facade.getTaskDetail('project-1', 'task-1').detail).toBeUndefined();
+  },
+  flushReauthorizedRead = (): void => {
+    TestBed.tick();
+    http.expectOne('/api/tasks/task-1').flush(detail);
+    http.expectOne('/api/projects/project-1').flush(project);
+  },
+  expectAuthorizedDetail = (): void => {
+    expect(facade.getTaskDetail('project-1', 'task-1')).toMatchObject({
+      project: { id: 'project-1', name: 'Hydration race project' },
+      status: 'ready',
+      task: { id: 'task-1', title: 'Hydration race task' },
+    });
+  };
 
 describe('ProjectsFacade direct-route Workspace hydration', () => {
   beforeEach(() => {
-    cleanup.mockClear();
     configureFacade();
   });
 
