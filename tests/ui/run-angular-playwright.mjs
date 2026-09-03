@@ -30,6 +30,11 @@ let server = null;
 let exitCode = 1;
 
 try {
+  const policyExitCode = await runCommand(process.execPath, ['scripts/ci/verify-mvp-a-required-a11y-tests.mjs']);
+  if (policyExitCode !== 0) {
+    throw new Error(`MVP-A accessibility required-test policy failed with exit code ${policyExitCode}.`);
+  }
+
   await ensureAngularBuild();
   server = spawn(process.execPath, [serverPath, '--port', String(port)], {
     cwd: process.cwd(),
