@@ -16,7 +16,7 @@ permissions:
 jobs:
   canonical-completion:
     name: WPC-Final01 / PostgreSQL 18 + Angular
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 90
 
     services:
