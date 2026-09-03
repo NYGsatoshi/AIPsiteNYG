@@ -10,25 +10,8 @@ permissions:
 jobs:
   ef-diagnostic:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    services:
-      postgres:
-        image: postgres:18-alpine
-        env:
-          POSTGRES_DB: aip_portal_ci
-          POSTGRES_USER: aip_portal_ci
-          POSTGRES_PASSWORD: aip_portal_ci_password
-        ports:
-          - 5433:5432
-        options: >-
-          --health-cmd "pg_isready -U aip_portal_ci -d aip_portal_ci"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 20
+    timeout-minutes: 25
     env:
-      ASPNETCORE_ENVIRONMENT: Test
-      ConnectionStrings__DefaultConnection: "Host=127.0.0.1;Port=5433;Database=aip_portal_ci;Username=aip_portal_ci;Password=aip_portal_ci_password"
-      POSTGRES_TEST_CONNECTION_STRING: "Host=127.0.0.1;Port=5433;Database=aip_portal_ci;Username=aip_portal_ci;Password=aip_portal_ci_password"
       DOTNET_CLI_TELEMETRY_OPTOUT: "1"
       DOTNET_NOLOGO: "1"
 
@@ -43,36 +26,7 @@ jobs:
         with:
           global-json-file: global.json
 
-      - name: Probe PostgreSQL
-        run: |
-          docker run --rm --network host \
-            -e PGPASSWORD=aip_portal_ci_password \
-            postgres:18-alpine \
-            psql -h 127.0.0.1 -p 5433 -U aip_portal_ci -d aip_portal_ci -tAc 'select 1'
-
-      - name: Restore
-        run: dotnet restore AipPortal.slnx --disable-parallel --verbosity normal
-
-      - name: Build
-        run: dotnet build AipPortal.slnx --configuration Release --no-restore --disable-build-servers -m:1
-
-      - name: Restore EF tool
-        run: dotnet tool restore
-
-      - name: Apply migrations
-        run: >-
-          dotnet ef database update
-          --project src/AipPortal.Infrastructure
-          --startup-project src/AipPortal.Web
-          --configuration Release
-          --no-build
-          --verbose
-
-      - name: Check pending model changes
-        run: >-
-          dotnet ef migrations has-pending-model-changes
-          --project src/AipPortal.Infrastructure
-          --startup-project src/AipPortal.Web
-          --configuration Release
-          --no-build
-          --verbose
+      - name: Run exact Travis PostgreSQL + EF entry point
+        env:
+          TRAVIS_JOB_ID: gha-diagnostic
+        run: bash scripts/ci/run-travis-backend.sh ef
