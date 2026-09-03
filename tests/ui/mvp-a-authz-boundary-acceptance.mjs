@@ -2,11 +2,11 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { request } from '@playwright/test';
 
 const baseURL = requiredEnv('PLAYWRIGHT_BASE_URL');
-const adminEmail = requiredSyntheticEmail('AIP_MVPA_AUTHZ_ADMIN_EMAIL');
-const adminPassword = requiredEnv('AIP_MVPA_AUTHZ_ADMIN_PASSWORD');
-const memberEmail = requiredSyntheticEmail('AIP_MVPA_AUTHZ_MEMBER_EMAIL');
-const memberPassword = requiredEnv('AIP_MVPA_AUTHZ_MEMBER_PASSWORD');
-const memberDisplayName = process.env.AIP_MVPA_AUTHZ_MEMBER_DISPLAY_NAME?.trim() || 'MVP-A AuthZ Member';
+const adminEmail = requiredSyntheticEmail('AIP_MBJ02_ADMIN_EMAIL');
+const adminPassword = requiredEnv('AIP_MBJ02_ADMIN_PASSWORD');
+const memberEmail = requiredSyntheticEmail('AIP_MBJ02_INVITEE_EMAIL');
+const memberPassword = requiredEnv('AIP_MBJ02_INVITEE_PASSWORD');
+const memberDisplayName = process.env.AIP_MBJ02_INVITEE_DISPLAY_NAME?.trim() || 'MVP-A AuthZ Member';
 
 const evidence = {
   journey: 'MVP-A AuthZ boundary',
