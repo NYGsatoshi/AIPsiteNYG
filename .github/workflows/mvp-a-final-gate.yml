@@ -37,16 +37,18 @@ jobs:
         run: |
           python3 scripts/ci/check-publication-readiness.py
           python3 scripts/ci/check-required-pr-checks.py
-          node scripts/ci/verify-mvp-a-required-a11y-tests.mjs
+          python3 scripts/ci/verify-mvp-a-required-a11y-tests.py
 
       - name: Validate final-gate acceptance runner syntax
         shell: bash
         run: |
-          node --check tests/ui/mvp-a-authz-boundary-acceptance.mjs
-          node --check scripts/ci/verify-mvp-a-final-checks.mjs
+          python3 -m py_compile \
+            scripts/ci/verify-mvp-a-required-a11y-tests.py \
+            scripts/ci/verify-mvp-a-final-checks.py
+          bash -n scripts/ci/mvp-a-authz-boundary-acceptance.sh
           bash -n scripts/ci/run-mvp-a-authz-boundary-acceptance.sh
 
       - name: Require green MVP-A checks on this exact commit
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: node scripts/ci/verify-mvp-a-final-checks.mjs
+        run: python3 scripts/ci/verify-mvp-a-final-checks.py
