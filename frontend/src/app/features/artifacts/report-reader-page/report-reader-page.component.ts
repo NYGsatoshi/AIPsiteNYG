@@ -47,6 +47,49 @@ interface Report {
 }
 
 type RefinementTargetKind = 'Section' | 'Claim';
+type SourceKind = 'Web' | 'WebSite' | 'ProjectFile' | 'ConnectedApp';
+type SourceState = 'Allow' | 'Prioritize' | 'Exclude';
+
+interface SourceRule {
+  readonly kind: SourceKind;
+  readonly sourceId: string;
+  readonly state: SourceState;
+}
+
+interface SourcePolicyV2 {
+  readonly web: SourceState;
+  readonly webSite: SourceState;
+  readonly projectFile: SourceState;
+  readonly connectedApp: SourceState;
+  readonly items: readonly SourceRule[];
+}
+
+interface SourcePolicy {
+  readonly webEnabled: boolean;
+  readonly projectFilesEnabled: boolean;
+  readonly policyV2: SourcePolicyV2 | null;
+}
+
+interface SourceInventoryItem {
+  readonly kind: SourceKind;
+  readonly sourceId: string;
+  readonly label: string;
+}
+
+interface TaskScopeLookup {
+  readonly effectivePolicy: SourcePolicy;
+  readonly projectDefaultVersion: number;
+  readonly taskOverrideVersion: number | null;
+  readonly sourceInventory: readonly SourceInventoryItem[];
+}
+
+interface RefinementSourceRow {
+  readonly key: string;
+  readonly kind: SourceKind;
+  readonly label: string;
+  readonly state: SourceState;
+  readonly itemRule: boolean;
+}
 
 interface RefinementScope {
   readonly origin: string;
@@ -149,6 +192,7 @@ export class ReportReaderPageComponent {
   public refinementDialogOpen = false;
   public refinementError = '';
   public refinementLoading = false;
+  public refinementSources: readonly RefinementSourceRow[] = [];
   public refinementSubmitting = false;
   public report = emptyReport;
   public researchPlanLabel = 'No active revision';
@@ -199,6 +243,7 @@ export class ReportReaderPageComponent {
   public closeRefinement(): void {
     this.refinementDialogOpen = false;
     this.refinementError = '';
+    this.refinementSources = [];
     this.feedback = '';
     queueMicrotask(() => {
       this.refinementTrigger.focus();
@@ -284,17 +329,33 @@ export class ReportReaderPageComponent {
 
     this.refinementError = '';
     this.refinementLoading = true;
+    this.refinementSources = [];
     const query = new URLSearchParams({ targetKind: kind, targetLogicalId: logicalId });
     this.http.get<RefinementPreflight>(
       `/api/projects/${this.report.projectId}/artifact-versions/${this.report.artifactVersionId}/report/refinement-preflight?${query}`
     ).subscribe({
-      error: () => {
-        this.refinementError = 'Refinement details could not be loaded.';
-        this.refinementLoading = false;
-      },
-      next: (preflight) => {
+      error: () => this.failRefinementPreflight('Refinement details could not be loaded.'),
+      next: (preflight) => this.loadSourceScope(preflight)
+    });
+  }
+
+  private loadSourceScope(preflight: Readonly<RefinementPreflight>): void {
+    this.http.get<TaskScopeLookup>(
+      `/api/tasks/${encodeURIComponent(preflight.taskItemId)}/execution-scope`
+    ).subscribe({
+      error: () => this.failRefinementPreflight('The inherited source scope could not be confirmed.'),
+      next: (taskScope) => {
+        if (
+          taskScope.projectDefaultVersion !== preflight.scope.projectScopeVersion ||
+          taskScope.taskOverrideVersion !== preflight.scope.taskOverrideVersion
+        ) {
+          this.failRefinementPreflight('The source scope changed during confirmation. Open the refinement action again.');
+          return;
+        }
+
         this.feedback = '';
         this.refinement = preflight;
+        this.refinementSources = buildRefinementSourceRows(taskScope, preflight.scope);
         this.refinementDialogOpen = true;
         this.refinementLoading = false;
         this.updatePreflightLabels(preflight);
@@ -303,6 +364,11 @@ export class ReportReaderPageComponent {
         });
       }
     });
+  }
+
+  private failRefinementPreflight(message: string): void {
+    this.refinementError = message;
+    this.refinementLoading = false;
   }
 
   private updatePreflightLabels(preflight: Readonly<RefinementPreflight>): void {
@@ -324,5 +390,73 @@ export class ReportReaderPageComponent {
     if (preflight.restrictionCode === 'ReportRefinementUnsupportedSources') {
       this.restrictionText = 'This refinement provider cannot yet execute Web, Website, or Connected App sources. Adjust the Task source scope first.';
     }
+  }
+}
+
+function buildRefinementSourceRows(
+  taskScope: Readonly<TaskScopeLookup>,
+  fallback: Readonly<RefinementScope>
+): readonly RefinementSourceRow[] {
+  const policy = taskScope.effectivePolicy.policyV2 ?? legacySourcePolicy(fallback);
+  const rows: RefinementSourceRow[] = [
+    { key: 'default:Web', kind: 'Web', label: 'Web default', state: policy.web, itemRule: false },
+    { key: 'default:WebSite', kind: 'WebSite', label: 'Website default', state: policy.webSite, itemRule: false },
+    { key: 'default:ProjectFile', kind: 'ProjectFile', label: 'Project Files default', state: policy.projectFile, itemRule: false },
+    { key: 'default:ConnectedApp', kind: 'ConnectedApp', label: 'Connected Apps default', state: policy.connectedApp, itemRule: false }
+  ];
+  const seen = new Set<string>();
+  const configured = new Set(policy.items.map((rule) => `${rule.kind}:${rule.sourceId}`));
+
+  for (const source of taskScope.sourceInventory) {
+    const key = `${source.kind}:${source.sourceId}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    rows.push({
+      key,
+      kind: source.kind,
+      label: source.label,
+      state: resolveSourceState(policy, source.kind, source.sourceId),
+      itemRule: configured.has(key)
+    });
+  }
+
+  for (const rule of policy.items) {
+    const key = `${rule.kind}:${rule.sourceId}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    rows.push({ key, kind: rule.kind, label: rule.sourceId, state: rule.state, itemRule: true });
+  }
+
+  return rows;
+}
+
+function legacySourcePolicy(scope: Readonly<RefinementScope>): SourcePolicyV2 {
+  return {
+    connectedApp: 'Exclude',
+    items: [],
+    projectFile: scope.projectFilesEnabled ? 'Allow' : 'Exclude',
+    web: scope.webEnabled ? 'Allow' : 'Exclude',
+    webSite: 'Exclude'
+  };
+}
+
+function resolveSourceState(
+  policy: Readonly<SourcePolicyV2>,
+  kind: SourceKind,
+  sourceId: string
+): SourceState {
+  const rule = policy.items.find((item) => item.kind === kind && item.sourceId === sourceId);
+  if (rule) {
+    return rule.state;
+  }
+  switch (kind) {
+    case 'Web': return policy.web;
+    case 'WebSite': return policy.webSite;
+    case 'ProjectFile': return policy.projectFile;
+    case 'ConnectedApp': return policy.connectedApp;
   }
 }
