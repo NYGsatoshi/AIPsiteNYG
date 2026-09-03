@@ -7,7 +7,8 @@ import { AuditSeverityDisplay } from '../admin.types';
   standalone: true,
   template: `
     <span class="admin-badge" [class]="'admin-badge admin-badge--' + severity" data-testid="audit-severity-badge">
-      {{ label }}
+      <span class="admin-badge__icon" aria-hidden="true">{{ icon }}</span>
+      <span>{{ label }}</span>
     </span>
   `,
   styles: [
@@ -15,12 +16,20 @@ import { AuditSeverityDisplay } from '../admin.types';
       .admin-badge {
         display: inline-flex;
         min-width: 5.5rem;
+        align-items: center;
         justify-content: center;
+        gap: 0.3rem;
         border: 1px solid #cbd5e1;
         border-radius: 999px;
         padding: 0.125rem 0.5rem;
         font-size: 0.75rem;
         font-weight: 700;
+      }
+
+      .admin-badge__icon {
+        inline-size: 1em;
+        flex: 0 0 auto;
+        text-align: center;
       }
 
       .admin-badge--info {
@@ -48,4 +57,13 @@ import { AuditSeverityDisplay } from '../admin.types';
 export class AuditSeverityBadgeComponent {
   @Input({ required: true }) severity: AuditSeverityDisplay = 'info';
   @Input({ required: true }) label = 'Info';
+
+  get icon(): string {
+    switch (this.severity) {
+      case 'info': return '●';
+      case 'warning': return '▲';
+      case 'critical': return '◆';
+      default: return '?';
+    }
+  }
 }
