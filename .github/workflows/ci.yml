@@ -106,6 +106,7 @@ jobs:
             dotnet build src/AipPortal.Web/AipPortal.Web.csproj \
               --configuration Release \
               --no-restore \
+              --no-incremental \
               --disable-build-servers \
               -m:1 \
               -p:GenerateSecurityOpenApiContract=true
