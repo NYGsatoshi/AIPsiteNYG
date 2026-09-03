@@ -113,6 +113,30 @@ public sealed class AnnouncementDistributionStore(AppDbContext dbContext, IClock
         return Deserialize(json);
     }
 
+    public async Task<IReadOnlyList<AnnouncementDraftTargetRequest>> GetAnnouncementTargetsAsync(
+        Guid tenantId,
+        Guid announcementId,
+        CancellationToken cancellationToken = default)
+    {
+        if (tenantId == Guid.Empty || announcementId == Guid.Empty)
+        {
+            return [];
+        }
+        if (!UsesPostgreSql())
+        {
+            return inMemoryAnnouncementTargets.TryGetValue(announcementId, out var targets)
+                ? Copy(targets)
+                : [];
+        }
+
+        var json = await ReadTargetJsonAsync(
+            "announcements",
+            tenantId,
+            announcementId,
+            cancellationToken);
+        return Deserialize(json);
+    }
+
     public async Task CommitPublicationAsync(
         Guid tenantId,
         Guid announcementId,
