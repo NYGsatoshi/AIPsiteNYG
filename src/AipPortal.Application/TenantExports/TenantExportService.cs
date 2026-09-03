@@ -131,7 +131,7 @@ public sealed class TenantExportService(
         }
 
         var job = await exports.GetExportJobAsync(exportJobId, cancellationToken);
-        if (job is null)
+        if (job is null || job.ExportType != TenantExportType.Metadata)
         {
             return Result<TenantExportJobResponse>.Failure("Export job not found.");
         }
