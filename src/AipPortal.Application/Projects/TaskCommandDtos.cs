@@ -9,18 +9,56 @@ namespace AipPortal.Application.Projects;
 public sealed record TaskTransitionRequest(Guid WorkflowStageId, long ExpectedVersion, string? Reason = null);
 /// <summary>Ordinary Task-body fields only. Workflow state changes use the transition command.</summary>
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed record TaskUpdateDetailsRequest(
-    string? Title,
-    string? Description,
-    TaskPriority? Priority,
-    DateOnly? PlannedStartDate,
-    DateOnly? PlannedEndDate,
-    int? ProgressPercent,
-    long ExpectedVersion,
-    OptionalDateTimeOffset DeadlineAt = default,
-    OptionalString Goal = default,
-    OptionalString Deliverable = default,
-    OptionalString Constraints = default);
+public sealed record TaskUpdateDetailsRequest
+{
+    // System.Text.Json/OpenAPI use the parameterless constructor and property
+    // contract. This keeps omitted PATCH members at their default sentinel value
+    // without exposing custom-value-type constructor defaults to JsonSchemaExporter.
+    public TaskUpdateDetailsRequest()
+    {
+    }
+
+    // Preserve the existing source-level construction surface used by command
+    // tests and application code while keeping it out of the JSON constructor
+    // contract selected by System.Text.Json.
+    public TaskUpdateDetailsRequest(
+        string? Title,
+        string? Description,
+        TaskPriority? Priority,
+        DateOnly? PlannedStartDate,
+        DateOnly? PlannedEndDate,
+        int? ProgressPercent,
+        long ExpectedVersion,
+        OptionalDateTimeOffset DeadlineAt = default,
+        OptionalString Goal = default,
+        OptionalString Deliverable = default,
+        OptionalString Constraints = default)
+    {
+        this.Title = Title;
+        this.Description = Description;
+        this.Priority = Priority;
+        this.PlannedStartDate = PlannedStartDate;
+        this.PlannedEndDate = PlannedEndDate;
+        this.ProgressPercent = ProgressPercent;
+        this.ExpectedVersion = ExpectedVersion;
+        this.DeadlineAt = DeadlineAt;
+        this.Goal = Goal;
+        this.Deliverable = Deliverable;
+        this.Constraints = Constraints;
+    }
+
+    public string? Title { get; init; }
+    public string? Description { get; init; }
+    public TaskPriority? Priority { get; init; }
+    public DateOnly? PlannedStartDate { get; init; }
+    public DateOnly? PlannedEndDate { get; init; }
+    public int? ProgressPercent { get; init; }
+    public long ExpectedVersion { get; init; }
+    public OptionalDateTimeOffset DeadlineAt { get; init; }
+    public OptionalString Goal { get; init; }
+    public OptionalString Deliverable { get; init; }
+    public OptionalString Constraints { get; init; }
+}
 
 public static class TaskBriefText
 {
