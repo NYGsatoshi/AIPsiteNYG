@@ -4,7 +4,7 @@
     aria-labelledby="announcement-analytics-title"
     data-testid="announcement-analytics"
   >
-    <header class="announcement-analytics__header">
+    <header class="announcement-analytics-header">
       <div>
         <p>管理者向け集計</p>
         <h3 id="announcement-analytics-title">配信状況</h3>
@@ -12,7 +12,7 @@
       <span>個人別データは表示しません</span>
     </header>
 
-    <div class="announcement-analytics__metrics">
+    <div class="announcement-analytics-metrics">
       <article data-testid="announcement-analytics-read">
         <span>既読率</span>
         <strong>{{ percentage(vm.readRate) }}</strong>
@@ -40,12 +40,12 @@
     </div>
 
     @if (vm.medianTimeToRecognitionSeconds !== undefined) {
-      <p class="announcement-analytics__recognition" data-testid="announcement-analytics-recognition">
+      <p class="announcement-analytics-recognition" data-testid="announcement-analytics-recognition">
         既読までの中央値: <strong>{{ duration(vm.medianTimeToRecognitionSeconds) }}</strong>
       </p>
     }
 
-    <dl class="announcement-analytics__definition">
+    <dl class="announcement-analytics-definition">
       <div>
         <dt>分母</dt>
         <dd data-testid="announcement-analytics-denominator">
