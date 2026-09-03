@@ -7,7 +7,7 @@ import { FileScanStatus } from '../files.types';
   selector: 'app-file-scan-status-badge',
   standalone: true,
   template: `
-    <span class="scan-badge" [class]="'scan-badge scan-badge--' + status" data-testid="scan-status-badge">
+    <span [class]="'scan-badge scan-badge--' + status" data-testid="scan-status-badge">
       {{ i18n.fileScanStatusLabel(status) }}
     </span>
   `,
