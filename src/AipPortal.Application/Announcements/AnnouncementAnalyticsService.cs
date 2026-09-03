@@ -75,6 +75,7 @@ public interface IAnnouncementAnalyticsService
 public sealed class AnnouncementAnalyticsService(
     IAnnouncementRepository announcements,
     IAnnouncementEngagementStore engagementStore,
+    IAnnouncementDistributionStore distributionStore,
     IWorkspaceAuthorizationService workspaceAuthorization,
     IGroupAuthorizationService groupAuthorization,
     IChannelAuthorizationService channelAuthorization,
@@ -253,19 +254,64 @@ public sealed class AnnouncementAnalyticsService(
             return true;
         }
 
-        if (announcement.ChannelId.HasValue)
+        var publishedTargets = await distributionStore.GetAnnouncementTargetsAsync(
+            announcement.TenantId,
+            announcement.Id,
+            cancellationToken);
+        if (publishedTargets.Count > 0)
         {
-            return await channelAuthorization.CanManageChannel(userId, announcement.ChannelId.Value, cancellationToken);
+            // Multi-audience analytics describe the union cohort. Requiring
+            // management authority over every persisted target prevents a
+            // manager of one scope from inferring aggregate activity belonging
+            // to another selected scope.
+            foreach (var target in publishedTargets)
+            {
+                if (!await CanManageTargetAsync(userId, target, cancellationToken))
+                {
+                    return false;
+                }
+            }
+            return true;
         }
 
-        if (announcement.GroupId.HasValue)
+        // Legacy Announcements predate the #388 sidecar. Preserve the stricter
+        // manager-only policy while deriving their one effective scope from the
+        // legacy columns.
+        return await CanManageTargetAsync(
+            userId,
+            new AnnouncementDraftTargetRequest(
+                announcement.WorkspaceId,
+                announcement.GroupId,
+                announcement.ChannelId),
+            cancellationToken);
+    }
+
+    private async Task<bool> CanManageTargetAsync(
+        Guid userId,
+        AnnouncementDraftTargetRequest target,
+        CancellationToken cancellationToken)
+    {
+        if (target.ChannelId.HasValue)
         {
-            return await groupAuthorization.CanManageGroup(userId, announcement.GroupId.Value, cancellationToken);
+            if (!target.GroupId.HasValue || !target.WorkspaceId.HasValue)
+            {
+                return false;
+            }
+            return await channelAuthorization.CanManageChannel(userId, target.ChannelId.Value, cancellationToken);
         }
 
-        if (announcement.WorkspaceId.HasValue)
+        if (target.GroupId.HasValue)
         {
-            return await workspaceAuthorization.CanManageWorkspace(userId, announcement.WorkspaceId.Value, cancellationToken);
+            if (!target.WorkspaceId.HasValue)
+            {
+                return false;
+            }
+            return await groupAuthorization.CanManageGroup(userId, target.GroupId.Value, cancellationToken);
+        }
+
+        if (target.WorkspaceId.HasValue)
+        {
+            return await workspaceAuthorization.CanManageWorkspace(userId, target.WorkspaceId.Value, cancellationToken);
         }
 
         return false;
@@ -274,7 +320,7 @@ public sealed class AnnouncementAnalyticsService(
     private async Task<bool> IsSystemAdminAsync(Guid userId, CancellationToken cancellationToken)
     {
         var user = await users.GetByIdAsync(userId, cancellationToken);
-        return user is { Status: UserStatus.Active, SystemRole: SystemRole.SystemAdmin };
+        return user is { Status: UserStatus.Active, DeletedAt: null, SystemRole: SystemRole.SystemAdmin };
     }
 
     private bool TryCurrentUser(out Guid userId)
