@@ -343,8 +343,7 @@ export class WorkspacesFacade {
   ): Promise<boolean> {
     const committed = this.committedCreate;
     if (
-      !committed ||
-      committed.identityKey !== expectedIdentityKey ||
+      committed?.identityKey !== expectedIdentityKey ||
       !this.isCreateOperationCurrent(operationGeneration, expectedIdentityKey)
     ) {
       return false;

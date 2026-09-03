@@ -268,7 +268,7 @@ async function installSourcePolicyV2Api(page: Page) {
         const body = request.postDataJSON() as Record<string, unknown>;
         updates.push(body);
         const candidate = body['policyV2'] as SourcePolicyV2 | undefined;
-        if (!candidate || candidate.schemaVersion !== 2 || body['expectedVersion'] !== projectVersion) {
+        if (candidate?.schemaVersion !== 2 || body['expectedVersion'] !== projectVersion) {
           throw new Error('Unexpected Source Policy V2 Project update.');
         }
         projectPolicy = candidate;

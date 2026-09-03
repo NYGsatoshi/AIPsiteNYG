@@ -464,8 +464,7 @@ export class MessagingFacade {
           message.id !== responseMessageId ||
           message.threadRootMessageId !== rootMessageId ||
           nonEmptyString(response.message.conversationId) !== page.conversation.id ||
-          !summary ||
-          summary.threadRootMessageId !== rootMessageId
+          summary?.threadRootMessageId !== rootMessageId
         ) {
           this.failThreadLoad(rootMessageId, active.triggerElementId, undefined);
           return;
@@ -1054,8 +1053,7 @@ export class MessagingFacade {
         }
         const mapped = mapMessageThread(response, this.currentUserId(), triggerElementId);
         if (
-          !mapped ||
-          mapped.rootMessageId !== rootMessageId ||
+          mapped?.rootMessageId !== rootMessageId ||
           nonEmptyString(response.rootMessage?.conversationId) !== page.conversation.id ||
           (anchorReplyMessageId &&
             !mapped.replies.some((reply) =>
@@ -1107,8 +1105,7 @@ export class MessagingFacade {
           ? active.triggerElementId
           : undefined);
         if (
-          !mapped ||
-          mapped.rootMessageId !== rootMessageId ||
+          mapped?.rootMessageId !== rootMessageId ||
           nonEmptyString(response.rootMessage?.conversationId) !== pageConversationId ||
           (anchorReplyMessageId &&
             !mapped.replies.some((reply) =>
@@ -1247,8 +1244,7 @@ export class MessagingFacade {
           ? active.triggerElementId
           : undefined);
         if (
-          !mapped ||
-          mapped.rootMessageId !== messageId ||
+          mapped?.rootMessageId !== messageId ||
           nonEmptyString(response.rootMessage?.conversationId) !== pageConversationId ||
           !mapped.rootMessage ||
           (anchorReplyMessageId &&
@@ -1349,8 +1345,7 @@ export class MessagingFacade {
   private messageActionTarget(messageId: string, ownMessageOnly = false): MessagingMessageViewModel | null {
     const message = this.pageState().messages.find((current) => current.id === messageId);
     if (
-      !message ||
-      message.deliveryState !== 'confirmed' ||
+      message?.deliveryState !== 'confirmed' ||
       message.isDeleted ||
       (ownMessageOnly && !message.isOwnMessage)
     ) {

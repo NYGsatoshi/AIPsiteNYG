@@ -436,7 +436,7 @@ export class TaskExecutionScopeComponent implements OnChanges, OnDestroy {
     this.mutationError.set(null);
     this.loadError.set(null);
     const current = this.state();
-    if (!current || current.projectId !== projectId || current.taskId !== taskId) {this.state.set(null);}
+    if (current?.projectId !== projectId || current.taskId !== taskId) {this.state.set(null);}
     if (!projectId || !taskId) { this.activeRead.set(false); return; }
 
     if (this.scenario) {

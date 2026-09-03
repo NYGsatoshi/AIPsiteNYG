@@ -358,7 +358,7 @@ export class FilesFacade {
           return;
         }
         const deleted = mapSelectionSnapshotDelete(response);
-        if (!deleted || deleted.attemptedCount !== selection.selectedCount) {
+        if (deleted?.attemptedCount !== selection.selectedCount) {
           this.deleteStateSignal.set({
             state: 'failed',
             message: this.i18n.translate('files.delete.invalidBatchResponse'),
