@@ -56,7 +56,9 @@ test.describe('Audit WCAG 2.2 AA regression', () => {
       throw new Error('Decision response gate was not initialized.');
     };
     const decisionResponseGate = new Promise<null>((resolve) => {
-      releaseDecisionResponse = () => resolve(null);
+      releaseDecisionResponse = () => {
+        resolve(null);
+      };
     });
 
     const decisionResponse = () => ({
