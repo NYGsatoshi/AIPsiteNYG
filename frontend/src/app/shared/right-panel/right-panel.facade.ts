@@ -271,15 +271,15 @@ export class RightPanelFacade {
           }
         },
         error: () => {
-          if (generation === this.notificationRefreshGeneration) this.showUnavailable();
+          if (generation === this.notificationRefreshGeneration) {this.showUnavailable();}
         },
         complete: () => {
-          if (generation === this.notificationRefreshGeneration) this.notificationOpenInProgressState.set(false);
+          if (generation === this.notificationRefreshGeneration) {this.notificationOpenInProgressState.set(false);}
         },
       });
     this.notificationOpenRequest = request;
     request.add(() => {
-      if (this.notificationOpenRequest === request) this.notificationOpenRequest = null;
+      if (this.notificationOpenRequest === request) {this.notificationOpenRequest = null;}
     });
   }
 
@@ -294,7 +294,7 @@ export class RightPanelFacade {
       .patch(`/api/notifications/${notificationId}/read`, {}, { withCredentials: true })
       .subscribe({
         next: () => {
-          if (generation === this.notificationRefreshGeneration) this.confirmNotificationRead(notificationId);
+          if (generation === this.notificationRefreshGeneration) {this.confirmNotificationRead(notificationId);}
         },
         error: () => {
           // Keep unread state unchanged unless the backend confirms persistence.
@@ -452,7 +452,7 @@ export class RightPanelFacade {
     this.notificationRefreshRequest = null;
     this.notificationOpenRequest?.unsubscribe();
     this.notificationOpenRequest = null;
-    for (const request of [...this.notificationMutationRequests]) request.unsubscribe();
+    for (const request of [...this.notificationMutationRequests]) {request.unsubscribe();}
     this.notificationMutationRequests.clear();
     if (this.notificationRefreshTimer !== null) {
       clearTimeout(this.notificationRefreshTimer);
@@ -542,13 +542,13 @@ export class RightPanelFacade {
         });
       this.notificationRefreshRequest = request;
       request.add(() => {
-        if (this.notificationRefreshRequest === request) this.notificationRefreshRequest = null;
+        if (this.notificationRefreshRequest === request) {this.notificationRefreshRequest = null;}
         resolve();
       });
     });
     this.notificationRefreshInFlight = refreshPromise;
     void refreshPromise.finally(() => {
-      if (this.notificationRefreshInFlight !== refreshPromise) return;
+      if (this.notificationRefreshInFlight !== refreshPromise) {return;}
       this.notificationRefreshInFlight = null;
       if (this.notificationRefreshQueued) {
         this.notificationRefreshQueued = false;
@@ -562,12 +562,12 @@ export class RightPanelFacade {
   }
 
   private queueNotificationRefresh(): void {
-    if (this.mockState) return;
+    if (this.mockState) {return;}
     if (this.notificationRefreshInFlight) {
       this.notificationRefreshQueued = true;
       return;
     }
-    if (this.notificationRefreshTimer !== null) return;
+    if (this.notificationRefreshTimer !== null) {return;}
     this.notificationRefreshTimer = setTimeout(() => {
       this.notificationRefreshTimer = null;
       void this.refreshNotifications();

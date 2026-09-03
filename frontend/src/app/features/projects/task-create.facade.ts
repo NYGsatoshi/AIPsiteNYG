@@ -192,8 +192,7 @@ export class TaskCreateFacade {
       this.scopeIdentityKey !== identityKey ||
       options.status !== 'ready' ||
       options.projectId !== this.scopeProjectId ||
-      !options.data ||
-      !options.data.canCreateTask
+      !options.data?.canCreateTask
     ) {
       this.setCreateError('Task creation options are unavailable. Reload them and try again.');
       return false;

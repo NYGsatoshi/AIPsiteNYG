@@ -78,8 +78,8 @@ test.describe('Task execution real-backend golden path', () => {
       const filesCheckbox = taskScopeGroup.getByRole('checkbox', { name: /Allow authorized Project files as a future source/ });
       await expect(webCheckbox).toBeVisible();
       await expect(filesCheckbox).toBeVisible();
-      if (await webCheckbox.isChecked()) await webCheckbox.uncheck();
-      if (!await filesCheckbox.isChecked()) await filesCheckbox.check();
+      if (await webCheckbox.isChecked()) {await webCheckbox.uncheck();}
+      if (!await filesCheckbox.isChecked()) {await filesCheckbox.check();}
 
       const saveResponsePromise = waitForApiResponse(page, 'PUT', `/api/tasks/${taskId}/execution-scope-override`);
       await taskScopeGroup.getByRole('button', { name: 'Save Task source setting' }).click();
@@ -286,7 +286,7 @@ async function requestWithCsrf(
       'Content-Type': 'application/json',
       ...additionalHeaders,
     };
-    if (csrf.token && csrf.headerName) headers[csrf.headerName] = csrf.token;
+    if (csrf.token && csrf.headerName) {headers[csrf.headerName] = csrf.token;}
     const response = await fetch(path, {
       method,
       credentials: 'include',

@@ -58,13 +58,13 @@ export class MyTasksPageComponent {
   setSavedFilterName(value: string): void { this.savedFilterName = value; }
   saveCurrentFilter(event?: Event): void {
     event?.preventDefault();
-    if (!this.facade.saveCurrentFilter(this.savedFilterName)) return;
+    if (!this.facade.saveCurrentFilter(this.savedFilterName)) {return;}
     this.savedFilterName = '';
     queueMicrotask(() => this.savedFilterNameInput?.nativeElement.focus());
   }
   applySavedFilter(filterId: string): void { this.facade.applySavedFilter(filterId); }
   deleteSavedFilter(filterId: string): void {
-    if (!this.facade.deleteSavedFilter(filterId)) return;
+    if (!this.facade.deleteSavedFilter(filterId)) {return;}
     queueMicrotask(() => this.savedFilterNameInput?.nativeElement.focus());
   }
   clearAllFilters(): void { this.facade.clearAllFilters(); }
@@ -81,11 +81,11 @@ export class MyTasksPageComponent {
       End: this.tabs.length - 1
     };
     const targetIndex = keyTargets[event.key];
-    if (targetIndex === undefined) return;
+    if (targetIndex === undefined) {return;}
     event.preventDefault();
     this.setTab(this.tabs[targetIndex].id);
     const tabElements = (event.currentTarget as HTMLElement).parentElement?.querySelectorAll<HTMLElement>('[role="tab"]');
     tabElements?.[targetIndex]?.focus();
   }
-  handleTaskAction(event: AppDataGridActionEvent<TaskGridRow>): void { if (event.actionId === 'openDetail') void this.router.navigate(['/projects', event.row.projectId, 'tasks', event.row.id]); }
+  handleTaskAction(event: AppDataGridActionEvent<TaskGridRow>): void { if (event.actionId === 'openDetail') {void this.router.navigate(['/projects', event.row.projectId, 'tasks', event.row.id]);} }
 }
