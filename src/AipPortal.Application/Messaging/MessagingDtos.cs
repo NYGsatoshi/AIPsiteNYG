@@ -101,7 +101,9 @@ public sealed record ConversationMemberResponse(
 
 public sealed record AddConversationMemberRequest(Guid UserId);
 
-public sealed record AttachmentMetadataRequest(string FileName, string StoredFileName, string FilePath, string ContentType, long FileSize);
+/// <summary>Canonical server-owned Attachment identity accepted by Message send.</summary>
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record MessageAttachmentReferenceRequest(Guid AttachmentId);
 
 public sealed record AttachmentResponse(Guid Id, string FileName, string ContentType, long FileSize);
 
@@ -122,9 +124,10 @@ public sealed record MessageResponse(
     Guid? ThreadRootMessageId = null,
     MessageThreadSummaryResponse? Thread = null);
 
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record SendMessageRequest(
     string? Body,
-    IReadOnlyList<AttachmentMetadataRequest>? Attachments = null,
+    IReadOnlyList<MessageAttachmentReferenceRequest>? Attachments = null,
     Guid? ClientRequestId = null,
     IReadOnlyList<Guid>? MentionedUserIds = null);
 

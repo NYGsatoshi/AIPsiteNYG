@@ -1,5 +1,6 @@
 using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
+using AipPortal.Application.Files;
 using AipPortal.Application.Projects;
 using AipPortal.Application.Realtime;
 using AipPortal.Domain.Entities;
@@ -15,6 +16,8 @@ public sealed class ConversationService(
     IProjectRepository projects,
     IProjectAuthorizationService projectAuthorization,
     IConversationAuthorizationService authorization,
+    IFileRepository files,
+    IFileService fileService,
     ICurrentUser currentUser,
     IClock clock,
     CommunicationSafetyOptions safetyOptions,
@@ -507,11 +510,24 @@ public sealed class ConversationService(
             return Result<MessageResponse>.Failure("Message cannot be posted right now.");
         }
 
-        foreach (var attachment in attachments)
+        var canonicalAttachments = new List<Attachment>(attachments.Count);
+        var canonicalFileObjectIds = new HashSet<Guid>();
+        foreach (var reference in attachments)
         {
-            var extension = Path.GetExtension(attachment.FileName).ToLowerInvariant();
-            if (attachment.FileSize <= 0 || attachment.FileSize > MaxAttachmentBytes || !AllowedExtensions.Contains(extension)) return Result<MessageResponse>.Failure("Attachment is not allowed.");
+            var source = await ResolveMessageAttachmentSourceAsync(conversation, reference.AttachmentId, cancellationToken);
+            if (source is null)
+            {
+                await LogCommunicationAuditAsync(userId, "communication.message_post_denied", "Conversation", conversation.Id, conversation, null, conversation.Type == ConversationType.Thread ? conversation.Id : null, "deny", "attachment_unavailable", cancellationToken);
+                await unitOfWork.SaveChangesAsync(cancellationToken);
+                return Result<MessageResponse>.Failure("Attachment is unavailable or not authorized.");
+            }
+
+            if (canonicalFileObjectIds.Add(source.FileObjectId))
+            {
+                canonicalAttachments.Add(source);
+            }
         }
+
         var message = new Message
         {
             // Notification policy is evaluated before the unit-of-work save that
@@ -529,10 +545,35 @@ public sealed class ConversationService(
             CreatedAt = clock.UtcNow
         };
         await messaging.AddMessageAsync(message, cancellationToken);
-        foreach (var item in attachments)
+        foreach (var source in canonicalAttachments)
         {
-            var attachment = new Attachment { WorkspaceId = conversation.WorkspaceId, OwnerType = AttachmentOwnerType.Message, OwnerId = message.Id, OwnerUserId = userId, UploadedByUserId = userId, FileName = item.FileName, StoredFileName = item.StoredFileName, FilePath = item.FilePath, ContentType = item.ContentType, Extension = Path.GetExtension(item.FileName), SizeBytes = item.FileSize, StorageProvider = "metadata-only", StorageKey = item.FilePath };
-            await messaging.AddAttachmentAsync(attachment, new MessageAttachment { MessageId = message.Id, AttachmentId = attachment.Id }, cancellationToken);
+            var fileObject = source.FileObject!;
+            var attachment = new Attachment
+            {
+                TenantId = conversation.TenantId,
+                FileObjectId = fileObject.Id,
+                WorkspaceId = conversation.WorkspaceId,
+                OwnerType = AttachmentOwnerType.Message,
+                OwnerId = message.Id,
+                OwnerUserId = userId,
+                UploadedByUserId = fileObject.UploadedByUserId,
+                FileName = fileObject.OriginalFileName,
+                StoredFileName = fileObject.Id.ToString("N"),
+                FilePath = fileObject.StorageKey,
+                ContentType = fileObject.ContentType,
+                Extension = Path.GetExtension(fileObject.OriginalFileName),
+                SizeBytes = fileObject.SizeBytes,
+                StorageProvider = source.StorageProvider,
+                StorageKey = fileObject.StorageKey,
+                ScanStatus = source.ScanStatus,
+                FileObject = fileObject
+            };
+            await messaging.AddAttachmentAsync(attachment, new MessageAttachment
+            {
+                TenantId = conversation.TenantId,
+                MessageId = message.Id,
+                AttachmentId = attachment.Id
+            }, cancellationToken);
             await AuditAsync(userId, "MessageAttachmentAdded", message.Id, cancellationToken);
         }
         var requestedMentionUserIds = (request.MentionedUserIds ?? [])
@@ -609,6 +650,82 @@ public sealed class ConversationService(
             await unitOfWork.SaveChangesAsync(cancellationToken);
         }
         return Result<MessageResponse>.Success(ToMessage(committedMessage));
+    }
+
+    private async Task<Attachment?> ResolveMessageAttachmentSourceAsync(
+        Conversation conversation,
+        Guid attachmentId,
+        CancellationToken cancellationToken)
+    {
+        if (attachmentId == Guid.Empty ||
+            !currentTenant.IsAvailable ||
+            currentTenant.IsPlatformScope ||
+            currentTenant.TenantId != conversation.TenantId)
+        {
+            return null;
+        }
+
+        // Reuse the canonical Files open boundary first. This revalidates the
+        // current actor, tenant, owner scope, scan/classification state and
+        // current file authorization without trusting any browser metadata.
+        var authorized = await fileService.GetAsync(attachmentId, cancellationToken);
+        if (!authorized.IsSuccess)
+        {
+            return null;
+        }
+
+        var source = await files.GetAttachmentAsync(attachmentId, cancellationToken);
+        if (source is null ||
+            source.TenantId != conversation.TenantId ||
+            source.WorkspaceId != conversation.WorkspaceId ||
+            source.DeletedAt.HasValue ||
+            !source.OwnerType.HasValue ||
+            !source.OwnerId.HasValue ||
+            source.FileObject is null ||
+            source.FileObjectId == Guid.Empty)
+        {
+            return null;
+        }
+
+        var fileObject = source.FileObject;
+        // Message search currently treats only workspace-scoped FileObjects as
+        // canonical Message attachments. Keep send-side promotion inside that
+        // same fail-closed contract until project-scoped search is specified.
+        if (fileObject.TenantId != conversation.TenantId ||
+            fileObject.WorkspaceId != conversation.WorkspaceId ||
+            fileObject.ProjectId.HasValue ||
+            fileObject.DeletedAt.HasValue ||
+            fileObject.Status != FileObjectStatus.Active ||
+            source.ScanStatus != FileScanStatus.Clean ||
+            !fileObject.Classification.HasValue ||
+            fileObject.Classification == DataClassification.UnknownSensitive ||
+            string.IsNullOrWhiteSpace(fileObject.OriginalFileName) ||
+            string.IsNullOrWhiteSpace(fileObject.ContentType) ||
+            string.IsNullOrWhiteSpace(fileObject.StorageKey) ||
+            string.IsNullOrWhiteSpace(source.StorageProvider))
+        {
+            return null;
+        }
+
+        var owner = await files.ResolveOwnerAsync(source.OwnerType.Value, source.OwnerId.Value, cancellationToken);
+        if (owner is null ||
+            owner.WorkspaceId != conversation.WorkspaceId ||
+            (owner.ConversationId.HasValue && owner.ConversationId.Value != conversation.Id) ||
+            (owner.ProjectId.HasValue && owner.ProjectId != conversation.ProjectId) ||
+            (fileObject.ProjectId.HasValue && fileObject.ProjectId != conversation.ProjectId))
+        {
+            return null;
+        }
+
+        var extension = Path.GetExtension(fileObject.OriginalFileName).ToLowerInvariant();
+        if (fileObject.SizeBytes <= 0 ||
+            fileObject.SizeBytes > MaxAttachmentBytes ||
+            !AllowedExtensions.Contains(extension))
+        {
+            return null;
+        }
+
+        return source;
     }
 
     public async Task<Result<MessageThreadResponse>> GetMessageThreadAsync(
