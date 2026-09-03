@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/explicit-function-return-type, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-type-assertion, @typescript-eslint/prefer-destructuring, @typescript-eslint/prefer-readonly-parameter-types, @typescript-eslint/restrict-template-expressions, @typescript-eslint/strict-void-return, func-style, max-lines-per-function, max-statements, no-await-in-loop, no-promise-executor-return, no-ternary, one-var, sort-imports, sort-keys -- Playwright acceptance deliberately uses imperative browser interactions and compact mock payloads. */
+/* eslint-disable @typescript-eslint/explicit-function-return-type, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-type-assertion, @typescript-eslint/prefer-destructuring, @typescript-eslint/prefer-readonly-parameter-types, @typescript-eslint/restrict-template-expressions, func-style, max-lines-per-function, max-statements, no-await-in-loop, no-ternary, one-var, sort-imports, sort-keys -- Playwright acceptance deliberately uses imperative browser interactions and compact mock payloads. */
 import { expect, type Locator, type Page, test } from '@playwright/test';
 
 import { expectNoAccessibilityViolations } from './a11y';
@@ -8,10 +8,10 @@ const findingId = '22222222-2222-4222-8222-222222222222';
 const reviewerId = '33333333-3333-4333-8333-333333333333';
 
 type ReviewDecision = 'NoIssue' | 'NeedsFix' | 'AcceptedRisk';
-type DecisionRequest = {
+interface DecisionRequest {
   decision: ReviewDecision;
   rationale: string | null;
-};
+}
 
 async function tabTo(page: Page, target: Locator, maximumTabs = 80): Promise<void> {
   for (let index = 0; index < maximumTabs; index += 1) {
@@ -52,10 +52,7 @@ test.describe('Audit WCAG 2.2 AA regression', () => {
     let capturedDecisionRequest: DecisionRequest | null = null;
     let currentDecision: ReviewDecision | null = null;
     let currentRationale: string | null = null;
-    let releaseDecisionResponse = (): void => undefined;
-    const decisionResponseGate = new Promise<void>((resolve) => {
-      releaseDecisionResponse = resolve;
-    });
+    const decisionResponseGate = Promise.withResolvers<void>();
 
     const decisionResponse = () => ({
       findingId,
@@ -111,7 +108,7 @@ test.describe('Audit WCAG 2.2 AA regression', () => {
         capturedDecisionRequest = body;
         decisionPutCount += 1;
 
-        await decisionResponseGate;
+        await decisionResponseGate.promise;
         currentDecision = body.decision;
         currentRationale = body.rationale;
 
@@ -215,7 +212,7 @@ test.describe('Audit WCAG 2.2 AA regression', () => {
     await expect(form).toHaveAttribute('aria-busy', 'true');
     await expect(status).toHaveText('Saving structured decision.');
 
-    releaseDecisionResponse();
+    decisionResponseGate.resolve();
     await expect(status).toHaveText('Structured decision saved. Review complete.');
     await expect(form).not.toHaveAttribute('aria-busy', 'true');
     await expect(save).toBeFocused();
