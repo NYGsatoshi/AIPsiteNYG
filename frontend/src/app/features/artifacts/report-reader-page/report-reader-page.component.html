@@ -1,8 +1,219 @@
-@if(loading()){<div class="state" role="status">Loading report…</div>}@else if(error()){<div class="state" role="alert"><h1>Report unavailable</h1><p>The report could not be loaded or is not available to you.</p></div>}@else if(report();as r){
-<header class="reader-header"><svg lucideFileText aria-hidden="true"></svg><div><p>Report · Version {{r.versionNumber}}</p><h1>{{r.title}}</h1></div></header>
-<div class="reader" [class.inspector-open]="selected()">
- <main class="document" id="report-body" tabindex="-1">
- @for(section of r.sections;track section.id){<section><h2>{{section.heading}}</h2><p>@for(run of section.runs;track $index){@if(run.kind==='citation'&&run.citation;as citation){<button class="citation" type="button" [attr.aria-expanded]="selected()?.id===citation.id" aria-controls="evidence-inspector" (click)="select(citation,$event)">{{run.text}}<sup>[{{citation.ordinal}}]</sup></button>}@else{<span>{{run.text}}</span>}}</p></section>}
- </main>
- @if(selected();as citation){<aside #inspector id="evidence-inspector" class="inspector" tabindex="-1" aria-labelledby="inspector-title"><div class="inspector-head"><div><p>Citation {{citation.ordinal}}</p><h2 id="inspector-title">Evidence inspector</h2></div><button type="button" class="close" aria-label="Close evidence inspector and return to citation" (click)="close()"><svg lucideX aria-hidden="true"></svg></button></div><p class="claim-id">Claim {{citation.claimId}}</p>@if(citation.evidence.length){@for(item of citation.evidence;track item.id){<article class="evidence"><p class="kind">{{item.sourceKind}}</p><h3>{{item.sourceTitle || 'Source'}}</h3>@if(item.location){<p class="location">{{item.location}}</p>}<blockquote>{{item.passage}}</blockquote></article>}}@else{<p class="empty">No evidence is available in your current access scope.</p>}</aside>}
-</div>}
+<div class="state" role="status" [hidden]="!loading" i18n>Loading report…</div>
+
+<div class="state" role="alert" [hidden]="!error">
+  <h1 i18n>Report unavailable</h1>
+  <p i18n>The report could not be loaded or is not available to you.</p>
+</div>
+
+<div [hidden]="loading || error">
+  <header class="reader-header">
+    <svg lucideFileText aria-hidden="true"></svg>
+    <div>
+      <p i18n>Report · Version {{ report.versionNumber }}</p>
+      <h1>{{ report.title }}</h1>
+    </div>
+  </header>
+
+  <div class="reader" [class.inspector-open]="inspectorOpen">
+    <main class="document" id="report-body" tabindex="-1">
+      @for (section of report.sections; track section.id) {
+        <section>
+          <div class="section-head">
+            <h2>{{ section.heading }}</h2>
+            <button
+              class="refine-action"
+              type="button"
+              [disabled]="refinementLoading || refinementSubmitting"
+              [hidden]="!hasTaskContext"
+              (click)="openSectionRefinement(section.logicalSectionId, $event)"
+              i18n
+            >
+              <svg lucideRefreshCw aria-hidden="true"></svg>
+              Refine section evidence
+            </button>
+          </div>
+          <p>
+            @for (run of section.runs; track $index) {
+              @if (run.kind === 'citation' && run.citation; as citation) {
+                <button
+                  class="citation"
+                  type="button"
+                  [attr.aria-expanded]="selected.id === citation.id"
+                  (click)="select(citation, $event)"
+                >{{ run.text }}<sup>[{{ citation.ordinal }}]</sup></button>
+              } @else {
+                <span>{{ run.text }}</span>
+              }
+            }
+          </p>
+        </section>
+      }
+    </main>
+
+    <aside
+      id="evidence-inspector"
+      class="inspector"
+      tabindex="-1"
+      [hidden]="!inspectorOpen"
+      aria-label="Evidence inspector"
+      i18n-aria-label
+    >
+      <div class="inspector-head">
+        <div>
+          <p i18n>Citation {{ selected.ordinal }}</p>
+          <h2 i18n>Evidence inspector</h2>
+        </div>
+        <button
+          type="button"
+          class="close"
+          aria-label="Close evidence inspector and return to citation"
+          i18n-aria-label
+          (click)="close()"
+        >
+          <svg lucideX aria-hidden="true"></svg>
+        </button>
+      </div>
+      <p class="claim-id" i18n>Claim {{ selected.claimId }}</p>
+      <button
+        class="claim-refine"
+        type="button"
+        [disabled]="refinementLoading || refinementSubmitting"
+        [hidden]="!hasTaskContext"
+        (click)="openClaimRefinement(selected.logicalClaimId, $event)"
+        i18n
+      >
+        <svg lucideRefreshCw aria-hidden="true"></svg>
+        Add evidence to this claim
+      </button>
+
+      @for (item of selected.evidence; track item.id) {
+        <article class="evidence">
+          <p class="kind">{{ item.sourceKind }}</p>
+          <h3>{{ item.sourceTitle }}</h3>
+          <p class="location" [hidden]="item.location === null">{{ item.location }}</p>
+          <blockquote>{{ item.passage }}</blockquote>
+        </article>
+      } @empty {
+        <p class="empty" i18n>No evidence is available in your current access scope.</p>
+      }
+    </aside>
+  </div>
+
+  <div class="refinement-toast" role="alert" [hidden]="refinementError === ''">{{ refinementError }}</div>
+
+  <div class="dialog-backdrop" [hidden]="!refinementDialogOpen">
+    <section
+      id="report-refinement-dialog"
+      class="refinement-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Confirm localized refinement"
+      i18n-aria-label
+      tabindex="-1"
+    >
+      <div class="dialog-head">
+        <div>
+          <p i18n>{{ refinement.targetKind }} refinement · Base version {{ refinement.baseVersionNumber }}</p>
+          <h2 i18n>Confirm localized refinement</h2>
+        </div>
+        <button
+          type="button"
+          class="close"
+          aria-label="Cancel report refinement"
+          i18n-aria-label
+          (click)="closeRefinement()"
+        >
+          <svg lucideX aria-hidden="true"></svg>
+        </button>
+      </div>
+
+      <dl class="refinement-summary">
+        <div>
+          <dt i18n>Target</dt>
+          <dd>{{ refinement.targetLabel }}</dd>
+        </div>
+        <div>
+          <dt i18n>Project Files</dt>
+          <dd>
+            <span [hidden]="!refinement.scope.projectFilesEnabled" i18n>Included</span>
+            <span [hidden]="refinement.scope.projectFilesEnabled" i18n>Excluded</span>
+          </dd>
+        </div>
+        <div>
+          <dt i18n>Web</dt>
+          <dd>
+            <span [hidden]="!refinement.scope.webEnabled" i18n>Included</span>
+            <span [hidden]="refinement.scope.webEnabled" i18n>Excluded</span>
+          </dd>
+        </div>
+        <div>
+          <dt i18n>Research Plan</dt>
+          <dd>{{ researchPlanLabel }}</dd>
+        </div>
+        <div>
+          <dt i18n>Scope version</dt>
+          <dd>{{ scopeVersionLabel }}</dd>
+        </div>
+        <div>
+          <dt i18n>Provider</dt>
+          <dd>{{ refinement.scope.provider }}</dd>
+        </div>
+      </dl>
+
+      <section class="source-scope" aria-labelledby="refinement-source-scope-title">
+        <div class="source-scope-head">
+          <h3 id="refinement-source-scope-title" i18n>Inherited source scope</h3>
+          <span i18n>Allow / Prioritize / Exclude</span>
+        </div>
+        <ul>
+          @for (source of refinementSources; track source.key) {
+            <li>
+              <div>
+                <strong>{{ source.label }}</strong>
+                <span>{{ source.kind }} · {{ source.itemRule ? 'item rule' : 'default' }}</span>
+              </div>
+              <span class="source-state" [attr.data-state]="source.state">{{ source.state }}</span>
+            </li>
+          } @empty {
+            <li class="source-empty" i18n>No itemized sources are available in this scope.</li>
+          }
+        </ul>
+      </section>
+
+      <p class="impact">{{ refinement.changesApplyTo }}</p>
+      <p class="restriction" role="alert" [hidden]="refinement.canRefine">{{ restrictionText }}</p>
+
+      <label for="refinement-feedback" i18n>Direction or evidence request <span>(optional)</span></label>
+      <textarea
+        id="refinement-feedback"
+        rows="4"
+        maxlength="1000"
+        placeholder="For example: find a more recent source for this claim."
+        i18n-placeholder
+        [value]="feedback"
+        (input)="updateFeedback($event)"
+      ></textarea>
+
+      <p class="dialog-error" role="alert" [hidden]="refinementError === ''">{{ refinementError }}</p>
+
+      <div class="dialog-actions">
+        <button
+          type="button"
+          class="secondary"
+          [disabled]="refinementSubmitting"
+          (click)="closeRefinement()"
+          i18n
+        >Cancel</button>
+        <button
+          type="button"
+          class="primary"
+          [disabled]="!refinement.canRefine || refinementSubmitting"
+          (click)="confirmRefinement()"
+        >
+          <svg lucideRefreshCw aria-hidden="true"></svg>
+          {{ confirmButtonText }}
+        </button>
+      </div>
+    </section>
+  </div>
+</div>

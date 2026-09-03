@@ -12,6 +12,7 @@
     ".storybook/**/*.ts",
     "src/**/*.ts",
     "src/**/*.d.ts",
-    "vitest.config.ts"
+    "vitest.config.ts",
+    "vitest.setup.ts"
   ]
 }

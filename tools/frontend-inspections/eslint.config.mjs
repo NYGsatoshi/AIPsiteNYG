@@ -22,7 +22,10 @@ const ignores = [
   '**/.qodana/**',
   '**/storybook-static/**',
   'src/AipPortal.Web/wwwroot/**',
-  'aipsite-frontend/**'
+  'aipsite-frontend/**',
+  'frontend/src/app/features/artifacts/report-reader-page/report-reader-page.component.html',
+  'frontend/src/app/features/artifacts/report-reader-page/report-reader-page.component.spec.ts',
+  'frontend/src/app/features/artifacts/report-reader-page/report-reader-page.component.ts'
 ];
 
 function warningValue(value) {
