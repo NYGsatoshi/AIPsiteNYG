@@ -160,6 +160,26 @@
         </div>
       </dl>
 
+      <section class="source-scope" aria-labelledby="refinement-source-scope-title">
+        <div class="source-scope-head">
+          <h3 id="refinement-source-scope-title" i18n>Inherited source scope</h3>
+          <span i18n>Allow / Prioritize / Exclude</span>
+        </div>
+        <ul>
+          @for (source of refinementSources; track source.key) {
+            <li>
+              <div>
+                <strong>{{ source.label }}</strong>
+                <span>{{ source.kind }} · {{ source.itemRule ? 'item rule' : 'default' }}</span>
+              </div>
+              <span class="source-state" [attr.data-state]="source.state">{{ source.state }}</span>
+            </li>
+          } @empty {
+            <li class="source-empty" i18n>No itemized sources are available in this scope.</li>
+          }
+        </ul>
+      </section>
+
       <p class="impact">{{ refinement.changesApplyTo }}</p>
       <p class="restriction" role="alert" [hidden]="refinement.canRefine">{{ restrictionText }}</p>
 
