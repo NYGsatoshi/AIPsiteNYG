@@ -52,7 +52,12 @@ test.describe('Audit WCAG 2.2 AA regression', () => {
     let capturedDecisionRequest: DecisionRequest | null = null;
     let currentDecision: ReviewDecision | null = null;
     let currentRationale: string | null = null;
-    const decisionResponseGate = Promise.withResolvers<void>();
+    let releaseDecisionResponse = (): void => {
+      throw new Error('Decision response gate was not initialized.');
+    };
+    const decisionResponseGate = new Promise<null>((resolve) => {
+      releaseDecisionResponse = () => resolve(null);
+    });
 
     const decisionResponse = () => ({
       findingId,
@@ -108,7 +113,7 @@ test.describe('Audit WCAG 2.2 AA regression', () => {
         capturedDecisionRequest = body;
         decisionPutCount += 1;
 
-        await decisionResponseGate.promise;
+        await decisionResponseGate;
         currentDecision = body.decision;
         currentRationale = body.rationale;
 
@@ -212,7 +217,7 @@ test.describe('Audit WCAG 2.2 AA regression', () => {
     await expect(form).toHaveAttribute('aria-busy', 'true');
     await expect(status).toHaveText('Saving structured decision.');
 
-    decisionResponseGate.resolve();
+    releaseDecisionResponse();
     await expect(status).toHaveText('Structured decision saved. Review complete.');
     await expect(form).not.toHaveAttribute('aria-busy', 'true');
     await expect(save).toBeFocused();
