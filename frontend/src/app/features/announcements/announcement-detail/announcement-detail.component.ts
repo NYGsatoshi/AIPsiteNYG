@@ -6,7 +6,9 @@ import {
   EventEmitter,
   inject,
   Input,
+  input,
   Output,
+  output,
   ViewChild,
 } from '@angular/core';
 import { LucideChevronLeft } from '@lucide/angular';
@@ -35,17 +37,22 @@ export class AnnouncementDetailComponent implements AfterViewChecked {
 
   @Input() announcement: AnnouncementViewModel | null = null;
   @Input() canEdit = false;
-  @Input() acknowledged = false;
-  @Input() acknowledgementPending = false;
-  @Input() acknowledgementError = false;
+  // eslint-disable-next-line @typescript-eslint/member-ordering -- Issue #390 state stays next to the existing input contract.
+  public readonly acknowledged = input(false);
+  // eslint-disable-next-line @typescript-eslint/member-ordering -- Issue #390 state stays next to the existing input contract.
+  public readonly acknowledgementPending = input(false);
+  // eslint-disable-next-line @typescript-eslint/member-ordering -- Issue #390 state stays next to the existing input contract.
+  public readonly acknowledgementError = input(false);
   /** Monotonic request from the route container; only handled at the mobile hierarchy breakpoint. */
   @Input() mobileFocusRequest = 0;
   /** Prevents a queued mobile focus callback from a previous route from stealing focus on Back. */
   @Input() mobileDetailActive = true;
   @Output() readonly editRequested = new EventEmitter<string>();
   @Output() readonly markReadRequested = new EventEmitter<string>();
-  @Output() readonly acknowledgeRequested = new EventEmitter<string>();
-  @Output() readonly ctaClicked = new EventEmitter<string>();
+  // eslint-disable-next-line @typescript-eslint/member-ordering -- Issue #390 output stays next to the existing output contract.
+  public readonly acknowledgeRequested = output<string>();
+  // eslint-disable-next-line @typescript-eslint/member-ordering -- Issue #390 output stays next to the existing output contract.
+  public readonly ctaClicked = output<string>();
   @Output() readonly backRequested = new EventEmitter<void>();
 
   @ViewChild('detailTitle') private detailTitle?: ElementRef<HTMLElement>;
@@ -101,13 +108,14 @@ export class AnnouncementDetailComponent implements AfterViewChecked {
     this.markReadRequested.emit(announcement.id);
   }
 
-  requestAcknowledgement(): void {
+  /* eslint-disable @typescript-eslint/no-unnecessary-condition, @typescript-eslint/strict-boolean-expressions, @typescript-eslint/prefer-destructuring, max-statements -- Issue #390 recipient actions fail closed on stale detail state. */
+  public requestAcknowledgement(): void {
     const announcement = this.announcement;
     if (
       !announcement ||
       !announcement.readState.requiresReadConfirmation ||
-      this.acknowledged ||
-      this.acknowledgementPending
+      this.acknowledged() ||
+      this.acknowledgementPending()
     ) {
       return;
     }
@@ -115,7 +123,7 @@ export class AnnouncementDetailComponent implements AfterViewChecked {
     this.acknowledgeRequested.emit(announcement.id);
   }
 
-  recordCtaClick(): void {
+  public recordCtaClick(): void {
     const announcement = this.announcement;
     if (!announcement?.cta) {
       return;
@@ -123,6 +131,7 @@ export class AnnouncementDetailComponent implements AfterViewChecked {
 
     this.ctaClicked.emit(announcement.id);
   }
+  /* eslint-enable @typescript-eslint/no-unnecessary-condition, @typescript-eslint/strict-boolean-expressions, @typescript-eslint/prefer-destructuring, max-statements */
 
   private isMobileHierarchy(): boolean {
     const window = this.document.defaultView;
