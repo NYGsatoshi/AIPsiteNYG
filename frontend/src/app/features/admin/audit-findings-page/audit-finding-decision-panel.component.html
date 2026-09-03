@@ -113,7 +113,8 @@
         <button
           type="submit"
           data-testid="audit-finding-decision-save"
-          [disabled]="isSaving || !selectedDecision()"
+          [disabled]="!selectedDecision()"
+          [attr.aria-disabled]="isSaving ? 'true' : null"
         >
           {{ isSaving ? 'Saving…' : 'Save structured decision' }}
         </button>
