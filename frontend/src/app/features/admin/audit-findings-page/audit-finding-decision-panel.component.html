@@ -1,4 +1,6 @@
 @let panel = state();
+@let announcement = saveAnnouncement();
+@let isSaving = saving();
 
 <section
   class="decision-panel"
@@ -21,23 +23,13 @@
     The decision is separate from comments, notes, and Finding triage. Comments alone do not mark this review complete.
   </p>
 
-  <p
-    class="decision-panel__status"
-    role="status"
-    aria-live="polite"
-    aria-atomic="true"
-    data-testid="audit-finding-decision-status"
-  >
-    @if (saveAnnouncement()) {
-      {{ saveAnnouncement() }}
-    } @else {
-      @switch (panel.status) {
-        @case ('loading') { Loading structured decision. }
-        @case ('ready') {
-          {{ panel.response.reviewCompleted ? 'A structured decision is recorded.' : 'No structured decision is recorded yet.' }}
-        }
-        @default { {{ panel.message }} }
+  <p class="decision-panel__status" role="status" aria-live="polite" aria-atomic="true">
+    @switch (panel.status) {
+      @case ('loading') { Loading structured decision. }
+      @case ('ready') {
+        {{ announcement || (panel.response.reviewCompleted ? 'A structured decision is recorded.' : 'No structured decision is recorded yet.') }}
       }
+      @default { {{ panel.message }} }
     }
   </p>
 
@@ -74,8 +66,7 @@
     @if (panel.response.canReview) {
       <form
         class="decision-panel__form"
-        data-testid="audit-finding-decision-form"
-        [attr.aria-busy]="saving() ? 'true' : null"
+        [attr.aria-busy]="isSaving ? 'true' : null"
         (submit)="$event.preventDefault(); save()"
       >
         <label for="finding-review-decision">
@@ -83,7 +74,7 @@
           <select
             id="finding-review-decision"
             data-testid="audit-finding-decision-select"
-            aria-describedby="finding-review-decision-help"
+            [attr.aria-describedby]="'finding-review-decision-help'"
             [value]="selectedDecision()"
             (change)="updateDecision($any($event.target).value)"
           >
@@ -125,9 +116,9 @@
         <button
           type="submit"
           data-testid="audit-finding-decision-save"
-          [disabled]="saving() || !selectedDecision()"
+          [disabled]="isSaving || !selectedDecision()"
         >
-          {{ saving() ? 'Saving…' : 'Save structured decision' }}
+          {{ isSaving ? 'Saving…' : 'Save structured decision' }}
         </button>
       </form>
     } @else {
