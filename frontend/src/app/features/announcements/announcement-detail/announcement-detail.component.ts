@@ -6,7 +6,9 @@ import {
   EventEmitter,
   inject,
   Input,
+  input,
   Output,
+  output,
   ViewChild,
 } from '@angular/core';
 import { LucideChevronLeft } from '@lucide/angular';
@@ -35,12 +37,22 @@ export class AnnouncementDetailComponent implements AfterViewChecked {
 
   @Input() announcement: AnnouncementViewModel | null = null;
   @Input() canEdit = false;
+  // eslint-disable-next-line @typescript-eslint/member-ordering -- Issue #390 state stays next to the existing input contract.
+  public readonly acknowledged = input(false);
+  // eslint-disable-next-line @typescript-eslint/member-ordering -- Issue #390 state stays next to the existing input contract.
+  public readonly acknowledgementPending = input(false);
+  // eslint-disable-next-line @typescript-eslint/member-ordering -- Issue #390 state stays next to the existing input contract.
+  public readonly acknowledgementError = input(false);
   /** Monotonic request from the route container; only handled at the mobile hierarchy breakpoint. */
   @Input() mobileFocusRequest = 0;
   /** Prevents a queued mobile focus callback from a previous route from stealing focus on Back. */
   @Input() mobileDetailActive = true;
   @Output() readonly editRequested = new EventEmitter<string>();
   @Output() readonly markReadRequested = new EventEmitter<string>();
+  // eslint-disable-next-line @typescript-eslint/member-ordering -- Issue #390 output stays next to the existing output contract.
+  public readonly acknowledgeRequested = output<string>();
+  // eslint-disable-next-line @typescript-eslint/member-ordering -- Issue #390 output stays next to the existing output contract.
+  public readonly ctaClicked = output<string>();
   @Output() readonly backRequested = new EventEmitter<void>();
 
   @ViewChild('detailTitle') private detailTitle?: ElementRef<HTMLElement>;
@@ -93,6 +105,32 @@ export class AnnouncementDetailComponent implements AfterViewChecked {
 
     this.pendingReadAnnouncementId = announcement.id;
     this.markReadRequested.emit(announcement.id);
+  }
+
+  public requestAcknowledgement(): void {
+    const { announcement } = this;
+    if (
+      announcement === null ||
+      !announcement.readState.requiresReadConfirmation ||
+      this.acknowledged() ||
+      this.acknowledgementPending()
+    ) {
+      return;
+    }
+
+    this.acknowledgeRequested.emit(announcement.id);
+  }
+
+  public recordCtaClick(): void {
+    const { announcement } = this;
+    if (announcement === null) {
+      return;
+    }
+    if (typeof announcement.cta === 'undefined') {
+      return;
+    }
+
+    this.ctaClicked.emit(announcement.id);
   }
 
   private isMobileHierarchy(): boolean {
