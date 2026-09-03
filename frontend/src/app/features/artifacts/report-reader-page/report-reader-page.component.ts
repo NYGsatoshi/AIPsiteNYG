@@ -41,6 +41,7 @@ interface Report {
   readonly artifactId: string;
   readonly artifactVersionId: string;
   readonly versionNumber: number;
+  readonly canRefine: boolean;
   readonly title: string;
   readonly sections: readonly Section[];
 }
@@ -122,6 +123,7 @@ const emptyPreflight: RefinementPreflight = {
 const emptyReport: Report = {
   artifactId: '',
   artifactVersionId: '',
+  canRefine: false,
   projectId: '',
   sections: [],
   taskId: null,
@@ -133,8 +135,8 @@ const emptyReport: Report = {
   selector: 'app-report-reader-page',
   imports: [LucideFileText, LucideRefreshCw, LucideX],
   standalone: true,
-  styleUrl: './report-reader-page.component.scss',
-  templateUrl: './report-reader-page.component.html'
+  templateUrl: './report-reader-page.component.html',
+  styleUrl: './report-reader-page.component.scss'
 })
 export class ReportReaderPageComponent {
   public confirmButtonText = 'Confirm and refine';
@@ -261,7 +263,7 @@ export class ReportReaderPageComponent {
         this.loading = false;
       },
       next: (report) => {
-        this.hasTaskContext = report.taskId !== null;
+        this.hasTaskContext = report.canRefine && report.taskId !== null;
         this.loading = false;
         this.report = report;
       }
