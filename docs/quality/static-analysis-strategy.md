@@ -20,6 +20,22 @@ Enforce mode fails when the count for any ESLint or Stylelint rule exceeds that 
 
 Refreshing the baseline with `node tools/frontend-inspections/run.mjs --update-baseline` is an explicit policy change and should be reviewed as such; it must not be used as an automatic CI escape hatch.
 
+### Boy-scout cleanup policy
+
+Dedicated repository-wide ESLint cleanup phases end after ESLINT-05. From ESLINT-06 onward, lint debt is reduced as a boy-scout cleanup in code that is already being changed for feature, bug-fix, or regression work. A separate cleanup pull request is reserved for a small, explicitly bounded regression fix; it must not become a new repository-wide sweep.
+
+Apply the following constraints:
+
+- Do not run repository-wide autofixes solely to reduce the committed lint baseline.
+- Do not increase an ESLint or Stylelint rule count in `tools/frontend-inspections/baseline.json` to make a pull request pass.
+- When touched code contains an existing finding that can be removed safely without broadening the behavioral change, remove it in the same pull request.
+- Do not introduce `eslint-disable` comments or weaken lint configuration merely to avoid fixing a touched finding.
+- If a safe cleanup lowers a rule count, update the baseline downward and review the generated report and baseline diff together.
+- If an autofix transfers debt into another rule, expands beyond the touched feature surface, or requires semantic refactoring, leave it for a separately scoped change instead of forcing the fixer through.
+- During a regression or feature-freeze gate, keep lint cleanup within the files required for the blocking fix so the validated target SHA is not churned by unrelated cleanup.
+
+This policy preserves the baseline as a monotonic debt ceiling while allowing normal product work to retire findings incrementally.
+
 ## SonarQube Cloud mode
 
 This repository uses **SonarQube Cloud Automatic Analysis**, not a token-bearing GitHub Actions scanner.
