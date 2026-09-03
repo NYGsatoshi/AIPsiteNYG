@@ -50,7 +50,7 @@
         </select>
       </label>
 
-      <div class="admin-invites__form-field">
+      <div class="admin-form-field">
         <span>Expires at</span>
         <app-aip-date-time-picker [value]="expiresAt() || null" ariaLabel="Expires at" (valueChanged)="expiresAt.set($event ?? '')" />
       </div>
