@@ -13,7 +13,6 @@ const LOGICAL_CLAIM_ID = '55555555-5555-5555-5555-555555555555';
 const SECTION_ID = '66666666-6666-6666-6666-666666666666';
 const LOGICAL_SECTION_ID = '77777777-7777-7777-7777-777777777777';
 const PLAN_REVISION_ID = '88888888-8888-8888-8888-888888888888';
-const NEW_VERSION_ID = '99999999-9999-9999-9999-999999999999';
 
 function reportResponse() {
   return {
@@ -141,6 +140,9 @@ describe('ReportReaderPageComponent localized refinement', () => {
   });
 
   it('confirms the current itemized source scope before starting a Claim refinement', () => {
+    const citationButton = fixture.nativeElement.querySelector('.citation') as HTMLButtonElement;
+    citationButton.click();
+    fixture.detectChanges();
     const claimButton = fixture.nativeElement.querySelector('.claim-refine') as HTMLButtonElement;
     claimButton.click();
 
