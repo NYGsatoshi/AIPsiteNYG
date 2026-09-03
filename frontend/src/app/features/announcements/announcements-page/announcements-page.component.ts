@@ -122,10 +122,7 @@ export class AnnouncementsPageComponent implements OnDestroy {
       const announcementId = paramMap.get('announcementId');
       const previousRouteAnnouncementId = this.routeAnnouncementId();
       this.routeAnnouncementId.set(announcementId);
-
-      if (announcementId && announcementId !== previousRouteAnnouncementId) {
-        this.resetEngagementActionState();
-      }
+      this.resetEngagementActionStateForRouteChange(announcementId, previousRouteAnnouncementId);
 
       if (announcementId) {
         this.selectedAnnouncementId.set(announcementId);
@@ -178,11 +175,10 @@ export class AnnouncementsPageComponent implements OnDestroy {
     this.facade.markAnnouncementRead(announcementId);
   }
 
-  /* eslint-disable @typescript-eslint/no-unnecessary-condition, @typescript-eslint/strict-boolean-expressions, max-statements -- Issue #390 guards fail closed across async route changes. */
   public acknowledge(announcementId: string): void {
     const announcement = this.page().announcements.find((item) => item.id === announcementId);
     if (
-      !announcement ||
+      announcement === undefined ||
       !announcement.readState.requiresReadConfirmation ||
       this.acknowledgedAnnouncementId() === announcementId ||
       this.acknowledgementPendingId() === announcementId
@@ -223,7 +219,7 @@ export class AnnouncementsPageComponent implements OnDestroy {
 
   public trackCtaClick(announcementId: string): void {
     const announcement = this.page().announcements.find((item) => item.id === announcementId);
-    if (!announcement?.cta) {
+    if (announcement === undefined || announcement.cta === undefined) {
       return;
     }
 
@@ -240,7 +236,6 @@ export class AnnouncementsPageComponent implements OnDestroy {
         },
       });
   }
-  /* eslint-enable @typescript-eslint/no-unnecessary-condition, @typescript-eslint/strict-boolean-expressions, max-statements */
 
   public isAcknowledged(announcementId: string): boolean {
     return this.acknowledgedAnnouncementId() === announcementId;
@@ -302,6 +297,15 @@ export class AnnouncementsPageComponent implements OnDestroy {
 
   ngOnDestroy(): void {
     this.facade.setEditorActive(false);
+  }
+
+  private resetEngagementActionStateForRouteChange(
+    announcementId: string | null,
+    previousRouteAnnouncementId: string | null,
+  ): void {
+    if (announcementId !== null && announcementId !== previousRouteAnnouncementId) {
+      this.resetEngagementActionState();
+    }
   }
 
   private resetEngagementActionState(): void {
