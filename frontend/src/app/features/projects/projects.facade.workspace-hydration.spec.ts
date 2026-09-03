@@ -11,7 +11,29 @@ import { TestBed } from '@angular/core/testing';
 
 let activeWorkspace: ActiveWorkspaceFacade, facade: ProjectsFacade, http: HttpTestingController;
 
-const cleanup = (): void => {},
+const cleanup = vi.fn<() => void>(),
+  configureFacade = (): void => {
+    TestBed.configureTestingModule({
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        {
+          provide: RealtimeFacade,
+          useValue: {
+            durableEvents$: EMPTY,
+            registerCatchUp: registerCleanup,
+            registerProtectedStateClearer: registerCleanup,
+            registerSubscription: registerCleanup,
+          },
+        },
+        { provide: MyTasksFacade, useValue: { refreshIfLoaded: vi.fn() } },
+        { provide: ContinueWorkingHistoryService, useValue: { touchProject: vi.fn() } },
+      ],
+    });
+    activeWorkspace = TestBed.inject(ActiveWorkspaceFacade);
+    facade = TestBed.inject(ProjectsFacade);
+    http = TestBed.inject(HttpTestingController);
+  },
   detail = {
     checklist: [],
     comments: { items: [] },
@@ -35,35 +57,12 @@ const cleanup = (): void => {},
       workspaceId: 'workspace-1',
     } satisfies TaskDto,
   },
-  project = {
-    id: 'project-1',
-    status: 1,
-    title: 'Hydration race project',
-    uiPermissions: { canCreateTask: true },
-    workspaceId: 'workspace-1',
-  },
-  registerCleanup = (): (() => void) => cleanup,
-  configureFacade = (): void => {
-    TestBed.configureTestingModule({
-      providers: [
-        provideHttpClient(),
-        provideHttpClientTesting(),
-        {
-          provide: RealtimeFacade,
-          useValue: {
-            durableEvents$: EMPTY,
-            registerCatchUp: registerCleanup,
-            registerProtectedStateClearer: registerCleanup,
-            registerSubscription: registerCleanup,
-          },
-        },
-        { provide: MyTasksFacade, useValue: { refreshIfLoaded: vi.fn() } },
-        { provide: ContinueWorkingHistoryService, useValue: { touchProject: vi.fn() } },
-      ],
+  expectAuthorizedDetail = (): void => {
+    expect(facade.getTaskDetail('project-1', 'task-1')).toMatchObject({
+      project: { id: 'project-1', name: 'Hydration race project' },
+      status: 'ready',
+      task: { id: 'task-1', title: 'Hydration race task' },
     });
-    activeWorkspace = TestBed.inject(ActiveWorkspaceFacade);
-    facade = TestBed.inject(ProjectsFacade);
-    http = TestBed.inject(HttpTestingController);
   },
   flushColdReadAcrossHydration = (): void => {
     facade.ensureTaskDetail('project-1', 'task-1');
@@ -78,16 +77,18 @@ const cleanup = (): void => {},
     http.expectOne('/api/tasks/task-1').flush(detail);
     http.expectOne('/api/projects/project-1').flush(project);
   },
-  expectAuthorizedDetail = (): void => {
-    expect(facade.getTaskDetail('project-1', 'task-1')).toMatchObject({
-      project: { id: 'project-1', name: 'Hydration race project' },
-      status: 'ready',
-      task: { id: 'task-1', title: 'Hydration race task' },
-    });
-  };
+  project = {
+    id: 'project-1',
+    status: 1,
+    title: 'Hydration race project',
+    uiPermissions: { canCreateTask: true },
+    workspaceId: 'workspace-1',
+  },
+  registerCleanup = (): (() => void) => cleanup;
 
 describe('ProjectsFacade direct-route Workspace hydration', () => {
   beforeEach(() => {
+    cleanup.mockClear();
     configureFacade();
   });
 
