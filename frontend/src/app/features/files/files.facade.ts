@@ -358,7 +358,7 @@ export class FilesFacade {
           return;
         }
         const deleted = mapSelectionSnapshotDelete(response);
-        if (!deleted || deleted.attemptedCount !== selection.selectedCount) {
+        if (deleted?.attemptedCount !== selection.selectedCount) {
           this.deleteStateSignal.set({
             state: 'failed',
             message: this.i18n.translate('files.delete.invalidBatchResponse'),
@@ -783,7 +783,7 @@ export class FilesFacade {
 
   loadPickerFilesForWorkspace(workspaceId: string): void {
     if (!workspaceId || this.mockPage) { this.clearPickerFiles(); return; }
-    if (this.pickerWorkspaceId === workspaceId && (this.pickerRequest || this.pickerState().status !== 'idle')) return;
+    if (this.pickerWorkspaceId === workspaceId && (this.pickerRequest || this.pickerState().status !== 'idle')) {return;}
     this.pickerGeneration++;
     const generation = this.pickerGeneration;
     this.pickerWorkspaceId = workspaceId;
@@ -794,13 +794,13 @@ export class FilesFacade {
 
   loadMorePickerFiles(): void {
     const state = this.pickerState();
-    if (!state.workspaceId || !state.hasMore || this.pickerRequest) return;
+    if (!state.workspaceId || !state.hasMore || this.pickerRequest) {return;}
     this.loadPickerPage(state.workspaceId, state.page + 1, this.pickerGeneration, false);
   }
 
   retryPickerFiles(): void {
     const state = this.pickerState();
-    if (!state.workspaceId || this.pickerRequest) return;
+    if (!state.workspaceId || this.pickerRequest) {return;}
     this.loadPickerPage(state.workspaceId, state.failedPage ?? 1, this.pickerGeneration, (state.failedPage ?? 1) === 1);
   }
 
@@ -817,10 +817,10 @@ export class FilesFacade {
     this.pickerRequest = this.http.get<PagedResponseDto<FileListItemDto>>('/api/files', {
       params: { workspaceId, page, pageSize: before.pageSize || 20 }, withCredentials: true
     }).pipe(finalize(() => {
-      if (generation === this.pickerGeneration) this.pickerRequest = null;
+      if (generation === this.pickerGeneration) {this.pickerRequest = null;}
     })).subscribe({
       next: response => {
-        if (generation !== this.pickerGeneration || this.pickerWorkspaceId !== workspaceId) return;
+        if (generation !== this.pickerGeneration || this.pickerWorkspaceId !== workspaceId) {return;}
         const incoming = (response.items ?? [])
           .map((item) => mapFileListItem(item, this.fileDisplayLocalizer()))
           .filter(file => file.id.length > 0);
@@ -830,7 +830,7 @@ export class FilesFacade {
         this.pickerState.set({ status: files.length ? 'ready' : 'empty', workspaceId, files, page: numberValue(response.page) || page, pageSize: numberValue(response.pageSize) || before.pageSize || 20, totalCount: numberValue(response.totalCount) || files.length, hasMore: response.hasMore === true });
       },
       error: error => {
-        if (generation !== this.pickerGeneration || this.pickerWorkspaceId !== workspaceId) return;
+        if (generation !== this.pickerGeneration || this.pickerWorkspaceId !== workspaceId) {return;}
         const normalized = normalizeApiError(error);
         const current = this.pickerState();
         this.pickerState.set({
@@ -847,10 +847,10 @@ export class FilesFacade {
 
   /** Uses the canonical attachment grant boundary; grant tokens never enter signal state. */
   downloadAttachment(attachmentId: string, fallbackFileName: string, context: AttachmentDownloadContext = {}): Subscription | null {
-    if (!attachmentId || this.mockPage || this.attachmentDownloads.has(attachmentId)) return null;
+    if (!attachmentId || this.mockPage || this.attachmentDownloads.has(attachmentId)) {return null;}
     const operationWorkspaceId = context.workspaceId;
     const expectedFileObjectId = fileObjectIdentity(context.fileObjectId);
-    if (operationWorkspaceId && this.activeWorkspace.activeWorkspace()?.id !== operationWorkspaceId) return null;
+    if (operationWorkspaceId && this.activeWorkspace.activeWorkspace()?.id !== operationWorkspaceId) {return null;}
     if (!expectedFileObjectId) {
       if (context.isCurrent?.() !== false) {
           context.onState?.('failed', this.i18n.translate('files.download.missingIdentity'));
@@ -862,9 +862,9 @@ export class FilesFacade {
     const operationIsCurrent = () => context.isCurrent?.() !== false &&
       (!operationWorkspaceId || this.activeWorkspace.activeWorkspace()?.id === operationWorkspaceId);
     const report = (state: FileDownloadState, message: string) => {
-      if (operationIsCurrent()) context.onState?.(state, message);
+      if (operationIsCurrent()) {context.onState?.(state, message);}
     };
-    const denied = () => { if (operationIsCurrent()) context.onPermissionDenied?.(); };
+    const denied = () => { if (operationIsCurrent()) {context.onPermissionDenied?.();} };
     report('pending', this.i18n.translate('files.download.authorizing'));
     const grantRequest = this.http.post<FileDownloadGrantDto>(`/api/attachments/${attachmentId}/download-grants`, { purpose: 'task-detail-download' }, { withCredentials: true }).subscribe({
       next: grant => {
@@ -890,7 +890,7 @@ export class FilesFacade {
           error: error => {
             if (!operationIsCurrent()) { operation.unsubscribe(); return; }
             const normalized = normalizeApiError(error);
-            if (normalized.httpStatus === 401 || normalized.httpStatus === 403) denied();
+            if (normalized.httpStatus === 401 || normalized.httpStatus === 403) {denied();}
             report('failed', normalized.httpStatus === 403
               ? this.i18n.translate('files.download.denied')
               : this.i18n.apiErrorMessage(normalized, 'api.requestFailed'));
@@ -902,7 +902,7 @@ export class FilesFacade {
       error: error => {
         if (!operationIsCurrent()) { operation.unsubscribe(); return; }
         const normalized = normalizeApiError(error);
-        if (normalized.httpStatus === 401 || normalized.httpStatus === 403) denied();
+        if (normalized.httpStatus === 401 || normalized.httpStatus === 403) {denied();}
         report('failed', normalized.httpStatus === 403
           ? this.i18n.translate('files.download.denied')
           : this.i18n.apiErrorMessage(normalized, 'api.requestFailed'));
@@ -1220,7 +1220,7 @@ export class FilesFacade {
 
   private invalidatePageRequests(): void {
     this.pageGeneration++;
-    for (const request of [...this.pageRequests]) request.unsubscribe();
+    for (const request of [...this.pageRequests]) {request.unsubscribe();}
     this.pageRequests.clear();
     this.loadingWorkspaceIds.clear();
   }
@@ -1260,9 +1260,9 @@ export class FilesFacade {
     this.pageWorkspaceId = null;
     this.clearFileSearch();
     this.clearPickerFiles();
-    for (const pending of [...this.pendingUploads.values()]) pending.subscription.unsubscribe();
+    for (const pending of [...this.pendingUploads.values()]) {pending.subscription.unsubscribe();}
     this.pendingUploads.clear();
-    for (const operation of [...this.fileDownloads.values()]) operation.unsubscribe();
+    for (const operation of [...this.fileDownloads.values()]) {operation.unsubscribe();}
     this.fileDownloads.clear();
     this.cancelAttachmentDownloads();
     if (this.refreshTimer !== null) {
@@ -1283,7 +1283,7 @@ function stringValue(value: unknown): string | undefined {
 }
 
 function fileObjectIdentity(value: unknown): string | undefined {
-  if (typeof value !== 'string') return undefined;
+  if (typeof value !== 'string') {return undefined;}
   const normalized = value.trim().toLowerCase();
   return fileObjectIdPattern.test(normalized) ? normalized : undefined;
 }

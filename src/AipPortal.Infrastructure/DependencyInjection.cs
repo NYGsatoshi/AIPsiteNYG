@@ -79,11 +79,13 @@ public static class DependencyInjection
         services.AddScoped<IArtifactRepository, ArtifactRepository>();
         services.AddScoped<IArtifactEvidenceRepository, ArtifactEvidenceRepository>();
         services.AddScoped<AipPortal.Application.Artifacts.IArtifactReportService, DbArtifactReportService>();
+        services.AddScoped<AipPortal.Application.Artifacts.IArtifactReportRefinementService, GuardedArtifactReportRefinementService>();
         services.AddScoped<IPlanningRepository, PlanningRepository>();
         services.AddScoped<IUiShellRepository, UiShellRepository>();
         services.AddScoped<IAnnouncementRepository, AnnouncementRepository>();
         services.AddScoped<IAnnouncementDraftRepository, AnnouncementDraftRepository>();
         services.AddScoped<IAnnouncementDistributionStore, AnnouncementDistributionStore>();
+        services.AddScoped<IAnnouncementEngagementStore, AnnouncementEngagementStore>();
         services.AddScoped<AipPortal.Application.Realtime.IOutboxEventRepository, OutboxEventRepository>();
         services.AddScoped<ITransactionalOutbox, TransactionalOutbox>();
         services.AddScoped<IOutboxReplayService, OutboxReplayService>();
@@ -151,6 +153,8 @@ public static class DependencyInjection
         services.AddScoped<AipPortal.Application.Audit.IAuditFindingsService, DbAuditFindingsService>();
         services.AddScoped<AipPortal.Application.Audit.IAuditFindingReviewerMentionsService, DbAuditFindingReviewerMentionsService>();
         services.AddScoped<AipPortal.Application.Audit.IAuditFindingDecisionService, DbAuditFindingDecisionService>();
+        services.AddScoped<AipPortal.Application.Audit.IAuditPackageExportService, AuditPackageExportService>();
+        services.AddScoped<AipPortal.Application.Audit.IAuditPackageExportProcessor, AuditPackageExportProcessor>();
         services.AddSingleton<IClock, SystemClock>();
 
         return services;

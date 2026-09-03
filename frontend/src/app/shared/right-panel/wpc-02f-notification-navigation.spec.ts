@@ -368,7 +368,7 @@ function configure(): void {
           },
           clearForWorkspaceBoundary: vi.fn(() => {
             TestBed.inject(ActiveWorkspaceFacade).clearWorkspace();
-            for (const clear of [...protectedStateClearers.values()]) clear('workspace');
+            for (const clear of [...protectedStateClearers.values()]) {clear('workspace');}
           }),
         },
       },

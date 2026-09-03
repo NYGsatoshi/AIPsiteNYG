@@ -22,15 +22,15 @@ class MemoryStorage implements ContinueWorkingStorage {
   removeThrows = false;
 
   getItem(key: string): string | null {
-    if (this.getThrows) throw new DOMException('read denied', 'SecurityError');
+    if (this.getThrows) {throw new DOMException('read denied', 'SecurityError');}
     return this.values.get(key) ?? null;
   }
   setItem(key: string, value: string): void {
-    if (this.setThrows) throw new DOMException('write denied', 'SecurityError');
+    if (this.setThrows) {throw new DOMException('write denied', 'SecurityError');}
     this.values.set(key, value);
   }
   removeItem(key: string): void {
-    if (this.removeThrows) throw new DOMException('remove denied', 'SecurityError');
+    if (this.removeThrows) {throw new DOMException('remove denied', 'SecurityError');}
     this.values.delete(key);
   }
 }

@@ -6,5 +6,6 @@ export default defineConfig({
     // files. Each file owns TestBed and jsdom state, so isolate it to release
     // accumulated state before the next file is scheduled.
     isolate: true,
+    setupFiles: ['./vitest.setup.ts'],
   },
 });

@@ -10,7 +10,7 @@ interface MemberRoleBadgeCellParams {
 @Component({
   selector: 'app-member-role-badge',
   standalone: true,
-  template: `<span class="role-badge" [class]="'role-badge role-badge--' + role">{{ label }}</span>`,
+  template: `<span [class]="'role-badge role-badge--' + role">{{ label }}</span>`,
   styles: [
     `
       .role-badge {

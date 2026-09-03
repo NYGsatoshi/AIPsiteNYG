@@ -491,8 +491,8 @@ function enumText(value: unknown): string {
 }
 
 function requiredVersion(value: unknown): string {
-  if (typeof value === 'string' && value.length > 0) return value;
-  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  if (typeof value === 'string' && value.length > 0) {return value;}
+  if (typeof value === 'number' && Number.isFinite(value)) {return String(value);}
   throw new Error('Projects API response did not include myTask.version.');
 }
 

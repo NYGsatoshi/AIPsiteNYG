@@ -7,7 +7,7 @@ import { FileQuotaViewModel } from '../files.types';
   selector: 'app-file-quota-state',
   standalone: true,
   template: `
-    <section class="quota" [class]="'quota quota--' + quota.state" data-testid="file-quota-state">
+    <section [class]="'quota quota--' + quota.state" data-testid="file-quota-state">
       <div>
         <p>{{ i18n.translate('files.quota.title') }}</p>
         <strong>{{ quota.message }}</strong>

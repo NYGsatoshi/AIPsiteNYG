@@ -37,7 +37,7 @@ export class AipThemeService {
 
   private initialTheme(): AipTheme {
     const stored = this.readStoredTheme();
-    if (stored) return stored;
+    if (stored) {return stored;}
     return this.media('(prefers-color-scheme: light)')?.matches ? 'light' : 'dark';
   }
 

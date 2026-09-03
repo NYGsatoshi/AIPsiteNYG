@@ -546,9 +546,9 @@ export function isSafeAnnouncementUrl(rawUrl: string): boolean {
 
 function announcementDraftStatus(value: unknown): AnnouncementEditorDraft['publicationState'] | null {
   const normalized = String(value ?? '').toLowerCase();
-  if (normalized === '0' || normalized === 'draft') return 'draft';
-  if (normalized === '1' || normalized === 'scheduled') return 'scheduled';
-  if (normalized === '2' || normalized === 'published') return 'published';
+  if (normalized === '0' || normalized === 'draft') {return 'draft';}
+  if (normalized === '1' || normalized === 'scheduled') {return 'scheduled';}
+  if (normalized === '2' || normalized === 'published') {return 'published';}
   return null;
 }
 
@@ -575,7 +575,7 @@ function formatAcceptedSchedule(
 
 function formatScheduleWallClock(value: string): string {
   const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(value);
-  if (!match) return value;
+  if (!match) {return value;}
   const [, year, month, day, hour, minute] = match;
   const monthLabel = new Intl.DateTimeFormat('en-US', { month: 'short', timeZone: 'UTC' })
     .format(new Date(Date.UTC(2000, Number(month) - 1, 1)));

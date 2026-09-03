@@ -37,17 +37,17 @@ class PreferenceStorage implements WorkViewPreferenceStorage {
 
   getItem(key: string): string | null {
     this.getCalls++;
-    if (this.getThrows) throw new Error('read unavailable');
+    if (this.getThrows) {throw new Error('read unavailable');}
     return this.values.get(key) ?? null;
   }
   setItem(key: string, value: string): void {
     this.setCalls++;
-    if (this.setThrows) throw new Error('write unavailable');
+    if (this.setThrows) {throw new Error('write unavailable');}
     this.values.set(key, value);
   }
   removeItem(key: string): void {
     this.removeCalls++;
-    if (this.removeThrows) throw new Error('remove unavailable');
+    if (this.removeThrows) {throw new Error('remove unavailable');}
     this.values.delete(key);
   }
 }

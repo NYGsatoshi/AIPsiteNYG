@@ -67,7 +67,8 @@ public sealed class DbArtifactReportService(AppDbContext db, IArtifactRepository
             }
             if(cursor<section.BodyText.Length) runs.Add(new("text",section.BodyText[cursor..],null)); sections.Add(new(section.Id,section.LogicalSectionId,section.Ordinal,section.Heading,runs));
         }
-        return Result<ArtifactReportResponse>.Success(new(projectId,version.Artifact.TaskItemId,version.ArtifactId,version.Id,version.VersionNumber,document.Title,sections));
+        var canRefine = version.Artifact.TaskItemId.HasValue && await artifactAuthorization.CanUpdateArtifact(userId, version.ArtifactId, ct);
+        return Result<ArtifactReportResponse>.Success(new(projectId,version.Artifact.TaskItemId,version.ArtifactId,version.Id,version.VersionNumber,canRefine,document.Title,sections));
     }
     private bool User(out Guid id){id=currentUser.UserId??Guid.Empty;return currentUser.IsAuthenticated&&id!=Guid.Empty;}
     private static Result<T> Fail<T>()=>Error<T>("ReportNotFound","The report is not available.");

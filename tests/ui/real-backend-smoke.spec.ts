@@ -125,7 +125,7 @@ test.describe('MVP0 real backend browser smoke', () => {
 
     page.on('pageerror', (error) => evidence.pageErrors.push(error.message));
     page.on('console', (message) => {
-      if (message.type() === 'error') evidence.consoleErrors.push(message.text());
+      if (message.type() === 'error') {evidence.consoleErrors.push(message.text());}
     });
     page.on('response', (response) => recordFailedApiResponse(response, evidence));
 
@@ -272,8 +272,7 @@ test.describe('MVP0 real backend browser smoke', () => {
         `/api/conversations/${workspaceGeneral[0].id}`,
         {
           validate: (body) =>
-            body &&
-            body.workspaceId === createdWorkspaceId &&
+            body?.workspaceId === createdWorkspaceId &&
             body.projectId === null &&
             body.type === 'WorkspaceChannel' &&
             body.title === 'general' &&
@@ -340,7 +339,7 @@ test.describe('MVP0 real backend browser smoke', () => {
 
     page.on('pageerror', (error) => evidence.pageErrors.push(error.message));
     page.on('console', (message) => {
-      if (message.type() === 'error') evidence.consoleErrors.push(message.text());
+      if (message.type() === 'error') {evidence.consoleErrors.push(message.text());}
     });
     page.on('request', (request) => {
       const path = new URL(request.url()).pathname;
@@ -348,7 +347,7 @@ test.describe('MVP0 real backend browser smoke', () => {
         observedProjectCreatePosts += 1;
       }
 
-      if (!createdProjectId || request.method() !== 'GET') return;
+      if (!createdProjectId || request.method() !== 'GET') {return;}
       if ([
         `/api/projects/${createdProjectId}/tasks`,
         `/api/projects/${createdProjectId}/kanban`,
@@ -790,7 +789,7 @@ test.describe('MVP0 real backend browser smoke', () => {
 
     page.on('pageerror', (error) => evidence.pageErrors.push(error.message));
     page.on('console', (message) => {
-      if (message.type() === 'error') evidence.consoleErrors.push(message.text());
+      if (message.type() === 'error') {evidence.consoleErrors.push(message.text());}
     });
     page.on('request', (request) => {
       const path = new URL(request.url()).pathname;
@@ -1294,7 +1293,7 @@ test.describe('MVP0 real backend browser smoke', () => {
       baseURL: String(testInfo.project.use.baseURL ?? ''), email: smokeEmail, steps: [], pageErrors: [], consoleErrors: [], failedApiResponses: []
     };
     page.on('pageerror', (error) => evidence.pageErrors.push(error.message));
-    page.on('console', (message) => { if (message.type() === 'error') evidence.consoleErrors.push(message.text()); });
+    page.on('console', (message) => { if (message.type() === 'error') {evidence.consoleErrors.push(message.text());} });
     page.on('response', (response) => recordFailedApiResponse(response, evidence));
 
     try {
@@ -1466,7 +1465,7 @@ test.describe('MVP0 real backend browser smoke', () => {
       await page.reload();
       await expect(page.getByTestId('my-tasks-page-size')).toBeVisible();
       const pageSizeResponse = page.waitForResponse((response) => {
-        if (response.request().method() !== 'GET') return false;
+        if (response.request().method() !== 'GET') {return false;}
         const url = new URL(response.url());
         return url.pathname === '/api/me/tasks' && url.searchParams.get('pageSize') === '10';
       });
@@ -1572,7 +1571,7 @@ test.describe('MVP0 real backend browser smoke', () => {
     let kanbanPostCount = 0;
 
     page.on('pageerror', (error) => evidence.pageErrors.push(error.message));
-    page.on('console', (message) => { if (message.type() === 'error') evidence.consoleErrors.push(message.text()); });
+    page.on('console', (message) => { if (message.type() === 'error') {evidence.consoleErrors.push(message.text());} });
     page.on('response', (response) => recordFailedApiResponse(response, evidence));
     page.on('request', (request) => {
       if (request.method() === 'POST' && /^\/api\/tasks\/[0-9a-f-]+\/kanban-move$/i.test(new URL(request.url()).pathname)) {
@@ -1900,7 +1899,7 @@ test.describe('MVP0 real backend browser smoke', () => {
         const recordStage = () => {
           const card = document.querySelector(`[data-kanban-card-id="${taskId}"]`);
           const stage = card?.closest('.aip-kanban__column')?.querySelector('h3')?.textContent?.trim();
-          if (stage && state.transitions.at(-1) !== stage) state.transitions.push(stage);
+          if (stage && state.transitions.at(-1) !== stage) {state.transitions.push(stage);}
         };
         recordStage();
         state.observer = new MutationObserver(recordStage);
@@ -1978,7 +1977,7 @@ test.describe('MVP0 real backend browser smoke', () => {
           }
 
           const observer = new MutationObserver(() => {
-            if (!isClear()) return;
+            if (!isClear()) {return;}
             observer.disconnect();
             resolve('protected-data-cleared');
           });
@@ -2221,7 +2220,7 @@ test.describe('MVP0 real backend browser smoke', () => {
     let viewerContext: Awaited<ReturnType<typeof browser.newContext>> | null = null;
 
     page.on('pageerror', (error) => evidence.pageErrors.push(error.message));
-    page.on('console', (message) => { if (message.type() === 'error') evidence.consoleErrors.push(message.text()); });
+    page.on('console', (message) => { if (message.type() === 'error') {evidence.consoleErrors.push(message.text());} });
     page.on('response', (response) => recordFailedApiResponse(response, evidence));
 
     try {
@@ -2331,7 +2330,7 @@ test.describe('MVP0 real backend browser smoke', () => {
       };
       viewerPage.on('pageerror', (error) => viewerEvidence.pageErrors.push(error.message));
       viewerPage.on('console', (message) => {
-        if (message.type() === 'error') viewerEvidence.consoleErrors.push(message.text());
+        if (message.type() === 'error') {viewerEvidence.consoleErrors.push(message.text());}
       });
       viewerPage.on('response', (response) => recordFailedApiResponse(response, viewerEvidence));
       await loginAndVerifySession(
@@ -2670,7 +2669,7 @@ test.describe('MVP0 real backend browser smoke', () => {
       };
       degradedPage.on('pageerror', (error) => degradedEvidence.pageErrors.push(error.message));
       degradedPage.on('console', (message) => {
-        if (message.type() === 'error') degradedEvidence.consoleErrors.push(message.text());
+        if (message.type() === 'error') {degradedEvidence.consoleErrors.push(message.text());}
       });
       degradedPage.on('response', (response) => recordFailedApiResponse(response, degradedEvidence));
       await loginAndVerifySession(degradedPage, degradedEvidence, { email: pr05ManagerEmail, password: smokePassword });
@@ -2792,7 +2791,7 @@ test.describe('MVP0 real backend browser smoke', () => {
           const text = document.querySelector(`[data-gantt-item-id="${taskId}"]`)?.textContent ?? '';
           const dates = /(\d{4}-\d{2}-\d{2}) to (\d{4}-\d{2}-\d{2})/.exec(text);
           const value = dates ? `${dates[1]} to ${dates[2]}` : '';
-          if (value && state.transitions.at(-1) !== value) state.transitions.push(value);
+          if (value && state.transitions.at(-1) !== value) {state.transitions.push(value);}
         };
         record();
         state.observer = new MutationObserver(record);
@@ -2893,7 +2892,7 @@ test.describe('MVP0 real backend browser smoke', () => {
             return;
           }
           const observer = new MutationObserver(() => {
-            if (!isClear()) return;
+            if (!isClear()) {return;}
             observer.disconnect();
             resolve('protected-data-cleared');
           });
@@ -2912,7 +2911,7 @@ test.describe('MVP0 real backend browser smoke', () => {
       };
       ownerPage.on('pageerror', (error) => ownerEvidence.pageErrors.push(error.message));
       ownerPage.on('console', (message) => {
-        if (message.type() === 'error') ownerEvidence.consoleErrors.push(message.text());
+        if (message.type() === 'error') {ownerEvidence.consoleErrors.push(message.text());}
       });
       ownerPage.on('response', (response) => recordFailedApiResponse(response, ownerEvidence));
       await loginAndVerifySession(ownerPage, ownerEvidence);
@@ -3114,7 +3113,7 @@ test.describe('MVP0 real backend browser smoke', () => {
     };
     let ownerContext: Awaited<ReturnType<typeof browser.newContext>> | null = null;
     page.on('pageerror', (error) => evidence.pageErrors.push(error.message));
-    page.on('console', (message) => { if (message.type() === 'error') evidence.consoleErrors.push(message.text()); });
+    page.on('console', (message) => { if (message.type() === 'error') {evidence.consoleErrors.push(message.text());} });
     page.on('response', (response) => recordFailedApiResponse(response, evidence));
 
     try {
@@ -3156,7 +3155,7 @@ test.describe('MVP0 real backend browser smoke', () => {
         failedApiResponses: []
       };
       ownerPage.on('pageerror', (error) => ownerEvidence.pageErrors.push(error.message));
-      ownerPage.on('console', (message) => { if (message.type() === 'error') ownerEvidence.consoleErrors.push(message.text()); });
+      ownerPage.on('console', (message) => { if (message.type() === 'error') {ownerEvidence.consoleErrors.push(message.text());} });
       ownerPage.on('response', (response) => recordFailedApiResponse(response, ownerEvidence));
       await loginAndVerifySession(ownerPage, ownerEvidence);
 
@@ -3326,7 +3325,7 @@ test.describe('MVP0 real backend browser smoke', () => {
     let managerEvidence: SmokeEvidence | null = null;
 
     page.on('pageerror', (error) => evidence.pageErrors.push(error.message));
-    page.on('console', (message) => { if (message.type() === 'error') evidence.consoleErrors.push(message.text()); });
+    page.on('console', (message) => { if (message.type() === 'error') {evidence.consoleErrors.push(message.text());} });
     page.on('response', (response) => recordFailedApiResponse(response, evidence));
 
     try {
@@ -3513,7 +3512,7 @@ test.describe('MVP0 real backend browser smoke', () => {
       };
       stalePage.on('pageerror', (error) => staleEvidence!.pageErrors.push(error.message));
       stalePage.on('console', (message) => {
-        if (message.type() === 'error') staleEvidence!.consoleErrors.push(message.text());
+        if (message.type() === 'error') {staleEvidence!.consoleErrors.push(message.text());}
       });
       stalePage.on('response', (response) => recordFailedApiResponse(response, staleEvidence!));
 
@@ -3575,7 +3574,7 @@ test.describe('MVP0 real backend browser smoke', () => {
       };
       managerPage.on('pageerror', (error) => managerEvidence!.pageErrors.push(error.message));
       managerPage.on('console', (message) => {
-        if (message.type() === 'error') managerEvidence!.consoleErrors.push(message.text());
+        if (message.type() === 'error') {managerEvidence!.consoleErrors.push(message.text());}
       });
       managerPage.on('response', (response) => recordFailedApiResponse(response, managerEvidence!));
       await loginAndVerifySession(managerPage, managerEvidence, {
@@ -3794,7 +3793,7 @@ test.describe('MVP0 real backend browser smoke', () => {
       baseURL: String(testInfo.project.use.baseURL ?? ''), email: smokeEmail, steps: [], pageErrors: [], consoleErrors: [], failedApiResponses: []
     };
     page.on('pageerror', (error) => evidence.pageErrors.push(error.message));
-    page.on('console', (message) => { if (message.type() === 'error') evidence.consoleErrors.push(message.text()); });
+    page.on('console', (message) => { if (message.type() === 'error') {evidence.consoleErrors.push(message.text());} });
     page.on('response', (response) => recordFailedApiResponse(response, evidence));
 
     try {
@@ -4092,7 +4091,7 @@ async function recordPr06Command(
 }
 
 function isPr06GanttSnapshot(body: unknown): body is Pr06GanttSnapshotDto {
-  if (!body || typeof body !== 'object') return false;
+  if (!body || typeof body !== 'object') {return false;}
   const snapshot = body as Record<string, any>;
   const collections = [
     snapshot.scheduledItems,
@@ -4125,7 +4124,7 @@ function isPr06GanttSnapshot(body: unknown): body is Pr06GanttSnapshotDto {
   }
 
   const itemIsCanonical = (item: unknown) => {
-    if (!item || typeof item !== 'object') return false;
+    if (!item || typeof item !== 'object') {return false;}
     const value = item as Record<string, any>;
     return typeof value.taskId === 'string' &&
       (value.kind === 'Task' || value.kind === 'Milestone') &&
@@ -4142,7 +4141,7 @@ function isPr06GanttSnapshot(body: unknown): body is Pr06GanttSnapshotDto {
       Array.isArray(value.warnings);
   };
   const dependencyIsCanonical = (dependency: unknown) => {
-    if (!dependency || typeof dependency !== 'object') return false;
+    if (!dependency || typeof dependency !== 'object') {return false;}
     const value = dependency as Record<string, any>;
     return typeof value.dependencyId === 'string' &&
       typeof value.predecessorTaskId === 'string' &&
@@ -4176,13 +4175,13 @@ async function expectLogicalPr06GanttFocus(item: Locator): Promise<void> {
 }
 
 function taskDetailVersion(body: unknown): number | null {
-  if (!body || typeof body !== 'object') return null;
+  if (!body || typeof body !== 'object') {return null;}
   const task = (body as Record<string, any>).task;
   return task && typeof task.version === 'number' ? task.version : null;
 }
 
 function taskDeadlineAt(body: unknown): string | null {
-  if (!body || typeof body !== 'object') return null;
+  if (!body || typeof body !== 'object') {return null;}
   const task = (body as Record<string, any>).task;
   return task && typeof task.deadlineAt === 'string' ? task.deadlineAt : null;
 }
@@ -4258,7 +4257,7 @@ async function recordPr05KanbanCommand(
 }
 
 function isPr05KanbanCommandResponse(body: unknown): body is Pr05KanbanCommandResponseDto {
-  if (!body || typeof body !== 'object') return false;
+  if (!body || typeof body !== 'object') {return false;}
   const response = body as Record<string, unknown>;
   return isPr05KanbanSnapshot(response.snapshot) &&
     (response.focusTaskId === null || typeof response.focusTaskId === 'string') &&
@@ -4266,7 +4265,7 @@ function isPr05KanbanCommandResponse(body: unknown): body is Pr05KanbanCommandRe
 }
 
 function isPr05KanbanSnapshot(body: unknown): body is Pr05KanbanSnapshotDto {
-  if (!body || typeof body !== 'object') return false;
+  if (!body || typeof body !== 'object') {return false;}
   const snapshot = body as Record<string, any>;
   if (
     !snapshot.board ||
@@ -4284,7 +4283,7 @@ function isPr05KanbanSnapshot(body: unknown): body is Pr05KanbanSnapshotDto {
   }
 
   return snapshot.columns.every((column: unknown) => {
-    if (!column || typeof column !== 'object') return false;
+    if (!column || typeof column !== 'object') {return false;}
     const value = column as Record<string, any>;
     return typeof value.workflowStageId === 'string' &&
       typeof value.displayName === 'string' &&
@@ -4294,7 +4293,7 @@ function isPr05KanbanSnapshot(body: unknown): body is Pr05KanbanSnapshotDto {
       typeof value.hasWipWarning === 'boolean' &&
       typeof value.uiPermissions?.canConfigure === 'boolean';
   }) && snapshot.cards.every((card: unknown) => {
-    if (!card || typeof card !== 'object') return false;
+    if (!card || typeof card !== 'object') {return false;}
     const value = card as Record<string, any>;
     return typeof value.taskId === 'string' &&
       typeof value.summary === 'string' &&
@@ -5232,7 +5231,7 @@ async function requestWithCsrf(
       'Content-Type': 'application/json',
       ...additionalHeaders
     };
-    if (csrf.token && csrf.headerName) headers[csrf.headerName] = csrf.token;
+    if (csrf.token && csrf.headerName) {headers[csrf.headerName] = csrf.token;}
     const response = await fetch(path, {
       method,
       credentials: 'include',
@@ -5266,9 +5265,9 @@ function expectUnexpectedApiFailures(
 ) {
   const remainingScenarioExpected = [...scenarioExpectedFailures];
   const unexpected = evidence.failedApiResponses.filter((failure) => {
-    if (isExpectedFailure(failure)) return false;
+    if (isExpectedFailure(failure)) {return false;}
     const expectedIndex = remainingScenarioExpected.findIndex((expected) => sameFailure(failure, expected));
-    if (expectedIndex < 0) return true;
+    if (expectedIndex < 0) {return true;}
     remainingScenarioExpected.splice(expectedIndex, 1);
     return false;
   });
@@ -5291,16 +5290,16 @@ function expectUnexpectedConsoleErrors(
         expected = true;
       }
     }
-    if (!expected) continue;
+    if (!expected) {continue;}
     expectedNetworkFailures.set(failure.status, (expectedNetworkFailures.get(failure.status) ?? 0) + 1);
   }
 
   const unexpected = evidence.consoleErrors.filter((message) => {
     const match = /Failed to load resource:.*status of (\d{3})/i.exec(message);
-    if (!match) return true;
+    if (!match) {return true;}
     const status = Number(match[1]);
     const remaining = expectedNetworkFailures.get(status) ?? 0;
-    if (remaining === 0) return true;
+    if (remaining === 0) {return true;}
     expectedNetworkFailures.set(status, remaining - 1);
     return false;
   });
@@ -5332,7 +5331,7 @@ function expectOnlyExpectedSyntheticHubConsoleErrors(
   const remainingScenarioExpected = [...scenarioExpectedFailures];
   for (const failure of evidence.failedApiResponses) {
     const expectedIndex = remainingScenarioExpected.findIndex((candidate) => sameFailure(failure, candidate));
-    if (expectedIndex < 0) continue;
+    if (expectedIndex < 0) {continue;}
     remainingScenarioExpected.splice(expectedIndex, 1);
     expectedNetworkFailures.set(failure.status, (expectedNetworkFailures.get(failure.status) ?? 0) + 1);
   }
@@ -5344,10 +5343,10 @@ function expectOnlyExpectedSyntheticHubConsoleErrors(
     }
 
     const match = /Failed to load resource:.*status of (\d{3})/i.exec(message);
-    if (!match) return true;
+    if (!match) {return true;}
     const status = Number(match[1]);
     const remaining = expectedNetworkFailures.get(status) ?? 0;
-    if (remaining === 0) return true;
+    if (remaining === 0) {return true;}
     expectedNetworkFailures.set(status, remaining - 1);
     return false;
   });
@@ -5392,7 +5391,7 @@ function isPagedResponse(body: unknown): body is { items: Record<string, unknown
 }
 
 function isPr03cTaskDetail(body: unknown, taskId: string, projectId: string): boolean {
-  if (typeof body !== 'object' || body === null) return false;
+  if (typeof body !== 'object' || body === null) {return false;}
   const detail = body as Record<string, any>;
   const task = detail.task;
   return hasStringValue(task, 'id', taskId) &&
@@ -5445,7 +5444,7 @@ function isWorkspaceAnnouncementAudience(
 }
 
 function hasCanonicalTaskStageCategory(body: unknown): boolean {
-  if (!hasString(body, 'stageCategory')) return false;
+  if (!hasString(body, 'stageCategory')) {return false;}
   return ['Backlog', 'Todo', 'InProgress', 'Review', 'Done', 'Cancelled']
     .includes(String((body as Record<string, unknown>).stageCategory));
 }

@@ -1,0 +1,217 @@
+<!-- eslint-disable @angular-eslint/template/cyclomatic-complexity, @angular-eslint/template/i18n, @angular-eslint/template/no-any, @angular-eslint/template/no-call-expression -->
+<main class="audit-export-page" aria-labelledby="audit-export-title">
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">Audit</p>
+      <h1 id="audit-export-title">Audit Package Export</h1>
+      <p class="page-summary">
+        Freeze the currently authorized Audit view into a reproducible package with scope and run metadata.
+      </p>
+    </div>
+    <nav class="audit-nav" aria-label="Audit navigation">
+      <a routerLink="/admin/audit">Event log</a>
+      <a routerLink="/admin/audit/claims-evidence" [queryParams]="{ artifactVersion: versionInput() || null }">Claims &amp; Evidence</a>
+      <a routerLink="/admin/audit/findings" [queryParams]="{ artifactVersion: versionInput() || null }">Findings</a>
+    </nav>
+  </header>
+
+  <p
+    class="state-card"
+    role="status"
+    aria-live="polite"
+    aria-atomic="true"
+    data-testid="audit-export-status"
+  >{{ accessibilityStatus() }}</p>
+
+  <section class="panel" aria-labelledby="scope-heading">
+    <div class="section-heading">
+      <div>
+        <p class="step-label">1 · Scope</p>
+        <h2 id="scope-heading">Choose an Artifact version</h2>
+      </div>
+    </div>
+
+    <form class="version-form" (submit)="$event.preventDefault(); openVersion()">
+      <label for="artifact-version">Artifact version ID</label>
+      <div class="version-row">
+        <input
+          id="artifact-version"
+          name="artifactVersion"
+          type="text"
+          autocomplete="off"
+          [value]="versionInput()"
+          [attr.aria-invalid]="inputError() ? 'true' : null"
+          [attr.aria-describedby]="inputError() ? 'artifact-version-error' : null"
+          (input)="updateVersionInput($any($event.target).value)"
+        />
+        <button type="submit" class="secondary">Preview package</button>
+      </div>
+      @if (inputError()) {
+        <p id="artifact-version-error" class="field-error" role="alert">{{ inputError() }}</p>
+      }
+    </form>
+
+    @if (loadState() === 'loading') {
+      <div class="state-card">
+        <span class="state-dot" aria-hidden="true"></span>
+        Loading authorized scope…
+      </div>
+    }
+
+    @if (message() && loadState() !== 'ready') {
+      <div class="state-card error" role="alert">{{ message() }}</div>
+    }
+  </section>
+
+  @if (preview(); as packagePreview) {
+    <section class="panel" aria-labelledby="contents-heading">
+      <div class="section-heading split-heading">
+        <div>
+          <p class="step-label">2 · Confirm</p>
+          <h2 id="contents-heading">Review package contents</h2>
+        </div>
+        <span class="permission-badge" [class.denied]="!packagePreview.canExport">
+          {{ packagePreview.canExport ? 'Export allowed' : 'View only' }}
+        </span>
+      </div>
+
+      <dl class="scope-grid">
+        <div>
+          <dt>Artifact</dt>
+          <dd>{{ packagePreview.artifactTitle }}</dd>
+        </div>
+        <div>
+          <dt>Version</dt>
+          <dd>v{{ packagePreview.artifactVersionNumber }}</dd>
+        </div>
+        <div class="wide">
+          <dt>Export scope</dt>
+          <dd>{{ packagePreview.scopeLabel }}</dd>
+        </div>
+        <div class="wide">
+          <dt>Sensitive metadata</dt>
+          <dd>
+            {{ packagePreview.sensitiveMetadataIncluded
+              ? 'Included under the current sensitive-metadata capability.'
+              : 'Excluded. Reviewer and owner identity metadata is omitted.' }}
+          </dd>
+        </div>
+      </dl>
+
+      <h3>Included sections</h3>
+      <ul class="section-list">
+        @for (section of packagePreview.sections; track section.key) {
+          <li>
+            <span>{{ section.label }}</span>
+            <strong>{{ section.itemCount }}</strong>
+          </li>
+        }
+      </ul>
+
+      <label class="confirmation">
+        <input
+          type="checkbox"
+          [checked]="confirmed()"
+          [disabled]="!packagePreview.canExport || busy()"
+          (change)="setConfirmed($any($event.target).checked)"
+        />
+        <span>
+          I confirm this Artifact version and the sections above are the intended export scope.
+          The package records the generation timestamp, scope, policy versions, and filter state.
+        </span>
+      </label>
+
+      @if (!packagePreview.canExport) {
+        <p class="permission-note" role="note">
+          You can review Audit data, but the separate <code>audit.export</code> capability is required to create a package.
+        </p>
+      }
+
+      <div class="actions">
+        <button
+          type="button"
+          class="primary"
+          [disabled]="!packagePreview.canExport || !confirmed() || busy()"
+          (click)="queueExport()"
+        >
+          {{ busy() ? 'Queuing…' : 'Create Audit package' }}
+        </button>
+      </div>
+    </section>
+  }
+
+  @if (job(); as exportJob) {
+    <section class="panel" aria-labelledby="progress-heading">
+      <div class="section-heading split-heading">
+        <div>
+          <p class="step-label">3 · Export job</p>
+          <h2 id="progress-heading">{{ exportJob.fileName }}</h2>
+        </div>
+        <span class="job-state" [attr.data-state]="exportJob.state">{{ exportJob.state }}</span>
+      </div>
+
+      <div class="progress-row">
+        <progress max="100" [value]="exportJob.progressPercent">
+          {{ exportJob.progressPercent }}%
+        </progress>
+        <strong>{{ exportJob.progressPercent }}%</strong>
+      </div>
+
+      <dl class="job-meta">
+        <div>
+          <dt>Queued</dt>
+          <dd>{{ formatTimestamp(exportJob.createdAt) }}</dd>
+        </div>
+        <div>
+          <dt>Completed</dt>
+          <dd>{{ formatTimestamp(exportJob.completedAt) }}</dd>
+        </div>
+        <div>
+          <dt>Last status update</dt>
+          <dd>{{ formatTimestamp(jobLastUpdatedAt()) }}</dd>
+        </div>
+      </dl>
+
+      @if (jobStatusStale()) {
+        <div class="state-card" data-testid="audit-export-stale-state">
+          <strong>Export status may be out of date.</strong>
+          <span>
+            The last known {{ exportJob.state }} state is still shown. Last successful status update:
+            {{ formatTimestamp(jobLastUpdatedAt()) }}.
+          </span>
+        </div>
+      }
+
+      @if (exportJob.state === 'Failed') {
+        <div class="state-card error" role="alert">
+          <strong>Export failed.</strong>
+          <span>{{ failureLabel(exportJob.errorCode) }}</span>
+          @if (exportJob.errorCode) {
+            <code>{{ exportJob.errorCode }}</code>
+          }
+        </div>
+      }
+
+      @if (message() && loadState() === 'ready') {
+        <div class="state-card error" role="alert">{{ message() }}</div>
+      }
+
+      <div class="actions">
+        @if (exportJob.state === 'Completed') {
+          <button type="button" class="primary" (click)="downloadExport()">Download package</button>
+        }
+        @if (exportJob.state === 'Failed') {
+          <button type="button" class="primary" [disabled]="busy()" (click)="retryExport()">
+            {{ busy() ? 'Queuing retry…' : 'Retry safely' }}
+          </button>
+        }
+        <button
+          type="button"
+          class="secondary"
+          [disabled]="busy() || jobRefreshBusy()"
+          (click)="refreshJob()"
+        >{{ jobRefreshBusy() ? 'Refreshing…' : 'Refresh status' }}</button>
+      </div>
+    </section>
+  }
+</main>
