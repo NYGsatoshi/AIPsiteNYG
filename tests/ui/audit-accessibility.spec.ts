@@ -164,6 +164,7 @@ test.describe('Audit WCAG 2.2 AA regression', () => {
     await page.goto(`/app/admin/audit/findings?artifactVersion=${versionId}`);
 
     const panel = page.getByTestId('audit-finding-decision-panel');
+    const form = page.getByTestId('audit-finding-decision-form');
     const decisionSelect = page.getByTestId('audit-finding-decision-select');
     const rationale = page.getByTestId('audit-finding-decision-rationale');
     const save = page.getByTestId('audit-finding-decision-save');
@@ -198,11 +199,11 @@ test.describe('Audit WCAG 2.2 AA regression', () => {
     await expect(save).toBeFocused();
 
     await page.keyboard.press('Enter');
-    await expect(panel).toHaveAttribute('aria-busy', 'true');
+    await expect(form).toHaveAttribute('aria-busy', 'true');
     await expect(status).toHaveText('Saving structured decision.');
     await expect.poll(() => decisionPutCount).toBe(1);
     await expect(status).toHaveText('Structured decision saved. Review complete.');
-    await expect(panel).not.toHaveAttribute('aria-busy', 'true');
+    await expect(form).not.toHaveAttribute('aria-busy', 'true');
     await expect(save).toBeFocused();
     await expect(page.getByTestId('audit-finding-current-decision')).toContainText('Accepted risk');
     await expect(page.getByTestId('audit-finding-current-decision')).toContainText('Authorized reviewer');
