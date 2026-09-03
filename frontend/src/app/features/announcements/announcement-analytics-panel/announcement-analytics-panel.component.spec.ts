@@ -1,10 +1,10 @@
-import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { Observable, of, throwError } from 'rxjs';
+import { TestBed } from '@angular/core/testing';
+import type { ComponentFixture } from '@angular/core/testing';
+import { of, throwError } from 'rxjs';
+import type { Observable } from 'rxjs';
 
-import {
-  AnnouncementAnalyticsViewModel,
-  AnnouncementEngagementClient,
-} from '../announcement-engagement.client';
+import { AnnouncementEngagementClient } from '../announcement-engagement.client';
+import type { AnnouncementAnalyticsViewModel } from '../announcement-engagement.client';
 import { AnnouncementAnalyticsPanelComponent } from './announcement-analytics-panel.component';
 
 const ANALYTICS: AnnouncementAnalyticsViewModel = {
