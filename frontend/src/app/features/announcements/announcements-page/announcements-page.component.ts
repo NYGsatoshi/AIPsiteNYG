@@ -3,7 +3,9 @@ import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 
+import { AnnouncementAnalyticsPanelComponent } from '../announcement-analytics-panel/announcement-analytics-panel.component';
 import { AnnouncementDetailComponent } from '../announcement-detail/announcement-detail.component';
+import { AnnouncementEngagementClient } from '../announcement-engagement.client';
 import { AnnouncementMultiAudienceEditorComponent } from '../announcement-multi-audience-editor/announcement-multi-audience-editor.component';
 import { AnnouncementListComponent } from '../announcement-list/announcement-list.component';
 import { AnnouncementNavigationStateService } from '../announcement-navigation-state.service';
@@ -20,6 +22,7 @@ import {
   standalone: true,
   imports: [
     FormsModule,
+    AnnouncementAnalyticsPanelComponent,
     AnnouncementDetailComponent,
     AnnouncementMultiAudienceEditorComponent,
     AnnouncementListComponent,
@@ -29,6 +32,7 @@ import {
 })
 export class AnnouncementsPageComponent implements OnDestroy {
   private readonly facade = inject(AnnouncementsFacade);
+  private readonly engagement = inject(AnnouncementEngagementClient);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
@@ -46,6 +50,9 @@ export class AnnouncementsPageComponent implements OnDestroy {
   readonly listFocusAnnouncementId = signal<string | null>(null);
   readonly editorVisible = signal(false);
   readonly editingAnnouncementId = signal<string | null>(null);
+  readonly acknowledgedAnnouncementId = signal<string | null>(null);
+  readonly acknowledgementPendingId = signal<string | null>(null);
+  readonly acknowledgementFailedId = signal<string | null>(null);
 
   readonly filteredAnnouncements = computed(() =>
     this.filterAuthorizedAnnouncements(this.page().announcements, this.searchValue()),
@@ -112,6 +119,10 @@ export class AnnouncementsPageComponent implements OnDestroy {
       const previousRouteAnnouncementId = this.routeAnnouncementId();
       this.routeAnnouncementId.set(announcementId);
 
+      if (announcementId && announcementId !== previousRouteAnnouncementId) {
+        this.resetEngagementActionState();
+      }
+
       if (announcementId) {
         this.selectedAnnouncementId.set(announcementId);
         this.facade.selectAnnouncement(announcementId);
@@ -134,6 +145,9 @@ export class AnnouncementsPageComponent implements OnDestroy {
       return;
     }
 
+    if (this.selectedAnnouncementId() !== announcementId) {
+      this.resetEngagementActionState();
+    }
     this.navigationState.rememberListState(announcementId);
     this.selectedAnnouncementId.set(announcementId);
     this.editorVisible.set(false);
@@ -158,6 +172,72 @@ export class AnnouncementsPageComponent implements OnDestroy {
 
   markRead(announcementId: string): void {
     this.facade.markAnnouncementRead(announcementId);
+  }
+
+  acknowledge(announcementId: string): void {
+    const announcement = this.page().announcements.find((item) => item.id === announcementId);
+    if (
+      !announcement ||
+      !announcement.readState.requiresReadConfirmation ||
+      this.acknowledgedAnnouncementId() === announcementId ||
+      this.acknowledgementPendingId() === announcementId
+    ) {
+      return;
+    }
+
+    this.acknowledgementPendingId.set(announcementId);
+    this.acknowledgementFailedId.set(null);
+    this.engagement
+      .acknowledge(announcementId)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => {
+          if (this.acknowledgementPendingId() !== announcementId) {
+            return;
+          }
+          this.acknowledgementPendingId.set(null);
+          this.acknowledgedAnnouncementId.set(announcementId);
+          if (!announcement.readState.isRead) {
+            // The acknowledgement endpoint already persists the read state.
+            // Replaying the idempotent read command synchronizes the existing
+            // facade projection without introducing a second source of truth.
+            this.facade.markAnnouncementRead(announcementId);
+          }
+        },
+        error: () => {
+          if (this.acknowledgementPendingId() !== announcementId) {
+            return;
+          }
+          this.acknowledgementPendingId.set(null);
+          this.acknowledgementFailedId.set(announcementId);
+        },
+      });
+  }
+
+  trackCtaClick(announcementId: string): void {
+    const announcement = this.page().announcements.find((item) => item.id === announcementId);
+    if (!announcement?.cta) {
+      return;
+    }
+
+    // The CTA itself remains a normal safe link. Tracking is best-effort and
+    // never blocks or rewrites the recipient-visible destination.
+    this.engagement
+      .trackCtaClick(announcementId)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ error: () => undefined });
+  }
+
+  isAcknowledged(announcementId: string): boolean {
+    return this.acknowledgedAnnouncementId() === announcementId;
+  }
+
+  isAcknowledgementPending(announcementId: string): boolean {
+    return this.acknowledgementPendingId() === announcementId;
+  }
+
+  hasAcknowledgementError(announcementId: string): boolean {
+    return this.acknowledgementFailedId() === announcementId;
   }
 
   updateSearch(value: string): void {
@@ -208,6 +288,12 @@ export class AnnouncementsPageComponent implements OnDestroy {
 
   ngOnDestroy(): void {
     this.facade.setEditorActive(false);
+  }
+
+  private resetEngagementActionState(): void {
+    this.acknowledgedAnnouncementId.set(null);
+    this.acknowledgementPendingId.set(null);
+    this.acknowledgementFailedId.set(null);
   }
 
   private filterAuthorizedAnnouncements(
