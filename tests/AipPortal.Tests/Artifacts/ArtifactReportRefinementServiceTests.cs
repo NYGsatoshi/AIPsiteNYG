@@ -157,6 +157,7 @@ public sealed class ArtifactReportRefinementServiceTests
                 DisplayName = "Refinement tenant",
                 Status = TenantStatus.Active
             });
+            await context.SaveChangesAsync();
 
             var task = new TaskItem
             {
