@@ -41,6 +41,16 @@ type PanelState =
 })
 export class AuditFindingDecisionPanelComponent {
   public readonly saveAnnouncement = signal('');
+  public readonly readyStatusMessage = computed(() => {
+    const announcement = this.saveAnnouncement(), panel = this.state();
+    if (announcement.length > 0) {
+      return announcement;
+    }
+    if (panel.status === 'ready' && panel.response.reviewCompleted) {
+      return 'A structured decision is recorded.';
+    }
+    return 'No structured decision is recorded yet.';
+  });
 
   private readonly http = inject(HttpClient);
   private requestVersion = 0;
