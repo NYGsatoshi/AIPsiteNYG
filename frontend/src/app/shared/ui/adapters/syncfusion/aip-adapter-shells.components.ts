@@ -256,8 +256,7 @@ export class AipKanbanComponent extends AipAdapterShellInput implements AfterVie
       previous.focusItemId === focusId &&
       previous.items !== current.items &&
       this.restoredFocusId === focusId &&
-      this.restoredFocusElement &&
-      this.restoredFocusElement.ownerDocument.activeElement === this.restoredFocusElement
+      this.restoredFocusElement?.ownerDocument.activeElement === this.restoredFocusElement
     );
   }
   ngAfterViewChecked(): void {

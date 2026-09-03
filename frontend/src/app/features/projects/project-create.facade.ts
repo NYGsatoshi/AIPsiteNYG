@@ -273,8 +273,7 @@ export class ProjectCreateFacade {
     const committed = this.committedCreate;
     if (
       !identityKey ||
-      !committed ||
-      committed.identityKey !== identityKey ||
+      committed?.identityKey !== identityKey ||
       committed.workspaceId !== this.scopeWorkspaceId
     ) {
       return false;

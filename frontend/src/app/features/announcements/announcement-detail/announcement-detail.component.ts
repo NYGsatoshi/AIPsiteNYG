@@ -83,9 +83,8 @@ export class AnnouncementDetailComponent implements AfterViewChecked {
 
     const announcement = this.announcement;
     if (
-      announcement &&
-      this.pendingReadAnnouncementId === announcement.id &&
-      !announcement.readState.isMarkingRead
+      announcement?.readState.isMarkingRead === false &&
+      this.pendingReadAnnouncementId === announcement.id
     ) {
       this.pendingReadAnnouncementId = null;
       if (announcement.readState.isRead) {
