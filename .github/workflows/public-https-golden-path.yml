@@ -11,12 +11,11 @@ jobs:
     # The protected environment owns all fixture values. It must be approved
     # after deployment and configured with the dedicated synthetic account.
     environment: public-https-gate
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     concurrency:
       group: aipsite-public-https-deployment-gate
       cancel-in-progress: false
-      queue: max
     env:
       AIP_PUBLIC_HTTPS_SMOKE: '1'
       AIP_PUBLIC_SMOKE_SYNTHETIC_FIXTURE: '1'

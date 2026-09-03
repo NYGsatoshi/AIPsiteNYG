@@ -1,0 +1,91 @@
+name: Licensed Image Security
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: licensed-image-security-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  licensed-image-security:
+    name: licensed-image-security
+    runs-on: ubuntu-latest
+    environment: syncfusion-licensed-build
+    timeout-minutes: 90
+
+    env:
+      SYNCFUSION_LICENSE: ${{ secrets.SYNCFUSION_LICENSE }}
+      IMAGE_NAME: aipsite-nyg-licensed-audit:${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+      DOCKER_BUILDKIT: "1"
+      BUILDKIT_PROGRESS: plain
+
+    steps:
+      - name: Checkout reviewed commit
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Build licensed production image
+        shell: bash
+        run: |
+          test -n "${SYNCFUSION_LICENSE:-}" || {
+            echo "SYNCFUSION_LICENSE is not configured in the protected environment." >&2
+            exit 1
+          }
+          license_file="$(mktemp)"
+          trap 'rm -f "$license_file"' EXIT
+          chmod 600 "$license_file"
+          printf '%s' "$SYNCFUSION_LICENSE" > "$license_file"
+          docker build \
+            --pull \
+            --progress=plain \
+            --secret id=syncfusion_license,src="$license_file" \
+            --tag "$IMAGE_NAME" \
+            .
+
+      - name: Verify runtime image excludes license material
+        shell: bash
+        run: |
+          docker run --rm --entrypoint sh "$IMAGE_NAME" -c '
+            test ! -e /run/secrets &&
+            test ! -e /app/.env &&
+            ! env | grep -q "^SYNCFUSION_LICENSE=" &&
+            ! find /app -type f \( -name ".env" -o -name ".env.*" -o -name "syncfusion-license.txt" \) -print -quit | grep -q .
+          '
+
+      - name: Scan image with Trivy
+        shell: bash
+        run: |
+          set +e
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$PWD:/repo" \
+            aquasec/trivy:0.65.0 \
+            image --scanners vuln --vuln-type os,library \
+            --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
+            --format table --output /repo/trivy-licensed-image-report.txt \
+            "$IMAGE_NAME"
+          status=$?
+          set -e
+          cat trivy-licensed-image-report.txt
+          exit "$status"
+
+      - name: Upload Trivy report on failure
+        if: failure()
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: licensed-image-security-report
+          path: trivy-licensed-image-report.txt
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Remove per-run image
+        if: always()
+        run: docker image rm --force "$IMAGE_NAME" || true
