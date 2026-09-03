@@ -7,7 +7,7 @@ import { AuditSeverityDisplay } from '../admin.types';
   standalone: true,
   template: `
     <span class="admin-badge" [class]="'admin-badge admin-badge--' + severity" data-testid="audit-severity-badge">
-      {{ label }}
+      <span class="admin-badge__icon" aria-hidden="true"></span>{{ label }}
     </span>
   `,
   styles: [
@@ -25,22 +25,25 @@ import { AuditSeverityDisplay } from '../admin.types';
         font-weight: 700;
       }
 
-      .admin-badge::before {
+      .admin-badge__icon::before {
         content: '?';
+      }
+
+      .admin-badge__icon {
         inline-size: 1em;
         flex: 0 0 auto;
         text-align: center;
       }
 
-      .admin-badge--info::before {
+      .admin-badge--info .admin-badge__icon::before {
         content: '●';
       }
 
-      .admin-badge--warning::before {
+      .admin-badge--warning .admin-badge__icon::before {
         content: '▲';
       }
 
-      .admin-badge--critical::before {
+      .admin-badge--critical .admin-badge__icon::before {
         content: '◆';
       }
 
