@@ -1,6 +1,11 @@
 @let panel = state();
 
-<section class="decision-panel" aria-labelledby="finding-decision-title" data-testid="audit-finding-decision-panel">
+<section
+  class="decision-panel"
+  aria-labelledby="finding-decision-title"
+  data-testid="audit-finding-decision-panel"
+  [attr.aria-busy]="saving() ? 'true' : null"
+>
   <header class="decision-panel__header">
     <div>
       <p class="decision-panel__eyebrow">Structured review</p>
@@ -17,13 +22,23 @@
     The decision is separate from comments, notes, and Finding triage. Comments alone do not mark this review complete.
   </p>
 
-  <p class="decision-panel__status" role="status" aria-live="polite" aria-atomic="true">
-    @switch (panel.status) {
-      @case ('loading') { Loading structured decision. }
-      @case ('ready') {
-        {{ panel.response.reviewCompleted ? 'A structured decision is recorded.' : 'No structured decision is recorded yet.' }}
+  <p
+    class="decision-panel__status"
+    role="status"
+    aria-live="polite"
+    aria-atomic="true"
+    data-testid="audit-finding-decision-status"
+  >
+    @if (saveAnnouncement()) {
+      {{ saveAnnouncement() }}
+    } @else {
+      @switch (panel.status) {
+        @case ('loading') { Loading structured decision. }
+        @case ('ready') {
+          {{ panel.response.reviewCompleted ? 'A structured decision is recorded.' : 'No structured decision is recorded yet.' }}
+        }
+        @default { {{ panel.message }} }
       }
-      @default { {{ panel.message }} }
     }
   </p>
 
@@ -40,7 +55,7 @@
         </div>
         <div>
           <dt>Timestamp</dt>
-          <dd>{{ formatTimestamp(current.timestamp) }}</dd>
+          <dd><time [attr.datetime]="current.timestamp">{{ formatTimestamp(current.timestamp) }}</time></dd>
         </div>
         <div>
           <dt>Previous state</dt>
@@ -64,6 +79,7 @@
           <select
             id="finding-review-decision"
             data-testid="audit-finding-decision-select"
+            aria-describedby="finding-review-decision-help"
             [value]="selectedDecision()"
             (change)="updateDecision($any($event.target).value)"
           >
@@ -128,7 +144,7 @@
                 {{ decisionLabel(entry.previousDecision) }} → {{ decisionLabel(entry.decision) }}
               </strong>
               <span>{{ entry.reviewerDisplayName }}</span>
-              <time>{{ formatTimestamp(entry.timestamp) }}</time>
+              <time [attr.datetime]="entry.timestamp">{{ formatTimestamp(entry.timestamp) }}</time>
               @if (entry.rationale) {
                 <p>{{ entry.rationale }}</p>
               }
