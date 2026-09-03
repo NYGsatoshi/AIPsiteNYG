@@ -4,6 +4,7 @@ import { request } from '@playwright/test';
 const HTTP_OK = Number('200'),
   HTTP_UNAUTHORIZED = Number('401'),
   HTTP_FORBIDDEN = Number('403'),
+  MEMBER_ROLE = Number('3'),
   EMPTY_COUNT = Number('0'),
   JSON_INDENT = Number('2'),
   requiredEnv = (name) => {
@@ -128,7 +129,7 @@ const HTTP_OK = Number('200'),
         data: {
           email: 'mvpa-authz-csrf-probe@example.test',
           expiresAt: null,
-          role: 3,
+          role: MEMBER_ROLE,
           workspaceId
         }
       });
@@ -138,7 +139,7 @@ const HTTP_OK = Number('200'),
     {
       const createCsrf = await getCsrf(admin, 'administrator-create-member-csrf'),
         createInvite = await admin.post('/api/admin/invites', {
-          data: { email: memberEmail, expiresAt: null, role: 3, workspaceId },
+          data: { email: memberEmail, expiresAt: null, role: MEMBER_ROLE, workspaceId },
           headers: { [createCsrf.headerName]: createCsrf.token }
         }),
         inviteBody = await readJson(createInvite, 'administrator member invite response');
@@ -173,7 +174,7 @@ const HTTP_OK = Number('200'),
             data: {
               email: 'mvpa-authz-non-admin-probe@example.test',
               expiresAt: null,
-              role: 3,
+              role: MEMBER_ROLE,
               workspaceId
             },
             headers: { [memberMutationCsrf.headerName]: memberMutationCsrf.token }
