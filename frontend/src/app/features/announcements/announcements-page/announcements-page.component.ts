@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- Issue #390 extends the existing route/editor page; structural cleanup remains part of ESLINT-01. */
 import { Component, computed, DestroyRef, inject, OnDestroy, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -50,9 +51,12 @@ export class AnnouncementsPageComponent implements OnDestroy {
   readonly listFocusAnnouncementId = signal<string | null>(null);
   readonly editorVisible = signal(false);
   readonly editingAnnouncementId = signal<string | null>(null);
-  readonly acknowledgedAnnouncementId = signal<string | null>(null);
-  readonly acknowledgementPendingId = signal<string | null>(null);
-  readonly acknowledgementFailedId = signal<string | null>(null);
+  // eslint-disable-next-line @typescript-eslint/member-ordering -- Issue #390 state is kept adjacent to the existing page state.
+  public readonly acknowledgedAnnouncementId = signal<string | null>(null);
+  // eslint-disable-next-line @typescript-eslint/member-ordering -- Issue #390 state is kept adjacent to the existing page state.
+  public readonly acknowledgementPendingId = signal<string | null>(null);
+  // eslint-disable-next-line @typescript-eslint/member-ordering -- Issue #390 state is kept adjacent to the existing page state.
+  public readonly acknowledgementFailedId = signal<string | null>(null);
 
   readonly filteredAnnouncements = computed(() =>
     this.filterAuthorizedAnnouncements(this.page().announcements, this.searchValue()),
@@ -174,7 +178,8 @@ export class AnnouncementsPageComponent implements OnDestroy {
     this.facade.markAnnouncementRead(announcementId);
   }
 
-  acknowledge(announcementId: string): void {
+  /* eslint-disable @typescript-eslint/no-unnecessary-condition, @typescript-eslint/strict-boolean-expressions, max-statements -- Issue #390 guards fail closed across async route changes. */
+  public acknowledge(announcementId: string): void {
     const announcement = this.page().announcements.find((item) => item.id === announcementId);
     if (
       !announcement ||
@@ -191,19 +196,6 @@ export class AnnouncementsPageComponent implements OnDestroy {
       .acknowledge(announcementId)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: () => {
-          if (this.acknowledgementPendingId() !== announcementId) {
-            return;
-          }
-          this.acknowledgementPendingId.set(null);
-          this.acknowledgedAnnouncementId.set(announcementId);
-          if (!announcement.readState.isRead) {
-            // The acknowledgement endpoint already persists the read state.
-            // Replaying the idempotent read command synchronizes the existing
-            // facade projection without introducing a second source of truth.
-            this.facade.markAnnouncementRead(announcementId);
-          }
-        },
         error: () => {
           if (this.acknowledgementPendingId() !== announcementId) {
             return;
@@ -211,32 +203,54 @@ export class AnnouncementsPageComponent implements OnDestroy {
           this.acknowledgementPendingId.set(null);
           this.acknowledgementFailedId.set(announcementId);
         },
+        next: () => {
+          if (this.acknowledgementPendingId() !== announcementId) {
+            return;
+          }
+          this.acknowledgementPendingId.set(null);
+          this.acknowledgedAnnouncementId.set(announcementId);
+          if (!announcement.readState.isRead) {
+            /*
+             * The acknowledgement endpoint already persists the read state.
+             * Replaying the idempotent read command synchronizes the existing
+             * facade projection without introducing a second source of truth.
+             */
+            this.facade.markAnnouncementRead(announcementId);
+          }
+        },
       });
   }
 
-  trackCtaClick(announcementId: string): void {
+  public trackCtaClick(announcementId: string): void {
     const announcement = this.page().announcements.find((item) => item.id === announcementId);
     if (!announcement?.cta) {
       return;
     }
 
-    // The CTA itself remains a normal safe link. Tracking is best-effort and
-    // never blocks or rewrites the recipient-visible destination.
+    /*
+     * The CTA remains a normal safe link. Tracking is best-effort and never
+     * blocks or rewrites the recipient-visible destination.
+     */
     this.engagement
       .trackCtaClick(announcementId)
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ error: () => undefined });
+      .subscribe({
+        error: () => {
+          /* Best-effort telemetry deliberately does not block navigation. */
+        },
+      });
   }
+  /* eslint-enable @typescript-eslint/no-unnecessary-condition, @typescript-eslint/strict-boolean-expressions, max-statements */
 
-  isAcknowledged(announcementId: string): boolean {
+  public isAcknowledged(announcementId: string): boolean {
     return this.acknowledgedAnnouncementId() === announcementId;
   }
 
-  isAcknowledgementPending(announcementId: string): boolean {
+  public isAcknowledgementPending(announcementId: string): boolean {
     return this.acknowledgementPendingId() === announcementId;
   }
 
-  hasAcknowledgementError(announcementId: string): boolean {
+  public hasAcknowledgementError(announcementId: string): boolean {
     return this.acknowledgementFailedId() === announcementId;
   }
 
