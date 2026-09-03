@@ -151,6 +151,8 @@ public static class DependencyInjection
         services.AddScoped<AipPortal.Application.Audit.IAuditFindingsService, DbAuditFindingsService>();
         services.AddScoped<AipPortal.Application.Audit.IAuditFindingReviewerMentionsService, DbAuditFindingReviewerMentionsService>();
         services.AddScoped<AipPortal.Application.Audit.IAuditFindingDecisionService, DbAuditFindingDecisionService>();
+        services.AddScoped<AipPortal.Application.Audit.IAuditPackageExportService, AuditPackageExportService>();
+        services.AddScoped<AipPortal.Application.Audit.IAuditPackageExportProcessor, AuditPackageExportProcessor>();
         services.AddSingleton<IClock, SystemClock>();
 
         return services;
