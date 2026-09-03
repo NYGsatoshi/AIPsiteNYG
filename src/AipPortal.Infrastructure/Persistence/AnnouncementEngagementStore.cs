@@ -2,7 +2,6 @@ using System.Data;
 using System.Security.Cryptography;
 using System.Text;
 using AipPortal.Application.Announcements;
-using AipPortal.Application.Common.Interfaces;
 using AipPortal.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
@@ -12,13 +11,11 @@ namespace AipPortal.Infrastructure.Persistence;
 /// <summary>
 /// Privacy-minimized engagement persistence for Announcement analytics. The
 /// PostgreSQL implementation stores only a deterministic recipient token plus
-/// the action/timestamp in a private sidecar table; it deliberately does not use
-/// AuditLog so acknowledgement/CTA activity cannot become a per-user audit
-/// projection. Non-PostgreSQL providers use an in-memory equivalent for tests.
+/// the action in a private sidecar table; it deliberately does not use AuditLog
+/// or retain per-recipient timing/content metadata. Non-PostgreSQL providers use
+/// an in-memory equivalent for tests.
 /// </summary>
-public sealed class AnnouncementEngagementStore(
-    AppDbContext dbContext,
-    IClock clock) : IAnnouncementEngagementStore
+public sealed class AnnouncementEngagementStore(AppDbContext dbContext) : IAnnouncementEngagementStore
 {
     private readonly HashSet<EngagementEventKey> inMemoryEvents = [];
 
@@ -55,16 +52,15 @@ public sealed class AnnouncementEngagementStore(
             command.Transaction = dbContext.Database.CurrentTransaction?.GetDbTransaction();
             command.CommandText = """
                 INSERT INTO announcement_engagement_events
-                    ("TenantId", "AnnouncementId", "RecipientToken", "Action", "CreatedAt")
+                    ("TenantId", "AnnouncementId", "RecipientToken", "Action")
                 VALUES
-                    (@tenantId, @announcementId, @recipientToken, @action, @createdAt)
+                    (@tenantId, @announcementId, @recipientToken, @action)
                 ON CONFLICT ("TenantId", "AnnouncementId", "RecipientToken", "Action") DO NOTHING
                 """;
             AddParameter(command, "tenantId", tenantId);
             AddParameter(command, "announcementId", announcementId);
             AddParameter(command, "recipientToken", recipientToken);
             AddParameter(command, "action", action);
-            AddParameter(command, "createdAt", clock.UtcNow);
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
         finally
