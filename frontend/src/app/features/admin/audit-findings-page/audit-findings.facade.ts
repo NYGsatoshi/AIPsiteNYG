@@ -331,6 +331,7 @@ function toOwnerViewModel(dto: AuditFindingOwnerDto): AuditFindingOwnerViewModel
 }
 
 function toFindingViewModel(dto: AuditFindingDto): AuditFindingViewModel {
+  const ownerUserId = dto.ownerUserId?.trim() || null;
   return {
     id: dto.findingId,
     claimId: dto.claimId,
@@ -342,8 +343,8 @@ function toFindingViewModel(dto: AuditFindingDto): AuditFindingViewModel {
     policyVersion: dto.policyVersion,
     status: toStatus(dto.status),
     workflowStatus: toWorkflowStatus(dto.workflowStatus),
-    ownerUserId: dto.ownerUserId?.trim() || null,
-    ownerDisplayName: dto.ownerDisplayName?.trim() || null,
+    ownerUserId,
+    ownerDisplayName: ownerDisplayName(ownerUserId, dto.ownerDisplayName),
     dueDate: dto.dueDate?.trim() || null,
     isOverdue: dto.isOverdue === true,
     resolutionReason: dto.resolutionReason?.trim() || null,
@@ -366,17 +367,28 @@ function toHistoryViewModel(dto: AuditFindingHistoryDto): AuditFindingHistoryVie
 }
 
 function toWorkflowHistoryViewModel(dto: AuditFindingWorkflowHistoryDto): AuditFindingWorkflowHistoryViewModel {
+  const fromOwnerUserId = dto.fromOwnerUserId?.trim() || null;
+  const toOwnerUserId = dto.toOwnerUserId?.trim() || null;
   return {
     fromWorkflowStatus: toWorkflowStatus(dto.fromWorkflowStatus),
     toWorkflowStatus: toWorkflowStatus(dto.toWorkflowStatus),
-    fromOwnerUserId: dto.fromOwnerUserId?.trim() || null,
-    fromOwnerDisplayName: dto.fromOwnerDisplayName?.trim() || null,
-    toOwnerUserId: dto.toOwnerUserId?.trim() || null,
-    toOwnerDisplayName: dto.toOwnerDisplayName?.trim() || null,
+    fromOwnerUserId,
+    fromOwnerDisplayName: ownerDisplayName(fromOwnerUserId, dto.fromOwnerDisplayName),
+    toOwnerUserId,
+    toOwnerDisplayName: ownerDisplayName(toOwnerUserId, dto.toOwnerDisplayName),
     fromDueDate: dto.fromDueDate?.trim() || null,
     toDueDate: dto.toDueDate?.trim() || null,
     changedAt: dto.changedAt,
   };
+}
+
+function ownerDisplayName(userId: string | null, displayName: string | null | undefined): string | null {
+  const normalizedDisplayName = displayName?.trim();
+  if (normalizedDisplayName) {
+    return normalizedDisplayName;
+  }
+
+  return userId ? 'Unavailable reviewer' : null;
 }
 
 function toSeverity(value: unknown): AuditFindingSeverity {
