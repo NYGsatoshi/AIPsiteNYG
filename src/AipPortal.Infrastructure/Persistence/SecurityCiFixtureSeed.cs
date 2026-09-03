@@ -9,8 +9,8 @@ namespace AipPortal.Infrastructure.Persistence;
 
 /// <summary>
 /// Deterministic synthetic data for the explicitly opted-in SEC-02 Test stack.
-/// The fixture intentionally contains distinct tenant/resource canaries so later
-/// API/DAST checks can prove both authorization and non-disclosure boundaries.
+/// Distinct tenant/resource canaries let later API and DAST checks prove both
+/// authorization and non-disclosure boundaries without using real user data.
 /// </summary>
 public static class SecurityCiFixtureSeed
 {
@@ -93,6 +93,11 @@ public static class SecurityCiFixtureSeed
             password,
             cancellationToken);
 
+        // Persist the identities before building the resource graph. This keeps
+        // the second, idempotence pass identical across relational and in-memory
+        // providers and makes uniqueness failures fail the startup immediately.
+        await dbContext.SaveChangesAsync(cancellationToken);
+
         await EnsureTenantUserAsync(dbContext, tenantA.Id, alphaOwner.Id, TenantUserRole.Owner, now, cancellationToken);
         await EnsureTenantUserAsync(dbContext, tenantA.Id, alphaMember.Id, TenantUserRole.Member, now, cancellationToken);
         await EnsureTenantUserAsync(dbContext, tenantA.Id, alphaRestricted.Id, TenantUserRole.Guest, now, cancellationToken);
@@ -102,10 +107,10 @@ public static class SecurityCiFixtureSeed
             dbContext,
             fileStorage,
             tenantA,
-            new FixtureActor(alphaOwner, WorkspaceRole.Owner, ProjectRole.Owner, ConversationMemberRole.Admin, canPost: true),
+            new FixtureActor(alphaOwner, WorkspaceRole.Owner, ProjectRole.Owner, ConversationMemberRole.Admin, true),
             [
-                new FixtureActor(alphaMember, WorkspaceRole.Member, ProjectRole.Contributor, ConversationMemberRole.Member, canPost: true),
-                new FixtureActor(alphaRestricted, WorkspaceRole.ReadOnly, ProjectRole.Viewer, ConversationMemberRole.ReadOnly, canPost: false)
+                new FixtureActor(alphaMember, WorkspaceRole.Member, ProjectRole.Contributor, ConversationMemberRole.Member, true),
+                new FixtureActor(alphaRestricted, WorkspaceRole.ReadOnly, ProjectRole.Viewer, ConversationMemberRole.ReadOnly, false)
             ],
             TenantAWorkspaceSlug,
             "SEC-02 Alpha Workspace Canary",
@@ -123,7 +128,7 @@ public static class SecurityCiFixtureSeed
             dbContext,
             fileStorage,
             tenantB,
-            new FixtureActor(betaOwner, WorkspaceRole.Owner, ProjectRole.Owner, ConversationMemberRole.Admin, canPost: true),
+            new FixtureActor(betaOwner, WorkspaceRole.Owner, ProjectRole.Owner, ConversationMemberRole.Admin, true),
             [],
             TenantBWorkspaceSlug,
             "SEC-02 Beta Workspace Canary",
@@ -313,7 +318,9 @@ public static class SecurityCiFixtureSeed
         var project = await dbContext.Projects
             .IgnoreQueryFilters()
             .FirstOrDefaultAsync(
-                candidate => candidate.TenantId == tenant.Id && candidate.WorkspaceId == workspace.Id && candidate.Slug == projectSlug,
+                candidate => candidate.TenantId == tenant.Id &&
+                             candidate.WorkspaceId == workspace.Id &&
+                             candidate.Slug == projectSlug,
                 cancellationToken);
 
         if (project is null)
@@ -367,7 +374,9 @@ public static class SecurityCiFixtureSeed
         var task = await dbContext.TaskItems
             .IgnoreQueryFilters()
             .FirstOrDefaultAsync(
-                candidate => candidate.TenantId == tenant.Id && candidate.ProjectId == project.Id && candidate.Title == taskTitle,
+                candidate => candidate.TenantId == tenant.Id &&
+                             candidate.ProjectId == project.Id &&
+                             candidate.Title == taskTitle,
                 cancellationToken);
 
         if (task is null)
@@ -465,11 +474,10 @@ public static class SecurityCiFixtureSeed
         var attachment = await dbContext.Attachments
             .IgnoreQueryFilters()
             .FirstOrDefaultAsync(
-                candidate =>
-                    candidate.TenantId == tenant.Id &&
-                    candidate.FileObjectId == file.Id &&
-                    candidate.OwnerType == AttachmentOwnerType.TaskItem &&
-                    candidate.OwnerId == task.Id,
+                candidate => candidate.TenantId == tenant.Id &&
+                             candidate.FileObjectId == file.Id &&
+                             candidate.OwnerType == AttachmentOwnerType.TaskItem &&
+                             candidate.OwnerId == task.Id,
                 cancellationToken);
 
         if (attachment is null)
@@ -516,11 +524,10 @@ public static class SecurityCiFixtureSeed
         }
 
         var conversation = await dbContext.Conversations.FirstOrDefaultAsync(
-            candidate =>
-                candidate.TenantId == tenant.Id &&
-                candidate.WorkspaceId == workspace.Id &&
-                candidate.ProjectId == project.Id &&
-                candidate.Title == conversationTitle,
+            candidate => candidate.TenantId == tenant.Id &&
+                         candidate.WorkspaceId == workspace.Id &&
+                         candidate.ProjectId == project.Id &&
+                         candidate.Title == conversationTitle,
             cancellationToken);
 
         if (conversation is null)
@@ -555,10 +562,9 @@ public static class SecurityCiFixtureSeed
         var message = await dbContext.Messages
             .IgnoreQueryFilters()
             .FirstOrDefaultAsync(
-                candidate =>
-                    candidate.TenantId == tenant.Id &&
-                    candidate.ConversationId == conversation.Id &&
-                    candidate.Body == messageBody,
+                candidate => candidate.TenantId == tenant.Id &&
+                             candidate.ConversationId == conversation.Id &&
+                             candidate.Body == messageBody,
                 cancellationToken);
 
         if (message is null)
@@ -594,10 +600,9 @@ public static class SecurityCiFixtureSeed
         CancellationToken cancellationToken)
     {
         var membership = await dbContext.WorkspaceMembers.FirstOrDefaultAsync(
-            candidate =>
-                candidate.TenantId == tenantId &&
-                candidate.WorkspaceId == workspaceId &&
-                candidate.UserId == actor.User.Id,
+            candidate => candidate.TenantId == tenantId &&
+                         candidate.WorkspaceId == workspaceId &&
+                         candidate.UserId == actor.User.Id,
             cancellationToken);
 
         if (membership is null)
@@ -628,10 +633,9 @@ public static class SecurityCiFixtureSeed
         CancellationToken cancellationToken)
     {
         var membership = await dbContext.ProjectMembers.FirstOrDefaultAsync(
-            candidate =>
-                candidate.TenantId == tenantId &&
-                candidate.ProjectId == projectId &&
-                candidate.UserId == actor.User.Id,
+            candidate => candidate.TenantId == tenantId &&
+                         candidate.ProjectId == projectId &&
+                         candidate.UserId == actor.User.Id,
             cancellationToken);
 
         if (membership is null)
@@ -663,10 +667,9 @@ public static class SecurityCiFixtureSeed
         CancellationToken cancellationToken)
     {
         var membership = await dbContext.ConversationMembers.FirstOrDefaultAsync(
-            candidate =>
-                candidate.TenantId == tenantId &&
-                candidate.ConversationId == conversationId &&
-                candidate.UserId == actor.User.Id,
+            candidate => candidate.TenantId == tenantId &&
+                         candidate.ConversationId == conversationId &&
+                         candidate.UserId == actor.User.Id,
             cancellationToken);
 
         if (membership is null)
