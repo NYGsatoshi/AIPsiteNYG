@@ -1,29 +1,4 @@
 {
   "version": 1,
-  "findings": [
-    {
-      "report": "aipsite-frontend",
-      "package": "nanoid",
-      "severity": "high",
-      "via": ["advisory:1139427"]
-    },
-    {
-      "report": "aipsite-frontend",
-      "package": "undici",
-      "severity": "high",
-      "via": ["advisory:1130715", "advisory:1130718", "advisory:1130726", "advisory:1130729", "advisory:1130731"]
-    },
-    {
-      "report": "frontend",
-      "package": "nanoid",
-      "severity": "high",
-      "via": ["advisory:1139427"]
-    },
-    {
-      "report": "frontend",
-      "package": "undici",
-      "severity": "high",
-      "via": ["advisory:1130715", "advisory:1130718", "advisory:1130726", "advisory:1130729", "advisory:1130731"]
-    }
-  ]
+  "findings": []
 }

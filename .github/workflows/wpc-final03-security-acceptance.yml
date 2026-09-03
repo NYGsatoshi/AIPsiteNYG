@@ -41,7 +41,7 @@ permissions:
 jobs:
   acceptance:
     name: WPC-Final03 Security / PG18
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 35
 
     services:

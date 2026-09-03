@@ -1,38 +1,32 @@
 # Contribution policy
 
-AIPsiteNYG is not an open-source project. Public visibility of this repository
-does not constitute an invitation to contribute and does not grant a license
-to use the source code.
+## Unsolicited contributions are not accepted
 
-## External contributions
+This repository is publicly visible but is not an open-source project.
+Unsolicited pull requests, patches, copied implementations, and feature
+submissions are not accepted.
 
-Unsolicited external contributions are not accepted.
-
-- Do not submit unsolicited pull requests, patches, source files, documentation,
-  designs, translations, test data, or other material.
-- Pull requests are reserved for explicitly authorized repository collaborators.
-- Unsolicited pull requests may be closed without technical or legal review.
-- Opening an issue, discussion, or pull request does not grant permission to use,
-  copy, modify, distribute, or create derivative works from this repository.
+Pull-request creation is intended to be restricted to collaborators explicitly
+authorized by the repository owner. Authorization to open a pull request does
+not itself authorize use of repository-owned code outside this repository.
 
 ## Authorized collaborators
 
-An authorized collaborator must:
+Before submitting code, an authorized collaborator must:
 
-1. work only within the scope approved by the repository owner;
-2. confirm that the submitted material is original or may lawfully be submitted;
-3. avoid including confidential information, personal data, credentials, license
-   keys, production configuration, or third-party material that cannot be
-   redistributed; and
-4. obtain a separate written contribution agreement when requested before a
-   contribution is merged.
+1. have a separate written contribution agreement or other explicit permission
+   from the repository owner;
+2. confirm that the contribution is their original work or that every included
+   third-party component may legally be submitted under the agreed terms;
+3. avoid including credentials, private keys, personal data, school-internal
+   data, production identifiers, or proprietary vendor material; and
+4. accept that the repository owner may close or reject any pull request.
 
-Authorization to submit a contribution does not by itself grant permission to
-reuse any other part of AIPsiteNYG.
+The repository owner may require changes, additional review, or legal clearance
+before merge. No contribution is accepted merely because it was submitted,
+reviewed, or technically mergeable.
 
 ## Security reports
 
-Do not disclose suspected vulnerabilities, credentials, personal data, or
-production details in a public issue or pull request. Use GitHub private
-vulnerability reporting when it is enabled for the repository, or contact the
-repository owner through a previously established private channel.
+Do not disclose suspected vulnerabilities in public issues or pull requests.
+Follow [.github/SECURITY.md](.github/SECURITY.md).

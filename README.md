@@ -1,5 +1,18 @@
 # AIPsiteNYG
-### 仕様に関しては全て[AIPsiteNYGspec](https://github.com/NYGsatoshi/AIPsiteNYGspec)に従うこと
+
+> [!IMPORTANT]
+> **Public source, not open source.** This repository is made visible for
+> transparency, technical evaluation, portfolio review, and CI. No permission
+> is granted to use, copy, modify, redistribute, sublicense, commercially
+> exploit, or create derivative works from repository-owned material except as
+> required by GitHub's Terms of Service or applicable law. See
+> [COPYRIGHT.md](COPYRIGHT.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
+
+### Specification status
+
+The authoritative specification is maintained separately. Its visibility and
+source terms are independent from this repository; an inaccessible
+specification link must not be treated as permission to use this code.
 
 
 AIPsiteNYG is a tenant-aware school and organization portal implemented as a .NET 10 ASP.NET Core modular monolith.

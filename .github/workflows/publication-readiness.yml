@@ -1,0 +1,77 @@
+name: Publication Readiness
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/**"
+      - ".gitleaksignore"
+      - "scripts/ci/check-publication-readiness.py"
+      - "scripts/ci/test-publication-readiness.py"
+      - "scripts/ci/npm-audit-baseline.json"
+      - "README.md"
+      - "COPYRIGHT.md"
+      - "CONTRIBUTING.md"
+      - "THIRD_PARTY_NOTICES.md"
+      - "package.json"
+      - "package-lock.json"
+      - "frontend/package.json"
+      - "frontend/package-lock.json"
+      - "aipsite-frontend/package.json"
+      - "aipsite-frontend/package-lock.json"
+      - "docs/PUBLICATION_RUNBOOK.md"
+      - "docs/audit/publication-readiness-2026-09-03.md"
+
+concurrency:
+  group: publication-readiness-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  publication-readiness:
+    name: publication-readiness
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout complete history
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Test publication policy parser
+        run: python3 scripts/ci/test-publication-readiness.py
+
+      - name: Enforce publication policy
+        run: python3 scripts/ci/check-publication-readiness.py
+
+      - name: Scan full reachable Git history with Gitleaks
+        shell: bash
+        run: |
+          set +e
+          docker run --rm \
+            -v "$PWD:/repo" \
+            zricethezav/gitleaks:v8.24.3 \
+            detect --source /repo --redact --verbose \
+            --gitleaks-ignore-path /repo/.gitleaksignore \
+            --report-format json \
+            --report-path /repo/gitleaks-publication-report.json
+          status=$?
+          set -e
+          [[ -f gitleaks-publication-report.json ]] || printf '[]\n' > gitleaks-publication-report.json
+          exit "$status"
+
+      - name: Upload redacted Gitleaks report
+        if: failure()
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: publication-readiness-gitleaks-report
+          path: gitleaks-publication-report.json
+          if-no-files-found: error
+          retention-days: 7

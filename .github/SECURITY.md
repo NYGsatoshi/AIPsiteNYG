@@ -1,27 +1,41 @@
-# Security reporting policy
+# Security policy
 
-Do not report suspected vulnerabilities, leaked credentials, personal data, or
-production details in a public issue, discussion, or pull request.
+## Private reporting only
 
-Use GitHub private vulnerability reporting when that feature is enabled for the
-repository. If private vulnerability reporting is unavailable, contact the
-repository owner only through a previously established private channel.
+Do not report suspected vulnerabilities through a public issue, pull request,
+discussion, commit, or CI log.
 
-Include only the information needed to reproduce and assess the problem. Do not
-include real user data, active credentials, destructive proof-of-concept steps,
-or unnecessary production details.
+After the repository is public, use GitHub private vulnerability reporting when
+that feature is enabled. If private vulnerability reporting is unavailable,
+contact the repository owner through a private contact method shown on the
+owner's GitHub profile and disclose only the minimum information needed to
+establish contact.
 
-## Supported versions
+A useful private report includes:
 
-AIPsiteNYG is under active development. Only the current default branch and the
-currently deployed revision, when one exists, are candidates for security
-review. No support commitment is made for historical commits, forks, or
-unauthorized deployments.
+- the affected commit or version;
+- the affected component;
+- reproducible, non-destructive steps;
+- the expected and observed behavior; and
+- a concise impact assessment with secrets and personal data redacted.
 
-## Disclosure
+## Testing boundaries
 
-Do not publish a vulnerability or proof of concept before the repository owner
-has had a reasonable opportunity to investigate and remediate it. Submission of
-a report does not grant a license to use any source code beyond the limited
-inspection required to describe the report and rights provided by applicable
-law.
+Publication of source code does not authorize testing against any live,
+school-operated, demonstration, staging, or production deployment. Do not:
+
+- access or attempt to access another person's account or data;
+- use real credentials, tokens, files, messages, or student information;
+- perform denial-of-service, persistence, phishing, social engineering, or
+  destructive testing; or
+- publish exploit details before the repository owner has completed review.
+
+Use only systems and synthetic data for which you have explicit permission.
+
+## Supported scope
+
+Security reports are evaluated against the current `main` branch and explicitly
+identified supported deployments. Historical documents under `docs/archive/`
+may describe obsolete behavior and are not independently supported.
+
+There is no public bug-bounty program and no promise of compensation.
