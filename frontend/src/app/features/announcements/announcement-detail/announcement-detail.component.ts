@@ -108,11 +108,10 @@ export class AnnouncementDetailComponent implements AfterViewChecked {
     this.markReadRequested.emit(announcement.id);
   }
 
-  /* eslint-disable @typescript-eslint/no-unnecessary-condition, @typescript-eslint/strict-boolean-expressions, @typescript-eslint/prefer-destructuring, max-statements -- Issue #390 recipient actions fail closed on stale detail state. */
   public requestAcknowledgement(): void {
-    const announcement = this.announcement;
+    const { announcement } = this;
     if (
-      !announcement ||
+      announcement === null ||
       !announcement.readState.requiresReadConfirmation ||
       this.acknowledged() ||
       this.acknowledgementPending()
@@ -124,14 +123,13 @@ export class AnnouncementDetailComponent implements AfterViewChecked {
   }
 
   public recordCtaClick(): void {
-    const announcement = this.announcement;
-    if (!announcement?.cta) {
+    const { announcement } = this;
+    if (announcement === null || announcement.cta === undefined) {
       return;
     }
 
     this.ctaClicked.emit(announcement.id);
   }
-  /* eslint-enable @typescript-eslint/no-unnecessary-condition, @typescript-eslint/strict-boolean-expressions, @typescript-eslint/prefer-destructuring, max-statements */
 
   private isMobileHierarchy(): boolean {
     const window = this.document.defaultView;
