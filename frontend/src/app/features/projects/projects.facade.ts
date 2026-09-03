@@ -664,9 +664,15 @@ export class ProjectsFacade {
     this.detailRequest?.unsubscribe();
     const authorizationGeneration = this.authorizationGeneration;
     const generation = this.detailGeneration;
+    // Bind the whole async chain to the Workspace authorization scope observed
+    // when this read starts. Reading ActiveWorkspace later inside switchMap is
+    // a TOCTOU race: cold direct-route hydration can change null -> Workspace
+    // after the Task GET starts and cause both the old and reauthorized chains
+    // to fetch the same parent Project.
+    const expectedWorkspaceId = this.activeWorkspace.activeWorkspace()?.id ?? null;
     if (scope.kind === 'initialLoad') {this.setSectionState('detail', { status: 'loading' });}
     if (scope.kind === 'sectionRecovery') {this.setSectionState(scope.section, { status: 'loading', retryKind: 'aggregate' });}
-    this.detailRequest = this.fetchTaskWithParentProject(taskId, this.activeProjectId).pipe(finalize(() => {
+    this.detailRequest = this.fetchTaskWithParentProject(taskId, this.activeProjectId, expectedWorkspaceId).pipe(finalize(() => {
       if (this.isActive(taskId, generation)) {this.detailRequest = null;}
     })).subscribe({
       next: (response) => {
@@ -735,22 +741,25 @@ export class ProjectsFacade {
     });
   }
 
-  private fetchTaskWithParentProject(taskId: string, expectedProjectId: string | null): Observable<TaskDetailLoadResult> {
+  private fetchTaskWithParentProject(
+    taskId: string,
+    expectedProjectId: string | null,
+    expectedWorkspaceId: string | null
+  ): Observable<TaskDetailLoadResult> {
     return this.fetchTask(taskId).pipe(
       switchMap((response) => {
         const projectId = response.task.projectId;
         if (!expectedProjectId || projectId !== expectedProjectId) {
           return of({ ...response, scopeMismatch: true });
         }
-        const activeWorkspaceId = this.activeWorkspace.activeWorkspace()?.id;
-        if (!activeWorkspaceId) {return of({ ...response, workspacePending: true });}
+        if (!expectedWorkspaceId) {return of({ ...response, workspacePending: true });}
         const taskWorkspaceId = (response.detail.task ?? (response.detail as TaskDto)).workspaceId;
-        if (typeof taskWorkspaceId !== 'string' || taskWorkspaceId !== activeWorkspaceId) {
+        if (typeof taskWorkspaceId !== 'string' || taskWorkspaceId !== expectedWorkspaceId) {
           return of({ ...response, scopeMismatch: true });
         }
         // The broad inventory can contain Projects from multiple Workspaces,
         // so this shortcut is safe only after the canonical Task has matched
-        // the active Workspace above.
+        // the Workspace snapshot captured for this authorization generation.
         if (this.authorizedProjects().some((project) => project.id === projectId)) {return of(response);}
 
         return this.http
