@@ -95,6 +95,7 @@ const EMPTY_INBOX: MessagingInboxViewModel = {
         id="message-search-filter-controls"
         class="message-discovery__controls"
         [class.message-discovery__controls--open]="mobilePanelOpen()"
+        tabindex="-1"
         (keydown.escape)="closeMobilePanel($event)"
       >
         <form
@@ -228,13 +229,7 @@ const EMPTY_INBOX: MessagingInboxViewModel = {
       </div>
 
       @if (advancedDrawerOpen()) {
-        <div class="message-discovery__drawer-overlay">
-          <button
-            type="button"
-            class="message-discovery__drawer-backdrop"
-            aria-label="Close advanced filters"
-            (click)="cancelAdvancedDrawer()"
-          ></button>
+        <div class="message-discovery__drawer-overlay" role="presentation" (click)="handleDrawerOverlayClick($event)">
           <section
             #advancedDrawer
             class="message-discovery__drawer"
