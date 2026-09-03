@@ -1,6 +1,5 @@
-/* eslint-disable -- Issue #390 is isolated while ESLINT-01 reduces the repository-wide configs.all baseline. */
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { of, throwError } from 'rxjs';
+import { Observable, of, throwError } from 'rxjs';
 
 import {
   AnnouncementAnalyticsViewModel,
@@ -24,22 +23,30 @@ const ANALYTICS: AnnouncementAnalyticsViewModel = {
   medianTimeToRecognitionSeconds: 900,
 };
 
+const renderPanel = async (
+  analytics: () => Observable<AnnouncementAnalyticsViewModel>,
+  announcementId: string,
+): Promise<ComponentFixture<AnnouncementAnalyticsPanelComponent>> => {
+  await TestBed.configureTestingModule({
+    imports: [AnnouncementAnalyticsPanelComponent],
+    providers: [
+      {
+        provide: AnnouncementEngagementClient,
+        useValue: { analytics },
+      },
+    ],
+  }).compileComponents();
+  const fixture = TestBed.createComponent(AnnouncementAnalyticsPanelComponent);
+  fixture.componentRef.setInput('announcementId', announcementId);
+  fixture.detectChanges();
+  return fixture;
+};
+
 describe('AnnouncementAnalyticsPanelComponent', () => {
   it('renders aggregate rates, denominator, period, and no recipient identities', async () => {
-    const engagement = {
-      analytics: () => of(ANALYTICS),
-    };
-    await TestBed.configureTestingModule({
-      imports: [AnnouncementAnalyticsPanelComponent],
-      providers: [{ provide: AnnouncementEngagementClient, useValue: engagement }],
-    }).compileComponents();
-    const fixture: ComponentFixture<AnnouncementAnalyticsPanelComponent> =
-      TestBed.createComponent(AnnouncementAnalyticsPanelComponent);
-
-    fixture.componentRef.setInput('announcementId', ANALYTICS.announcementId);
-    fixture.detectChanges();
-
+    const fixture = await renderPanel(() => of(ANALYTICS), ANALYTICS.announcementId);
     const root = fixture.nativeElement as HTMLElement;
+
     expect(root.querySelector('[data-testid="announcement-analytics"]')).not.toBeNull();
     expect(root.querySelector('[data-testid="announcement-analytics-read"]')?.textContent).toContain('70%');
     expect(root.querySelector('[data-testid="announcement-analytics-acknowledgement"]')?.textContent).toContain('50%');
@@ -51,17 +58,10 @@ describe('AnnouncementAnalyticsPanelComponent', () => {
   });
 
   it('fails closed when aggregate analytics are not authorized', async () => {
-    const engagement = {
-      analytics: () => throwError(() => new Error('denied')),
-    };
-    await TestBed.configureTestingModule({
-      imports: [AnnouncementAnalyticsPanelComponent],
-      providers: [{ provide: AnnouncementEngagementClient, useValue: engagement }],
-    }).compileComponents();
-    const fixture = TestBed.createComponent(AnnouncementAnalyticsPanelComponent);
-
-    fixture.componentRef.setInput('announcementId', 'announcement-denied');
-    fixture.detectChanges();
+    const fixture = await renderPanel(
+      () => throwError(() => new Error('denied')),
+      'announcement-denied',
+    );
 
     expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="announcement-analytics"]')).toBeNull();
   });
