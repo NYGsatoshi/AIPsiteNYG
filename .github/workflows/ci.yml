@@ -7,7 +7,7 @@ on:
     paths-ignore:
       - "**/*.md"
       - "docs/**"
-  pull_request:
+  pull_request: # Required checks: intentionally unfiltered.
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -32,8 +32,10 @@ jobs:
       - name: Enforce public-workflow trust boundary
         run: python3 scripts/ci/check-publication-readiness.py
 
+      - name: Enforce required PR check topology
+        run: python3 scripts/ci/check-required-pr-checks.py
+
   build-test:
-    needs: changes
     name: build-test
     runs-on: ubuntu-latest
     timeout-minutes: 120
@@ -110,7 +112,6 @@ jobs:
           retention-days: 7
 
   frontend-test:
-    needs: changes
     name: frontend-test
     runs-on: ubuntu-latest
     timeout-minutes: 120
@@ -168,7 +169,6 @@ jobs:
           retention-days: 7
 
   security-scan:
-    needs: changes
     name: security-scan
     runs-on: ubuntu-latest
     timeout-minutes: 90
