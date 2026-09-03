@@ -5,6 +5,7 @@ using AipPortal.Application.Announcements;
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 
 namespace AipPortal.Infrastructure.Persistence;
 
