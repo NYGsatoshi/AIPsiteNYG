@@ -8,6 +8,10 @@ const findingId = '22222222-2222-4222-8222-222222222222';
 const reviewerId = '33333333-3333-4333-8333-333333333333';
 
 type ReviewDecision = 'NoIssue' | 'NeedsFix' | 'AcceptedRisk';
+type DecisionRequest = {
+  decision: ReviewDecision;
+  rationale: string | null;
+};
 
 async function tabTo(page: Page, target: Locator, maximumTabs = 80): Promise<void> {
   for (let index = 0; index < maximumTabs; index += 1) {
@@ -45,8 +49,13 @@ test.describe('Audit WCAG 2.2 AA regression', () => {
     await page.setViewportSize({ width: 320, height: 800 });
 
     let decisionPutCount = 0;
+    let capturedDecisionRequest: DecisionRequest | null = null;
     let currentDecision: ReviewDecision | null = null;
     let currentRationale: string | null = null;
+    let releaseDecisionResponse = (): void => undefined;
+    const decisionResponseGate = new Promise<void>((resolve) => {
+      releaseDecisionResponse = resolve;
+    });
 
     const decisionResponse = () => ({
       findingId,
@@ -98,15 +107,11 @@ test.describe('Audit WCAG 2.2 AA regression', () => {
       }
 
       if (pathname.endsWith(decisionPath) && request.method() === 'PUT') {
-        const body = request.postDataJSON() as {
-          decision: ReviewDecision;
-          rationale: string | null;
-        };
-        expect(body.decision).toBe('AcceptedRisk');
-        expect(body.rationale).toBe('Risk accepted after keyboard review.');
-
-        await new Promise((resolve) => setTimeout(resolve, 120));
+        const body = request.postDataJSON() as DecisionRequest;
+        capturedDecisionRequest = body;
         decisionPutCount += 1;
+
+        await decisionResponseGate;
         currentDecision = body.decision;
         currentRationale = body.rationale;
 
@@ -202,9 +207,15 @@ test.describe('Audit WCAG 2.2 AA regression', () => {
     await expect(save).toBeFocused();
 
     await page.keyboard.press('Enter');
+    await expect.poll(() => decisionPutCount).toBe(1);
+    expect(capturedDecisionRequest).toEqual({
+      decision: 'AcceptedRisk',
+      rationale: 'Risk accepted after keyboard review.',
+    });
     await expect(form).toHaveAttribute('aria-busy', 'true');
     await expect(status).toHaveText('Saving structured decision.');
-    await expect.poll(() => decisionPutCount).toBe(1);
+
+    releaseDecisionResponse();
     await expect(status).toHaveText('Structured decision saved. Review complete.');
     await expect(form).not.toHaveAttribute('aria-busy', 'true');
     await expect(save).toBeFocused();
