@@ -2,7 +2,7 @@ name: Publication Readiness
 
 on:
   workflow_dispatch:
-  pull_request:
+  pull_request: # Required check: intentionally unfiltered.
   push:
     branches: ["main"]
     paths:
@@ -10,6 +10,8 @@ on:
       - ".gitleaksignore"
       - "scripts/ci/check-publication-readiness.py"
       - "scripts/ci/test-publication-readiness.py"
+      - "scripts/ci/check-required-pr-checks.py"
+      - "scripts/ci/test-required-pr-checks.py"
       - "scripts/ci/npm-audit-baseline.json"
       - "README.md"
       - "COPYRIGHT.md"
@@ -44,11 +46,15 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Test publication policy parser
-        run: python3 scripts/ci/test-publication-readiness.py
+      - name: Test publication policy parsers
+        run: |
+          python3 scripts/ci/test-publication-readiness.py
+          python3 scripts/ci/test-required-pr-checks.py
 
-      - name: Enforce publication policy
-        run: python3 scripts/ci/check-publication-readiness.py
+      - name: Enforce publication and required-check policies
+        run: |
+          python3 scripts/ci/check-publication-readiness.py
+          python3 scripts/ci/check-required-pr-checks.py
 
       - name: Scan full reachable Git history with Gitleaks
         shell: bash
