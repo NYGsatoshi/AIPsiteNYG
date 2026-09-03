@@ -12,7 +12,7 @@ namespace AipPortal.Tests.Announcements;
 public sealed class AnnouncementEngagementStoreTests
 {
     [Fact]
-    public async Task AggregateUsesFrozenCohortDedupesRetriesAndDoesNotPersistContentMetadata()
+    public async Task AggregateUsesImmutableFrozenCohortDedupesRetriesAndKeepsEngagementOutOfAuditLog()
     {
         var tenantId = Guid.NewGuid();
         var announcementId = Guid.NewGuid();
@@ -39,6 +39,7 @@ public sealed class AnnouncementEngagementStoreTests
 
         var clock = new FixedClock(new DateTimeOffset(2026, 9, 3, 8, 0, 0, TimeSpan.Zero));
         var store = new AnnouncementEngagementStore(db, clock);
+        var deliveryLogicalKey = AnnouncementDistributionContract.DeliveryLogicalKey(announcementId);
 
         db.AuditLogs.Add(new AuditLog
         {
@@ -48,6 +49,9 @@ public sealed class AnnouncementEngagementStoreTests
             EntityId = announcementId,
             CreatedAt = clock.UtcNow
         });
+        db.Notifications.AddRange(
+            FrozenDelivery(tenantId, announcementId, recipientA, deliveryLogicalKey, clock.UtcNow),
+            FrozenDelivery(tenantId, announcementId, recipientB, deliveryLogicalKey, clock.UtcNow));
         db.AnnouncementReads.Add(new AnnouncementRead
         {
             TenantId = tenantId,
@@ -62,7 +66,6 @@ public sealed class AnnouncementEngagementStoreTests
             announcementId,
             recipientA,
             AnnouncementEngagementActions.Acknowledged);
-        await db.SaveChangesAsync();
         await store.RecordOnceAsync(
             tenantId,
             announcementId,
@@ -73,7 +76,6 @@ public sealed class AnnouncementEngagementStoreTests
             announcementId,
             recipientA,
             AnnouncementEngagementActions.CtaClicked);
-        await db.SaveChangesAsync();
         await store.RecordOnceAsync(
             tenantId,
             announcementId,
@@ -89,14 +91,16 @@ public sealed class AnnouncementEngagementStoreTests
             announcementId,
             outsideCohort,
             AnnouncementEngagementActions.Acknowledged);
-        await db.SaveChangesAsync();
 
+        // Simulate current membership shrinking to recipientA. Once #388 has
+        // frozen delivery, analytics must still use A+B from the delivery ledger.
         var aggregate = await store.GetAggregateAsync(
             tenantId,
             announcementId,
-            [recipientA, recipientB]);
+            [recipientA]);
 
         Assert.True(aggregate.HasFrozenDeliveryCohort);
+        Assert.Equal(2, aggregate.RecipientCount);
         Assert.Equal(1, aggregate.ReadCount);
         Assert.Equal(1, aggregate.AcknowledgedCount);
         Assert.Equal(2, aggregate.CtaClickedCount);
@@ -109,14 +113,26 @@ public sealed class AnnouncementEngagementStoreTests
                 (log.Action == AnnouncementEngagementActions.Acknowledged ||
                  log.Action == AnnouncementEngagementActions.CtaClicked))
             .ToListAsync();
-        Assert.All(persistedEngagement, log =>
-        {
-            Assert.Null(log.Summary);
-            Assert.Null(log.MetadataJson);
-        });
-        Assert.DoesNotContain(persistedEngagement, log =>
-            (log.Summary ?? string.Empty).Contains("body", StringComparison.OrdinalIgnoreCase));
+        Assert.Empty(persistedEngagement);
     }
+
+    private static Notification FrozenDelivery(
+        Guid tenantId,
+        Guid announcementId,
+        Guid userId,
+        string logicalKey,
+        DateTimeOffset createdAt) => new()
+        {
+            Id = Guid.NewGuid(),
+            TenantId = tenantId,
+            UserId = userId,
+            LogicalKey = logicalKey,
+            NotificationType = NotificationType.Announcement,
+            Title = "Delivery ledger",
+            RelatedEntityType = "Announcement",
+            RelatedEntityId = announcementId,
+            CreatedAt = createdAt
+        };
 
     private sealed class FixedClock(DateTimeOffset now) : IClock
     {
