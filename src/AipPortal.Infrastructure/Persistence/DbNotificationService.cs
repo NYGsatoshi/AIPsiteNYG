@@ -239,7 +239,10 @@ public sealed class DbNotificationService(
         Guid? relatedEntityId,
         CancellationToken cancellationToken = default)
     {
-        var normalizedTitle = title.Trim();
+        // Deduplication must compare the exact representation that the domain
+        // entity will persist; otherwise an over-limit title is stored clamped
+        // but retried later with the longer source text and is not found.
+        var normalizedTitle = Notification.NormalizeTitle(title.Trim());
         var existing = await dbContext.Notifications
             .Where(notification =>
                 notification.UserId == userId &&
