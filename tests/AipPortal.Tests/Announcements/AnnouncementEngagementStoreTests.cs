@@ -38,7 +38,7 @@ public sealed class AnnouncementEngagementStoreTests
         tenant.SetTenant(tenantId, $"issue-390-{tenantId:N}");
 
         var clock = new FixedClock(new DateTimeOffset(2026, 9, 3, 8, 0, 0, TimeSpan.Zero));
-        var store = new AnnouncementEngagementStore(db, clock);
+        var store = new AnnouncementEngagementStore(db);
         var deliveryLogicalKey = AnnouncementDistributionContract.DeliveryLogicalKey(announcementId);
 
         db.AuditLogs.Add(new AuditLog
