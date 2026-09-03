@@ -178,7 +178,7 @@ export class AnnouncementsPageComponent implements OnDestroy {
   public acknowledge(announcementId: string): void {
     const announcement = this.page().announcements.find((item) => item.id === announcementId);
     if (
-      announcement === undefined ||
+      typeof announcement === 'undefined' ||
       !announcement.readState.requiresReadConfirmation ||
       this.acknowledgedAnnouncementId() === announcementId ||
       this.acknowledgementPendingId() === announcementId
@@ -219,7 +219,10 @@ export class AnnouncementsPageComponent implements OnDestroy {
 
   public trackCtaClick(announcementId: string): void {
     const announcement = this.page().announcements.find((item) => item.id === announcementId);
-    if (announcement === undefined || announcement.cta === undefined) {
+    if (typeof announcement === 'undefined') {
+      return;
+    }
+    if (typeof announcement.cta === 'undefined') {
       return;
     }
 
