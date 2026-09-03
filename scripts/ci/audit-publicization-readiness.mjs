@@ -102,7 +102,7 @@ async function validateFrontendPublicationBoundary() {
   }
 
   if (manifest.private !== true) {
-    finding(errors, 'NPM_PUBLICATION_RISK', `${relativePath} must keep \"private\": true.`, relativePath);
+    finding(errors, 'NPM_PUBLICATION_RISK', `${relativePath} must keep "private": true.`, relativePath);
   }
 
   if (typeof manifest.license === 'string' && /^(?:MIT|Apache-2\.0|GPL|LGPL|BSD|MPL)/iu.test(manifest.license.trim())) {
@@ -166,7 +166,7 @@ async function validateTrackedPathsAndHighConfidenceSecrets() {
     ['PRIVATE_KEY', /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/u],
     ['GITHUB_TOKEN', /\bgh[pousr]_[A-Za-z0-9]{20,}\b/u],
     ['AWS_ACCESS_KEY', /\bAKIA[0-9A-Z]{16}\b/u],
-    ['GOOGLE_PRIVATE_KEY', /\"private_key\"\s*:\s*\"-----BEGIN PRIVATE KEY-----/u]
+    ['GOOGLE_PRIVATE_KEY', /"private_key"\s*:\s*"-----BEGIN PRIVATE KEY-----/u]
   ];
 
   for (const relativePath of trackedFiles) {
@@ -250,8 +250,8 @@ function hasSameRepositoryTrustGuard(jobSource) {
   const compact = jobSource.replace(/\s+/gu, ' ');
   return /github\.event\.pull_request\.head\.repo\.full_name\s*==\s*github\.repository/iu.test(compact) ||
     /github\.repository\s*==\s*github\.event\.pull_request\.head\.repo\.full_name/iu.test(compact) ||
-    /github\.event_name\s*!=\s*['\"]pull_request['\"]/iu.test(compact) ||
-    /github\.event_name\s*==\s*['\"](?:push|workflow_dispatch|schedule)['\"]/iu.test(compact);
+    /github\.event_name\s*!=\s*['"]pull_request['"]/iu.test(compact) ||
+    /github\.event_name\s*==\s*['"](?:push|workflow_dispatch|schedule)['"]/iu.test(compact);
 }
 
 async function validateWorkflowBoundary() {
