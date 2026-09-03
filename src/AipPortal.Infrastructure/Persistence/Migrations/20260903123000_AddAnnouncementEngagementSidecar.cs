@@ -19,8 +19,7 @@ public sealed class AddAnnouncementEngagementSidecar : Migration
                 TenantId = table.Column<Guid>(type: "uuid", nullable: false),
                 AnnouncementId = table.Column<Guid>(type: "uuid", nullable: false),
                 RecipientToken = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false),
-                Action = table.Column<string>(type: "character varying(80)", maxLength: 80, nullable: false),
-                CreatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
+                Action = table.Column<string>(type: "character varying(80)", maxLength: 80, nullable: false)
             },
             constraints: table =>
             {
