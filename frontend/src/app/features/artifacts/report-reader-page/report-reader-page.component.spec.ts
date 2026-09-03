@@ -157,8 +157,9 @@ describe('ReportReaderPageComponent localized refinement', () => {
     http.expectOne(`/api/tasks/${TASK_ID}/execution-scope`).flush(taskScopeResponse());
     fixture.detectChanges();
 
+    const backdrop = fixture.nativeElement.querySelector('.dialog-backdrop') as HTMLElement;
     const dialog = fixture.nativeElement.querySelector('#report-refinement-dialog') as HTMLElement;
-    expect(dialog.hidden).toBeFalsy();
+    expect(backdrop.hidden).toBe(false);
     expect(dialog.textContent).toContain('Supported claim');
     expect(dialog.textContent).toContain('Revision 5');
     expect(dialog.textContent).toContain('Project 8 · Task override 3');
@@ -206,8 +207,8 @@ describe('ReportReaderPageComponent localized refinement', () => {
     http.expectOne(`/api/tasks/${TASK_ID}/execution-scope`).flush(scope);
     fixture.detectChanges();
 
-    const dialog = fixture.nativeElement.querySelector('#report-refinement-dialog') as HTMLElement;
-    expect(dialog.hidden).toBeTruthy();
+    const backdrop = fixture.nativeElement.querySelector('.dialog-backdrop') as HTMLElement;
+    expect(backdrop.hidden).toBe(true);
     expect(fixture.nativeElement.textContent).toContain('The source scope changed during confirmation.');
     http.expectNone(`/api/projects/${PROJECT_ID}/artifact-versions/${VERSION_ID}/report/refinements`);
   });
