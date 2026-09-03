@@ -12,9 +12,10 @@
 name: "CodeQL Advanced"
 
 on:
+  # Repository publication policy requires pull-request workflows to remain
+  # read-only. CodeQL needs security-events: write to upload SARIF, so run the
+  # upload-capable scan only on trusted main pushes and the scheduled scan.
   push:
-    branches: [ "main" ]
-  pull_request:
     branches: [ "main" ]
   schedule:
     - cron: '27 17 * * 0'
