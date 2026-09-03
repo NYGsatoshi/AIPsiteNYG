@@ -7,14 +7,12 @@ import { distinctUntilChanged, map, timer } from 'rxjs';
 
 import {
   auditPackageFailureLabel,
+  auditPackageFormatTimestamp,
   describeAuditPackageStatus,
-  formatAuditPackageTimestamp,
   isAuditPackageGuid,
-} from './audit-package-export-page.models';
-import type {
-  AuditPackageJobDto,
-  AuditPackageLoadState,
-  AuditPackagePreviewDto,
+  type AuditPackageJobDto,
+  type AuditPackageLoadState,
+  type AuditPackagePreviewDto,
 } from './audit-package-export-page.models';
 
 @Component({
@@ -53,7 +51,7 @@ export class AuditPackageExportPageComponent {
   readonly message = signal<string | null>(null);
   readonly inputError = signal<string | null>(null);
   readonly failureLabel = auditPackageFailureLabel;
-  readonly formatTimestamp = formatAuditPackageTimestamp;
+  readonly formatTimestamp = auditPackageFormatTimestamp;
   readonly accessibilityStatus = computed(() => describeAuditPackageStatus({
     busy: this.busy(),
     hasPreview: this.preview() !== null,
