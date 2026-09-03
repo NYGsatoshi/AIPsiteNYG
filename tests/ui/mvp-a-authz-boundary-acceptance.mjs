@@ -148,54 +148,59 @@ const HTTP_OK = Number('200'),
       return extractInviteToken(inviteBody);
     }
   },
+  acceptMemberSession = async (member, inviteToken) => {
+    const acceptCsrf = await getCsrf(member, 'member-accept-csrf'),
+      accept = await member.post('/api/invites/accept', {
+        data: { displayName: memberDisplayName, password: memberPassword, token: inviteToken },
+        headers: { [acceptCsrf.headerName]: acceptCsrf.token }
+      });
+    record('member-accept-invite', { method: 'POST', path: '/api/invites/accept' }, accept);
+    requireStatus(accept, HTTP_OK, 'member invite acceptance');
+  },
+  verifyMemberAdminRead = async (member) => {
+    const me = await member.get('/api/auth/me'),
+      memberAdminRead = await member.get('/api/admin/invites');
+    record('member-session-active', { method: 'GET', path: '/api/auth/me' }, me);
+    requireStatus(me, HTTP_OK, 'member current-user lookup');
+    record('member-admin-read-denied', { method: 'GET', path: '/api/admin/invites' }, memberAdminRead);
+    requireStatus(memberAdminRead, HTTP_FORBIDDEN, 'non-admin admin endpoint read denial');
+  },
+  verifyMemberAdminMutation = async (member, workspaceId) => {
+    const memberMutationCsrf = await getCsrf(member, 'member-admin-mutation-csrf'),
+      memberAdminMutation = await member.post('/api/admin/invites', {
+        data: {
+          email: 'mvpa-authz-non-admin-probe@example.test',
+          expiresAt: null,
+          role: MEMBER_ROLE,
+          workspaceId
+        },
+        headers: { [memberMutationCsrf.headerName]: memberMutationCsrf.token }
+      });
+    record('member-admin-mutation-denied', { method: 'POST', path: '/api/admin/invites' }, memberAdminMutation);
+    requireStatus(memberAdminMutation, HTTP_FORBIDDEN, 'non-admin admin endpoint mutation denial');
+  },
+  logoutMember = async (member) => {
+    const logoutCsrf = await getCsrf(member, 'member-logout-csrf'),
+      logout = await member.post('/api/auth/logout', {
+        data: {},
+        headers: { [logoutCsrf.headerName]: logoutCsrf.token }
+      });
+    record('member-logout', { method: 'POST', path: '/api/auth/logout' }, logout);
+    requireStatus(logout, HTTP_OK, 'member logout');
+  },
+  verifyLoggedOut = async (member) => {
+    const afterLogout = await member.get('/api/auth/me');
+    record('revoked-session-denied', { method: 'GET', path: '/api/auth/me' }, afterLogout);
+    requireStatus(afterLogout, HTTP_UNAUTHORIZED, 'logged-out session denial');
+  },
   verifyMember = async (workspaceId, inviteToken) => {
     const member = await newApiContext();
     try {
-      {
-        const acceptCsrf = await getCsrf(member, 'member-accept-csrf'),
-          accept = await member.post('/api/invites/accept', {
-            data: { displayName: memberDisplayName, password: memberPassword, token: inviteToken },
-            headers: { [acceptCsrf.headerName]: acceptCsrf.token }
-          });
-        record('member-accept-invite', { method: 'POST', path: '/api/invites/accept' }, accept);
-        requireStatus(accept, HTTP_OK, 'member invite acceptance');
-      }
-      {
-        const me = await member.get('/api/auth/me'),
-          memberAdminRead = await member.get('/api/admin/invites');
-        record('member-session-active', { method: 'GET', path: '/api/auth/me' }, me);
-        requireStatus(me, HTTP_OK, 'member current-user lookup');
-        record('member-admin-read-denied', { method: 'GET', path: '/api/admin/invites' }, memberAdminRead);
-        requireStatus(memberAdminRead, HTTP_FORBIDDEN, 'non-admin admin endpoint read denial');
-      }
-      {
-        const memberMutationCsrf = await getCsrf(member, 'member-admin-mutation-csrf'),
-          memberAdminMutation = await member.post('/api/admin/invites', {
-            data: {
-              email: 'mvpa-authz-non-admin-probe@example.test',
-              expiresAt: null,
-              role: MEMBER_ROLE,
-              workspaceId
-            },
-            headers: { [memberMutationCsrf.headerName]: memberMutationCsrf.token }
-          });
-        record('member-admin-mutation-denied', { method: 'POST', path: '/api/admin/invites' }, memberAdminMutation);
-        requireStatus(memberAdminMutation, HTTP_FORBIDDEN, 'non-admin admin endpoint mutation denial');
-      }
-      {
-        const logoutCsrf = await getCsrf(member, 'member-logout-csrf'),
-          logout = await member.post('/api/auth/logout', {
-            data: {},
-            headers: { [logoutCsrf.headerName]: logoutCsrf.token }
-          });
-        record('member-logout', { method: 'POST', path: '/api/auth/logout' }, logout);
-        requireStatus(logout, HTTP_OK, 'member logout');
-      }
-      {
-        const afterLogout = await member.get('/api/auth/me');
-        record('revoked-session-denied', { method: 'GET', path: '/api/auth/me' }, afterLogout);
-        requireStatus(afterLogout, HTTP_UNAUTHORIZED, 'logged-out session denial');
-      }
+      await acceptMemberSession(member, inviteToken);
+      await verifyMemberAdminRead(member);
+      await verifyMemberAdminMutation(member, workspaceId);
+      await logoutMember(member);
+      await verifyLoggedOut(member);
     } finally {
       await member.dispose();
     }
