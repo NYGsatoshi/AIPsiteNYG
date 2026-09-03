@@ -25,8 +25,12 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <OpenApiGenerateDocuments>true</OpenApiGenerateDocuments>
-    <OpenApiGenerateDocumentsOnBuild>true</OpenApiGenerateDocumentsOnBuild>
+    <!-- OpenAPI generation is an explicit security-contract build mode. Keeping it
+         opt-in prevents normal builds and EF tooling from starting the app solely
+         to emit documentation. CI enables this mode in a seed-free environment. -->
+    <GenerateSecurityOpenApiContract Condition="'$(GenerateSecurityOpenApiContract)' == ''">false</GenerateSecurityOpenApiContract>
+    <OpenApiGenerateDocuments>$(GenerateSecurityOpenApiContract)</OpenApiGenerateDocuments>
+    <OpenApiGenerateDocumentsOnBuild>$(GenerateSecurityOpenApiContract)</OpenApiGenerateDocumentsOnBuild>
     <OpenApiDocumentsDirectory>$(MSBuildProjectDirectory)/../../artifacts/openapi</OpenApiDocumentsDirectory>
     <OpenApiGenerateDocumentsOptions>--file-name aipportal.openapi --openapi-version OpenApi3_1</OpenApiGenerateDocumentsOptions>
   </PropertyGroup>
