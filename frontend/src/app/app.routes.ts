@@ -216,11 +216,10 @@ export const routes: Routes = [
           )
       },
       {
-        path: 'admin/audit/package-export',
-        loadComponent: () =>
-          import('./features/admin/audit-package-export-page/audit-package-export-page.component').then(
-            (m) => m.AuditPackageExportPageComponent
-          )
+        loadComponent: async () =>
+          (await import('./features/admin/audit-package-export-page/audit-package-export-page.component'))
+            .AuditPackageExportPageComponent,
+        path: 'admin/audit/package-export'
       },
       {
         path: 'admin/audit',
