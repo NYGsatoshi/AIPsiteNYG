@@ -1,75 +1,84 @@
-/* eslint-disable -- CI evidence aggregator uses explicit fail-closed control flow and is not production-bundled. */
-const repository = requiredEnv('GITHUB_REPOSITORY');
-const sha = requiredEnv('GITHUB_SHA');
-const token = requiredEnv('GITHUB_TOKEN');
-const apiUrl = process.env.GITHUB_API_URL?.trim() || 'https://api.github.com';
+const EMPTY_COUNT = 0,
+  FAILURE_EXIT_CODE = 1,
+  requiredEnv = (name) => {
+    const value = process.env[name]?.trim();
+    if (!value) {
+      throw new Error(`${name} is required for MVP-A final check verification.`);
+    }
+    return value;
+  },
+  checkTimestamp = (check) => Date.parse(check.completed_at ?? check.started_at ?? '1970-01-01T00:00:00Z'),
+  main = async () => {
+    const repository = requiredEnv('GITHUB_REPOSITORY'),
+      sha = requiredEnv('GITHUB_SHA'),
+      token = requiredEnv('GITHUB_TOKEN'),
+      apiUrl = process.env.GITHUB_API_URL?.trim() || 'https://api.github.com',
+      requiredChecks = [
+        'build-test',
+        'frontend-test',
+        'security-scan',
+        'publication-readiness',
+        'frontend-static-analysis',
+        'licensed-real-backend'
+      ],
+      response = await fetch(`${apiUrl}/repos/${repository}/commits/${sha}/check-runs?per_page=100`, {
+        headers: {
+          Accept: 'application/vnd.github+json',
+          Authorization: `Bearer ${token}`,
+          'User-Agent': 'aipsite-mvp-a-final-gate',
+          'X-GitHub-Api-Version': '2022-11-28'
+        }
+      });
 
-const requiredChecks = [
-  'build-test',
-  'frontend-test',
-  'security-scan',
-  'publication-readiness',
-  'frontend-static-analysis',
-  'licensed-real-backend'
-];
+    if (!response.ok) {
+      throw new Error(`Unable to read check runs for ${sha}: HTTP ${response.status}.`);
+    }
 
-const response = await fetch(`${apiUrl}/repos/${repository}/commits/${sha}/check-runs?per_page=100`, {
-  headers: {
-    Accept: 'application/vnd.github+json',
-    Authorization: `Bearer ${token}`,
-    'X-GitHub-Api-Version': '2022-11-28',
-    'User-Agent': 'aipsite-mvp-a-final-gate'
-  }
-});
+    {
+      const payload = await response.json(),
+        checkRuns = Array.isArray(payload.check_runs) ? payload.check_runs : [],
+        failures = [],
+        summary = [];
 
-if (!response.ok) {
-  throw new Error(`Unable to read check runs for ${sha}: HTTP ${response.status}.`);
-}
+      for (const name of requiredChecks) {
+        const matches = checkRuns
+            .filter((check) => check?.name === name)
+            .sort((left, right) => checkTimestamp(right) - checkTimestamp(left)),
+          [latest] = matches;
 
-const payload = await response.json();
-const checkRuns = Array.isArray(payload.check_runs) ? payload.check_runs : [];
-const failures = [];
-const summary = [];
+        if (!latest) {
+          failures.push(`${name}: no check run exists for ${sha}`);
+          summary.push({ conclusion: null, name, status: 'missing', url: null });
+        } else {
+          summary.push({
+            conclusion: latest.conclusion ?? null,
+            name,
+            status: latest.status ?? null,
+            url: latest.html_url ?? null
+          });
 
-for (const name of requiredChecks) {
-  const matches = checkRuns
-    .filter((check) => check?.name === name)
-    .sort((left, right) => Date.parse(right.completed_at ?? right.started_at ?? 0) - Date.parse(left.completed_at ?? left.started_at ?? 0));
+          if (latest.status !== 'completed' || latest.conclusion !== 'success') {
+            failures.push(`${name}: status=${latest.status ?? 'unknown'} conclusion=${latest.conclusion ?? 'unknown'}`);
+          }
+        }
+      }
 
-  const latest = matches[0];
-  if (!latest) {
-    failures.push(`${name}: no check run exists for ${sha}`);
-    summary.push({ name, status: 'missing', conclusion: null, url: null });
-    continue;
-  }
+      process.stdout.write('MVP-A final check evidence:\n');
+      for (const check of summary) {
+        let line = `- ${check.name}: ${check.status}/${check.conclusion ?? 'none'}`;
+        if (check.url) {
+          line += ` ${check.url}`;
+        }
+        process.stdout.write(`${line}\n`);
+      }
 
-  summary.push({
-    name,
-    status: latest.status ?? null,
-    conclusion: latest.conclusion ?? null,
-    url: latest.html_url ?? null
-  });
+      if (failures.length > EMPTY_COUNT) {
+        process.stderr.write(`MVP-A final gate failed:\n- ${failures.join('\n- ')}\n`);
+        process.exitCode = FAILURE_EXIT_CODE;
+      } else {
+        process.stdout.write(`MVP-A final gate passed: ${requiredChecks.length} required checks are green for ${sha}.\n`);
+      }
+    }
+  };
 
-  if (latest.status !== 'completed' || latest.conclusion !== 'success') {
-    failures.push(`${name}: status=${latest.status ?? 'unknown'} conclusion=${latest.conclusion ?? 'unknown'}`);
-  }
-}
-
-console.log('MVP-A final check evidence:');
-for (const check of summary) {
-  console.log(`- ${check.name}: ${check.status}/${check.conclusion ?? 'none'}${check.url ? ` ${check.url}` : ''}`);
-}
-
-if (failures.length > 0) {
-  console.error('MVP-A final gate failed:');
-  for (const failure of failures) console.error(`- ${failure}`);
-  process.exit(1);
-}
-
-console.log(`MVP-A final gate passed: ${requiredChecks.length} required checks are green for ${sha}.`);
-
-function requiredEnv(name) {
-  const value = process.env[name]?.trim();
-  if (!value) throw new Error(`${name} is required for MVP-A final check verification.`);
-  return value;
-}
+await main();
