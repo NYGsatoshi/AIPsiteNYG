@@ -24,17 +24,17 @@ class MemoryStorage implements WorkspacePreferenceStorage {
   throwOnAccess = false;
 
   getItem(key: string): string | null {
-    if (this.throwOnAccess) throw new Error('storage denied');
+    if (this.throwOnAccess) {throw new Error('storage denied');}
     return this.values.get(key) ?? null;
   }
 
   setItem(key: string, value: string): void {
-    if (this.throwOnAccess) throw new Error('storage denied');
+    if (this.throwOnAccess) {throw new Error('storage denied');}
     this.values.set(key, value);
   }
 
   removeItem(key: string): void {
-    if (this.throwOnAccess) throw new Error('storage denied');
+    if (this.throwOnAccess) {throw new Error('storage denied');}
     this.values.delete(key);
   }
 }

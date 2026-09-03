@@ -35,7 +35,7 @@ class FakeRealtimeTransport implements RealtimeTransport {
   async subscribe(request: RealtimeSubscriptionRequest): Promise<RealtimeSubscriptionResult> {
     this.subscribed.push(request);
     if (request.subscriptionType === this.deniedSubscriptionType)
-      return { allowed: false, code: 'Forbidden' };
+      {return { allowed: false, code: 'Forbidden' };}
     return this.result;
   }
   async unsubscribe(request: RealtimeSubscriptionRequest): Promise<RealtimeSubscriptionResult> {
@@ -648,7 +648,7 @@ describe('RealtimeFacade', () => {
     facade.registerProtectedStateClearer('project-detail', () => { protectedTitle = ''; });
     facade.registerCatchUp('project-detail', (context) => {
       deniedOwners.push([...context.deniedOwners]);
-      if (!context.deniedOwners.has('project-detail')) protectedTitle = 'refetched title';
+      if (!context.deniedOwners.has('project-detail')) {protectedTitle = 'refetched title';}
     });
     await enableAndAuthenticate();
     protectedTitle = 'Restricted task title';
@@ -1127,7 +1127,7 @@ describe('RealtimeFacade', () => {
     let catchUps = 0;
     facade.registerCatchUp('held-feature', async () => {
       catchUps++;
-      if (catchUps === 1) await firstCatchUp;
+      if (catchUps === 1) {await firstCatchUp;}
     });
 
     flags.setForTesting({ 'realtime.signalR': true });
@@ -1320,7 +1320,7 @@ function settle(): Promise<void> {
 
 async function waitForConnection(facade: RealtimeFacade): Promise<void> {
   for (let attempt = 0; attempt < 20; attempt += 1) {
-    if (facade.connectionState() === 'Connected') return;
+    if (facade.connectionState() === 'Connected') {return;}
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
 }
@@ -1331,7 +1331,7 @@ async function waitForSubscriptionCount(
   count: number,
 ): Promise<void> {
   for (let attempt = 0; attempt < 20; attempt += 1) {
-    if (transport.subscribed.filter((request) => request.subscriptionType === subscriptionType).length >= count) return;
+    if (transport.subscribed.filter((request) => request.subscriptionType === subscriptionType).length >= count) {return;}
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
 }

@@ -41,7 +41,7 @@ export class AnnouncementMultiAudienceEditorComponent implements OnChanges {
 
   readonly selectedAudiences = computed<readonly AnnouncementAudienceOption[]>(() => {
     const draft = this.innerDraft();
-    if (!draft) return [];
+    if (!draft) {return [];}
     return this.selectedKeys()
       .map((key) => draft.availableAudiences.find((audience) => audience.key === key))
       .filter((audience): audience is AnnouncementAudienceOption => audience !== undefined);
@@ -128,7 +128,7 @@ export class AnnouncementMultiAudienceEditorComponent implements OnChanges {
     }
 
     const draft = this.innerDraft();
-    if (!draft) return;
+    if (!draft) {return;}
     const audience = draft.availableAudiences.find((item) => item.key === audienceKey);
     if (!audience || (audience.scope !== 'group' && audience.scope !== 'channel')) {
       return;
@@ -149,7 +149,7 @@ export class AnnouncementMultiAudienceEditorComponent implements OnChanges {
   }
 
   removeAudience(audienceKey: string): void {
-    if (this.isPrimary(audienceKey)) return;
+    if (this.isPrimary(audienceKey)) {return;}
     this.toggleAudience(audienceKey, false);
   }
 
@@ -212,7 +212,7 @@ export class AnnouncementMultiAudienceEditorComponent implements OnChanges {
 
   confirmFinalPublication(): void {
     const pending = this.pendingPublication();
-    if (!pending || this.publishing) return;
+    if (!pending || this.publishing) {return;}
     const refreshed = this.augmentSubmission(pending);
     const error = refreshed ? this.validateSubmission(refreshed) : '配信対象を1件以上選択してください。';
     if (!refreshed || error) {
@@ -227,7 +227,7 @@ export class AnnouncementMultiAudienceEditorComponent implements OnChanges {
   }
 
   closeFinalReview(): void {
-    if (this.publishing) return;
+    if (this.publishing) {return;}
     this.finalReviewOpen.set(false);
     this.pendingPublication.set(null);
   }
@@ -244,7 +244,7 @@ export class AnnouncementMultiAudienceEditorComponent implements OnChanges {
 
   private applySelection(keys: readonly string[]): void {
     const draft = this.innerDraft();
-    if (!draft) return;
+    if (!draft) {return;}
     this.selectedKeys.set(keys);
     this.localError.set(undefined);
     this.closeFinalReview();
@@ -261,7 +261,7 @@ export class AnnouncementMultiAudienceEditorComponent implements OnChanges {
     submission: AnnouncementEditorSubmission,
   ): AnnouncementEditorSubmission | null {
     const draft = this.innerDraft();
-    if (!draft) return null;
+    if (!draft) {return null;}
     const audiences = this.selectedKeys()
       .map((key) => draft.availableAudiences.find((audience) => audience.key === key))
       .filter((audience): audience is AnnouncementAudienceOption => audience !== undefined);
@@ -304,7 +304,7 @@ export class AnnouncementMultiAudienceEditorComponent implements OnChanges {
   ): readonly string[] {
     const authorizedByKey = new Map(audiences.map((audience) => [audience.key, audience]));
     const primary = authorizedByKey.get(primaryKey);
-    if (!primary) return [];
+    if (!primary) {return [];}
 
     if (primary.scope !== 'group' && primary.scope !== 'channel') {
       return [primary.key];
@@ -312,8 +312,8 @@ export class AnnouncementMultiAudienceEditorComponent implements OnChanges {
 
     const result = [primary.key];
     for (const key of requestedKeys) {
-      if (result.length >= maximumAudienceTargets) break;
-      if (key === primary.key || result.includes(key)) continue;
+      if (result.length >= maximumAudienceTargets) {break;}
+      if (key === primary.key || result.includes(key)) {continue;}
       const candidate = authorizedByKey.get(key);
       if (candidate?.scope === 'group' || candidate?.scope === 'channel') {
         result.push(candidate.key);

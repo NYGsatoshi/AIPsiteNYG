@@ -58,9 +58,9 @@ const enterpriseOffenders = findAgGridEnterpriseImports(typescriptSources);
 const legacyThemeOffenders = findLegacyThemeTokens(textSources);
 if (offenders.length || signalrOffenders.length || enterpriseOffenders.length || legacyThemeOffenders.length) {
   const messages = [];
-  if (offenders.length) messages.push(`Direct Syncfusion imports outside the AIPsite adapter boundary:\n${offenders.join('\n')}`);
-  if (signalrOffenders.length) messages.push(`SignalR imports outside the AIPsite realtime transport boundary:\n${signalrOffenders.join('\n')}`);
-  if (enterpriseOffenders.length) messages.push(`AG Grid Enterprise imports are not approved:\n${enterpriseOffenders.join('\n')}`);
-  if (legacyThemeOffenders.length) messages.push(`Legacy or undefined theme tokens must use the canonical --aip-color-* contract:\n${legacyThemeOffenders.join('\n')}`);
+  if (offenders.length) {messages.push(`Direct Syncfusion imports outside the AIPsite adapter boundary:\n${offenders.join('\n')}`);}
+  if (signalrOffenders.length) {messages.push(`SignalR imports outside the AIPsite realtime transport boundary:\n${signalrOffenders.join('\n')}`);}
+  if (enterpriseOffenders.length) {messages.push(`AG Grid Enterprise imports are not approved:\n${enterpriseOffenders.join('\n')}`);}
+  if (legacyThemeOffenders.length) {messages.push(`Legacy or undefined theme tokens must use the canonical --aip-color-* contract:\n${legacyThemeOffenders.join('\n')}`);}
   throw new Error(messages.join('\n'));
 }

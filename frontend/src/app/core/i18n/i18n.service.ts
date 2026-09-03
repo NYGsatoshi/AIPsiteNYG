@@ -1033,32 +1033,32 @@ export class I18nService {
     const divisor = safeBytes >= 1024 * 1024 ? 1024 * 1024 : 1024;
     const unit = divisor === 1024 * 1024 ? 'MB' : 'KB';
     const value = Math.max(1, Math.round(safeBytes / divisor));
-    return this.formatNumber(value) + ' ' + unit;
+    return `${this.formatNumber(value)  } ${  unit}`;
   }
 
   fileContentTypeLabel(contentType: string): string {
     const normalized = contentType.split(';', 1)[0]?.trim().toLowerCase() ?? '';
-    if (normalized === 'application/pdf') return this.translate('files.type.pdf');
-    if (normalized === 'text/csv') return this.translate('files.type.spreadsheet');
-    if (normalized.startsWith('text/')) return this.translate('files.type.text');
-    if (normalized.startsWith('image/')) return this.translate('files.type.image');
-    if (normalized.startsWith('video/')) return this.translate('files.type.video');
-    if (normalized.startsWith('audio/')) return this.translate('files.type.audio');
-    if (['application/zip', 'application/x-zip-compressed', 'application/x-7z-compressed', 'application/x-rar-compressed', 'application/gzip', 'application/x-tar'].includes(normalized)) return this.translate('files.type.archive');
-    if (['application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/rtf', 'application/vnd.oasis.opendocument.text'].includes(normalized)) return this.translate('files.type.document');
-    if (['application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'text/csv', 'application/vnd.oasis.opendocument.spreadsheet'].includes(normalized)) return this.translate('files.type.spreadsheet');
+    if (normalized === 'application/pdf') {return this.translate('files.type.pdf');}
+    if (normalized === 'text/csv') {return this.translate('files.type.spreadsheet');}
+    if (normalized.startsWith('text/')) {return this.translate('files.type.text');}
+    if (normalized.startsWith('image/')) {return this.translate('files.type.image');}
+    if (normalized.startsWith('video/')) {return this.translate('files.type.video');}
+    if (normalized.startsWith('audio/')) {return this.translate('files.type.audio');}
+    if (['application/zip', 'application/x-zip-compressed', 'application/x-7z-compressed', 'application/x-rar-compressed', 'application/gzip', 'application/x-tar'].includes(normalized)) {return this.translate('files.type.archive');}
+    if (['application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/rtf', 'application/vnd.oasis.opendocument.text'].includes(normalized)) {return this.translate('files.type.document');}
+    if (['application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'text/csv', 'application/vnd.oasis.opendocument.spreadsheet'].includes(normalized)) {return this.translate('files.type.spreadsheet');}
     return this.translate('files.type.other');
   }
 
   fileScanStatusLabel(status: 'pending' | 'allowed' | 'blocked' | 'unavailable'): string {
-    return this.translate(('files.scan.' + status) as TranslationKey);
+    return this.translate((`files.scan.${  status}`) as TranslationKey);
   }
 
   taskFileScanStatusLabel(status: string): string {
     const normalized = status.trim().toLowerCase();
-    if (normalized === 'clean' || normalized === 'allowed') return this.fileScanStatusLabel('allowed');
-    if (normalized === 'infected' || normalized === 'blocked') return this.fileScanStatusLabel('blocked');
-    if (normalized === 'pending' || normalized === 'scanpending') return this.fileScanStatusLabel('pending');
+    if (normalized === 'clean' || normalized === 'allowed') {return this.fileScanStatusLabel('allowed');}
+    if (normalized === 'infected' || normalized === 'blocked') {return this.fileScanStatusLabel('blocked');}
+    if (normalized === 'pending' || normalized === 'scanpending') {return this.fileScanStatusLabel('pending');}
     return this.fileScanStatusLabel('unavailable');
   }
 
@@ -1079,7 +1079,7 @@ export class I18nService {
   }
 
   taskFileRestrictionLabel(restrictionCode: string | null | undefined): string | null {
-    if (!restrictionCode) return null;
+    if (!restrictionCode) {return null;}
     const normalized = restrictionCode.trim().toUpperCase();
     const key: TranslationKey = normalized === 'FILE_MISSING' || normalized === 'FILE_ARCHIVED'
       ? 'files.task.access.missing'
@@ -1094,7 +1094,7 @@ export class I18nService {
   }
 
   fileUploadStateLabel(state: 'pending' | 'uploading' | 'succeeded' | 'failed' | 'cancelled'): string {
-    return this.translate(('files.upload.' + state) as TranslationKey);
+    return this.translate((`files.upload.${  state}`) as TranslationKey);
   }
 
   agGridLocaleText(): Readonly<Record<string, string>> {

@@ -63,15 +63,15 @@ export const SYNCFUSION_GANTT_THEME_ASSETS = [
  * browser timezone from shifting the canonical calendar day.
  */
 export function parseGanttDateOnly(value: AipGanttDateOnly | null): Date | null {
-  if (value === null) return null;
+  if (value === null) {return null;}
   const match = dateOnlyPattern.exec(value);
-  if (!match) return null;
+  if (!match) {return null;}
 
   const year = Number(match[1]);
   const monthIndex = Number(match[2]) - 1;
   const day = Number(match[3]);
   const date = new Date(year, monthIndex, day);
-  if (year < 100) date.setFullYear(year);
+  if (year < 100) {date.setFullYear(year);}
   date.setHours(0, 0, 0, 0);
 
   return date.getFullYear() === year
@@ -83,7 +83,7 @@ export function parseGanttDateOnly(value: AipGanttDateOnly | null): Date | null 
 
 /** Convert vendor-local Date values back to canonical DateOnly text. */
 export function formatGanttDateOnly(value: Date | null | undefined): AipGanttDateOnly | null {
-  if (!(value instanceof Date) || Number.isNaN(value.getTime())) return null;
+  if (!(value instanceof Date) || Number.isNaN(value.getTime())) {return null;}
   const year = String(value.getFullYear()).padStart(4, '0');
   const month = String(value.getMonth() + 1).padStart(2, '0');
   const day = String(value.getDate()).padStart(2, '0');
@@ -192,7 +192,7 @@ export class SyncfusionGanttComponent {
     for (const dependency of this.contract.dependencies ?? []) {
       if (dependency.type !== 'finishToStart'
         || !taskIds.has(dependency.predecessorTaskId)
-        || !taskIds.has(dependency.successorTaskId)) continue;
+        || !taskIds.has(dependency.successorTaskId)) {continue;}
       const values = predecessors.get(dependency.successorTaskId) ?? [];
       values.push(`${dependency.predecessorTaskId}FS`);
       predecessors.set(dependency.successorTaskId, values);
@@ -228,7 +228,7 @@ export class SyncfusionGanttComponent {
 
   handleActionComplete(event: SyncfusionActionEvent): void {
     const operation = `${event.requestType ?? ''} ${event.action ?? ''}`.toLowerCase();
-    if (/cancel|failure/u.test(operation)) this.endInteraction();
+    if (/cancel|failure/u.test(operation)) {this.endInteraction();}
   }
 
   handleTaskbarEditing(event: SyncfusionTaskbarEvent): void {
@@ -249,12 +249,12 @@ export class SyncfusionGanttComponent {
       const item = this.itemFor(event);
       const action = this.pointerAction(event.taskBarEditAction);
       if (!item || action === 'connector' || action === 'unsupported'
-        || !this.canApplyPointerAction(item, action)) return;
+        || !this.canApplyPointerAction(item, action)) {return;}
 
       const values = event.editingFields ?? event.data?.ganttProperties;
       if (action === 'progress') {
         const progress = Number(values?.progress);
-        if (!Number.isFinite(progress)) return;
+        if (!Number.isFinite(progress)) {return;}
         this.editRequested.emit({
           kind: 'progress',
           taskId: item.taskId,
@@ -267,7 +267,7 @@ export class SyncfusionGanttComponent {
 
       const start = formatGanttDateOnly(values?.startDate);
       const end = formatGanttDateOnly(values?.endDate);
-      if (item.kind === 'milestone' && start === null) return;
+      if (item.kind === 'milestone' && start === null) {return;}
       this.editRequested.emit({
         kind: 'schedule',
         taskId: item.taskId,
@@ -293,7 +293,7 @@ export class SyncfusionGanttComponent {
       ...(this.contract.scheduledItems ?? []),
       ...(this.contract.unscheduledItems ?? []),
       ...(this.contract.canonicalMilestones ?? [])
-    ]) unique.set(item.taskId, item);
+    ]) {unique.set(item.taskId, item);}
     return [...unique.values()];
   }
 
@@ -313,16 +313,16 @@ export class SyncfusionGanttComponent {
 
   private pointerAction(value: string | undefined): 'schedule' | 'progress' | 'connector' | 'unsupported' {
     const action = value?.toLowerCase() ?? '';
-    if (action.includes('connector')) return 'connector';
-    if (action.includes('progress')) return 'progress';
-    if (action.includes('drag') || action.includes('resiz')) return 'schedule';
+    if (action.includes('connector')) {return 'connector';}
+    if (action.includes('progress')) {return 'progress';}
+    if (action.includes('drag') || action.includes('resiz')) {return 'schedule';}
     return 'unsupported';
   }
 
   private canApplyPointerAction(item: AipGanttItem, action: 'schedule' | 'progress'): boolean {
     if (this.contract.readOnly
       || this.contract.busyItemId === item.taskId
-      || this.isDerivedParent(item)) return false;
+      || this.isDerivedParent(item)) {return false;}
     if (action === 'progress') {
       return (this.contract.permissions?.canEditProgress ?? false)
         && item.kind === 'task'
@@ -344,13 +344,13 @@ export class SyncfusionGanttComponent {
   }
 
   private beginInteraction(): void {
-    if (this.interactionActive) return;
+    if (this.interactionActive) {return;}
     this.interactionActive = true;
     this.interactionActiveChange.emit(true);
   }
 
   private endInteraction(): void {
-    if (!this.interactionActive) return;
+    if (!this.interactionActive) {return;}
     this.interactionActive = false;
     this.interactionActiveChange.emit(false);
   }

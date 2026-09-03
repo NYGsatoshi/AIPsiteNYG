@@ -124,7 +124,7 @@ describe('TaskDetailPageComponent local edit state', () => {
       expect(component.taskFileSectionMessage({ status: 'error', message: 'Task command failed.' })).toBe('タスクのファイルを更新できませんでした。');
     } finally {
       component.i18n.setLocale(storedLocale === 'en' ? 'en' : 'ja');
-      if (storedLocale === null) window.localStorage.removeItem('aip.locale');
+      if (storedLocale === null) {window.localStorage.removeItem('aip.locale');}
     }
   });
 

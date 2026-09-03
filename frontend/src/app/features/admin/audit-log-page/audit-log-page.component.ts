@@ -137,7 +137,7 @@ export class AuditLogPageComponent {
       const filters = this.routeFilters();
       const signature = JSON.stringify(filters);
       untracked(() => {
-        if (signature === this.routeFilterSignature) return;
+        if (signature === this.routeFilterSignature) {return;}
         this.routeFilterSignature = signature;
         this.setDraftFilters(filters);
         this.facade.applyAuditFilters(filters);
@@ -151,7 +151,7 @@ export class AuditLogPageComponent {
 
     effect(() => {
       const page = this.vm();
-      if (page.status !== 'permissionDenied' || describeAuditFilterChips(page.appliedFilters).length > 0) return;
+      if (page.status !== 'permissionDenied' || describeAuditFilterChips(page.appliedFilters).length > 0) {return;}
       untracked(() => {
         this.setDraftFilters(EMPTY_AUDIT_FILTERS);
         this.routeFilterSignature = JSON.stringify(EMPTY_AUDIT_FILTERS);
@@ -251,7 +251,7 @@ export class AuditLogPageComponent {
   }
 
   deleteSelectedView(): void {
-    if (!this.selectedSavedViewId) return;
+    if (!this.selectedSavedViewId) {return;}
     const result = this.viewPreferences.delete(this.selectedSavedViewId);
     this.savedViews.set(result.views);
     if (result.status === 'ready') {
@@ -293,7 +293,7 @@ export class AuditLogPageComponent {
   }
 
   private async updateRouteFilters(filters: AuditFilterSnapshot): Promise<void> {
-    if (!this.router || !this.route) return;
+    if (!this.router || !this.route) {return;}
     await this.router.navigate([], {
       relativeTo: this.route,
       queryParams: {
@@ -671,13 +671,13 @@ interface AuditFilterChipDescription {
 
 function describeAuditFilterChips(filters: AuditFilterSnapshot): readonly AuditFilterChipDescription[] {
   const chips: AuditFilterChipDescription[] = [];
-  if (filters.q) chips.push({ key: 'q', label: 'Search', value: filters.q });
-  if (filters.severity) chips.push({ key: 'severity', label: 'Severity', value: capitalize(filters.severity) });
-  if (filters.type) chips.push({ key: 'type', label: 'Type', value: filters.type });
-  if (filters.actor) chips.push({ key: 'actor', label: 'Actor', value: filters.actor });
-  if (filters.source) chips.push({ key: 'source', label: 'Source', value: filters.source });
-  if (filters.status) chips.push({ key: 'status', label: 'Status', value: capitalize(filters.status) });
-  if (filters.range) chips.push({ key: 'range', label: 'Time range', value: timeRangeLabel(filters.range) });
+  if (filters.q) {chips.push({ key: 'q', label: 'Search', value: filters.q });}
+  if (filters.severity) {chips.push({ key: 'severity', label: 'Severity', value: capitalize(filters.severity) });}
+  if (filters.type) {chips.push({ key: 'type', label: 'Type', value: filters.type });}
+  if (filters.actor) {chips.push({ key: 'actor', label: 'Actor', value: filters.actor });}
+  if (filters.source) {chips.push({ key: 'source', label: 'Source', value: filters.source });}
+  if (filters.status) {chips.push({ key: 'status', label: 'Status', value: capitalize(filters.status) });}
+  if (filters.range) {chips.push({ key: 'range', label: 'Time range', value: timeRangeLabel(filters.range) });}
   return chips;
 }
 
