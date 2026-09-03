@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/consistent-type-imports, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/no-unsafe-type-assertion, @typescript-eslint/no-use-before-define, @typescript-eslint/prefer-readonly-parameter-types, func-style, max-lines-per-function, max-statements, one-var, sort-imports, sort-keys */
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
