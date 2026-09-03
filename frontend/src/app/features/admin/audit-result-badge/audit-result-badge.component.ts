@@ -7,8 +7,7 @@ import { AuditResultDisplay } from '../admin.types';
   standalone: true,
   template: `
     <span class="admin-badge" [class]="'admin-badge admin-badge--' + result" data-testid="audit-result-badge">
-      <span class="admin-badge__icon" aria-hidden="true">{{ icon }}</span>
-      <span>{{ label }}</span>
+      {{ label }}
     </span>
   `,
   styles: [
@@ -26,10 +25,23 @@ import { AuditResultDisplay } from '../admin.types';
         font-weight: 700;
       }
 
-      .admin-badge__icon {
+      .admin-badge::before {
+        content: '?';
         inline-size: 1em;
         flex: 0 0 auto;
         text-align: center;
+      }
+
+      .admin-badge--success::before {
+        content: '✓';
+      }
+
+      .admin-badge--denied::before {
+        content: '⊘';
+      }
+
+      .admin-badge--failed::before {
+        content: '!';
       }
 
       .admin-badge--success {
@@ -57,13 +69,4 @@ import { AuditResultDisplay } from '../admin.types';
 export class AuditResultBadgeComponent {
   @Input({ required: true }) result: AuditResultDisplay = 'success';
   @Input({ required: true }) label = 'Success';
-
-  get icon(): string {
-    switch (this.result) {
-      case 'success': return '✓';
-      case 'denied': return '⊘';
-      case 'failed': return '!';
-      default: return '?';
-    }
-  }
 }
