@@ -46,6 +46,7 @@ def main() -> None:
         fail(f"resolved Compose JSON is invalid: {exc}")
 
     document = require_mapping(document, "root")
+    services = require_mapping(document.get("services"), "services")
     app = require_service(document, "app")
     app_env = require_environment(app, "app")
 
@@ -89,10 +90,13 @@ def main() -> None:
     postgres_env = require_environment(postgres, "postgres")
     require_env(postgres_env, "POSTGRES_DB", "aip_portal_security")
 
-    playwright = require_service(document, "real-backend-playwright")
-    profiles = playwright.get("profiles")
-    if profiles != ["browser-smoke"]:
-        fail("inherited real-backend-playwright must be opt-in via the browser-smoke profile")
+    # Docker Compose removes services behind inactive profiles from the default
+    # resolved model. For the SEC-02 scanner stack, the inherited browser smoke
+    # runner must therefore be absent unless the caller explicitly opts into its
+    # `browser-smoke` profile. If it appears here, it would auto-start and pollute
+    # the isolated security fixture with the unrelated browser-smoke workflow.
+    if "real-backend-playwright" in services:
+        fail("real-backend-playwright must be inactive in the default SEC-02 profile")
 
     print("SEC-02 resolved Compose invariants verified.")
 
