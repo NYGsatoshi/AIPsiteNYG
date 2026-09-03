@@ -1,0 +1,62 @@
+name: PR 540 clean scan boundary fix
+
+on:
+  push:
+    branches:
+      - fix/528-canonical-message-attachments
+    paths:
+      - .github/workflows/pr540-clean-scan-boundary-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v7
+        with:
+          ref: fix/528-canonical-message-attachments
+          fetch-depth: 0
+
+      - name: Apply clean-only Message attachment boundary
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          service_path = Path('src/AipPortal.Application/Messaging/ConversationService.cs')
+          service = service_path.read_text()
+          old = '''            source.ScanStatus is FileScanStatus.Pending or FileScanStatus.Infected or FileScanStatus.Failed ||\n'''
+          new = '''            source.ScanStatus != FileScanStatus.Clean ||\n'''
+          if service.count(old) != 1:
+              raise SystemExit(f'expected exactly one scan-status guard, found {service.count(old)}')
+          service_path.write_text(service.replace(old, new, 1))
+
+          test_path = Path('tests/AipPortal.Tests/PostgreSql/MessageCanonicalAttachmentPostgreSqlTests.cs')
+          tests = test_path.read_text()
+          test_name = 'SkippedScanAttachmentIsDeniedToPreserveMessageAttachmentSearchContract'
+          if test_name not in tests:
+              marker = '''    [PostgreSqlFact]\n    [Trait("Category", "PostgreSQLIntegration")]\n    public async Task ProjectScopedFileObjectIsDeniedToPreserveMessageAttachmentSearchContract()\n'''
+              if tests.count(marker) != 1:
+                  raise SystemExit(f'expected exactly one project-scope test marker, found {tests.count(marker)}')
+              regression = '''    [PostgreSqlFact]\n    [Trait("Category", "PostgreSQLIntegration")]\n    public async Task SkippedScanAttachmentIsDeniedToPreserveMessageAttachmentSearchContract()\n    {\n        var baseConnectionString = PostgreSqlTestEnvironment.RequireConnectionString();\n        await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(baseConnectionString, async connectionString =>\n        {\n            await PostgreSqlMigrationTestDatabase.MigrateAsync(connectionString);\n            var graph = await TaskV1MigrationRawSqlSeed.CreateGraphAsync(connectionString, $"issue528-skipped-{Guid.NewGuid():N}");\n            await using var fixture = CreateFixture(connectionString, graph);\n\n            var conversation = await fixture.SeedConversationAsync(graph.WorkspaceId, graph.UserId);\n            var sourceMessage = await fixture.SeedMessageAsync(conversation, graph.UserId, "skipped scan source");\n            var fileObject = await fixture.SeedFileObjectAsync(\n                graph.WorkspaceId,\n                graph.UserId,\n                FileObjectStatus.Active,\n                "skipped-scan-secret.txt",\n                "tenant/server/skipped-scan-secret.txt");\n            var source = await fixture.SeedMessageAttachmentAsync(\n                sourceMessage,\n                fileObject,\n                graph.UserId,\n                FileScanStatus.Skipped);\n            await fixture.Db.SaveChangesAsync();\n            fixture.Db.ChangeTracker.Clear();\n\n            await AssertDeniedAsync(\n                fixture,\n                conversation.Id,\n                source.Id,\n                Guid.NewGuid(),\n                fileObject.OriginalFileName,\n                fileObject.StorageKey);\n        });\n    }\n\n'''
+              tests = tests.replace(marker, regression + marker, 1)
+              test_path.write_text(tests)
+          PY
+
+          rm .github/workflows/pr540-clean-scan-boundary-fix.yml
+          git diff --check
+          git diff -- src/AipPortal.Application/Messaging/ConversationService.cs tests/AipPortal.Tests/PostgreSql/MessageCanonicalAttachmentPostgreSqlTests.cs
+
+      - name: Commit repair
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/AipPortal.Application/Messaging/ConversationService.cs \
+                  tests/AipPortal.Tests/PostgreSql/MessageCanonicalAttachmentPostgreSqlTests.cs \
+                  .github/workflows/pr540-clean-scan-boundary-fix.yml
+          git commit -m "fix(messaging): require clean scan status for message attachments"
+          git push origin HEAD:fix/528-canonical-message-attachments
