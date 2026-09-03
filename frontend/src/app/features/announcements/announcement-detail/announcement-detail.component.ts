@@ -35,12 +35,17 @@ export class AnnouncementDetailComponent implements AfterViewChecked {
 
   @Input() announcement: AnnouncementViewModel | null = null;
   @Input() canEdit = false;
+  @Input() acknowledged = false;
+  @Input() acknowledgementPending = false;
+  @Input() acknowledgementError = false;
   /** Monotonic request from the route container; only handled at the mobile hierarchy breakpoint. */
   @Input() mobileFocusRequest = 0;
   /** Prevents a queued mobile focus callback from a previous route from stealing focus on Back. */
   @Input() mobileDetailActive = true;
   @Output() readonly editRequested = new EventEmitter<string>();
   @Output() readonly markReadRequested = new EventEmitter<string>();
+  @Output() readonly acknowledgeRequested = new EventEmitter<string>();
+  @Output() readonly ctaClicked = new EventEmitter<string>();
   @Output() readonly backRequested = new EventEmitter<void>();
 
   @ViewChild('detailTitle') private detailTitle?: ElementRef<HTMLElement>;
@@ -94,6 +99,29 @@ export class AnnouncementDetailComponent implements AfterViewChecked {
 
     this.pendingReadAnnouncementId = announcement.id;
     this.markReadRequested.emit(announcement.id);
+  }
+
+  requestAcknowledgement(): void {
+    const announcement = this.announcement;
+    if (
+      !announcement ||
+      !announcement.readState.requiresReadConfirmation ||
+      this.acknowledged ||
+      this.acknowledgementPending
+    ) {
+      return;
+    }
+
+    this.acknowledgeRequested.emit(announcement.id);
+  }
+
+  recordCtaClick(): void {
+    const announcement = this.announcement;
+    if (!announcement?.cta) {
+      return;
+    }
+
+    this.ctaClicked.emit(announcement.id);
   }
 
   private isMobileHierarchy(): boolean {
