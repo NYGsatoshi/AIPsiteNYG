@@ -36,9 +36,13 @@ const EMPTY_COUNT = 0,
 
     {
       const payload = await response.json(),
-        checkRuns = Array.isArray(payload.check_runs) ? payload.check_runs : [],
         failures = [],
         summary = [];
+      let checkRuns = [];
+
+      if (Array.isArray(payload.check_runs)) {
+        checkRuns = payload.check_runs;
+      }
 
       for (const name of requiredChecks) {
         const matches = checkRuns
