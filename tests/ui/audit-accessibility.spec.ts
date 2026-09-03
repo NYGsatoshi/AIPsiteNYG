@@ -165,11 +165,11 @@ test.describe('Audit WCAG 2.2 AA regression', () => {
     await page.goto(`/app/admin/audit/findings?artifactVersion=${versionId}`);
 
     const panel = page.getByTestId('audit-finding-decision-panel');
-    const form = page.getByTestId('audit-finding-decision-form');
+    const form = panel.locator('form');
     const decisionSelect = page.getByTestId('audit-finding-decision-select');
     const rationale = page.getByTestId('audit-finding-decision-rationale');
     const save = page.getByTestId('audit-finding-decision-save');
-    const status = page.getByTestId('audit-finding-decision-status');
+    const status = panel.getByRole('status');
 
     await expect(panel).toBeVisible();
     await expect(status).toHaveText('No structured decision is recorded yet.');
