@@ -1,0 +1,58 @@
+name: MVP-A Accessibility Gate
+
+on:
+  pull_request:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+concurrency:
+  group: mvp-a-accessibility-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  mvp-a-accessibility:
+    name: mvp-a-accessibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
+      - name: Verify MVP-A required accessibility tests remain present
+        run: node scripts/ci/verify-mvp-a-required-a11y-tests.mjs
+
+      - name: Install UI runner dependencies
+        run: npm ci
+
+      - name: Install Angular dependencies
+        run: npm --prefix frontend ci
+
+      - name: Build Angular production bundle
+        run: npm --prefix frontend run build
+
+      - name: Run canonical Angular Playwright accessibility/regression suite
+        run: npm run test:ui:angular:docker
+
+      - name: Upload browser artifacts on failure
+        if: failure()
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: mvp-a-accessibility-playwright-artifacts
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 7
