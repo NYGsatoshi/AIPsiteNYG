@@ -50,6 +50,7 @@ export class AuditFindingDecisionPanelComponent {
   readonly saving = signal(false);
   readonly validationError = signal<string | null>(null);
   readonly mutationError = signal<string | null>(null);
+  readonly saveAnnouncement = signal('');
 
   readonly selectedOption = computed(() => {
     const response = this.state().response;
@@ -68,12 +69,14 @@ export class AuditFindingDecisionPanelComponent {
     this.selectedDecision.set(isDecision(value) ? value : '');
     this.validationError.set(null);
     this.mutationError.set(null);
+    this.saveAnnouncement.set('');
   }
 
   updateRationale(value: string): void {
     this.rationale.set(value);
     this.validationError.set(null);
     this.mutationError.set(null);
+    this.saveAnnouncement.set('');
   }
 
   save(): void {
@@ -97,6 +100,7 @@ export class AuditFindingDecisionPanelComponent {
 
     this.validationError.set(null);
     this.mutationError.set(null);
+    this.saveAnnouncement.set('Saving structured decision.');
     this.saving.set(true);
     const requestVersion = this.requestVersion;
     this.http
@@ -112,12 +116,19 @@ export class AuditFindingDecisionPanelComponent {
           }
           this.saving.set(false);
           this.applyResponse(response);
+          const savedState = this.state();
+          this.saveAnnouncement.set(
+            savedState.status === 'ready' && savedState.response.reviewCompleted
+              ? 'Structured decision saved. Review complete.'
+              : 'Structured decision saved.',
+          );
         },
         error: (error: { status?: number }) => {
           if (requestVersion !== this.requestVersion) {
             return;
           }
           this.saving.set(false);
+          this.saveAnnouncement.set('');
           this.mutationError.set(
             error.status === 401 || error.status === 403
               ? 'Audit review permission is required to save a structured decision.'
@@ -153,6 +164,7 @@ export class AuditFindingDecisionPanelComponent {
     this.rationale.set('');
     this.validationError.set(null);
     this.mutationError.set(null);
+    this.saveAnnouncement.set('');
     this.saving.set(false);
 
     this.http
