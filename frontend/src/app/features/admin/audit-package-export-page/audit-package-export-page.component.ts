@@ -1,6 +1,6 @@
 /* eslint-disable @angular-eslint/prefer-on-push-component-change-detection, @angular-eslint/sort-keys-in-type-decorator, @typescript-eslint/class-methods-use-this, @typescript-eslint/explicit-member-accessibility, @typescript-eslint/member-ordering, @typescript-eslint/method-signature-style, @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-use-before-define, @typescript-eslint/prefer-optional-chain, @typescript-eslint/prefer-readonly-parameter-types, @typescript-eslint/strict-boolean-expressions, @typescript-eslint/switch-exhaustiveness-check, func-style, max-statements, new-cap, no-plusplus, no-ternary, no-void, one-var, require-unicode-regexp, sort-imports, sort-keys */
 import { HttpClient, HttpParams } from '@angular/common/http';
-import { Component, DestroyRef, effect, inject, signal, untracked } from '@angular/core';
+import { Component, DestroyRef, computed, effect, inject, signal, untracked } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { distinctUntilChanged, map, timer } from 'rxjs';
@@ -56,6 +56,8 @@ export class AuditPackageExportPageComponent {
   );
   private pollSubscription: { unsubscribe(): void } | null = null;
   private requestVersion = 0;
+  private jobRequestVersion = 0;
+  private jobRequestInFlight = false;
 
   readonly versionInput = signal(this.route.snapshot.queryParamMap.get('artifactVersion') ?? '');
   readonly loadState = signal<LoadState>('idle');
@@ -63,8 +65,12 @@ export class AuditPackageExportPageComponent {
   readonly job = signal<AuditPackageJobDto | null>(null);
   readonly confirmed = signal(false);
   readonly busy = signal(false);
+  readonly jobRefreshBusy = signal(false);
+  readonly jobStatusStale = signal(false);
+  readonly jobLastUpdatedAt = signal<string | null>(null);
   readonly message = signal<string | null>(null);
   readonly inputError = signal<string | null>(null);
+  readonly accessibilityStatus = computed(() => this.describeStatus());
 
   constructor() {
     effect(() => {
@@ -115,7 +121,7 @@ export class AuditPackageExportPageComponent {
     ).subscribe({
       next: (job) => {
         this.busy.set(false);
-        this.job.set(job);
+        this.markJobFresh(job);
         this.startPolling(job);
       },
       error: (error: { status?: number }) => {
@@ -142,7 +148,7 @@ export class AuditPackageExportPageComponent {
     ).subscribe({
       next: (job) => {
         this.busy.set(false);
-        this.job.set(job);
+        this.markJobFresh(job);
         this.startPolling(job);
       },
       error: (error: { status?: number }) => {
@@ -168,9 +174,13 @@ export class AuditPackageExportPageComponent {
 
   refreshJob(): void {
     const current = this.job();
-    if (current) {
-      this.fetchJob(current.jobId);
+    if (!current || this.jobRefreshBusy() || this.busy()) {
+      return;
     }
+
+    this.jobRefreshBusy.set(true);
+    this.message.set(null);
+    this.fetchJob(current.jobId);
   }
 
   failureLabel(code: string | null | undefined): string {
@@ -197,9 +207,15 @@ export class AuditPackageExportPageComponent {
   private loadFromRoute(artifactVersionId: string | null): void {
     this.stopPolling();
     this.requestVersion += 1;
+    this.jobRequestVersion += 1;
+    this.jobRequestInFlight = false;
     this.preview.set(null);
     this.job.set(null);
     this.confirmed.set(false);
+    this.busy.set(false);
+    this.jobRefreshBusy.set(false);
+    this.jobStatusStale.set(false);
+    this.jobLastUpdatedAt.set(null);
     this.message.set(null);
     this.versionInput.set(artifactVersionId ?? '');
 
@@ -270,23 +286,82 @@ export class AuditPackageExportPageComponent {
   }
 
   private fetchJob(jobId: string): void {
+    if (this.jobRequestInFlight) {
+      return;
+    }
+
+    const requestVersion = ++this.jobRequestVersion;
+    this.jobRequestInFlight = true;
     this.http.get<AuditPackageJobDto>(
       `/api/admin/audit/package-exports/${encodeURIComponent(jobId)}`,
       { withCredentials: true },
     ).subscribe({
       next: (job) => {
-        this.job.set(job);
+        if (requestVersion !== this.jobRequestVersion) {
+          return;
+        }
+        this.jobRequestInFlight = false;
+        this.jobRefreshBusy.set(false);
+        this.message.set(null);
+        this.markJobFresh(job);
         if (job.state === 'Completed' || job.state === 'Failed') {
           this.stopPolling();
         }
       },
       error: (error: { status?: number }) => {
+        if (requestVersion !== this.jobRequestVersion) {
+          return;
+        }
+        this.jobRequestInFlight = false;
+        this.jobRefreshBusy.set(false);
         this.stopPolling();
+        this.jobStatusStale.set(this.job() !== null);
         this.message.set(error.status === 401 || error.status === 403
           ? 'Export authorization changed while checking the job.'
           : 'The export job status could not be refreshed.');
       },
     });
+  }
+
+  private markJobFresh(job: AuditPackageJobDto): void {
+    this.job.set(job);
+    this.jobStatusStale.set(false);
+    this.jobLastUpdatedAt.set(new Date().toISOString());
+  }
+
+  private describeStatus(): string {
+    if (this.loadState() === 'loading') {
+      return 'Loading authorized Audit export scope.';
+    }
+    if (this.busy()) {
+      return this.job()?.state === 'Failed'
+        ? 'Queuing Audit package export retry.'
+        : 'Queuing Audit package export.';
+    }
+    if (this.jobRefreshBusy()) {
+      return 'Refreshing Audit package export status.';
+    }
+
+    const job = this.job();
+    if (this.jobStatusStale() && job) {
+      return `Export status refresh failed. Showing the last known ${job.state} state from ${this.formatTimestamp(this.jobLastUpdatedAt())}.`;
+    }
+    if (this.message()) {
+      return this.message() ?? '';
+    }
+    if (job) {
+      switch (job.state) {
+        case 'Queued': return 'Audit package export queued.';
+        case 'Processing': return `Audit package export processing, ${job.progressPercent}% complete.`;
+        case 'Completed': return 'Audit package export completed. Download is ready.';
+        case 'Failed': return `Audit package export failed. ${this.failureLabel(job.errorCode)}`;
+        default: return `Audit package export status: ${job.state}.`;
+      }
+    }
+    if (this.preview()) {
+      return 'Authorized Audit export scope loaded.';
+    }
+    return '';
   }
 
   private stopPolling(): void {
@@ -296,5 +371,5 @@ export class AuditPackageExportPageComponent {
 }
 
 function isGuid(value: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.trim());
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i.test(value.trim());
 }
