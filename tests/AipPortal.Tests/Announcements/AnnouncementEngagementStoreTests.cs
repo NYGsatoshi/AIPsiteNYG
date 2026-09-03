@@ -2,6 +2,7 @@ using AipPortal.Application.Announcements;
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Common.Tenancy;
 using AipPortal.Domain.Entities;
+using AipPortal.Domain.Enums;
 using AipPortal.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -19,12 +20,23 @@ public sealed class AnnouncementEngagementStoreTests
         var recipientB = Guid.NewGuid();
         var outsideCohort = Guid.NewGuid();
         var tenant = new CurrentTenantService();
-        tenant.SetTenant(tenantId, $"tenant-{tenantId:N}");
         await using var db = new AppDbContext(
             new DbContextOptionsBuilder<AppDbContext>()
                 .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
                 .Options,
             tenant);
+        tenant.SetPlatformScope();
+        db.Tenants.Add(new Tenant
+        {
+            Id = tenantId,
+            Name = "Issue 390 tenant",
+            DisplayName = "Issue 390 tenant",
+            Slug = $"issue-390-{tenantId:N}",
+            Status = TenantStatus.Active
+        });
+        await db.SaveChangesAsync();
+        tenant.SetTenant(tenantId, $"issue-390-{tenantId:N}");
+
         var clock = new FixedClock(new DateTimeOffset(2026, 9, 3, 8, 0, 0, TimeSpan.Zero));
         var store = new AnnouncementEngagementStore(db, clock);
 
