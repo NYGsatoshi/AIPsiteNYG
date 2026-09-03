@@ -97,6 +97,16 @@
   border-left: 4px solid var(--aip-color-action-primary);
 }
 
+.thread__reply--focus-target {
+  border-color: var(--aip-color-focus);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--aip-color-focus) 35%, transparent);
+}
+
+.thread__reply--focus-target:focus-visible {
+  outline: 3px solid var(--aip-color-focus);
+  outline-offset: 2px;
+}
+
 .thread__pinned {
   margin: 0;
   color: var(--aip-color-action-primary);

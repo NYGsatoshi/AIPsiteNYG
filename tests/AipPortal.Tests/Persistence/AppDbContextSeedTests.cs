@@ -407,6 +407,90 @@ public sealed class AppDbContextSeedTests
             .ToListAsync());
     }
 
+    [Fact]
+    public async Task DemoDatasetSeedCreatesAnIdempotentSyntheticExecutionReadyFixture()
+    {
+        var currentTenant = new CurrentTenantService();
+        currentTenant.SetPlatformScope();
+        await using var dbContext = CreateDbContext(currentTenant);
+        var tenant = await AppDbContextSeed.SeedDefaultTenantAsync(
+            dbContext,
+            new TenancyOptions { DefaultTenantSlug = "default" });
+        var passwordHasher = new Pbkdf2PasswordHasher();
+        var storage = new MemoryFileStorage();
+        var password = $"test-only-{Guid.NewGuid():N}";
+
+        await DemoDatasetSeed.SeedAsync(
+            dbContext,
+            passwordHasher,
+            storage,
+            tenant.Id,
+            DemoDatasetSeed.OwnerEmail,
+            password);
+        await DemoDatasetSeed.SeedAsync(
+            dbContext,
+            passwordHasher,
+            storage,
+            tenant.Id,
+            DemoDatasetSeed.OwnerEmail,
+            password);
+
+        var owner = await dbContext.Users.SingleAsync(user => user.Email == DemoDatasetSeed.OwnerEmail);
+        var observer = await dbContext.Users.SingleAsync(user => user.Email == DemoDatasetSeed.ObserverEmail);
+        var workspace = await dbContext.Workspaces.SingleAsync(workspace =>
+            workspace.TenantId == tenant.Id && workspace.Slug == DemoDatasetSeed.WorkspaceSlug);
+        var project = await dbContext.Projects.SingleAsync(project =>
+            project.TenantId == tenant.Id && project.Slug == DemoDatasetSeed.ProjectSlug);
+        var scope = await dbContext.ProjectExecutionScopes.SingleAsync(scope => scope.ProjectId == project.Id);
+        var executionTask = await dbContext.TaskItems.SingleAsync(task =>
+            task.ProjectId == project.Id && task.Title == DemoDatasetSeed.ExecutionTaskTitle);
+
+        Assert.Equal(WorkspaceRole.Owner, (await dbContext.WorkspaceMembers.SingleAsync(member =>
+            member.WorkspaceId == workspace.Id && member.UserId == owner.Id)).Role);
+        Assert.Equal(WorkspaceRole.ReadOnly, (await dbContext.WorkspaceMembers.SingleAsync(member =>
+            member.WorkspaceId == workspace.Id && member.UserId == observer.Id)).Role);
+        Assert.False(await dbContext.ProjectMembers.AnyAsync(member =>
+            member.ProjectId == project.Id && member.UserId == observer.Id));
+
+        Assert.Equal(ProjectStatus.Active, project.Status);
+        Assert.Equal(ProjectVisibility.MembersOnly, project.Visibility);
+        Assert.Equal(ProjectActivationState.Activated, project.ActivationState);
+        Assert.False(scope.WebEnabled);
+        Assert.True(scope.ProjectFilesEnabled);
+        Assert.Equal(TaskItemStatus.InProgress, executionTask.Status);
+        Assert.Equal("Demonstrate an authorized, reproducible Task execution path.", executionTask.BriefGoal);
+        Assert.Contains(await dbContext.TaskItems.Where(task => task.ProjectId == project.Id).Select(task => task.Status).ToListAsync(),
+            status => status == TaskItemStatus.WaitingReview);
+        Assert.Contains(await dbContext.TaskItems.Where(task => task.ProjectId == project.Id).Select(task => task.Status).ToListAsync(),
+            status => status == TaskItemStatus.Completed);
+
+        var plan = await dbContext.ResearchPlans.SingleAsync(plan => plan.TaskItemId == executionTask.Id);
+        Assert.NotNull(plan.CurrentRevisionId);
+        Assert.Single(await dbContext.ResearchPlanSteps
+            .Where(step => step.ResearchPlanId == plan.Id)
+            .ToListAsync());
+
+        var attachment = await dbContext.Attachments.SingleAsync(candidate =>
+            candidate.OwnerType == AttachmentOwnerType.TaskItem && candidate.OwnerId == executionTask.Id);
+        Assert.Equal(FileScanStatus.Clean, attachment.ScanStatus);
+        var source = await dbContext.FileObjects.SingleAsync(candidate => candidate.Id == attachment.FileObjectId);
+        Assert.Equal("text/plain", source.ContentType);
+        Assert.Equal(FileObjectStatus.Active, source.Status);
+
+        Assert.Single(await dbContext.Conversations.Where(conversation =>
+            conversation.WorkspaceId == workspace.Id && conversation.Title == "Issue #483 Demo Conversation").ToListAsync());
+        Assert.Single(await dbContext.Messages.Where(message =>
+            message.Body == "[issue-483-demo] Synthetic conversation message for the demo.").ToListAsync());
+        Assert.Single(await dbContext.Announcements.Where(announcement =>
+            announcement.WorkspaceId == workspace.Id && announcement.Title == "Issue #483 Demo: published announcement").ToListAsync());
+        Assert.Single(await dbContext.AnnouncementDrafts.Where(draft =>
+            draft.WorkspaceId == workspace.Id && draft.Status == AnnouncementDraftStatus.Draft).ToListAsync());
+        Assert.Single(await dbContext.AnnouncementDrafts.Where(draft =>
+            draft.WorkspaceId == workspace.Id && draft.Status == AnnouncementDraftStatus.Scheduled).ToListAsync());
+        Assert.Single(await dbContext.AuditLogs.Where(log =>
+            log.ProjectId == project.Id && log.Action == "DemoDatasetProvisioned").ToListAsync());
+    }
+
     private static AppDbContext CreateDbContext(CurrentTenantService currentTenant)
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()

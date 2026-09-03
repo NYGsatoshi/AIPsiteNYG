@@ -1,0 +1,25 @@
+<section class="language-preferences" aria-labelledby="language-preferences-title" data-testid="language-preferences">
+  <div class="language-preferences__header">
+    <p class="language-preferences__eyebrow">{{ i18n.translate('language.eyebrow') }}</p>
+    <h2 id="language-preferences-title">{{ i18n.translate('language.title') }}</h2>
+  </div>
+
+  <label class="language-preferences__field" for="display-language">
+    <span>{{ i18n.translate('language.label') }}</span>
+    <select
+      id="display-language"
+      data-testid="display-language"
+      [value]="i18n.locale()"
+      (change)="selectLocale($event)"
+    >
+      @for (locale of locales; track locale.value) {
+        <option [value]="locale.value">{{ locale.nativeName }}</option>
+      }
+    </select>
+  </label>
+
+  <p class="language-preferences__description">{{ i18n.translate('language.description') }}</p>
+  @if (saved()) {
+    <p class="language-preferences__saved" role="status" aria-live="polite">{{ i18n.translate('language.saved') }}</p>
+  }
+</section>

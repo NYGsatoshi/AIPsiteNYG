@@ -1,11 +1,11 @@
 <section class="sessions" data-testid="session-list">
   <div class="sessions__header">
-    <p class="sessions__eyebrow">セッション</p>
-    <h2>セッション</h2>
+    <p class="sessions__eyebrow">{{ i18n.translate('sessions.eyebrow') }}</p>
+    <h2>{{ i18n.translate('sessions.title') }}</h2>
   </div>
 
   @if (sessions.length === 0) {
-    <p class="sessions__empty">表示できるセッションはありません。</p>
+    <p class="sessions__empty">{{ i18n.translate('sessions.empty') }}</p>
   } @else {
     <ul class="sessions__items">
       @for (session of sessions; track session.id) {
@@ -13,18 +13,18 @@
           <div>
             <p class="sessions__device">{{ session.deviceLabel }}</p>
             @if (session.isCurrent) {
-              <span class="sessions__current" data-testid="current-session-marker">現在のセッション</span>
+              <span class="sessions__current" data-testid="current-session-marker">{{ i18n.translate('sessions.current') }}</span>
             }
             <dl class="sessions__meta">
               @if (session.createdAtLabel) {
                 <div>
-                  <dt>作成</dt>
+                  <dt>{{ i18n.translate('sessions.created') }}</dt>
                   <dd>{{ session.createdAtLabel }}</dd>
                 </div>
               }
               @if (session.lastUsedAtLabel) {
                 <div>
-                  <dt>最終利用</dt>
+                  <dt>{{ i18n.translate('sessions.lastUsed') }}</dt>
                   <dd>{{ session.lastUsedAtLabel }}</dd>
                 </div>
               }
@@ -32,10 +32,10 @@
           </div>
 
           @if (session.canRevoke) {
-            <button class="sessions__revoke" type="button">このセッションを終了</button>
+            <button class="sessions__revoke" type="button">{{ i18n.translate('sessions.revoke') }}</button>
           } @else {
             <span class="sessions__unavailable" data-testid="session-revoke-unavailable">
-              {{ session.revokeUnavailableReason ?? 'このセッションを終了する操作は利用できません。' }}
+              {{ session.revokeUnavailableReason ?? i18n.translate('sessions.revokeUnavailable') }}
             </span>
           }
         </li>

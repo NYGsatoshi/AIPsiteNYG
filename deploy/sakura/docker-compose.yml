@@ -26,6 +26,13 @@ services:
       Security__RequireHttps: ${SECURITY_REQUIRE_HTTPS:-true}
       Security__EnableHsts: ${SECURITY_ENABLE_HSTS:-true}
       ReverseProxy__TrustForwardedHeaders: "true"
+      # Keep strict header-count symmetry by default. Tunnel overlays that are
+      # known to append X-Forwarded-For independently may disable only this
+      # check while retaining the trusted peer boundary and ForwardLimit=1.
+      ReverseProxy__RequireHeaderSymmetry: ${REVERSE_PROXY_REQUIRE_HEADER_SYMMETRY:-true}
+      # Caddy is the only HTTP peer on the private Compose network. Operators
+      # may narrow this further by assigning a fixed internal subnet.
+      ReverseProxy__TrustedNetworks__0: ${REVERSE_PROXY_TRUSTED_NETWORKS:-172.16.0.0/12}
       Platform__PlatformAdminSetupMode: ${PLATFORM_ADMIN_SETUP_MODE:-false}
       LocalAdmin__SeedOnStartup: ${LOCAL_ADMIN_SEED_ON_STARTUP:-true}
       LocalAdmin__Email: ${LOCAL_ADMIN_EMAIL:-admin@example.com}
@@ -79,7 +86,7 @@ services:
           - aipsite-caddy
 
   migrate:
-    image: mcr.microsoft.com/dotnet/sdk:10.0
+    image: mcr.microsoft.com/dotnet/sdk:10.0.302
     working_dir: /src
     restart: "no"
     volumes:

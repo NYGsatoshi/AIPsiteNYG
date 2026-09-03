@@ -1,4 +1,6 @@
 @let vm = page();
+@let list = displayedList();
+@let searchVm = search();
 
 <section class="files-page" data-testid="files-page">
   <header class="files-page__header">
@@ -8,11 +10,17 @@
     </div>
   </header>
 
-  <div class="files-page__grid">
+  <div class="files-page__grid files-page__grid--browser">
+    <app-file-browser-sidebar
+      [folders]="browserFolders()"
+      [activeShortcut]="browserShortcut()"
+      (shortcutSelected)="selectBrowserShortcut($event)"
+      (folderMoveRequested)="openFolderMoveDialog($event)"
+    />
     <div class="files-page__main">
       <app-aip-file-uploader
         id="upload"
-        ariaLabel="Upload files"
+        [ariaLabel]="i18n.translate('files.upload.ariaLabel')"
         [items]="vm.uploadQueue"
         [multiple]="true"
         [disabled]="vm.upload.canUpload === false"
@@ -26,11 +34,115 @@
 
       <app-file-quota-state [quota]="vm.quota" />
 
-      <section class="files-page__panel" aria-label="Recent files">
+      <section class="files-page__search" aria-labelledby="files-search-title" data-testid="files-search-surface">
+        <form
+          class="files-page__search-form"
+          role="search"
+          [attr.aria-busy]="searchVm.status === 'loading'"
+          (submit)="submitFileSearch($event)"
+        >
+          <div class="files-page__search-heading">
+            <div>
+              <h2 id="files-search-title">{{ i18n.translate('files.search.title') }}</h2>
+              <p id="files-search-scope">{{ i18n.translate('files.search.scope', { workspace: activeWorkspaceLabel() }) }}</p>
+            </div>
+            @if (searchApplied()) {
+              <button type="button" class="files-page__search-clear" (click)="clearFileSearch()" data-testid="files-search-clear">
+                {{ i18n.translate('files.search.clear') }}
+              </button>
+            }
+          </div>
+
+          <div class="files-page__search-controls">
+            <label class="files-page__search-query">
+              <span>{{ i18n.translate('files.search.fileName') }}</span>
+              <input
+                type="search"
+                autocomplete="off"
+                maxlength="120"
+                [placeholder]="i18n.translate('files.search.placeholder')"
+                aria-describedby="files-search-scope files-search-status"
+                [value]="searchQuery()"
+                (input)="updateSearchQuery($event)"
+                data-testid="files-search-input"
+              />
+            </label>
+            <label>
+              <span>{{ i18n.translate('files.search.type') }}</span>
+              <select [value]="searchKind()" (change)="updateSearchKind($event)" data-testid="files-filter-type">
+                <option value="all">{{ i18n.translate('files.search.anyType') }}</option>
+                <option value="document">{{ i18n.translate('files.search.documents') }}</option>
+                <option value="image">{{ i18n.translate('files.search.images') }}</option>
+                <option value="pdf">PDF</option>
+                <option value="video">{{ i18n.translate('files.search.video') }}</option>
+                <option value="archive">{{ i18n.translate('files.search.archives') }}</option>
+              </select>
+            </label>
+            <label>
+              <span>{{ i18n.translate('files.search.modified') }}</span>
+              <select [value]="searchModified()" (change)="updateSearchModified($event)" data-testid="files-filter-modified">
+                <option value="any">{{ i18n.translate('files.search.anyTime') }}</option>
+                <option value="last7Days">{{ i18n.translate('files.search.last7Days') }}</option>
+                <option value="last30Days">{{ i18n.translate('files.search.last30Days') }}</option>
+                <option value="last90Days">{{ i18n.translate('files.search.last90Days') }}</option>
+              </select>
+            </label>
+            <label>
+              <span>{{ i18n.translate('files.search.owner') }}</span>
+              <select [value]="searchOwner()" (change)="updateSearchOwner($event)" data-testid="files-filter-owner">
+                <option value="any">{{ i18n.translate('files.search.anyone') }}</option>
+                <option value="me">{{ i18n.translate('files.search.uploadedByMe') }}</option>
+              </select>
+            </label>
+            <button type="submit" class="files-page__search-submit" [disabled]="searchVm.status === 'loading'" data-testid="files-search-submit">
+              {{ searchVm.status === 'loading' ? i18n.translate('files.search.searching') : i18n.translate('files.search.submit') }}
+            </button>
+          </div>
+
+          @if (
+            searchApplied() &&
+            (searchVm.filters.kind !== 'all' || searchVm.filters.modified !== 'any' || searchVm.filters.owner !== 'any')
+          ) {
+            <div class="files-page__filter-chips" [attr.aria-label]="i18n.translate('files.search.activeFilters')" data-testid="files-filter-chips">
+              @if (searchVm.filters.kind !== 'all') {
+                <app-aip-filter-chip
+                  [label]="i18n.translate('files.search.type')"
+                  [value]="searchKindLabel(searchVm.filters.kind)"
+                  (removed)="removeSearchFilter('kind')"
+                />
+              }
+              @if (searchVm.filters.modified !== 'any') {
+                <app-aip-filter-chip
+                  [label]="i18n.translate('files.search.modified')"
+                  [value]="searchModifiedLabel(searchVm.filters.modified)"
+                  (removed)="removeSearchFilter('modified')"
+                />
+              }
+              @if (searchVm.filters.owner !== 'any') {
+                <app-aip-filter-chip
+                  [label]="i18n.translate('files.search.owner')"
+                  [value]="i18n.translate('files.search.uploadedByMe')"
+                  (removed)="removeSearchFilter('owner')"
+                />
+              }
+            </div>
+          }
+
+          <p
+            id="files-search-status"
+            class="files-page__search-status"
+            [attr.role]="searchVm.status === 'error' || searchVm.status === 'invalid' ? 'alert' : 'status'"
+            aria-live="polite"
+            data-testid="files-search-status"
+          >@if (searchApplied()) { {{ searchVm.message }} }</p>
+        </form>
+      </section>
+
+      <section class="files-page__panel" [attr.aria-label]="searchApplied() ? i18n.translate('files.results') : browserShortcutLabel()">
         <div class="files-page__panel-header">
           <div>
-            <p>Recent files</p>
-            <strong>Choose files with checkboxes. Open a file from its name.</strong>
+            <p>{{ searchApplied() ? i18n.translate('files.results') : browserShortcutLabel() }}</p>
+            <strong>{{ i18n.translate('files.selection.instructions') }}</strong>
           </div>
         </div>
 
@@ -39,21 +151,32 @@
             id="files-normal-toolbar"
             class="files-page__toolbar files-page__toolbar--normal"
             role="toolbar"
-            aria-label="File actions"
+            [attr.aria-label]="i18n.translate('files.actions.ariaLabel')"
             tabindex="-1"
             data-testid="files-normal-toolbar"
           >
-            <a class="files-page__toolbar-action files-page__toolbar-action--primary" href="#upload">Upload</a>
+            <a class="files-page__toolbar-action files-page__toolbar-action--primary" href="#upload">{{ i18n.translate('files.actions.upload') }}</a>
+            @if (list.files.length > 0) {
+              <button type="button" (click)="selectThisPage()" data-testid="files-select-this-page">{{ i18n.translate('files.actions.selectThisPage') }}</button>
+            }
+            @if (searchApplied() && search().status === 'ready') {
+              <button
+                type="button"
+                [disabled]="selectionCaptureBusy()"
+                (click)="selectAllSearchResults()"
+                data-testid="files-select-all-search-results"
+              >{{ selectionCaptureBusy() ? i18n.translate('files.actions.capturing') : i18n.translate('files.actions.selectAllSearchResults') }}</button>
+            }
             <details class="files-page__view-settings">
-              <summary>View settings</summary>
+              <summary>{{ i18n.translate('files.actions.viewSettings') }}</summary>
               <div class="files-page__view-settings-menu">
-                <div class="files-page__density" role="group" aria-label="Row density">
-                  <button type="button" [attr.aria-pressed]="density() === 'comfortable'" (click)="setDensity('comfortable')">Comfortable</button>
-                  <button type="button" [attr.aria-pressed]="density() === 'compact'" (click)="setDensity('compact')">Compact</button>
+                <div class="files-page__density" role="group" [attr.aria-label]="i18n.translate('files.actions.rowDensity')">
+                  <button type="button" [attr.aria-pressed]="density() === 'comfortable'" (click)="setDensity('comfortable')">{{ i18n.translate('files.actions.comfortable') }}</button>
+                  <button type="button" [attr.aria-pressed]="density() === 'compact'" (click)="setDensity('compact')">{{ i18n.translate('files.actions.compact') }}</button>
                 </div>
                 <fieldset class="files-page__columns">
-                  <legend>Columns</legend>
-                  @for (option of optionalColumns; track option.id) {
+                  <legend>{{ i18n.translate('files.actions.columns') }}</legend>
+                  @for (option of optionalColumns(); track option.id) {
                     <label>
                       <input
                         type="checkbox"
@@ -69,34 +192,61 @@
           </div>
         } @else {
           <div
+            id="files-contextual-toolbar"
             class="files-page__toolbar files-page__toolbar--contextual"
             role="toolbar"
-            aria-label="Actions for selected files"
+            [attr.aria-label]="i18n.translate('files.actions.ariaLabel')"
             data-testid="files-contextual-toolbar"
           >
             <strong class="files-page__selection-status" role="status" aria-live="polite">
-              {{ selectedCount() }} selected
+              {{ i18n.translate('files.selection.selected', { count: selectedCount() }) }}
             </strong>
-            @if (downloadableSelection()) {
-              <button type="button" (click)="downloadSelectedFile()" data-testid="files-selected-download">Download</button>
+            @if (hasSearchResultsSelection()) {
+              <span class="files-page__no-actions">{{ i18n.translate('files.selection.captured') }}</span>
+            } @else {
+              <span class="files-page__no-actions">{{ i18n.translate('files.selection.thisPage') }}</span>
             }
-            @if (canDeleteSelection()) {
-              <button
-                type="button"
-                class="files-page__toolbar-action--danger"
-                [disabled]="deleteBusy()"
-                (click)="openDeleteConfirmation()"
-                data-testid="files-selected-delete"
-              >Delete</button>
-            }
-            @if (!downloadableSelection() && !canDeleteSelection()) {
-              <span class="files-page__no-actions">No available actions for this selection.</span>
-            }
-            <button type="button" [disabled]="deleteBusy()" (click)="clearSelection()" data-testid="files-clear-selection">Clear selection</button>
+            <button
+              type="button"
+              [disabled]="!canMoveSelection()"
+              (click)="openFileMoveDialog()"
+              data-testid="files-selected-move"
+            >{{ i18n.translate('files.actions.move') }}</button>
+            <button
+              type="button"
+              [disabled]="!downloadableSelection()"
+              [title]="downloadableSelection() ? '' : i18n.translate('files.actions.batchDownloadUnavailable')"
+              (click)="downloadSelectedFile()"
+              data-testid="files-selected-download"
+            >{{ i18n.translate('files.actions.download') }}</button>
+            <button type="button" disabled [title]="i18n.translate('files.actions.shareUnavailable')">{{ i18n.translate('files.actions.share') }}</button>
+            <button
+              type="button"
+              class="files-page__toolbar-action--danger"
+              [disabled]="!canDeleteSelection() || deleteBusy()"
+              (click)="openDeleteConfirmation()"
+              data-testid="files-selected-delete"
+            >{{ i18n.translate('files.actions.delete') }}</button>
+            <button
+              type="button"
+              [disabled]="deleteBusy()"
+              (click)="clearSelection()"
+              [attr.aria-label]="i18n.translate('files.actions.clearSelection')"
+              [title]="i18n.translate('files.actions.clearSelection')"
+              data-testid="files-clear-selection"
+            >&times;</button>
           </div>
         }
 
-        <p class="files-page__selection-help">Keyboard focus does not change selection.</p>
+        @if (!hasSelection() && selectionSnapshot().status !== 'idle') {
+          <p
+            class="files-page__selection-help"
+            [attr.role]="selectionSnapshot().status === 'error' || selectionSnapshot().status === 'overflow' ? 'alert' : 'status'"
+            aria-live="polite"
+            data-testid="files-selection-snapshot-status"
+          >{{ selectionSnapshot().message }}</p>
+        }
+        <p class="files-page__selection-help">{{ i18n.translate('files.selection.keyboardHelp') }}</p>
         @if (deleteState().message) {
           <p
             class="files-page__delete-status"
@@ -107,14 +257,14 @@
         }
         <div class="files-page__desktop-grid" [class.files-page__desktop-grid--compact]="density() === 'compact'">
           <app-data-grid
-            ariaLabel="Files"
+            [ariaLabel]="i18n.translate('files.title')"
             migrationTarget="files"
             rowIdField="id"
             selectionMode="multiple"
             [rowHeight]="density() === 'compact' ? 36 : 48"
-            [defaultPageSize]="vm.pageSize"
-            [maximumPageSize]="vm.pageSize"
-            [rows]="vm.recentFiles"
+            [defaultPageSize]="list.pageSize"
+            [maximumPageSize]="list.pageSize"
+            [rows]="list.files"
             [columns]="columns()"
             (actionInvoked)="handleGridAction($event)"
             (selectionChanged)="handleSelectionChanged($event)"
@@ -122,41 +272,278 @@
         </div>
         <div class="files-page__mobile-list">
           <app-recent-files-list
-            [files]="vm.recentFiles"
+            [files]="list.files"
             [selectedFileIds]="selectedFileIds()"
+            (previewRequested)="openPreview($event)"
             (selectionChanged)="handleMobileSelection($event)"
             (downloadRequested)="downloadFile($event)"
           />
         </div>
-        <nav class="files-page__pagination" aria-label="File list pages">
-          <button type="button" data-testid="files-page-previous" [disabled]="vm.page <= 1" (click)="goToPreviousPage()">Previous</button>
-          <span data-testid="files-page-pagination-status">Page {{ vm.page }} of {{ totalPages() }} · {{ vm.totalCount }} files</span>
-          <button type="button" data-testid="files-page-next" [disabled]="!vm.hasMore" (click)="goToNextPage()">Next</button>
+        <nav class="files-page__pagination" [attr.aria-label]="i18n.translate('files.pagination.ariaLabel')">
+          <button type="button" data-testid="files-page-previous" [disabled]="list.page <= 1" (click)="goToPreviousPage()">{{ i18n.translate('files.pagination.previous') }}</button>
+          <span data-testid="files-page-pagination-status">{{ i18n.translate('files.pagination.status', { page: list.page, total: totalPages(), count: list.totalCount }) }}</span>
+          <button type="button" data-testid="files-page-next" [disabled]="!list.hasMore" (click)="goToNextPage()">{{ i18n.translate('files.pagination.next') }}</button>
         </nav>
       </section>
     </div>
 
+    @if (previewOpen() && previewOverlay()) {
+      <button
+        type="button"
+        class="files-page__preview-backdrop"
+        [attr.aria-label]="i18n.translate('files.preview.close')"
+        (click)="closePreview()"
+        data-testid="files-preview-backdrop"
+      ></button>
+    }
+
     <aside class="files-page__side">
+      <section
+        #previewPane
+        class="files-page__preview"
+        [class.files-page__preview--overlay]="previewOpen() && previewOverlay()"
+        [attr.role]="previewOpen() && previewOverlay() ? 'dialog' : 'region'"
+        [attr.aria-modal]="previewOpen() && previewOverlay() ? 'true' : null"
+        [attr.aria-labelledby]="previewOpen() ? 'files-preview-title' : null"
+        [attr.aria-label]="previewOpen() ? null : i18n.translate('files.preview.regionLabel')"
+        [cdkTrapFocus]="previewOpen() && previewOverlay()"
+        [cdkTrapFocusAutoCapture]="previewOpen() && previewOverlay()"
+        data-testid="files-preview-pane"
+      >
+        @if (previewFile(); as file) {
+          <header class="files-page__preview-header">
+            <div>
+              <p>{{ i18n.translate('files.preview.inspector') }}</p>
+              <h2 id="files-preview-title">{{ file.originalFileName }}</h2>
+              <p class="files-page__access-badge" data-testid="files-preview-access-state">
+                {{ fileSharingLabel(file) }}
+              </p>
+            </div>
+            <button
+              type="button"
+              class="files-page__preview-close"
+              cdkFocusInitial
+              (click)="closePreview()"
+              data-testid="files-preview-close"
+            >{{ i18n.translate('common.close') }}</button>
+          </header>
+
+          <div class="files-page__inspector-tabs" role="tablist" [attr.aria-label]="i18n.translate('files.preview.views')">
+            <button
+              type="button"
+              id="files-inspector-tab-preview"
+              role="tab"
+              data-inspector-tab="preview"
+              data-testid="files-inspector-tab-preview"
+              aria-controls="files-inspector-panel-preview"
+              [attr.aria-selected]="inspectorTab() === 'preview'"
+              [attr.tabindex]="inspectorTab() === 'preview' ? 0 : -1"
+              (click)="selectInspectorTab('preview')"
+              (keydown)="handleInspectorTabKeydown($event, 'preview')"
+            >{{ i18n.translate('files.preview.tabPreview') }}</button>
+            <button
+              type="button"
+              id="files-inspector-tab-details"
+              role="tab"
+              data-inspector-tab="details"
+              data-testid="files-inspector-tab-details"
+              aria-controls="files-inspector-panel-details"
+              [attr.aria-selected]="inspectorTab() === 'details'"
+              [attr.tabindex]="inspectorTab() === 'details' ? 0 : -1"
+              (click)="selectInspectorTab('details')"
+              (keydown)="handleInspectorTabKeydown($event, 'details')"
+            >{{ i18n.translate('files.preview.tabDetails') }}</button>
+            <button
+              type="button"
+              id="files-inspector-tab-activity"
+              role="tab"
+              data-inspector-tab="activity"
+              data-testid="files-inspector-tab-activity"
+              aria-controls="files-inspector-panel-activity"
+              [attr.aria-selected]="inspectorTab() === 'activity'"
+              [attr.tabindex]="inspectorTab() === 'activity' ? 0 : -1"
+              (click)="selectInspectorTab('activity')"
+              (keydown)="handleInspectorTabKeydown($event, 'activity')"
+            >{{ i18n.translate('files.preview.tabActivity') }}</button>
+          </div>
+
+          @if (inspectorTab() === 'preview') {
+            <section
+              id="files-inspector-panel-preview"
+              class="files-page__inspector-panel"
+              role="tabpanel"
+              aria-labelledby="files-inspector-tab-preview"
+              tabindex="0"
+              data-testid="files-inspector-panel-preview"
+            >
+              <div class="files-page__preview-actions" role="toolbar" [attr.aria-label]="i18n.translate('files.preview.actions')">
+                <a
+                  class="files-page__preview-action"
+                  [attr.href]="previewCanOpen() ? previewUrl() : null"
+                  [attr.aria-disabled]="!previewCanOpen()"
+                  [attr.tabindex]="previewCanOpen() ? 0 : -1"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  data-testid="files-preview-open"
+                >{{ i18n.translate('files.preview.open') }}</a>
+                <button
+                  type="button"
+                  [disabled]="!file.canonicalFileId"
+                  (click)="copyPreviewCitation()"
+                  data-testid="files-preview-cite"
+                >{{ i18n.translate('files.preview.cite') }}</button>
+                <a
+                  class="files-page__preview-action"
+                  [attr.href]="researchHandoffHref()"
+                  [attr.aria-disabled]="!researchHandoffHref()"
+                  [attr.tabindex]="researchHandoffHref() ? 0 : -1"
+                  data-testid="files-preview-research"
+                >{{ i18n.translate('files.preview.addToResearch') }}</a>
+                @if (previewCanManageSharing()) {
+                  <button
+                    type="button"
+                    (click)="openSharingDialog()"
+                    data-testid="files-preview-manage-sharing"
+                  >{{ i18n.translate('files.sharing.manage') }}</button>
+                }
+                <details>
+                  <summary class="files-page__preview-action" [attr.aria-label]="i18n.translate('files.preview.moreActions')" data-testid="files-preview-more">…</summary>
+                  <button
+                    type="button"
+                    [disabled]="!previewCanDownload()"
+                    (click)="downloadPreviewFile()"
+                    data-testid="files-preview-download"
+                  >{{ i18n.translate('files.actions.download') }}</button>
+                </details>
+              </div>
+              @if (previewActionStatus()) {
+                <p role="status" aria-live="polite" data-testid="files-preview-action-status">{{ previewActionStatus() }}</p>
+              }
+
+              <div class="files-page__preview-body">
+                @if (previewState() === 'loading') {
+                  <p role="status" aria-live="polite" data-testid="files-preview-loading">{{ i18n.translate('files.preview.authorizing') }}</p>
+                } @else if (previewState() === 'failed') {
+                  <p role="alert" data-testid="files-preview-error">{{ previewMessage() }}</p>
+                } @else if (previewState() === 'unsupported') {
+                  <p role="status" data-testid="files-preview-unsupported">{{ previewMessage() }}</p>
+                } @else if (previewState() === 'ready') {
+                  @switch (previewRenderer()) {
+                    @case ('image') {
+                      <img
+                        class="files-page__preview-media"
+                        [src]="previewUrl()"
+                        [alt]="file.originalFileName"
+                        data-testid="files-preview-image"
+                      />
+                    }
+                    @case ('pdf') {
+                      <iframe
+                        class="files-page__preview-document"
+                        [src]="previewResourceUrl()"
+                        [title]="i18n.translate('files.preview.title', { name: file.originalFileName })"
+                        data-testid="files-preview-pdf"
+                      ></iframe>
+                    }
+                    @case ('video') {
+                      <video
+                        class="files-page__preview-media"
+                        [src]="previewUrl()"
+                        controls
+                        preload="metadata"
+                        data-testid="files-preview-video"
+                      ></video>
+                    }
+                    @case ('text') {
+                      <pre class="files-page__preview-text" data-testid="files-preview-text">{{ previewText() }}</pre>
+                    }
+                  }
+                  @if (previewMessage()) {
+                    <p class="files-page__preview-note" role="status">{{ previewMessage() }}</p>
+                  }
+                }
+              </div>
+            </section>
+          } @else if (inspectorTab() === 'details') {
+            <section
+              id="files-inspector-panel-details"
+              class="files-page__inspector-panel files-page__details"
+              role="tabpanel"
+              aria-labelledby="files-inspector-tab-details"
+              tabindex="0"
+              data-testid="files-inspector-panel-details"
+            >
+              <h3>{{ i18n.translate('files.details.title') }}</h3>
+              <dl>
+                <div><dt>{{ i18n.translate('files.details.type') }}</dt><dd>{{ i18n.fileContentTypeLabel(file.contentType) }}</dd></div>
+                <div><dt>{{ i18n.translate('files.details.size') }}</dt><dd>{{ formatBytes(file.sizeBytes) }}</dd></div>
+                <div><dt>{{ i18n.translate('files.details.owner') }}</dt><dd>{{ file.uploadedByDisplay }}</dd></div>
+                <div><dt>{{ i18n.translate('files.details.modified') }}</dt><dd>{{ fileModifiedLabel(file) }}</dd></div>
+                <div><dt>{{ i18n.translate('files.details.location') }}</dt><dd>{{ fileLocationLabel() }}</dd></div>
+                <div><dt>{{ i18n.translate('files.details.access') }}</dt><dd>{{ fileAccessLabel(file) }}</dd></div>
+              </dl>
+              <details class="files-page__details-secondary" data-testid="files-inspector-more-details">
+                <summary>{{ i18n.translate('files.details.more') }}</summary>
+                <dl>
+                  <div><dt>{{ i18n.translate('files.details.created') }}</dt><dd>{{ fileCreatedLabel(file) }}</dd></div>
+                  <div><dt>{{ i18n.translate('files.details.scanStatus') }}</dt><dd>{{ i18n.fileScanStatusLabel(file.scanStatus) }}</dd></div>
+                  <div><dt>{{ i18n.translate('files.details.fileId') }}</dt><dd>{{ file.canonicalFileId || i18n.translate('files.details.unavailable') }}</dd></div>
+                </dl>
+              </details>
+              <p class="files-page__details-note">
+                {{ i18n.translate('files.details.note') }}
+              </p>
+            </section>
+          } @else {
+            <section
+              id="files-inspector-panel-activity"
+              class="files-page__inspector-panel files-page__activity"
+              role="tabpanel"
+              aria-labelledby="files-inspector-tab-activity"
+              tabindex="0"
+              data-testid="files-inspector-panel-activity"
+            >
+              <app-file-activity-panel [file]="file" />
+            </section>
+          }
+        } @else {
+          <div class="files-page__preview-empty" data-testid="files-preview-empty">
+            <strong>{{ i18n.translate('files.preview.emptyTitle') }}</strong>
+            <span>{{ i18n.translate('files.preview.emptyDescription') }}</span>
+          </div>
+        }
+      </section>
+
       <app-attachment-picker-dialog
         [files]="vm.pickerFiles"
         [disabled]="true"
-        disabledMessage="Attachment picker is not available in MVP0."
+        [disabledMessage]="i18n.translate('files.picker.unavailable')"
       />
       <section class="files-page__policy" data-testid="file-policy">
-        <strong>Preview is not available in MVP0.</strong>
-        <span>Images, SVG, PDF, ZIP extraction, video playback, and streaming are not rendered in this screen.</span>
-        <span>CDN links, public links, and external signed URL sharing are disabled.</span>
-        <span>Opening a file uses backend authorization and a short-lived download grant until Preview is implemented.</span>
+        <strong>{{ i18n.translate('files.policy.authorization') }}</strong>
+        <span>{{ i18n.translate('files.policy.baseline') }}</span>
+        <span>{{ i18n.translate('files.policy.grant') }}</span>
+        <span>{{ i18n.translate('files.policy.unsupported') }}</span>
+        <span>{{ i18n.translate('files.policy.links') }}</span>
       </section>
     </aside>
   </div>
 </section>
 
+<app-file-move-dialog
+  [open]="moveDialogOpen()"
+  [fileObjectIds]="moveFolderId() ? [] : moveFileObjectIds()"
+  [folderId]="moveFolderId()"
+  (moved)="handleMoveCompleted()"
+  (dismissed)="closeMoveDialog()"
+/>
+
 <app-aip-dialog
   [open]="deleteDialogOpen()"
   [title]="deleteDialogTitle()"
   [description]="deleteDialogDescription()"
-  [confirmLabel]="deleteTargets().length === 1 ? 'Delete file' : 'Delete files'"
+  [confirmLabel]="deleteSelectionCount() === 1 ? i18n.translate('files.delete.confirmOne') : i18n.translate('files.delete.confirmMany')"
+  [cancelLabel]="i18n.translate('common.cancel')"
   [busy]="deleteBusy()"
   [destructive]="true"
   focusReturnFallbackId="files-normal-toolbar"
@@ -164,5 +551,98 @@
   (cancel)="closeDeleteDialog()"
   (closed)="closeDeleteDialog()"
 >
-  <p>This removes the selection from the active workspace inventory. The server rechecks authorization for every file.</p>
+  <p>{{ i18n.translate('files.delete.note') }}</p>
+</app-aip-dialog>
+
+<app-aip-dialog
+  [open]="sharingDialogOpen()"
+  [title]="i18n.translate('files.sharing.dialogTitle')"
+  [description]="sharingDialogFile() ? i18n.translate('files.sharing.dialogDescription', { name: sharingDialogFile()!.originalFileName }) : null"
+  [confirmLabel]="i18n.translate('files.sharing.done')"
+  [cancelLabel]="i18n.translate('common.cancel')"
+  [busy]="sharingBusy()"
+  [confirmDisabled]="false"
+  size="wide"
+  focusReturnFallbackId="files-preview-pane"
+  (confirm)="closeSharingDialog()"
+  (cancel)="closeSharingDialog()"
+  (closed)="closeSharingDialog()"
+>
+  @if (sharingError()) {
+    <p class="files-page__sharing-error" role="alert" data-testid="files-sharing-error">{{ sharingError() }}</p>
+  }
+  @if (sharingDetail(); as detail) {
+    <section class="files-page__sharing" [attr.aria-busy]="sharingBusy()" data-testid="files-sharing-dialog-content">
+      <p class="files-page__sharing-state" role="status" aria-live="polite">
+        {{ i18n.translate('files.sharing.currentState', { state: fileSharingLabel(sharingDialogFile()!) }) }}
+      </p>
+      @if (detail.canInspectSharing && detail.sharing.canManageSharing) {
+        <label class="files-page__sharing-policy">
+          <input
+            type="checkbox"
+            [checked]="detail.shareWithWorkspace"
+            [disabled]="!sharingDialogCanEdit()"
+            (change)="updateSharingWorkspace($any($event.target).checked)"
+            data-testid="files-sharing-workspace-toggle"
+          />
+          <span>{{ i18n.translate('files.sharing.workspaceToggle') }}</span>
+        </label>
+        <p>{{ i18n.translate('files.sharing.workspaceToggleHelp') }}</p>
+
+        <section class="files-page__sharing-section" aria-labelledby="files-sharing-recipients-title">
+          <h3 id="files-sharing-recipients-title">{{ i18n.translate('files.sharing.recipients') }}</h3>
+          @if (detail.recipients.length === 0) {
+            <p>{{ i18n.translate('files.sharing.noRecipients') }}</p>
+          } @else {
+            <ul class="files-page__sharing-recipient-list" data-testid="files-sharing-recipients">
+              @for (recipient of detail.recipients; track recipient.grantId) {
+                <li>
+                  <span>{{ recipient.displayName }} — {{ recipient.accessKind === 'externalProjectMember' ? i18n.translate('files.sharing.externalRecipient') : i18n.translate('files.sharing.workspaceRecipient') }}</span>
+                  <button
+                    type="button"
+                    [disabled]="!sharingDialogCanEdit()"
+                    (click)="revokeSharingRecipient(recipient.grantId)"
+                    data-testid="files-sharing-revoke"
+                  >{{ i18n.translate('files.sharing.revoke') }}</button>
+                </li>
+              }
+            </ul>
+          }
+        </section>
+
+        <section class="files-page__sharing-section" aria-labelledby="files-sharing-add-title">
+          <h3 id="files-sharing-add-title">{{ i18n.translate('files.sharing.addRecipient') }}</h3>
+          <div class="files-page__sharing-add-controls">
+            <label>
+              <span>{{ i18n.translate('files.sharing.recipientLabel') }}</span>
+              <select
+                [value]="sharingSelectedRecipientId()"
+                [disabled]="!sharingDialogCanEdit()"
+                (change)="updateSharingRecipient($event)"
+                data-testid="files-sharing-recipient-select"
+              >
+                <option value="">{{ i18n.translate('files.sharing.selectRecipient') }}</option>
+                @for (candidate of detail.availableRecipients; track candidate.userId) {
+                  <option [value]="candidate.userId">
+                    {{ candidate.displayName }} — {{ candidate.accessKind === 'externalProjectMember' ? i18n.translate('files.sharing.externalRecipient') : i18n.translate('files.sharing.workspaceRecipient') }}
+                  </option>
+                }
+              </select>
+            </label>
+            <button
+              type="button"
+              [disabled]="!sharingDialogCanEdit() || !sharingSelectedRecipientId()"
+              (click)="grantSharingRecipient()"
+              data-testid="files-sharing-grant"
+            >{{ i18n.translate('files.sharing.grant') }}</button>
+          </div>
+          <p>{{ i18n.translate('files.sharing.recipientHelp') }}</p>
+        </section>
+      } @else {
+        <p role="alert">{{ i18n.translate('files.sharing.permissionChanged') }}</p>
+      }
+    </section>
+  } @else if (!sharingBusy() && !sharingError()) {
+    <p role="status">{{ i18n.translate('files.sharing.loadFailed') }}</p>
+  }
 </app-aip-dialog>

@@ -181,9 +181,10 @@ member; detail, Search, and subordinate reads remain hidden. The shared scope
 preserves explicit ProjectMember, authorized GroupMember,
 Workspace Owner/Admin, ungrouped ordinary-member, and current SystemAdmin
 access while denying an ordinary member outside a grouped Project/Group and a
-revoked member with stale subordinate rows. PostgreSQL Message Search composes
-the authoritative recursive readable-Conversation ID relation over all
-matching Messages before `CreatedAt DESC, Id ASC` ordering and `Take(100)`;
+revoked member with stale subordinate rows. PostgreSQL Message Search resolves
+the complete authoritative recursive readable-Conversation ID set, then
+intersects it with all matching Messages before `CreatedAt DESC, Id ASC`
+ordering and `Take(100)`;
 there is no arbitrary pre-authorization Conversation subset. Production
 PostgreSQL detail, pages, counts, polling, and Message Search use the same
 set-based ancestry relation; missing identity, inconsistent Workspace/Project/

@@ -4,7 +4,7 @@ namespace AipPortal.Application.Messaging;
 
 public interface IConversationService
 {
-    Task<Result<PagedResponse<ConversationListItemResponse>>> ListAsync(ConversationListQuery query, CancellationToken cancellationToken = default);
+    Task<Result<ConversationInboxResponse>> ListAsync(ConversationListQuery query, CancellationToken cancellationToken = default);
     Task<Result<IReadOnlyList<ConversationRecipientResponse>>> ListRecipientsAsync(string? query, CancellationToken cancellationToken = default);
     Task<Result<ConversationDetailResponse>> CreateDirectAsync(CreateDirectConversationRequest request, CancellationToken cancellationToken = default);
     Task<Result<ConversationDetailResponse>> CreateAsync(CreateConversationRequest request, CancellationToken cancellationToken = default);
@@ -19,7 +19,7 @@ public interface IConversationService
     Task<Result> RemoveMemberAsync(Guid conversationId, Guid userId, CancellationToken cancellationToken = default);
     Task<Result<PagedResponse<MessageResponse>>> ListMessagesAsync(Guid conversationId, MessageListQuery query, CancellationToken cancellationToken = default);
     Task<Result<MessageResponse>> SendMessageAsync(Guid conversationId, SendMessageRequest request, CancellationToken cancellationToken = default);
-    Task<Result<MessageThreadResponse>> GetMessageThreadAsync(Guid messageId, CancellationToken cancellationToken = default);
+    Task<Result<MessageThreadResponse>> GetMessageThreadAsync(Guid messageId, Guid? anchorReplyMessageId = null, CancellationToken cancellationToken = default);
     Task<Result<ThreadMessageCreatedResponse>> SendThreadMessageAsync(Guid messageId, SendThreadMessageRequest request, CancellationToken cancellationToken = default);
     Task<Result<MessageResponse>> UpdateMessageAsync(Guid messageId, UpdateMessageRequest request, CancellationToken cancellationToken = default);
     Task<Result> DeleteMessageAsync(Guid messageId, CancellationToken cancellationToken = default);

@@ -156,6 +156,41 @@ public sealed class WpcFinal03FileAuthorizationTests
         Assert.Equal(1, workspaceAuthorization.ContributeCalls);
     }
 
+    [Fact]
+    public async Task DirectWorkspacePrivateFileDeniesUnauthorisedReadAndAllowsOnlyAnEffectiveServerGrant()
+    {
+        var workspaceId = Guid.NewGuid();
+        var recipientUserId = Guid.NewGuid();
+        var workspaceAuthorization = new WorkspaceAuthorizationStub { CanViewResult = false };
+        var grants = new FileAccessGrantRepositoryStub { HasEffectiveGrantResult = false };
+        var service = new FileAuthorizationService(
+            new FileRepositoryStub(new FileOwnerContext(workspaceId)),
+            null!,
+            null!,
+            null!,
+            workspaceAuthorization,
+            grants);
+        var attachment = NewWorkspaceAttachment(workspaceId, Guid.NewGuid(), Guid.NewGuid());
+        attachment.FileObject = new FileObject
+        {
+            Id = attachment.FileObjectId,
+            TenantId = attachment.TenantId,
+            WorkspaceId = workspaceId,
+            UploadedByUserId = attachment.UploadedByUserId,
+            SharingPolicy = FileSharingPolicy.Private,
+        };
+
+        Assert.False(await service.CanViewAttachment(recipientUserId, attachment));
+        Assert.False(await service.CanDownloadAttachment(recipientUserId, attachment));
+
+        grants.HasEffectiveGrantResult = true;
+
+        Assert.True(await service.CanViewAttachment(recipientUserId, attachment));
+        Assert.True(await service.CanDownloadAttachment(recipientUserId, attachment));
+        Assert.True(grants.HasEffectiveGrantCalls >= 4);
+        Assert.Equal(2, workspaceAuthorization.ViewCalls);
+    }
+
     private static FileAuthorizationService CreateService(
         Guid projectId,
         IProjectAuthorizationService projectAuthorization) =>
@@ -271,10 +306,15 @@ public sealed class WpcFinal03FileAuthorizationTests
     private sealed class WorkspaceAuthorizationStub : IWorkspaceAuthorizationService
     {
         public bool CanContributeResult { get; init; }
+        public bool CanViewResult { get; init; }
         public int ContributeCalls { get; private set; }
+        public int ViewCalls { get; private set; }
 
-        public Task<bool> CanViewWorkspace(Guid userId, Guid workspaceId, CancellationToken cancellationToken = default) =>
-            Task.FromResult(false);
+        public Task<bool> CanViewWorkspace(Guid userId, Guid workspaceId, CancellationToken cancellationToken = default)
+        {
+            ViewCalls++;
+            return Task.FromResult(CanViewResult);
+        }
 
         public Task<bool> CanContributeWorkspace(Guid userId, Guid workspaceId, CancellationToken cancellationToken = default)
         {
@@ -287,5 +327,34 @@ public sealed class WpcFinal03FileAuthorizationTests
 
         public Task<bool> CanCreateWorkspace(Guid userId, Guid tenantId, CancellationToken cancellationToken = default) =>
             Task.FromResult(false);
+    }
+
+    private sealed class FileAccessGrantRepositoryStub : IFileAccessGrantRepository
+    {
+        public bool HasEffectiveGrantResult { get; set; }
+        public int HasEffectiveGrantCalls { get; private set; }
+
+        public Task<bool> HasEffectiveGrantAsync(Guid fileObjectId, Guid userId, CancellationToken cancellationToken = default)
+        {
+            HasEffectiveGrantCalls++;
+            return Task.FromResult(HasEffectiveGrantResult);
+        }
+
+        public Task<Attachment?> GetWorkspaceAttachmentAsync(Guid fileObjectId, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+        public Task<IReadOnlyDictionary<Guid, FileAccessGrantSummary>> GetEffectiveSummariesAsync(IReadOnlyCollection<Guid> fileObjectIds, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+        public Task<IReadOnlyList<FileAccessGrantRecipient>> ListEffectiveRecipientsAsync(Guid fileObjectId, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+        public Task<IReadOnlyList<FileAccessGrantCandidate>> ListEligibleRecipientsAsync(Guid workspaceId, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+        public Task<FileAccessGrantCandidate?> FindEligibleRecipientAsync(Guid workspaceId, Guid userId, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+        public Task<FileAccessGrant?> GetActiveGrantAsync(Guid fileObjectId, Guid grantId, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+        public Task<FileAccessGrant?> GetActiveGrantForRecipientAsync(Guid fileObjectId, Guid recipientUserId, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+        public Task AddAsync(FileAccessGrant grant, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
     }
 }

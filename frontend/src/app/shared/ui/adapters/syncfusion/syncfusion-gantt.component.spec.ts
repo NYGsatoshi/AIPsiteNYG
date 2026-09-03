@@ -26,11 +26,11 @@ import {
 describe('SyncfusionGanttComponent adapter boundary', () => {
   it('loads lazy Gantt theme assets in official dependency order', () => {
     expect(SYNCFUSION_GANTT_THEME_ASSETS).toEqual([
-      'assets/vendor/syncfusion/base/material.css',
-      'assets/vendor/syncfusion/treegrid/material.css',
-      'assets/vendor/syncfusion/layouts/material.css',
-      'assets/vendor/syncfusion/popups/material.css',
-      'assets/vendor/syncfusion/gantt/material.css'
+      'assets/vendor/syncfusion/base/material3.css',
+      'assets/vendor/syncfusion/treegrid/material3.css',
+      'assets/vendor/syncfusion/layouts/material3.css',
+      'assets/vendor/syncfusion/popups/material3.css',
+      'assets/vendor/syncfusion/gantt/material3.css'
     ]);
   });
 
@@ -85,6 +85,35 @@ describe('SyncfusionGanttComponent adapter boundary', () => {
     const milestone = dataSource.find((item) => item.taskId === 'milestone-1')!;
     expect(formatGanttDateOnly(milestone.startDate)).toBe('2026-07-15');
     expect(formatGanttDateOnly(milestone.endDate)).toBe('2026-07-15');
+  });
+
+  it('keeps unscheduled canonical Tasks in the vendor projection with null dates', () => {
+    const component = new SyncfusionGanttComponent();
+    const contract = ganttContract();
+    const unscheduled = item({
+      taskId: 'task-unscheduled',
+      title: 'Unscheduled',
+      plannedStartDate: null,
+      plannedEndDate: null,
+      version: 11
+    });
+    component.contract = {
+      ...contract,
+      scheduledItems: [],
+      unscheduledItems: [unscheduled],
+      canonicalMilestones: [],
+      dependencies: []
+    };
+
+    expect(component.dataSource).toEqual([
+      expect.objectContaining({
+        taskId: 'task-unscheduled',
+        startDate: null,
+        endDate: null,
+        isMilestone: false,
+        isManual: true
+      })
+    ]);
   });
 
   it('emits canonical pointer schedule and progress intents without vendor types', () => {

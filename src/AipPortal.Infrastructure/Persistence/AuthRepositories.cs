@@ -44,6 +44,30 @@ public sealed class InviteRepository(AppDbContext dbContext) : IInviteRepository
     {
         return dbContext.Invites.FirstOrDefaultAsync(invite => invite.TokenHash == tokenHash, cancellationToken);
     }
+
+    public async Task<Invite?> GetByTokenHashForUpdateAsync(string tokenHash, CancellationToken cancellationToken = default)
+    {
+        if (!dbContext.Database.IsRelational() || dbContext.Database.CurrentTransaction is null)
+        {
+            return await GetByTokenHashAsync(tokenHash, cancellationToken);
+        }
+
+        // Resolve through EF first so the normal Tenant query filter remains the
+        // visibility boundary. Only a visible Invite is then locked by primary key.
+        // Reloading after FOR UPDATE is required because another transaction may
+        // have committed AcceptedAt while this transaction was waiting for the lock.
+        var invite = await GetByTokenHashAsync(tokenHash, cancellationToken);
+        if (invite is null)
+        {
+            return null;
+        }
+
+        await dbContext.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT 1 FROM invites WHERE \"Id\" = {invite.Id} FOR UPDATE",
+            cancellationToken);
+        await dbContext.Entry(invite).ReloadAsync(cancellationToken);
+        return invite;
+    }
 }
 
 public sealed class SessionRepository(AppDbContext dbContext) : ISessionRepository
@@ -92,26 +116,74 @@ public sealed class SessionRepository(AppDbContext dbContext) : ISessionReposito
     }
 }
 
-public sealed class EfUnitOfWork(AppDbContext dbContext) : IUnitOfWork, ITaskCommandUnitOfWork
+public sealed class EfUnitOfWork(
+    AppDbContext dbContext,
+    ITaskExecutionScopeRepository? taskExecutionScopes = null) : IUnitOfWork, ITaskCommandUnitOfWork
 {
-    public void ClearTaskCommandTracking() => dbContext.ChangeTracker.Clear();
-
-    public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    public void ClearTaskCommandTracking()
     {
-        return dbContext.SaveChangesAsync(cancellationToken);
+        dbContext.ChangeTracker.Clear();
+        taskExecutionScopes?.ClearPendingSourcePolicyDocuments();
+    }
+
+    public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) =>
+        SaveWithPolicyDocumentsAsync(cancellationToken);
+
+    public async Task<T> ExecuteInTransactionAsync<T>(
+        Func<CancellationToken, Task<T>> operation,
+        CancellationToken cancellationToken = default)
+    {
+        if (!dbContext.Database.IsRelational() || dbContext.Database.CurrentTransaction is not null)
+        {
+            return await operation(cancellationToken);
+        }
+
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            var result = await operation(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return result;
+        }
+        catch
+        {
+            await transaction.RollbackAsync(CancellationToken.None);
+            ClearTaskCommandTracking();
+            throw;
+        }
+    }
+
+    public async Task LockInviteAcceptanceMembershipsAsync(
+        Guid tenantId,
+        Guid workspaceId,
+        Guid userId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!dbContext.Database.IsRelational() || dbContext.Database.CurrentTransaction is null)
+        {
+            return;
+        }
+
+        // Keep lock ordering stable across every Invite acceptance. This prevents a
+        // concurrent Tenant/Workspace suspension from being read as an older state
+        // and then overwritten by acceptance after the administrator commits.
+        await dbContext.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT 1 FROM tenant_users WHERE \"TenantId\" = {tenantId} AND \"UserId\" = {userId} FOR UPDATE",
+            cancellationToken);
+        await dbContext.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT 1 FROM workspace_members WHERE \"WorkspaceId\" = {workspaceId} AND \"UserId\" = {userId} FOR UPDATE",
+            cancellationToken);
     }
 
     public async Task<TaskCommandSaveOutcome> SaveTaskCommandAsync(CancellationToken cancellationToken = default)
     {
         try
         {
-            await dbContext.SaveChangesAsync(cancellationToken);
+            await SaveWithPolicyDocumentsAsync(cancellationToken);
             return TaskCommandSaveResult.Saved;
         }
         catch (DbUpdateConcurrencyException)
         {
-            // A failed EF save leaves original values and Added audit/outbox rows tracked.
-            // This context is request-scoped, but clearing also makes a same-request retry safe.
             ClearTaskCommandTracking();
             return TaskCommandSaveResult.ConcurrencyConflict;
         }
@@ -120,10 +192,50 @@ public sealed class EfUnitOfWork(AppDbContext dbContext) : IUnitOfWork, ITaskCom
                 SqlState: PostgresErrorCodes.UniqueViolation
             } postgres)
         {
-            // A concurrent create can race a unique Task subresource constraint.
-            // Nothing from the attempted command, audit, or outbox may remain tracked.
             ClearTaskCommandTracking();
             return new TaskCommandSaveOutcome(TaskCommandSaveResult.UniqueConflict, postgres.ConstraintName);
+        }
+        catch
+        {
+            taskExecutionScopes?.ClearPendingSourcePolicyDocuments();
+            throw;
+        }
+    }
+
+    private async Task<int> SaveWithPolicyDocumentsAsync(CancellationToken cancellationToken)
+    {
+        if (taskExecutionScopes?.HasPendingSourcePolicyDocuments != true)
+        {
+            return await dbContext.SaveChangesAsync(cancellationToken);
+        }
+
+        if (!dbContext.Database.IsRelational())
+        {
+            var nonRelationalCount = await dbContext.SaveChangesAsync(cancellationToken);
+            await taskExecutionScopes.FlushPendingSourcePolicyDocumentsAsync(cancellationToken);
+            return nonRelationalCount;
+        }
+
+        if (dbContext.Database.CurrentTransaction is not null)
+        {
+            var nestedCount = await dbContext.SaveChangesAsync(cancellationToken);
+            await taskExecutionScopes.FlushPendingSourcePolicyDocumentsAsync(cancellationToken);
+            return nestedCount;
+        }
+
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            var count = await dbContext.SaveChangesAsync(cancellationToken);
+            await taskExecutionScopes.FlushPendingSourcePolicyDocumentsAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return count;
+        }
+        catch
+        {
+            await transaction.RollbackAsync(CancellationToken.None);
+            taskExecutionScopes.ClearPendingSourcePolicyDocuments();
+            throw;
         }
     }
 }

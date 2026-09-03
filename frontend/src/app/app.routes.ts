@@ -44,6 +44,13 @@ export const routes: Routes = [
         redirectTo: 'workspaces'
       },
       {
+        path: 'messages/saved',
+        loadComponent: () =>
+          import('./features/messaging/message-follow-ups-page/message-follow-ups-page.component').then(
+            (m) => m.MessageFollowUpsPageComponent
+          )
+      },
+      {
         path: 'messages/settings',
         loadComponent: () =>
           import('./features/messaging/message-settings-page/message-settings-page.component').then(
@@ -129,6 +136,22 @@ export const routes: Routes = [
           )
       },
       {
+        path: 'app/projects/:projectId/tasks/:taskId/reports/:artifactVersionId',
+        loadComponent: () => import('./features/artifacts/report-reader-page/report-reader-page.component').then((m) => m.ReportReaderPageComponent)
+      },
+      {
+        path: 'app/projects/:projectId/reports/:artifactVersionId',
+        loadComponent: () => import('./features/artifacts/report-reader-page/report-reader-page.component').then((m) => m.ReportReaderPageComponent)
+      },
+      {
+        path: 'projects/:projectId/tasks/:taskId/reports/:artifactVersionId',
+        loadComponent: () => import('./features/artifacts/report-reader-page/report-reader-page.component').then((m) => m.ReportReaderPageComponent)
+      },
+      {
+        path: 'projects/:projectId/reports/:artifactVersionId',
+        loadComponent: () => import('./features/artifacts/report-reader-page/report-reader-page.component').then((m) => m.ReportReaderPageComponent)
+      },
+      {
         path: 'projects/:projectId/tasks/new',
         loadComponent: () =>
           import('./features/projects/task-create-page/task-create-page.component').then(
@@ -177,6 +200,20 @@ export const routes: Routes = [
         path: 'account',
         loadComponent: () =>
           import('./features/account/account-page/account-page.component').then((m) => m.AccountPageComponent)
+      },
+      {
+        path: 'admin/audit/findings',
+        loadComponent: () =>
+          import('./features/admin/audit-findings-page/audit-findings-page.component').then(
+            (m) => m.AuditFindingsPageComponent
+          )
+      },
+      {
+        path: 'admin/audit/claims-evidence',
+        loadComponent: () =>
+          import('./features/admin/audit-claims-evidence-page/audit-claims-evidence-page.component').then(
+            (m) => m.AuditClaimsEvidencePageComponent
+          )
       },
       {
         path: 'admin/audit',

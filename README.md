@@ -1,5 +1,18 @@
 # AIPsiteNYG
-### 仕様に関しては全て[AIPsiteNYGspec](https://github.com/NYGsatoshi/AIPsiteNYGspec)に従うこと
+
+> [!IMPORTANT]
+> **Public source, not open source.** This repository is made visible for
+> transparency, technical evaluation, portfolio review, and CI. No permission
+> is granted to use, copy, modify, redistribute, sublicense, commercially
+> exploit, or create derivative works from repository-owned material except as
+> required by GitHub's Terms of Service or applicable law. See
+> [COPYRIGHT.md](COPYRIGHT.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
+
+### Specification status
+
+The authoritative specification is maintained separately. Its visibility and
+source terms are independent from this repository; an inaccessible
+specification link must not be treated as permission to use this code.
 
 
 AIPsiteNYG is a tenant-aware school and organization portal implemented as a .NET 10 ASP.NET Core modular monolith.
@@ -32,7 +45,7 @@ Project documentation uses these labels:
 | Object storage | Planned | Config names exist, but `UnsupportedObjectStorageService` is used |
 | Tenant metadata export | Partially implemented | ZIP metadata export exists; file bodies and restore do not |
 | Webhooks and API tokens | Foundation only | Management/validation code exists; no outbound delivery or request authentication middleware |
-| Docker Compose | Partially implemented | Local profile includes migrations; on-prem profile does not |
+| Docker Compose | Partially implemented | Root, local, and on-prem profiles use a controlled SDK migration service; the on-prem profile still requires an external TLS/reverse-proxy topology and fresh-stack runtime evidence |
 
 See [AI context](docs/AI_CONTEXT.md) for the full status matrix and [known issues](docs/KNOWN_ISSUES.md) before planning work.
 See [backend logic audit](docs/BACKEND_LOGIC_AUDIT.md) for controller, service, validation, error-handling, file, project, messaging, announcement, DI, and HTTP-status findings.
@@ -168,6 +181,7 @@ See [testing](docs/TESTING.md) for exact interpretation.
 - [Coding rules](docs/CODING_RULES.md)
 - [API conventions](docs/API_CONTRACTS.md)
 - [Operations](docs/OPERATIONS.md)
+- [Reproducible synthetic demo dataset](docs/demo-dataset.md)
 - [Roadmap](docs/ROADMAP.md)
 - [Archive index](docs/archive/README.md)
 

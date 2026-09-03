@@ -11,6 +11,8 @@ import { FilesFacade } from './files.facade';
 
 const FILE_OBJECT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const OTHER_FILE_OBJECT_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+const WORKSPACE_ID = '11111111-1111-4111-8111-111111111111';
+const USER_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 
 describe('FilesFacade paging query state', () => {
   let facade: FilesFacade;
@@ -20,6 +22,7 @@ describe('FilesFacade paging query state', () => {
   const continueWorkingHistory = { touchFile: vi.fn() };
 
   beforeEach(() => {
+    window.localStorage.setItem('aip.locale', 'en');
     clearProtectedState = undefined;
     activeWorkspaceState = signal<{ readonly id: string; readonly label: string } | null>(null);
     continueWorkingHistory.touchFile.mockReset();
@@ -42,7 +45,11 @@ describe('FilesFacade paging query state', () => {
     http = TestBed.inject(HttpTestingController);
   });
 
-  afterEach(() => { http.verify(); TestBed.resetTestingModule(); });
+  afterEach(() => {
+    window.localStorage.removeItem('aip.locale');
+    http.verify();
+    TestBed.resetTestingModule();
+  });
 
   it('keeps existing picker candidates and retries the failed second page', () => {
     facade.loadPickerFilesForWorkspace('workspace-a');
@@ -115,6 +122,66 @@ describe('FilesFacade paging query state', () => {
       workspaceId: null,
       files: [],
       totalCount: 0,
+    });
+  });
+
+  it('uses backend File search as the result and count owner for every applied facet', () => {
+    activeWorkspaceState.set({ id: WORKSPACE_ID, label: 'Workspace A' });
+    facade.loadPageFilesForWorkspace(WORKSPACE_ID);
+    http.expectOne(request => request.url === '/api/files').flush({
+      items: [file('inventory-file')], page: 1, pageSize: 50, totalCount: 1, hasMore: false,
+    });
+
+    facade.searchFilesForWorkspace(WORKSPACE_ID, {
+      query: 'report', kind: 'pdf', modified: 'last30Days', owner: 'me',
+    }, USER_ID);
+
+    const request = http.expectOne(candidate => candidate.url === '/api/search');
+    expect(request.request.withCredentials).toBe(true);
+    expect(request.request.params.get('type')).toBe('File');
+    expect(request.request.params.get('workspaceId')).toBe(WORKSPACE_ID);
+    expect(request.request.params.get('q')).toBe('report');
+    expect(request.request.params.get('fileKind')).toBe('Pdf');
+    expect(request.request.params.get('fromDate')).toBeTruthy();
+    expect(request.request.params.get('authorUserId')).toBe(USER_ID);
+    request.flush(searchResponse(WORKSPACE_ID));
+
+    expect(facade.search()).toMatchObject({
+      status: 'ready', workspaceId: WORKSPACE_ID, totalCount: 73, page: 1, hasMore: true,
+    });
+    expect(facade.search().files.map(item => item.canonicalFileId)).toEqual([FILE_OBJECT_ID]);
+    expect(facade.page().recentFiles.map(item => item.id)).toEqual(['inventory-file']);
+  });
+
+  it('fails closed on a mismatched search record instead of exposing its row or count', () => {
+    activeWorkspaceState.set({ id: WORKSPACE_ID, label: 'Workspace A' });
+    facade.loadPageFilesForWorkspace(WORKSPACE_ID);
+    http.expectOne(request => request.url === '/api/files').flush({ items: [], page: 1, pageSize: 50, totalCount: 0 });
+
+    facade.searchFilesForWorkspace(WORKSPACE_ID, {
+      query: 'report', kind: 'all', modified: 'any', owner: 'any',
+    }, USER_ID);
+    http.expectOne(request => request.url === '/api/search').flush(searchResponse('22222222-2222-4222-8222-222222222222'));
+
+    expect(facade.search()).toMatchObject({ status: 'error', files: [], totalCount: 0 });
+    expect(facade.search().message).toContain('mismatched');
+  });
+
+  it('cancels File search and synchronously removes query, rows, and counts on authorization invalidation', () => {
+    activeWorkspaceState.set({ id: WORKSPACE_ID, label: 'Workspace A' });
+    facade.loadPageFilesForWorkspace(WORKSPACE_ID);
+    http.expectOne(request => request.url === '/api/files').flush({ items: [], page: 1, pageSize: 50, totalCount: 0 });
+    facade.searchFilesForWorkspace(WORKSPACE_ID, {
+      query: 'sensitive report', kind: 'pdf', modified: 'any', owner: 'any',
+    }, USER_ID);
+    const pending = http.expectOne(request => request.url === '/api/search');
+
+    clearProtectedState?.();
+
+    expect(pending.cancelled).toBe(true);
+    expect(facade.search()).toMatchObject({
+      status: 'idle', workspaceId: null, files: [], totalCount: 0,
+      filters: { query: '', kind: 'all', modified: 'any', owner: 'any' },
     });
   });
 
@@ -331,6 +398,27 @@ describe('FilesFacade paging query state', () => {
       createdAt: '2026-07-24T00:00:00Z',
       updatedAt: '2026-07-25T00:00:00Z',
       canDelete,
+    };
+  }
+
+  function searchResponse(workspaceId: string) {
+    return {
+      page: 1,
+      pageSize: 50,
+      totalCount: 73,
+      items: [{
+        type: 13,
+        id: FILE_OBJECT_ID,
+        title: 'report.pdf',
+        workspaceId,
+        createdAt: '2026-08-20T00:00:00Z',
+        updatedAt: '2026-08-28T00:00:00Z',
+        authorDisplayName: 'Current User',
+        contentType: 'application/pdf',
+        sizeBytes: 2048,
+        status: 'Active',
+        scanStatus: 'Allowed',
+      }],
     };
   }
 });

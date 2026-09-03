@@ -78,6 +78,67 @@ public sealed class AnnouncementReadConfiguration : IEntityTypeConfiguration<Ann
     }
 }
 
+public sealed class AnnouncementDraftConfiguration : IEntityTypeConfiguration<AnnouncementDraft>
+{
+    public void Configure(EntityTypeBuilder<AnnouncementDraft> builder)
+    {
+        builder.ToTable("announcement_drafts");
+        builder.ConfigureAuditableEntity();
+
+        builder.Property(draft => draft.Title).HasMaxLength(200).IsRequired();
+        builder.Property(draft => draft.Body).HasMaxLength(20000).IsRequired();
+        builder.Property(draft => draft.Priority).HasEnumStringConversion().IsRequired();
+        builder.Property(draft => draft.Status).HasEnumStringConversion().IsRequired();
+        builder.Property(draft => draft.VersionNo).IsConcurrencyToken().IsRequired();
+        builder.Property(draft => draft.ScheduleTimeZoneId).HasMaxLength(80);
+        builder.Property(draft => draft.ScheduleLocalDateTime).HasColumnType("timestamp without time zone");
+        builder.Property(draft => draft.PublicationClaimOwner).HasMaxLength(160);
+        builder.Property(draft => draft.LastPublicationFailureCode).HasMaxLength(80);
+
+        builder.HasIndex(draft => draft.AuthorUserId);
+        builder.HasIndex(draft => new { draft.TenantId, draft.AuthorUserId, draft.Status, draft.UpdatedAt });
+        builder.HasIndex(draft => new
+        {
+            draft.TenantId,
+            draft.Status,
+            draft.ScheduledForUtc,
+            draft.NextPublicationAttemptAtUtc,
+            draft.PublicationClaimExpiresAtUtc
+        });
+        builder.HasIndex(draft => draft.PublishedAnnouncementId).IsUnique();
+
+        builder
+            .HasOne(draft => draft.AuthorUser)
+            .WithMany()
+            .HasForeignKey(draft => draft.AuthorUserId)
+            .OnDelete(DeleteBehavior.Restrict);
+        builder
+            .HasOne(draft => draft.Workspace)
+            .WithMany()
+            .HasForeignKey(draft => draft.WorkspaceId)
+            // A durable selected target must not silently turn into a global
+            // target if a parent is physically removed. Soft lifecycle state
+            // still makes it fail authorization; a physical delete is
+            // restricted until the retained draft is handled explicitly.
+            .OnDelete(DeleteBehavior.Restrict);
+        builder
+            .HasOne(draft => draft.Group)
+            .WithMany()
+            .HasForeignKey(draft => draft.GroupId)
+            .OnDelete(DeleteBehavior.Restrict);
+        builder
+            .HasOne(draft => draft.Channel)
+            .WithMany()
+            .HasForeignKey(draft => draft.ChannelId)
+            .OnDelete(DeleteBehavior.Restrict);
+        builder
+            .HasOne(draft => draft.PublishedAnnouncement)
+            .WithMany()
+            .HasForeignKey(draft => draft.PublishedAnnouncementId)
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
 public sealed class NotificationConfiguration : IEntityTypeConfiguration<Notification>
 {
     public void Configure(EntityTypeBuilder<Notification> builder)

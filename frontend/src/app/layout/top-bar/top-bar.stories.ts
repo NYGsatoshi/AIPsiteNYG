@@ -1,3 +1,4 @@
+import { provideHttpClient } from '@angular/common/http';
 import { provideRouter } from '@angular/router';
 import { applicationConfig, type Meta, type StoryObj } from '@storybook/angular';
 
@@ -15,7 +16,7 @@ const meta: Meta<TopBarComponent> = {
   component: TopBarComponent,
   decorators: [
     applicationConfig({
-      providers: [provideRouter([])]
+      providers: [provideRouter([]), provideHttpClient()]
     })
   ],
   args: {
@@ -28,6 +29,15 @@ const meta: Meta<TopBarComponent> = {
     runningProjectCount: 2,
     needsReviewProjectCount: 1,
     canOpenWorkspaceMembers: true,
+    hasExternalShares: true,
+    externalShareCount: 2,
+    memberPreview: [
+      { id: 'member-a', displayName: 'Alice' },
+      { id: 'member-b', displayName: 'Bob' },
+      { id: 'member-c', displayName: 'Carol' }
+    ],
+    canInspectWorkspaceSharing: true,
+    canManageWorkspaceSharing: true,
     sessionStatus: 'active',
     rightPanelMode: 'collapsed'
   }

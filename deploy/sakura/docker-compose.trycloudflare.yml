@@ -1,0 +1,15 @@
+services:
+  web:
+    environment:
+      # Cloudflare Quick Tunnel can present a longer X-Forwarded-For chain than
+      # X-Forwarded-Proto/X-Forwarded-Host. Keep the explicit trusted network and
+      # ForwardLimit=1 from the base deployment, but do not require equal counts.
+      ReverseProxy__RequireHeaderSymmetry: "false"
+    ports:
+      - "127.0.0.1:${TRYCLOUDFLARE_ORIGIN_PORT:-18080}:8080"
+
+  caddy:
+    # Quick Tunnel terminates TLS outside Compose and reaches the loopback origin,
+    # so the bundled Caddy service is not started unless explicitly requested.
+    profiles:
+      - caddy

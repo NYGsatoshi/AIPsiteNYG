@@ -1,0 +1,44 @@
+name: NuGet Dependency Submission
+
+# TEMPORARY CONTEST MODE: dependency submission is metadata publication, not a
+# merge-safety gate. Keep it available manually while runner capacity is scarce.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: nuget-dependency-submission-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  submit-nuget:
+    name: submit-nuget
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Prove runner routing
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "runner.name=${RUNNER_NAME}"
+          echo "runner.os=${RUNNER_OS}"
+          echo "runner.arch=${RUNNER_ARCH}"
+          echo "runner.environment=${RUNNER_ENVIRONMENT}"
+          if [[ "${RUNNER_ENVIRONMENT}" != "self-hosted" ]]; then
+            echo "Unexpected runner environment: ${RUNNER_ENVIRONMENT}" >&2
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Submit NuGet dependency snapshot
+        uses: advanced-security/component-detection-dependency-submission-action@v0.1.4
+        with:
+          filePath: '.'
+          detectorsCategories: NuGet
+          correlator: nuget-self-hosted

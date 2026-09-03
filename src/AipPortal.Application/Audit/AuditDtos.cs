@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using AipPortal.Domain.Enums;
 
 namespace AipPortal.Application.Audit;
@@ -12,7 +13,11 @@ public sealed record AuditLogQuery(
     DateTimeOffset? FromDate = null,
     DateTimeOffset? ToDate = null,
     int Page = 1,
-    int PageSize = 20);
+    int PageSize = 20,
+    string? Q = null,
+    string? Actor = null,
+    string? Severity = null,
+    string? Result = null);
 
 public sealed record AuditLogListItemResponse(
     Guid Id,
@@ -40,6 +45,16 @@ public sealed record AuditGridRowResponse(
     string Result,
     string Summary,
     string? RequestId);
+
+/// <summary>
+/// Exact-event disclosure contract for the stored, redacted Audit metadata.
+/// Metadata is a JSON object rather than the persisted JSON string so clients
+/// cannot accidentally render or reparse an unreviewed transport payload.
+/// </summary>
+public sealed record AuditSensitiveMetadataResponse(
+    Guid AuditId,
+    JsonObject Metadata,
+    bool RedactionApplied);
 
 public sealed record SecurityEventQuery(
     SecurityEventType? EventType = null,

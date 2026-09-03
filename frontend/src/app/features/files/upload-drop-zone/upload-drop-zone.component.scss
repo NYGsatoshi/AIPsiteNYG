@@ -1,6 +1,7 @@
 :host {
   display: block;
   min-width: 0;
+  container-type: inline-size;
 }
 
 .upload-drop-zone {
@@ -118,7 +119,7 @@
   background: var(--aip-color-success-subtle);
 }
 
-@media (max-width: 640px) {
+@container (max-width: 32rem) {
   .upload-drop-zone {
     grid-template-columns: minmax(0, 1fr);
   }

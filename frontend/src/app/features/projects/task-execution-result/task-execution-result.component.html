@@ -1,0 +1,137 @@
+<section class="task-execution-result" aria-labelledby="task-execution-result-heading" data-testid="task-execution-result">
+  <header>
+    <p class="task-execution-result__eyebrow">Durable output</p>
+    <h3 id="task-execution-result-heading">Execution result</h3>
+  </header>
+
+  @if (allowExecutionStart) {
+    <section class="task-execution-result__launcher" aria-labelledby="task-execution-launcher-heading" data-testid="task-execution-launcher">
+      <h4 id="task-execution-launcher-heading">Run against authorized Project files</h4>
+      <p>The browser submits no file identifiers, paths, source inventory, or evidence. The server snapshots the active scope and reauthorizes every Project file before materialization.</p>
+      <button
+        type="button"
+        data-testid="task-execution-start"
+        [disabled]="starting() || loading() || intervening() !== null"
+        (click)="startExecution()"
+      >
+        {{ starting() ? 'Starting execution...' : 'Start execution' }}
+      </button>
+    </section>
+  }
+
+  @if (startFeedback(); as message) {
+    <p class="task-execution-result__status" role="status" aria-live="polite" data-testid="task-execution-start-feedback">{{ message }}</p>
+  }
+  @if (startError(); as message) {
+    <p class="task-execution-result__failure" role="alert" data-testid="task-execution-start-error">{{ message }}</p>
+  }
+
+  @if (result(); as current) {
+    <p class="task-execution-result__status" role="status" aria-live="polite" aria-atomic="true">
+      <span>Execution state</span>
+      <strong data-testid="task-execution-result-status">{{ current.status }}</strong>
+      <span>{{ statusMessage(current.status) }}</span>
+    </p>
+
+    @if (canManageInterventions()) {
+      <section class="task-execution-result__interventions" aria-labelledby="task-execution-interventions-heading" data-testid="task-execution-interventions">
+        <div>
+          <p class="task-execution-result__eyebrow">Run controls</p>
+          <h4 id="task-execution-interventions-heading">Intervene in this execution</h4>
+        </div>
+
+        <div class="task-execution-result__correction" data-testid="task-execution-correction-help">
+          <strong>Correct direction</strong>
+          <p>Save the intended changes first, then redirect this immutable Run. The successor snapshots the latest saved state.</p>
+          <ul>
+            <li>Task brief — edit the Task context.</li>
+            <li>Research plan — the latest saved revision is snapshotted.</li>
+            <li>Active source scope — the latest Project default or complete Task override is snapshotted.</li>
+          </ul>
+          <p><strong>Resume point:</strong> a new Run from the latest saved Task state. First-party Project Files V1 has no durable intra-run checkpoint, so the UI does not claim an in-place resume.</p>
+          <button
+            type="button"
+            data-testid="task-execution-correct-direction"
+            [disabled]="!canIntervene(current.status)"
+            (click)="correctDirection()"
+          >
+            {{ intervening() === 'correct' ? 'Correcting direction...' : 'Correct direction' }}
+          </button>
+        </div>
+
+        <div class="task-execution-result__stop" data-testid="task-execution-stop-control">
+          <strong>Stop Task execution</strong>
+          <p>This is destructive for the current Run. It records a terminal Stopped state and does not create a successor.</p>
+          <button
+            type="button"
+            class="task-execution-result__danger-button"
+            data-testid="task-execution-stop"
+            [disabled]="!canIntervene(current.status)"
+            (click)="requestStopConfirmation()"
+          >Stop Task…</button>
+        </div>
+
+        @if (!canIntervene(current.status)) {
+          <p class="task-execution-result__pending" data-testid="task-execution-intervention-unavailable">
+            {{ interventionUnavailableReason(current.status) }}
+          </p>
+        }
+
+        @if (stopConfirmation()) {
+          <div class="task-execution-result__stop-confirmation" role="alertdialog" aria-modal="false" aria-labelledby="task-execution-stop-confirmation-heading" data-testid="task-execution-stop-confirmation">
+            <strong id="task-execution-stop-confirmation-heading">Stop this execution?</strong>
+            <p>The current Run will end as Stopped. No replacement Run starts automatically.</p>
+            <div class="task-execution-result__actions">
+              <button
+                type="button"
+                class="task-execution-result__danger-button"
+                [disabled]="intervening() !== null"
+                data-testid="task-execution-stop-confirm"
+                (click)="stopExecution()"
+              >{{ intervening() === 'stop' ? 'Stopping...' : 'Confirm stop' }}</button>
+              <button type="button" [disabled]="intervening() !== null" (click)="cancelStopConfirmation()">Cancel</button>
+            </div>
+          </div>
+        }
+      </section>
+    }
+
+    @if (interventionFeedback(); as message) {
+      <p class="task-execution-result__status" role="status" aria-live="polite" data-testid="task-execution-intervention-feedback">{{ message }}</p>
+    }
+    @if (interventionError(); as message) {
+      <p class="task-execution-result__failure" role="alert" data-testid="task-execution-intervention-error">{{ message }}</p>
+    }
+
+    @if (current.report; as report) {
+      <article class="task-execution-result__report" data-testid="task-execution-report">
+        <h4>{{ report.title }}</h4>
+        <p>Completed {{ report.completedAtUtc }}</p>
+        <pre data-testid="task-execution-report-body">{{ report.bodyMarkdown }}</pre>
+        <p class="task-execution-result__hash">Report SHA-256: <code>{{ report.contentSha256 }}</code></p>
+      </article>
+    } @else if (current.status === 'Failed') {
+      <p class="task-execution-result__failure" role="alert">
+        The server recorded a bounded failure state. No source names, paths, content, or internal diagnostics are exposed.
+        @if (current.failureCode) {
+          <code>{{ current.failureCode }}</code>
+        }
+      </p>
+    } @else if (current.status === 'Stopped' || current.status === 'Redirected') {
+      <p class="task-execution-result__pending">This Run is terminal and will not produce a report.</p>
+    } @else {
+      <p class="task-execution-result__pending">This view refreshes from the server until the run reaches a terminal state.</p>
+    }
+  } @else if (loading()) {
+    <p role="status">Loading the execution result...</p>
+  } @else if (noResult()) {
+    <p data-testid="task-execution-result-empty">No authorized execution result is available.</p>
+  }
+
+  @if (error(); as message) {
+    <p class="task-execution-result__failure" role="alert">
+      {{ message }}
+      <button type="button" (click)="retry()">Retry</button>
+    </p>
+  }
+</section>

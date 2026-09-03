@@ -17,8 +17,32 @@ public sealed record ConversationListItemResponse(
     bool HasMention,
     bool IsMuted,
     bool IsArchived,
+    bool IsLater,
     DateTimeOffset CreatedAt,
     DateTimeOffset? UpdatedAt);
+
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum ConversationInboxView
+{
+    All = 0,
+    Unread = 1,
+    Mentions = 2,
+    Later = 3
+}
+
+public sealed record ConversationInboxCountsResponse(
+    int All,
+    int Unread,
+    int Mentions,
+    int Later);
+
+public sealed record ConversationInboxResponse(
+    IReadOnlyList<ConversationListItemResponse> Items,
+    int Page,
+    int PageSize,
+    int TotalCount,
+    ConversationInboxView View,
+    ConversationInboxCountsResponse Counts);
 
 public sealed record ConversationDetailResponse(
     Guid Id,
@@ -46,7 +70,10 @@ public sealed record CreateDirectConversationRequest(Guid RecipientUserId);
 
 public sealed record ConversationRecipientResponse(Guid UserId, string DisplayName);
 
-public sealed record ConversationListQuery(int Page = 1, int PageSize = 20)
+public sealed record ConversationListQuery(
+    int Page = 1,
+    int PageSize = 20,
+    ConversationInboxView View = ConversationInboxView.All)
 {
     public int SafePage => Page < 1 ? 1 : Page;
 
@@ -141,6 +168,7 @@ public sealed record ParticipantStateResponse(
     int UnreadCount,
     bool IsMuted,
     bool IsArchived,
+    bool IsLater,
     DateTimeOffset CreatedAt,
     DateTimeOffset? UpdatedAt);
 
@@ -149,9 +177,33 @@ public sealed record UpdateParticipantStateRequest(
     Guid? LastReadMessageId = null,
     Guid? UnreadCursorMessageId = null,
     bool? IsMuted = null,
-    bool? IsArchived = null);
+    bool? IsArchived = null,
+    bool? IsLater = null);
 
-public sealed record MessageListQuery(int Limit = 50, DateTimeOffset? Before = null)
+public sealed record MessageListQuery(int Limit = 50, DateTimeOffset? Before = null, Guid? AnchorMessageId = null)
 {
     public int SafeLimit => Math.Clamp(Limit, 1, 100);
 }
+
+public sealed record MessageFollowUpListQuery(int Page = 1, int PageSize = 20)
+{
+    public int SafePage => Page < 1 ? 1 : Page;
+    public int SafePageSize => Math.Clamp(PageSize, 1, 50);
+}
+
+public sealed record MessageFollowUpListItemResponse(
+    Guid MessageId,
+    Guid ConversationId,
+    Guid WorkspaceId,
+    ConversationType ConversationType,
+    string ConversationTitle,
+    Guid? ThreadRootMessageId,
+    string AuthorDisplayName,
+    string Body,
+    DateTimeOffset MessageCreatedAt,
+    DateTimeOffset SavedAt);
+
+public sealed record MessageFollowUpStateResponse(
+    Guid MessageId,
+    bool IsSaved,
+    DateTimeOffset? SavedAt);

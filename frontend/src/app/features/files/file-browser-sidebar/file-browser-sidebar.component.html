@@ -1,0 +1,60 @@
+<aside class="browser" [class.browser--collapsed]="collapsed()" [style.width.px]="collapsed() ? 56 : width()" [attr.aria-label]="i18n.translate('files.browser.ariaLabel')">
+  <div class="browser__heading">
+    @if (!collapsed()) { <strong>{{ i18n.translate('files.browser.browse') }}</strong> }
+    <button type="button" (click)="toggleCollapsed()" [attr.aria-expanded]="!collapsed()" [attr.aria-label]="i18n.translate('files.browser.toggle')">
+      @if (collapsed()) { <svg lucideChevronRight [size]="18" aria-hidden="true"></svg> } @else { <svg lucideChevronLeft [size]="18" aria-hidden="true"></svg> }
+    </button>
+  </div>
+
+  <nav class="browser__shortcuts" [attr.aria-label]="i18n.translate('files.browser.views')">
+    <button type="button" [class.is-active]="activeShortcut === 'recent'" [attr.aria-current]="activeShortcut === 'recent' ? 'page' : null" (click)="chooseShortcut('recent')">
+      <svg lucideClock3 [size]="18" aria-hidden="true"></svg><span>{{ i18n.translate('files.browser.recent') }}</span>
+    </button>
+    <button type="button" [class.is-active]="activeShortcut === 'starred'" [attr.aria-current]="activeShortcut === 'starred' ? 'page' : null" (click)="chooseShortcut('starred')">
+      <svg lucideStar [size]="18" aria-hidden="true"></svg><span>{{ i18n.translate('files.browser.starred') }}</span>
+    </button>
+    <button type="button" [class.is-active]="activeShortcut === 'shared'" [attr.aria-current]="activeShortcut === 'shared' ? 'page' : null" (click)="chooseShortcut('shared')">
+      <svg lucideShare2 [size]="18" aria-hidden="true"></svg><span>{{ i18n.translate('files.browser.shared') }}</span>
+    </button>
+  </nav>
+
+  @if (!collapsed()) {
+    <div class="browser__tree-heading"><strong>{{ i18n.translate('files.browser.folders') }}</strong><span>{{ i18n.translate('files.browser.expandHint') }}</span></div>
+    <div role="tree" [attr.aria-label]="i18n.translate('files.browser.workspaceFolders')" class="browser__tree">
+      @for (node of visibleFolders(); track node.id) {
+        <div
+          #treeitem
+          role="treeitem"
+          class="browser__treeitem"
+          [class.is-selected]="selectedFolderId === node.id"
+          [class.is-focused]="focusedId() === node.id"
+          [attr.aria-selected]="selectedFolderId === node.id"
+          [attr.aria-expanded]="node.children.length ? expandedIds().has(node.id) : null"
+          [attr.aria-level]="node.level"
+          [style.--tree-level]="node.level"
+          [attr.tabindex]="focusedId() === node.id || (!focusedId() && $first) ? 0 : -1"
+          (focus)="focusedId.set(node.id)"
+          (keydown)="onTreeKeydown($event, node)"
+          (dblclick)="toggle(node)"
+        >
+          <button class="browser__disclosure" type="button" [disabled]="!node.children.length" (click)="toggle(node)" [attr.aria-label]="i18n.translate('files.browser.toggleFolder', { name: node.name })" tabindex="-1">
+            @if (node.children.length) { <svg lucideChevronRight [class.is-expanded]="expandedIds().has(node.id)" [size]="15" aria-hidden="true"></svg> }
+          </button>
+          <button class="browser__folder" type="button" (click)="chooseFolder(node)" tabindex="-1">
+            @if (expandedIds().has(node.id)) { <svg lucideFolderOpen [size]="18" aria-hidden="true"></svg> } @else { <svg lucideFolder [size]="18" aria-hidden="true"></svg> }<span>{{ node.name }}</span>
+          </button>
+          <button
+            class="browser__move"
+            type="button"
+            (click)="requestFolderMove(node)"
+            [attr.aria-label]="i18n.translate('files.actions.move') + ': ' + node.name"
+            [title]="i18n.translate('files.actions.move')"
+          >↪</button>
+        </div>
+      } @empty {
+        <p class="browser__empty">{{ i18n.translate('files.browser.empty') }}</p>
+      }
+    </div>
+    <label class="browser__resize"><span>{{ i18n.translate('files.browser.width') }}</span><input type="range" min="220" max="400" step="8" [value]="width()" (input)="resize($event)" /></label>
+  }
+</aside>

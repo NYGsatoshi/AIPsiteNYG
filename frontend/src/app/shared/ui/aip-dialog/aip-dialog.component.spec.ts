@@ -56,6 +56,9 @@ class DialogHostComponent {
 }
 
 describe('AipDialogComponent', () => {
+  beforeEach(() => window.localStorage.setItem('aip.locale', 'en'));
+  afterEach(() => window.localStorage.removeItem('aip.locale'));
+
   async function createFixture(): Promise<ComponentFixture<DialogHostComponent>> {
     await TestBed.configureTestingModule({
       imports: [DialogHostComponent],
@@ -155,7 +158,7 @@ describe('AipDialogComponent', () => {
     backdrop.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
 
     const buttons = Array.from(dialog.querySelectorAll('button'));
-    const closeButton = buttons.find((button) => button.getAttribute('aria-label') === 'Close dialog');
+    const closeButton = buttons.find((button) => button.getAttribute('aria-label') === 'Close');
     const cancelButton = buttons.find((button) => button.textContent?.trim() === 'Cancel');
     const confirmButton = buttons.find((button) => button.textContent?.trim() === 'Working…');
     closeButton?.click();

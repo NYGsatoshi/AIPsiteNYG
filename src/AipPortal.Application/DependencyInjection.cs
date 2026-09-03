@@ -40,15 +40,17 @@ public static class DependencyInjection
         services.AddSingleton<CanonicalRedactionService>();
         services.AddSingleton<IRedactionService, CanonicalFileMetadataRedactionService>();
         services.AddScoped<ITenantAuthorizationService, TenantAuthorizationService>();
-        // AddApplication() is also used by minimal test/utility hosts that do not
-        // compose Infrastructure. Keep persistence-backed WPC dependencies fail
-        // closed there; AddInfrastructure() registers the real implementations
-        // later and therefore overrides these single-service fallbacks.
         services.AddScoped<ICapabilityGrantRepository, UnavailableCapabilityGrantRepository>();
+        services.AddScoped<IMessageFollowUpRepository, UnavailableMessageFollowUpRepository>();
         services.AddScoped<IDefaultConversationStore, UnavailableDefaultConversationStore>();
         services.AddScoped<ICreateIdempotencyCoordinator, UnavailableCreateIdempotencyCoordinator>();
         services.AddScoped<IProjectActivationWorkflowStore, UnavailableProjectActivationWorkflowStore>();
         services.AddScoped<IProjectActivationUnitOfWork, UnavailableProjectActivationUnitOfWork>();
+        services.AddScoped<IArtifactEvidenceRepository, UnavailableArtifactEvidenceRepository>();
+        services.AddScoped<IResearchPlanRepository, UnavailableResearchPlanRepository>();
+        services.AddScoped<IAnnouncementDraftRepository, UnavailableAnnouncementDraftRepository>();
+        services.AddScoped<ITaskExecutionResultRepository, UnavailableTaskExecutionResultRepository>();
+        services.AddScoped<ITaskExecutionInterventionRepository, UnavailableTaskExecutionInterventionRepository>();
         services.AddScoped<ICapabilityGrantEvaluator, CapabilityGrantEvaluator>();
         services.AddScoped<ICapabilityGrantService, CapabilityGrantService>();
         services.AddScoped<IAuditAuthorizationService, AuditAuthorizationService>();
@@ -67,6 +69,7 @@ public static class DependencyInjection
         services.AddScoped<IChannelAuthorizationService, ChannelAuthorizationService>();
         services.AddScoped<IConversationAuthorizationService, ConversationAuthorizationService>();
         services.AddScoped<IMessageIdempotencyCommitCoordinator, UnitOfWorkMessageIdempotencyCommitCoordinator>();
+        services.AddScoped<IMessageFollowUpCommitCoordinator, UnitOfWorkMessageFollowUpCommitCoordinator>();
         services.AddScoped<ProjectAuthorizationService>();
         services.AddScoped<IProjectAuthorizationService>(provider => provider.GetRequiredService<ProjectAuthorizationService>());
         services.AddScoped<ITaskAuthorizationService>(provider => provider.GetRequiredService<ProjectAuthorizationService>());
@@ -85,18 +88,24 @@ public static class DependencyInjection
         services.AddScoped<ICommunicationPollingService, CommunicationPollingService>();
         services.AddSingleton(new CommunicationSafetyOptions());
         services.AddSingleton<ICommunicationSafetyGuard, InMemoryCommunicationSafetyGuard>();
+        services.AddScoped<IAnnouncementAttachmentService, AnnouncementAttachmentService>();
         services.AddScoped<IAnnouncementService, AnnouncementService>();
         services.AddScoped<IAnnouncementAudienceService, AnnouncementAudienceService>();
+        services.AddScoped<AnnouncementDraftService>();
+        services.AddScoped<IAnnouncementDraftService>(provider => provider.GetRequiredService<AnnouncementDraftService>());
+        services.AddScoped<IAnnouncementPublicationProcessor>(provider => provider.GetRequiredService<AnnouncementDraftService>());
         services.AddScoped<WorkspaceGeneralRequiredInitialization>();
         services.AddScoped<IWorkspaceRequiredInitialization>(provider =>
             provider.GetRequiredService<IDefaultConversationStore>() is UnavailableDefaultConversationStore
                 ? new UnavailableWorkspaceRequiredInitialization()
                 : provider.GetRequiredService<WorkspaceGeneralRequiredInitialization>());
         services.AddScoped<IWorkspaceGeneralMembershipSynchronizer, WorkspaceGeneralMembershipSynchronizer>();
+        services.AddScoped<IWorkspaceMemberProjectionService, WorkspaceMemberProjectionService>();
         services.AddScoped<IWorkspaceService, WorkspaceService>();
         services.AddScoped<IGroupService, GroupService>();
         services.AddScoped<IChannelService, ChannelService>();
         services.AddScoped<IConversationService, ConversationService>();
+        services.AddScoped<IMessageFollowUpService, MessageFollowUpService>();
         services.AddScoped<IntegrationService>();
         services.AddScoped<IIntegrationService>(provider => provider.GetRequiredService<IntegrationService>());
         services.AddScoped<IApiTokenValidator>(provider => provider.GetRequiredService<IntegrationService>());
@@ -111,23 +120,27 @@ public static class DependencyInjection
         services.AddScoped<IProjectActivationService, ProjectActivationService>();
         services.AddScoped<ProjectService>();
         services.AddScoped<IProjectService, CanonicalProjectService>();
-        // Minimal hosts may register only IUnitOfWork after AddApplication. Reuse that
-        // same scoped instance when it also supports the Task-specific save contract.
-        // Full Infrastructure registration supplies a later explicit binding and wins.
         services.AddScoped<ITaskCommandUnitOfWork>(provider =>
             provider.GetRequiredService<IUnitOfWork>() as ITaskCommandUnitOfWork
             ?? throw new InvalidOperationException("IUnitOfWork must implement ITaskCommandUnitOfWork for Task commands."));
         services.AddScoped<ITaskCommandService, TaskCommandService>();
         services.AddScoped<ITaskSubresourceService, TaskSubresourceService>();
         services.AddScoped<ITaskExecutionScopeService, TaskExecutionScopeService>();
-        services.AddScoped<ITaskExecutionRuntime, UnavailableTaskExecutionRuntime>();
+        services.AddScoped<ITaskExecutionInterventionService, TaskExecutionInterventionService>();
+        services.AddScoped<IResearchPlanService, ResearchPlanService>();
+        services.AddScoped<ITaskExecutionResultService, TaskExecutionResultService>();
         services.AddScoped<ITaskWorkspaceTimeZoneResolver, TaskWorkspaceTimeZoneResolver>();
+        services.AddScoped<IAnnouncementScheduleTimeZoneResolver, AnnouncementScheduleTimeZoneResolver>();
         services.AddScoped<IEventService, EventService>();
         services.AddScoped<IFormService, FormService>();
+        services.AddScoped<IFileSharingService, FileSharingService>();
+        services.AddScoped<IFileActivityService, FileActivityService>();
         services.AddScoped<IFileService, FileService>();
         services.AddScoped<IFileObjectService>(provider => provider.GetRequiredService<IFileService>() as IFileObjectService
             ?? throw new InvalidOperationException("IFileService must be implemented by IFileObjectService."));
         services.AddScoped<IArtifactService, ArtifactService>();
+        services.AddScoped<IArtifactEvidenceManifestService, ArtifactEvidenceManifestService>();
+        services.AddScoped<IArtifactReportService, UnavailableArtifactReportService>();
         services.AddScoped<IPlanningService, PlanningService>();
         services.AddScoped<IUiShellService, UiShellService>();
         services.AddScoped<IStudentRecordService, StudentRecordService>();

@@ -61,7 +61,10 @@ const updateInput = (fixture: ComponentFixture<AccountPageComponent>, selector: 
 };
 
 describe('AccountPageComponent', () => {
-  afterEach(() => TestBed.resetTestingModule());
+  afterEach(() => {
+    window.localStorage.removeItem('aip.locale');
+    TestBed.resetTestingModule();
+  });
 
   it('renders own email on the self account page', async () => {
     const fixture = await renderAccount();
@@ -180,5 +183,22 @@ describe('AccountPageComponent', () => {
 
     expect(query<HTMLButtonElement>(fixture, '.sessions__revoke')).toBeNull();
     expect(textContent(fixture)).not.toContain('mock-token-never-render');
+  });
+
+  it('switches the Account screen to English and persists the selection', async () => {
+    const fixture = await renderAccount();
+    const languageSelector = query<HTMLSelectElement>(fixture, '[data-testid="display-language"]');
+    if (!languageSelector) {
+      throw new Error('Missing display language selector');
+    }
+
+    languageSelector.value = 'en';
+    languageSelector.dispatchEvent(new Event('change'));
+    fixture.detectChanges();
+
+    expect(textContent(fixture)).toContain('Language');
+    expect(textContent(fixture)).toContain('Change password');
+    expect(document.documentElement.lang).toBe('en');
+    expect(window.localStorage.getItem('aip.locale')).toBe('en');
   });
 });

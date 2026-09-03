@@ -8,7 +8,6 @@ using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
 using AipPortal.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace AipPortal.Tests.Projects;
 
@@ -16,6 +15,7 @@ public sealed class TaskExecutionScopeServiceTests
 {
     [Fact]
     [Trait("Scope", "Issue357")]
+    [Trait("Scope", "Issue461")]
     public async Task ProjectDefaultAndTaskOverrideDetermineTheNextRunWithoutMutatingItsRecordedPolicy()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -53,21 +53,22 @@ public sealed class TaskExecutionScopeServiceTests
 
         Assert.True(requested.IsSuccess, requested.Error);
         var recordedRun = requested.Value!;
-        Assert.Equal(TaskExecutionRunStatus.RuntimeUnavailable, recordedRun.Status);
-        Assert.Equal("TASK_EXECUTION_RUNTIME_UNAVAILABLE", recordedRun.FailureCode);
+        Assert.Equal(TaskExecutionRunStatus.Accepted, recordedRun.Status);
+        Assert.Equal(TaskExecutionMajorState.Accepted, recordedRun.MajorState);
+        Assert.Null(recordedRun.FailureCode);
+        Assert.Equal(TaskExecutionProvider.FirstPartyProjectFilesRuntimeV1, recordedRun.RuntimeProvider);
+        Assert.Equal(TaskExecutionRun.RuntimeContractVersion1, recordedRun.RuntimeContractVersion);
+        Assert.Equal(TaskExecutionRun.CurrentSnapshotSchemaVersion, recordedRun.SnapshotSchemaVersion);
+        Assert.Null(recordedRun.QueuedAtUtc);
+        Assert.Null(recordedRun.StartedAtUtc);
+        Assert.Null(recordedRun.FinishedAtUtc);
         Assert.Equal(TaskExecutionScopeOrigin.TaskOverride, recordedRun.SnapshotScopeOrigin);
         Assert.Equal(2, recordedRun.SnapshotProjectScopeVersion);
         Assert.Equal(1, recordedRun.SnapshotTaskOverrideVersion);
         Assert.False(recordedRun.SnapshotWebEnabled);
         Assert.True(recordedRun.SnapshotProjectFilesEnabled);
-
-        var runtimeHandle = Assert.Single(fixture.Runtime.Handles);
-        Assert.Equal(recordedRun.Id, runtimeHandle.RunId);
-        Assert.Equal(fixture.Tenant.Id, runtimeHandle.TenantId);
-        Assert.Equal(TaskExecutionRun.SnapshotSchemaVersion1, runtimeHandle.SnapshotSchemaVersion);
-        Assert.Equal(
-            [nameof(TaskExecutionSnapshotHandle.RunId), nameof(TaskExecutionSnapshotHandle.SnapshotSchemaVersion), nameof(TaskExecutionSnapshotHandle.TenantId)],
-            typeof(TaskExecutionSnapshotHandle).GetProperties().Select(property => property.Name).OrderBy(name => name));
+        Assert.Null(recordedRun.SnapshotResearchPlanRevisionId);
+        Assert.Null(recordedRun.SnapshotResearchPlanRevisionNo);
 
         var changedOverride = await fixture.Service.UpdateTaskOverrideAsync(
             fixture.TaskItem.Id,
@@ -87,6 +88,8 @@ public sealed class TaskExecutionScopeServiceTests
         Assert.Equal(1, persisted.SnapshotTaskOverrideVersion);
         Assert.False(persisted.SnapshotWebEnabled);
         Assert.True(persisted.SnapshotProjectFilesEnabled);
+        Assert.Null(persisted.SnapshotResearchPlanRevisionId);
+        Assert.Null(persisted.SnapshotResearchPlanRevisionNo);
 
         var staleProjectDefault = await fixture.Service.UpdateProjectScopeAsync(
             fixture.Project.Id,
@@ -129,11 +132,11 @@ public sealed class TaskExecutionScopeServiceTests
         Assert.Empty(await fixture.Db.IdempotencyRecords.ToListAsync());
         Assert.Empty(await fixture.Db.OutboxEvents.ToListAsync());
         Assert.Empty(fixture.Audit.Entries);
-        Assert.Empty(fixture.Runtime.Handles);
     }
 
     [Fact]
     [Trait("Scope", "Issue357")]
+    [Trait("Scope", "Issue461")]
     public async Task IdempotencyReplaysTheOriginalImmutableSnapshotWhenTheEffectivePolicyChanges()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -149,7 +152,11 @@ public sealed class TaskExecutionScopeServiceTests
         Assert.True(created.IsSuccess, created.Error);
         Assert.True(replayed.IsSuccess, replayed.Error);
         Assert.Equal(created.Value!.Id, replayed.Value!.Id);
-        Assert.Single(fixture.Runtime.Handles);
+        Assert.Equal(TaskExecutionRunStatus.Accepted, created.Value.Status);
+        Assert.Equal(TaskExecutionProvider.FirstPartyProjectFilesRuntimeV1, created.Value.RuntimeProvider);
+        Assert.Equal(TaskExecutionRun.RuntimeContractVersion1, created.Value.RuntimeContractVersion);
+        Assert.Equal(created.Value.RuntimeProvider, replayed.Value.RuntimeProvider);
+        Assert.Equal(created.Value.RuntimeContractVersion, replayed.Value.RuntimeContractVersion);
         Assert.Single(await fixture.Db.TaskExecutionRuns.ToListAsync());
         Assert.Single(await fixture.Db.IdempotencyRecords.ToListAsync());
 
@@ -167,7 +174,6 @@ public sealed class TaskExecutionScopeServiceTests
         Assert.Equal(2, replayedAfterScopeChange.Value.SnapshotProjectScopeVersion);
         Assert.True(replayedAfterScopeChange.Value.SnapshotWebEnabled);
         Assert.False(replayedAfterScopeChange.Value.SnapshotProjectFilesEnabled);
-        Assert.Single(fixture.Runtime.Handles);
         Assert.Single(await fixture.Db.TaskExecutionRuns.ToListAsync());
 
         var currentScope = await fixture.Service.GetTaskScopeAsync(fixture.TaskItem.Id);
@@ -201,6 +207,58 @@ public sealed class TaskExecutionScopeServiceTests
     }
 
     [Fact]
+    [Trait("Scope", "Issue364")]
+    [Trait("Scope", "Issue461")]
+    public async Task AcceptedRunSnapshotsTheCurrentResearchPlanRevisionAndIdempotencyReplaysIt()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var firstRevision = await fixture.SaveResearchPlanRevisionAsync("Collect approved evidence");
+
+        var accepted = await fixture.Service.RequestRunAsync(fixture.TaskItem.Id, "plan-snapshot-run-0001");
+
+        Assert.True(accepted.IsSuccess, accepted.Error);
+        Assert.Equal(TaskExecutionRun.CurrentSnapshotSchemaVersion, accepted.Value!.SnapshotSchemaVersion);
+        Assert.Equal(firstRevision.Id, accepted.Value.SnapshotResearchPlanRevisionId);
+        Assert.Equal(firstRevision.RevisionNo, accepted.Value.SnapshotResearchPlanRevisionNo);
+
+        var secondRevision = await fixture.SaveResearchPlanRevisionAsync("Review approved evidence");
+        Assert.NotEqual(firstRevision.Id, secondRevision.Id);
+
+        var replayed = await fixture.Service.RequestRunAsync(fixture.TaskItem.Id, "plan-snapshot-run-0001");
+
+        Assert.True(replayed.IsSuccess, replayed.Error);
+        Assert.Equal(accepted.Value.Id, replayed.Value!.Id);
+        Assert.Equal(firstRevision.Id, replayed.Value.SnapshotResearchPlanRevisionId);
+        Assert.Equal(firstRevision.RevisionNo, replayed.Value.SnapshotResearchPlanRevisionNo);
+
+        var persisted = await fixture.Db.TaskExecutionRuns
+            .AsNoTracking()
+            .SingleAsync(run => run.Id == accepted.Value.Id);
+        Assert.Equal(firstRevision.Id, persisted.SnapshotResearchPlanRevisionId);
+        Assert.Equal(firstRevision.RevisionNo, persisted.SnapshotResearchPlanRevisionNo);
+        Assert.Single(await fixture.Db.TaskExecutionRuns.ToListAsync());
+    }
+
+    [Fact]
+    [Trait("Scope", "Issue364")]
+    public async Task DirectEfMutationOfTheAcceptedResearchPlanSnapshotFailsClosed()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var revision = await fixture.SaveResearchPlanRevisionAsync("Immutable run plan");
+        var accepted = await fixture.Service.RequestRunAsync(fixture.TaskItem.Id, "plan-snapshot-immutable-0001");
+        Assert.True(accepted.IsSuccess, accepted.Error);
+
+        var run = await fixture.Db.TaskExecutionRuns.SingleAsync();
+        run.SnapshotResearchPlanRevisionId = revision.Id;
+        run.SnapshotResearchPlanRevisionNo = revision.RevisionNo + 1;
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Db.SaveChangesAsync());
+
+        Assert.Contains("snapshots are immutable", exception.Message, StringComparison.OrdinalIgnoreCase);
+        fixture.Db.ChangeTracker.Clear();
+    }
+
+    [Fact]
     [Trait("Scope", "Issue357")]
     public async Task TenantScopedRepositoriesDoNotExposeOrMutateAnotherTenantsTaskExecutionState()
     {
@@ -227,7 +285,6 @@ public sealed class TaskExecutionScopeServiceTests
         Assert.Empty(await fixture.Db.ProjectExecutionScopes.ToListAsync());
         Assert.Empty(await fixture.Db.TaskExecutionScopeOverrides.ToListAsync());
         Assert.Empty(await fixture.Db.TaskExecutionRuns.ToListAsync());
-        Assert.Empty(fixture.Runtime.Handles);
 
         fixture.ReturnToPrimaryTenant();
         var stillOwned = await fixture.Db.ProjectExecutionScopes.SingleAsync();
@@ -236,18 +293,19 @@ public sealed class TaskExecutionScopeServiceTests
     }
 
     [Fact]
-    [Trait("Scope", "Issue357")]
-    public async Task ApplicationDefaultRuntimeIsDeterministicallyUnavailable()
+    [Trait("Scope", "Issue461")]
+    public void FirstPartyRuntimeContractDisablesWebAndRequiresProjectFiles()
     {
-        var services = new ServiceCollection();
-        services.AddApplication();
-        await using var provider = services.BuildServiceProvider();
+        var eligible = FirstPartyProjectFilesRuntimeV1.EvaluateScope(webEnabled: false, projectFilesEnabled: true);
+        var webRejected = FirstPartyProjectFilesRuntimeV1.EvaluateScope(webEnabled: true, projectFilesEnabled: true);
+        var noFilesRejected = FirstPartyProjectFilesRuntimeV1.EvaluateScope(webEnabled: false, projectFilesEnabled: false);
 
-        var runtime = provider.GetRequiredService<ITaskExecutionRuntime>();
-        var result = await runtime.StartAsync(
-            new TaskExecutionSnapshotHandle(Guid.NewGuid(), Guid.NewGuid(), TaskExecutionRun.SnapshotSchemaVersion1));
-
-        Assert.False(result.Accepted);
+        Assert.True(eligible.IsEligible);
+        Assert.Null(eligible.FailureCode);
+        Assert.False(webRejected.IsEligible);
+        Assert.Equal("TASK_EXECUTION_WEB_UNSUPPORTED", webRejected.FailureCode);
+        Assert.False(noFilesRejected.IsEligible);
+        Assert.Equal("TASK_EXECUTION_PROJECT_FILES_REQUIRED", noFilesRejected.FailureCode);
     }
 
     [Fact]
@@ -331,8 +389,7 @@ public sealed class TaskExecutionScopeServiceTests
             Project project,
             TaskItem taskItem,
             ControllableProjectAuthorization authorization,
-            RecordingAuditLogger audit,
-            RecordingUnavailableRuntime runtime)
+            RecordingAuditLogger audit)
         {
             Db = db;
             CurrentTenant = currentTenant;
@@ -343,7 +400,6 @@ public sealed class TaskExecutionScopeServiceTests
             TaskItem = taskItem;
             Authorization = authorization;
             Audit = audit;
-            Runtime = runtime;
 
             Service = CreateService(new EfUnitOfWork(db));
         }
@@ -357,7 +413,6 @@ public sealed class TaskExecutionScopeServiceTests
         public TaskItem TaskItem { get; }
         public ControllableProjectAuthorization Authorization { get; }
         public RecordingAuditLogger Audit { get; }
-        public RecordingUnavailableRuntime Runtime { get; }
         public TaskExecutionScopeService Service { get; }
 
         public TaskExecutionScopeService CreateService(
@@ -370,13 +425,13 @@ public sealed class TaskExecutionScopeServiceTests
                 new ProjectRepository(Db),
                 Authorization,
                 new TaskExecutionScopeRepository(Db),
+                new ResearchPlanRepository(Db),
                 new TestCurrentUser(Actor.Id),
                 clock,
                 Audit,
                 new BusinessInvalidationPublisher(outbox, CurrentTenant, clock),
                 unitOfWork,
-                idempotency ?? new EfCreateIdempotencyCoordinator(Db),
-                Runtime);
+                idempotency ?? new EfCreateIdempotencyCoordinator(Db));
         }
 
         public static async Task<Fixture> CreateAsync(bool canManage = true)
@@ -446,8 +501,61 @@ public sealed class TaskExecutionScopeServiceTests
                 project,
                 taskItem,
                 new ControllableProjectAuthorization { CanManage = canManage },
-                new RecordingAuditLogger(),
-                new RecordingUnavailableRuntime());
+                new RecordingAuditLogger());
+        }
+
+        public async Task<ResearchPlanRevision> SaveResearchPlanRevisionAsync(string title)
+        {
+            var plan = await Db.ResearchPlans.SingleOrDefaultAsync(researchPlan => researchPlan.TaskItemId == TaskItem.Id);
+            if (plan is null)
+            {
+                plan = new ResearchPlan
+                {
+                    TenantId = Tenant.Id,
+                    WorkspaceId = Workspace.Id,
+                    ProjectId = Project.Id,
+                    TaskItemId = TaskItem.Id,
+                    VersionNo = 1
+                };
+                Db.ResearchPlans.Add(plan);
+            }
+
+            var revisionNo = (await Db.ResearchPlanRevisions
+                .Where(revision => revision.ResearchPlanId == plan.Id)
+                .Select(revision => (long?)revision.RevisionNo)
+                .MaxAsync()) is { } latest
+                    ? latest + 1
+                    : 1;
+            var revision = new ResearchPlanRevision
+            {
+                TenantId = Tenant.Id,
+                WorkspaceId = Workspace.Id,
+                ProjectId = Project.Id,
+                TaskItemId = TaskItem.Id,
+                ResearchPlanId = plan.Id,
+                RevisionNo = revisionNo,
+                CreatedByUserId = Actor.Id,
+                CreatedAtUtc = new DateTimeOffset(2026, 8, 30, 0, 0, 0, TimeSpan.Zero)
+            };
+            plan.CurrentRevisionId = revision.Id;
+            plan.VersionNo = revisionNo;
+            Db.ResearchPlanRevisions.Add(revision);
+            Db.ResearchPlanSteps.Add(new ResearchPlanStep
+            {
+                TenantId = Tenant.Id,
+                WorkspaceId = Workspace.Id,
+                ProjectId = Project.Id,
+                TaskItemId = TaskItem.Id,
+                ResearchPlanId = plan.Id,
+                ResearchPlanRevisionId = revision.Id,
+                SortOrder = 1,
+                Title = title,
+                Objective = "Execution-start plan provenance test.",
+                ScopeSummary = "Project Files",
+                Status = ResearchPlanStepStatus.Ready
+            });
+            await Db.SaveChangesAsync();
+            return revision;
         }
 
         public async Task SwitchToOtherTenantAsync()
@@ -506,19 +614,6 @@ public sealed class TaskExecutionScopeServiceTests
         {
             Entries.Add(entry);
             return Task.CompletedTask;
-        }
-    }
-
-    private sealed class RecordingUnavailableRuntime : ITaskExecutionRuntime
-    {
-        public List<TaskExecutionSnapshotHandle> Handles { get; } = [];
-
-        public Task<TaskExecutionRuntimeStartResult> StartAsync(
-            TaskExecutionSnapshotHandle snapshot,
-            CancellationToken cancellationToken = default)
-        {
-            Handles.Add(snapshot);
-            return Task.FromResult(TaskExecutionRuntimeStartResult.Unavailable());
         }
     }
 

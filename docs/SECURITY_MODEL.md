@@ -2,7 +2,8 @@
 
 Last broad implementation audit: 2026-06-18. WPC-02B Workspace-create
 security-boundary update: 2026-08-24. WS-02 active-Workspace and WS-03
-Workspace-create client-boundary update: 2026-08-24.
+Workspace-create client-boundary update: 2026-08-24. Issue #339 Task context
+summary boundary update: 2026-08-30.
 
 This document separates implemented security controls from intended policy. Root `SECURITY.md` describes vulnerability reporting; `docs/SECURITY.md` contains additional engineering guidance.
 
@@ -51,6 +52,26 @@ When enabled:
 The static frontend fetch helper automatically obtains and sends the token.
 
 CSRF tests use a real Kestrel HTTP listener with EF InMemory.
+
+### On-prem reverse-proxy boundary
+
+The supported on-prem public route terminates TLS at an operator-provided
+external proxy and reaches a loopback/private Compose origin. The app does not
+own public certificates and PostgreSQL has no host-published port. The normal
+on-prem Compose app mapping is loopback-only.
+
+`ReverseProxy:TrustForwardedHeaders` is an explicit operator opt-in. When it
+is enabled, startup requires an explicit `ReverseProxy:TrustedProxies` IP list
+or `ReverseProxy:TrustedNetworks` CIDR list. ASP.NET Core retains its loopback
+defaults; the application adds only those declared boundaries and never clears
+the allowlists. It accepts one symmetric `X-Forwarded-For`,
+`X-Forwarded-Proto`, and `X-Forwarded-Host` hop. DNS names are rejected so a
+runtime DNS change cannot broaden trusted proxy authority.
+
+This is fail-closed: no configured boundary means startup failure, and a peer
+outside a configured boundary cannot change scheme, host, or client IP by
+supplying forwarded headers. An operator must not set proxy mode for an origin
+that is directly reachable from untrusted clients.
 
 ## Authorization
 
@@ -242,12 +263,31 @@ recursive ancestry boundary. Missing identity, inconsistent Workspace/Project/
 root scope, cycles, and ancestry beyond 32 Thread edges fail closed. Send,
 moderate, and Thread-create checks require that structural read boundary;
 creation cannot persist an immediately unreadable child, and protected fields
-are materialized only after that boundary. PostgreSQL Message Search composes
-the shared readable-ID relation over all matching Messages before deterministic
-`CreatedAt DESC, Id ASC` ordering and the final bound, rather than authorizing
-an arbitrary Conversation subset first. Delayed
+are materialized only after that boundary. PostgreSQL Message Search resolves
+the complete shared readable-ID relation and intersects it with all matching
+Messages before deterministic `CreatedAt DESC, Id ASC` ordering and the final
+bound, rather than authorizing an arbitrary Conversation subset first. Keeping
+the recursive authorization graph in its own query prevents optional Message
+predicates from changing that boundary or creating a pathological combined SQL
+plan. Delayed
 `Messaging.ConversationUnreadChanged.v1` delivery parses its Conversation
 identity and rechecks current Conversation/Project authorization.
+
+Issue #367's advanced Message facets remain inside that same boundary. Author
+options are derived only after current readable-Conversation filtering and
+return display name plus user ID without counts or content. Every candidate
+Message must match its Conversation Tenant and Workspace before text, author,
+date, cursor, attachment, total, or pagination evaluation. Read state accepts
+only an exact same-scope cursor Message, with a null-ID compatibility fallback;
+a non-null invalid or cross-scope cursor cannot fall back to its action time.
+The attachment facet recognizes only clean, classified, active, non-deleted,
+exact Message-owned Attachment/FileObject relationships. Unsafe, quarantined,
+legacy metadata-only, and cross-scope links affect only the Boolean `Without`
+classification and expose no filename, count, scan state, classification,
+storage path, or failure detail. Query model-binding errors use a fixed
+non-reflective envelope. Browser chips and URLs are presentation state:
+free-text and snippets are never stored there, and sender UUIDs are not shown
+or applied before server-authorized resolution.
 
 Issue #346's My Tasks saved filters are browser presentation state, not an
 authorization cache. A strict, versioned local record is keyed by the resolved
@@ -391,6 +431,14 @@ outbound request or access file material. Web egress, redirect/IP/SSRF policy,
 content retention, revocation, source capture, provider selection, and output
 authorization remain unapproved future work; the foundation must not be used
 to imply their security controls exist.
+
+Issue #339 derives its compact Task context summary exclusively from this
+authorized projection. Its numeric value is the count of enabled generic
+policy kinds (`Web` and `Project files`), never a file/site/App/integration or
+resource inventory count. It displays the server-owned effective origin and
+uses the existing authoritative refetch and protected-state clearing boundary;
+authorization loss removes the compact and detailed projections together.
+The summary adds no read, mutation, provider, or runtime authority.
 
 ### Immediate Task notification boundary
 
@@ -636,6 +684,32 @@ preference state before it reauthorizes subscriptions or starts HTTP catch-up.
 This clear-before-reauthorize ordering prevents a revoked browser from keeping
 a protected projection visible.
 
+## Saved Message follow-up boundary
+
+`message_follow_ups` is current-user private state. Tenant filtering and the
+unique Tenant/user/Message identity prevent another participant from reading,
+completing, or overwriting a marker. Server-side save and complete operations
+reauthorize the target Message through the same recursive current Conversation
+read boundary before looking up or changing the marker; an inaccessible target
+and a nonexistent marker are non-disclosing.
+
+List authorization occurs before totals and paging. A durable marker may remain
+after membership or Project/Workspace access is revoked, but its Message body,
+author, title, timestamps, existence, and contribution to counts are all
+suppressed until the target is readable again. Deleted Messages are likewise
+excluded. Audit rows record only bounded identifiers, operation, decision, and
+state kind; they never copy Message bodies. The browser clears the saved list
+on malformed/error responses and uses HTTP anchor/thread reads as the source of
+truth for navigation. A saved thread reply is reauthorized as a current,
+non-deleted reply in the exact route-root Conversation before the bounded
+thread projection includes it with at most 99 recent peers. Missing, deleted,
+mismatched-root, cross-Conversation, and cross-Tenant reply anchors share the
+same generic failure and disclose no body, count, or target metadata. UI
+visibility and a saved route are never authority.
+The saved-message facade registers with the common protected-state boundary,
+cancels in-flight list/mutation requests, and clears all rows before a session,
+Tenant, Workspace, or authorization transition can reuse the surface.
+
 ## Tenant isolation
 
 Implemented controls:
@@ -713,6 +787,7 @@ Production validation requires:
 - HTTPS and HSTS;
 - setup mode off;
 - object-storage secret when an object provider is selected.
+- an explicit trusted proxy IP/CIDR when forwarded-header trust is enabled.
 
 This validation is heuristic and does not replace a secret manager, credential rotation, TLS configuration, or deployment review.
 
@@ -722,6 +797,27 @@ This validation is heuristic and does not replace a secret manager, credential r
 - Audit logs and security events are stored in PostgreSQL.
 - Many important service actions emit audit events.
 - Trace IDs are present in global exception responses.
+
+Issue #349 adds a read-only, exact-event disclosure boundary for stored Audit
+metadata. `GET /api/admin/audit-grid/{auditId}/sensitive-metadata` requires both
+`audit.view` and the independent `audit.sensitive_metadata.view` capability
+before the identifier is queried. Tenant scope is applied before ID matching;
+absent, malformed, and cross-Tenant IDs therefore return the same generic 404,
+while capability denial is a generic 403. The response contains a parsed JSON
+object, never the persisted JSON string. A recursive server policy removes
+prohibited secrets, content bodies, personal/medical contact data, raw search or
+export content, and Claims/Evidence fields from legacy/imported rows. List,
+count, and error responses do not carry this object.
+
+Issue #344 keeps Audit discovery on the same server-owned boundary. The grid
+applies Tenant/platform scope before global search, Severity, Action Type,
+Actor, entity Source, Status, time, and `totalCount`. Supplying an Actor facet
+requires `audit.sensitive_metadata.view` before data access; global search
+simply excludes Actor names when that capability is absent. Metadata, request
+IDs, raw content, Claims, and Evidence are never search sources. Shareable URLs
+and strict identity-partitioned browser saved views contain filter inputs only;
+opening either performs a new authorized request. Session, Tenant, Workspace,
+or authorization invalidation cancels in-flight reads and clears rows/counts.
 
 Needs verification:
 
@@ -737,7 +833,8 @@ Needs verification:
 3. Inert feature/platform settings can create false confidence.
 4. Object storage and scanning are not implemented.
 5. API token authentication is not implemented.
-6. Reverse-proxy forwarded-header handling is absent.
+6. Target-host reverse-proxy deployment evidence remains required; the
+   configuration and in-process Kestrel trust boundary are implemented.
 7. Target-environment restore and tenant-isolation evidence is missing.
 
 Track details in `docs/KNOWN_ISSUES.md`.

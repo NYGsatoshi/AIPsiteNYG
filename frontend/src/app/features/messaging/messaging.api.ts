@@ -1,9 +1,26 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 
 export interface PagedResponseDto<T> {
   readonly items?: readonly T[];
+}
+
+export type ConversationInboxViewDto = 'All' | 'Unread' | 'Mentions' | 'Later';
+
+export interface ConversationInboxCountsDto {
+  readonly all?: unknown;
+  readonly unread?: unknown;
+  readonly mentions?: unknown;
+  readonly later?: unknown;
+}
+
+export interface ConversationInboxResponseDto extends PagedResponseDto<ConversationDto> {
+  readonly page?: unknown;
+  readonly pageSize?: unknown;
+  readonly totalCount?: unknown;
+  readonly view?: unknown;
+  readonly counts?: ConversationInboxCountsDto | null;
 }
 
 export type ConversationTypeDto =
@@ -32,6 +49,7 @@ export interface ConversationDto {
   readonly hasMention?: unknown;
   readonly isMuted?: unknown;
   readonly isArchived?: unknown;
+  readonly isLater?: unknown;
   readonly isLocked?: unknown;
   readonly updatedAt?: unknown;
   readonly createdAt?: unknown;
@@ -115,6 +133,7 @@ export interface ParticipantStateDto {
   readonly unreadCount?: unknown;
   readonly isMuted?: unknown;
   readonly isArchived?: unknown;
+  readonly isLater?: unknown;
   readonly createdAt?: unknown;
   readonly updatedAt?: unknown;
 }
@@ -123,12 +142,63 @@ export interface MessageNotificationPreferenceDto {
   readonly messageNotificationsEnabled?: unknown;
 }
 
+export interface MessageSearchResponseDto {
+  readonly items?: unknown;
+}
+
+export interface MessageFollowUpListItemDto {
+  readonly messageId?: unknown;
+  readonly conversationId?: unknown;
+  readonly workspaceId?: unknown;
+  readonly conversationType?: unknown;
+  readonly conversationTitle?: unknown;
+  readonly threadRootMessageId?: unknown;
+  readonly authorDisplayName?: unknown;
+  readonly body?: unknown;
+  readonly messageCreatedAt?: unknown;
+  readonly savedAt?: unknown;
+}
+
+export interface MessageFollowUpListResponseDto extends PagedResponseDto<MessageFollowUpListItemDto> {
+  readonly page?: unknown;
+  readonly pageSize?: unknown;
+  readonly totalCount?: unknown;
+}
+
+export interface MessageFollowUpStateDto {
+  readonly messageId?: unknown;
+  readonly isSaved?: unknown;
+  readonly savedAt?: unknown;
+}
+
+export type MessageReadFilterDto = 'All' | 'Read' | 'Unread';
+export type MessageAttachmentFilterDto = 'All' | 'With' | 'Without';
+
+export interface MessageSearchRequestDto {
+  readonly query?: string;
+  readonly authorUserId?: string;
+  readonly fromDate?: string;
+  readonly toDateExclusive?: string;
+  readonly messageRead?: MessageReadFilterDto;
+  readonly messageAttachment?: MessageAttachmentFilterDto;
+}
+
+export interface MessageAuthorOptionDto {
+  readonly userId?: unknown;
+  readonly displayName?: unknown;
+}
+
+export interface MessageAuthorOptionsResponseDto {
+  readonly items?: unknown;
+}
+
 @Injectable({ providedIn: 'root' })
 export class MessagingApi {
   private readonly http = inject(HttpClient);
 
-  listConversations(): Observable<PagedResponseDto<ConversationDto>> {
-    return this.http.get<PagedResponseDto<ConversationDto>>('/api/conversations', {
+  listConversations(view: ConversationInboxViewDto = 'All'): Observable<ConversationInboxResponseDto> {
+    return this.http.get<ConversationInboxResponseDto>('/api/conversations', {
+      params: view === 'All' ? undefined : { view },
       withCredentials: true
     });
   }
@@ -136,6 +206,51 @@ export class MessagingApi {
   searchRecipients(query: string): Observable<readonly ConversationRecipientDto[]> {
     return this.http.get<readonly ConversationRecipientDto[]>('/api/conversations/recipients', {
       params: { query },
+      withCredentials: true
+    });
+  }
+
+  searchMessages(request: string | MessageSearchRequestDto): Observable<MessageSearchResponseDto> {
+    const filters: MessageSearchRequestDto = typeof request === 'string' ? { query: request } : request;
+    let params = new HttpParams()
+      .set('type', 'Message')
+      .set('page', '1')
+      .set('pageSize', '50');
+    if (filters.query) {
+      params = params.set('q', filters.query);
+    }
+    if (filters.authorUserId) {
+      params = params.set('authorUserId', filters.authorUserId);
+    }
+    if (filters.fromDate) {
+      params = params.set('fromDate', filters.fromDate);
+    }
+    if (filters.toDateExclusive) {
+      params = params.set('toDateExclusive', filters.toDateExclusive);
+    }
+    if (filters.messageRead && filters.messageRead !== 'All') {
+      params = params.set('messageRead', filters.messageRead);
+    }
+    if (filters.messageAttachment && filters.messageAttachment !== 'All') {
+      params = params.set('messageAttachment', filters.messageAttachment);
+    }
+
+    return this.http.get<MessageSearchResponseDto>('/api/search', {
+      params,
+      withCredentials: true
+    });
+  }
+
+  searchMessageAuthors(query: string): Observable<MessageAuthorOptionsResponseDto> {
+    return this.http.get<MessageAuthorOptionsResponseDto>('/api/search/message-authors', {
+      params: { q: query, limit: '20' },
+      withCredentials: true
+    });
+  }
+
+  resolveMessageAuthor(userId: string): Observable<MessageAuthorOptionsResponseDto> {
+    return this.http.get<MessageAuthorOptionsResponseDto>('/api/search/message-authors', {
+      params: { selectedUserId: userId, limit: '1' },
       withCredentials: true
     });
   }
@@ -154,9 +269,33 @@ export class MessagingApi {
     });
   }
 
-  listMessages(conversationId: string, before?: string): Observable<PagedResponseDto<MessageDto>> {
+  listMessages(conversationId: string, before?: string, anchorMessageId?: string): Observable<PagedResponseDto<MessageDto>> {
     return this.http.get<PagedResponseDto<MessageDto>>(`/api/conversations/${conversationId}/messages`, {
-      params: before ? { before } : undefined,
+      params: {
+        ...(before ? { before } : {}),
+        ...(anchorMessageId ? { anchorMessageId } : {})
+      },
+      withCredentials: true
+    });
+  }
+
+  listMessageFollowUps(page = 1, pageSize = 20): Observable<MessageFollowUpListResponseDto> {
+    return this.http.get<MessageFollowUpListResponseDto>('/api/me/message-follow-ups', {
+      params: { page: String(page), pageSize: String(pageSize) },
+      withCredentials: true
+    });
+  }
+
+  saveMessageFollowUp(messageId: string): Observable<MessageFollowUpStateDto> {
+    return this.http.put<MessageFollowUpStateDto>(
+      `/api/me/message-follow-ups/${messageId}`,
+      {},
+      { withCredentials: true }
+    );
+  }
+
+  removeMessageFollowUp(messageId: string): Observable<MessageFollowUpStateDto> {
+    return this.http.delete<MessageFollowUpStateDto>(`/api/me/message-follow-ups/${messageId}`, {
       withCredentials: true
     });
   }
@@ -174,9 +313,10 @@ export class MessagingApi {
     );
   }
 
-  getMessageThread(messageId: string): Observable<MessageThreadDto> {
+  getMessageThread(messageId: string, anchorReplyMessageId?: string): Observable<MessageThreadDto> {
     return this.http.get<MessageThreadDto>(`/api/messages/${messageId}/thread`, {
-      withCredentials: true
+      withCredentials: true,
+      params: anchorReplyMessageId ? { anchorReplyMessageId } : {}
     });
   }
 
@@ -225,6 +365,14 @@ export class MessagingApi {
     return this.http.patch<ParticipantStateDto>(
       `/api/conversations/${conversationId}/state`,
       { isMuted },
+      { withCredentials: true }
+    );
+  }
+
+  updateConversationLater(conversationId: string, isLater: boolean): Observable<ParticipantStateDto> {
+    return this.http.patch<ParticipantStateDto>(
+      `/api/conversations/${conversationId}/state`,
+      { isLater },
       { withCredentials: true }
     );
   }

@@ -1,8 +1,9 @@
-<section class="recent-files" aria-label="Recent files" data-testid="recent-files-list">
+<section class="recent-files" [attr.aria-label]="i18n.translate('files.recent')" data-testid="recent-files-list">
   @for (file of files; track file.id) {
     <app-file-row
       [file]="file"
       [selected]="selectedFileIds.has(file.id)"
+      (previewRequested)="previewRequested.emit($event)"
       (selectionChanged)="selectionChanged.emit($event)"
       (downloadRequested)="downloadRequested.emit($event)"
     />

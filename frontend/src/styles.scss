@@ -101,3 +101,132 @@ span,
 strong {
   overflow-wrap: anywhere;
 }
+
+/* Scoped here because the combined Files inspector/search component is at its
+   enforced component-style budget. These classes are unique to that page. */
+app-files-page { container-type: inline-size; }
+
+/* The browser variant has three direct children. Keep their placement here so
+   the lazy-loaded component's base two-column rule cannot put the inspector
+   on an implicit second row. */
+app-files-page > .files-page > .files-page__grid.files-page__grid--browser {
+  grid-template-columns: auto minmax(0, 1.45fr) minmax(18rem, 0.75fr);
+  grid-template-areas: 'browser main inspector';
+}
+
+app-files-page > .files-page > .files-page__grid--browser > app-file-browser-sidebar {
+  grid-area: browser;
+  align-self: start;
+}
+
+app-files-page > .files-page > .files-page__grid--browser > .files-page__main { grid-area: main; }
+app-files-page > .files-page > .files-page__grid--browser > .files-page__side { grid-area: inspector; }
+
+.files-page__search-form { display: grid; gap: 10px; }
+.files-page__search-heading,
+.files-page__filter-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.files-page__search-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(9rem, 100%), 1fr)); gap: 8px; }
+.files-page__search-controls label { display: grid; min-width: 0; }
+.files-page__search-controls input,
+.files-page__search-controls select,
+.files-page__search-submit,
+.files-page__search-clear { min-width: 0; min-height: 40px; }
+
+/* File-sharing dialog and badges are global so this focused enhancement does
+   not push the Files component beyond its per-component style budget. */
+app-files-page .files-page__access-badge { width: fit-content; margin-top: 6px !important; border: 1px solid var(--aip-color-border-default); border-radius: 999px; padding: 3px 8px; font-size: .76rem; font-weight: 900; }
+app-files-page .files-page__sharing,
+app-files-page .files-page__sharing-section,
+app-files-page .files-page__sharing-add-controls { display: grid; gap: 10px; }
+app-files-page .files-page__sharing p,
+app-files-page .files-page__sharing h3,
+app-files-page .files-page__sharing-recipient-list { margin: 0; }
+app-files-page .files-page__sharing-error { color: var(--aip-color-danger); font-weight: 900; }
+app-files-page .files-page__sharing-policy,
+app-files-page .files-page__sharing-recipient-list li { display: flex; gap: 10px; align-items: center; justify-content: space-between; }
+app-files-page .files-page__sharing-policy { justify-content: flex-start; font-weight: 900; }
+app-files-page .files-page__sharing-section { border-top: 1px solid var(--aip-color-border-default); padding-top: 12px; }
+app-files-page .files-page__sharing-recipient-list { display: grid; gap: 8px; padding: 0; list-style: none; }
+app-files-page .files-page__sharing-recipient-list span { overflow-wrap: anywhere; }
+app-files-page .files-page__sharing-add-controls label { display: grid; gap: 4px; }
+app-files-page .files-page__sharing-add-controls select,
+app-files-page .files-page__sharing-recipient-list button,
+app-files-page .files-page__sharing-add-controls button { min-height: 42px; font: inherit; }
+app-files-page .files-page__sharing input:focus-visible,
+app-files-page .files-page__sharing button:focus-visible,
+app-files-page .files-page__sharing select:focus-visible { outline: 3px solid var(--aip-color-focus); outline-offset: 2px; }
+
+/* The Announcement creation-flow controls are global only to stay within the
+   editor component's established style budget. They remain scoped to its host. */
+app-announcement-editor .announcement-editor__progress,
+app-announcement-editor .announcement-editor__step,
+app-announcement-editor .announcement-editor__review-edits { display: grid; gap: 10px; min-width: 0; }
+app-announcement-editor .announcement-editor__progress { border: 1px solid var(--aip-color-border-default); border-radius: 8px; padding: 12px; background: var(--aip-color-bg-elevated); }
+app-announcement-editor .announcement-editor__progress p { margin: 0; color: var(--aip-color-text-primary); font-size: .88rem; font-weight: 900; }
+app-announcement-editor .announcement-editor__progress ol { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 0; padding: 0; list-style: none; }
+app-announcement-editor .announcement-editor__progress button,
+app-announcement-editor .announcement-editor__review-edits button { display: inline-flex; min-width: 0; min-height: 44px; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--aip-color-border-default); border-radius: 6px; padding: 7px 10px; background: var(--aip-color-bg-control); color: var(--aip-color-text-primary); font: inherit; font-weight: 800; overflow-wrap: anywhere; }
+app-announcement-editor .announcement-editor__progress button[aria-current='step'] { border-color: var(--aip-color-action-primary); background: var(--aip-color-bg-selected); }
+app-announcement-editor .announcement-editor__progress button:disabled { opacity: .72; }
+app-announcement-editor [hidden] { display: none !important; }
+app-announcement-editor .announcement-editor__row--single { grid-template-columns: minmax(0, 1fr); }
+app-announcement-editor .announcement-editor__review-edits { grid-template-columns: repeat(auto-fit, minmax(min(11rem, 100%), 1fr)); }
+app-announcement-editor .announcement-editor__step-actions { flex-wrap: wrap; }
+
+@media (max-width: 620px) {
+  app-announcement-editor .announcement-editor__progress ol,
+  app-announcement-editor .announcement-editor__review-edits { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@container (max-width: 58rem) {
+  app-files-page > .files-page > .files-page__grid { grid-template-columns: minmax(0, 1fr); }
+  app-files-page > .files-page > .files-page__grid.files-page__grid--browser {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      'browser'
+      'main'
+      'inspector';
+  }
+  app-files-page > .files-page .files-page__preview { position: static; }
+}
+
+@container (max-width: 46rem) {
+  app-files-page > .files-page .files-page__header,
+  app-files-page > .files-page .files-page__panel-header { display: grid; align-items: start; }
+  app-files-page > .files-page .files-page__pagination { justify-content: flex-start; }
+  app-files-page > .files-page .files-page__desktop-grid { display: none; }
+  app-files-page > .files-page .files-page__mobile-list { display: block; }
+}
+
+/* Shared action hierarchy for dense application workflows. Feature pages opt in
+   explicitly so primary, secondary, quiet, and destructive actions stay clear. */
+.aip-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--aip-space-2);
+  min-height: var(--aip-button-height);
+  min-width: 0;
+  padding: var(--aip-space-2) var(--aip-space-3);
+  border: 1px solid transparent;
+  border-radius: var(--aip-radius-md);
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color var(--aip-motion-duration-fast), border-color var(--aip-motion-duration-fast), color var(--aip-motion-duration-fast), transform var(--aip-motion-duration-fast);
+}
+.aip-button--primary { border-color: var(--aip-color-action-primary); background: var(--aip-color-action-primary); color: var(--aip-color-text-inverse); }
+.aip-button--secondary { border-color: var(--aip-color-border-strong); background: var(--aip-color-bg-control); color: var(--aip-color-text-primary); }
+.aip-button--quiet { border-color: transparent; background: transparent; color: var(--aip-color-action-primary); }
+.aip-button--danger { border-color: var(--aip-color-danger); background: var(--aip-color-danger-subtle); color: var(--aip-color-danger); }
+.aip-button:hover:not(:disabled) { border-color: var(--aip-color-action-primary); background: var(--aip-color-bg-selected); color: var(--aip-color-text-primary); }
+.aip-button:active:not(:disabled) { transform: translateY(1px); }
+.aip-button:disabled, .aip-button[aria-disabled='true'] { cursor: not-allowed; opacity: .58; }
+.aip-action-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--aip-space-2); }
+@media (max-width: 40rem) {
+  .aip-action-toolbar { display: grid; grid-template-columns: minmax(0, 1fr); width: 100%; }
+  .aip-action-toolbar > .aip-button { width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) { .aip-button { transition: none; } }

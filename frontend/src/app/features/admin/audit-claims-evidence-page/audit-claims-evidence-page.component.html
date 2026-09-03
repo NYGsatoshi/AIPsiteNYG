@@ -1,0 +1,353 @@
+@let page = vm();
+@let summary = actionSummary();
+
+<section class="claims-page" data-testid="audit-claims-evidence-page">
+  <header class="claims-page__header">
+    <div>
+      <p class="claims-page__eyebrow">Audit workspace</p>
+      <h1 tabindex="-1">Claims &amp; Evidence</h1>
+      <p>Verify whether each cited passage actually supports the claim.</p>
+    </div>
+    <nav class="claims-page__views" aria-label="Audit views">
+      <a href="/app/admin/audit">Event log</a>
+      <a href="/app/admin/audit/claims-evidence" aria-current="page">Claims &amp; Evidence</a>
+    </nav>
+  </header>
+
+  <p class="claims-page__policy">
+    Citation presence and support verification are separate states. Only evidence passages and source provenance authorized for the current user are returned; hidden sources are not counted or named.
+  </p>
+
+  <form class="claims-page__loader" (submit)="$event.preventDefault(); openVersion()">
+    <label for="artifact-version-id">Artifact version ID</label>
+    <div class="claims-page__loader-row">
+      <input
+        id="artifact-version-id"
+        type="text"
+        autocomplete="off"
+        spellcheck="false"
+        data-testid="audit-artifact-version-input"
+        [value]="versionInput()"
+        [attr.aria-invalid]="inputError() ? 'true' : null"
+        [attr.aria-describedby]="inputError() ? 'artifact-version-error' : null"
+        (input)="updateVersionInput($any($event.target).value)"
+      />
+      <button type="submit" data-testid="audit-open-artifact-version">Open version</button>
+    </div>
+    @if (inputError(); as error) {
+      <p id="artifact-version-error" class="claims-page__error" role="alert">{{ error }}</p>
+    }
+  </form>
+
+  <p class="claims-page__status" role="status" aria-live="polite" aria-atomic="true">
+    @switch (page.status) {
+      @case ('loading') { Loading Claims &amp; Evidence. }
+      @case ('permissionDenied') { Audit Claims &amp; Evidence access is unavailable. }
+      @case ('notFound') { The requested artifact version is unavailable. }
+      @case ('error') { Claims &amp; Evidence could not be loaded. }
+      @case ('empty') { No claims are attached to this authorized artifact version. }
+      @case ('ready') {
+        @if (claimSupportFilter() === 'Unverified') {
+          {{ visibleClaims().length }} of {{ page.claims.length }} authorized claims match Support not verified.
+        } @else {
+          {{ page.claims.length }} claims are available for review.
+        }
+      }
+      @default { Enter an artifact version ID to inspect its claims. }
+    }
+  </p>
+
+  @if (page.status === 'permissionDenied' || page.status === 'notFound' || page.status === 'error' || page.status === 'empty') {
+    <section class="claims-page__notice" data-testid="audit-claims-evidence-notice">
+      <h2>
+        @switch (page.status) {
+          @case ('permissionDenied') { Permission required }
+          @case ('notFound') { Version unavailable }
+          @case ('empty') { No claims }
+          @default { Unable to load }
+        }
+      </h2>
+      <p>{{ page.message }}</p>
+    </section>
+  }
+
+  @if (page.status === 'ready') {
+    <section class="claims-page__version" aria-labelledby="claims-version-title">
+      <div>
+        <p class="claims-page__eyebrow">Artifact version {{ page.artifactVersionNumber }}</p>
+        <h2 id="claims-version-title">{{ page.artifactTitle }}</h2>
+      </div>
+      <p class="claims-page__version-id">Version ID: <code>{{ page.artifactVersionId }}</code></p>
+    </section>
+
+    <section
+      class="claims-page__summary"
+      aria-labelledby="audit-action-summary-title"
+      data-testid="audit-action-summary"
+    >
+      <header class="claims-page__summary-header">
+        <div>
+          <p class="claims-page__eyebrow">Start the next review</p>
+          <h2 id="audit-action-summary-title">Actionable checks</h2>
+        </div>
+        <p>Each card opens the corresponding authorized list with its filter shown.</p>
+      </header>
+
+      <div class="claims-page__summary-grid">
+        <button
+          type="button"
+          class="summary-card"
+          data-testid="audit-summary-unverified"
+          [attr.aria-pressed]="claimSupportFilter() === 'Unverified'"
+          (click)="activateUnverifiedClaims()"
+        >
+          <span class="summary-card__count">{{ unverifiedClaimCount() }}</span>
+          <span class="summary-card__title">Unverified claims</span>
+          <span class="summary-card__description">
+            Claims in this authorized Artifact version whose support has not been verified.
+          </span>
+          <span class="summary-card__action">Filter Claims &amp; Evidence</span>
+        </button>
+
+        <button
+          type="button"
+          class="summary-card"
+          data-testid="audit-summary-warning"
+          [disabled]="summary.status !== 'ready'"
+          (click)="openWarningEvents()"
+        >
+          <span class="summary-card__count">{{ summary.status === 'ready' ? summary.warningCount : '—' }}</span>
+          <span class="summary-card__title">Warning events</span>
+          <span class="summary-card__description">
+            Events classified as Warning by the server in the current authorized Audit scope.
+          </span>
+          <span class="summary-card__action">Open Warning filter</span>
+        </button>
+
+        <button
+          type="button"
+          class="summary-card"
+          data-testid="audit-summary-error"
+          [disabled]="summary.status !== 'ready'"
+          (click)="openErrorEvents()"
+        >
+          <span class="summary-card__count">{{ summary.status === 'ready' ? summary.errorCount : '—' }}</span>
+          <span class="summary-card__title">Error events</span>
+          <span class="summary-card__description">
+            Events with a Failed result in the current authorized Audit scope.
+          </span>
+          <span class="summary-card__action">Open Failed status filter</span>
+        </button>
+      </div>
+
+      <p class="claims-page__summary-note">
+        A zero in one category does not mean the audit is complete. Review completion and export are separate actions.
+      </p>
+      @if (summary.status === 'loading') {
+        <p class="claims-page__summary-status" role="status">Loading authorized Warning and Error counts.</p>
+      } @else if (summary.status === 'permissionDenied' || summary.status === 'error') {
+        <p class="claims-page__summary-status" role="status">{{ summary.message }}</p>
+      }
+    </section>
+
+    @if (claimSupportFilter() === 'Unverified') {
+      <section class="claims-page__applied-filter" aria-label="Applied Claims filters">
+        <span>Applied to Claims list</span>
+        <app-aip-filter-chip
+          label="Support"
+          value="Not verified"
+          (removed)="clearClaimFilter()"
+        />
+      </section>
+    }
+
+    @if (visibleClaims().length > 0) {
+      <div class="claims-page__matrix" role="region" aria-label="Claim verification matrix" data-testid="audit-claim-matrix">
+        <div class="claim-row claim-row--header" aria-hidden="true">
+          <span>Claim</span>
+          <span>Citation</span>
+          <span>Support</span>
+          <span>Review</span>
+        </div>
+        @for (claim of visibleClaims(); track claim.id) {
+          <button
+            type="button"
+            class="claim-row claim-row--button"
+            [class.claim-row--selected]="selectedClaimId() === claim.id"
+            [attr.aria-pressed]="selectedClaimId() === claim.id"
+            [attr.data-testid]="'audit-claim-' + claim.id"
+            (click)="selectClaim(claim)"
+          >
+            <span class="claim-row__cell claim-row__claim">
+              <span class="claim-row__label">Claim</span>
+              <strong>#{{ claim.ordinal }}</strong>
+              <span>{{ claim.text }}</span>
+            </span>
+            <span class="claim-row__cell">
+              <span class="claim-row__label">Citation</span>
+              <span class="status-pill" [attr.data-state]="claim.citationPresent ? 'present' : 'missing'">
+                {{ claim.citationPresent ? 'Citation present' : 'Citation missing' }}
+              </span>
+            </span>
+            <span class="claim-row__cell">
+              <span class="claim-row__label">Support</span>
+              <span class="status-pill" [attr.data-state]="claim.supportStatus.toLowerCase()">
+                {{ claim.supportLabel }}
+              </span>
+            </span>
+            <span class="claim-row__cell">
+              <span class="claim-row__label">Review</span>
+              <span class="status-pill">{{ claim.reviewStatus }}</span>
+            </span>
+          </button>
+        }
+      </div>
+    } @else {
+      <section class="claims-page__notice" data-testid="audit-claims-filter-empty">
+        <h2>No claims match the applied filter</h2>
+        <p>This authorized Artifact version has no Claims with Support not verified.</p>
+      </section>
+    }
+
+    @if (selectedClaim(); as claim) {
+      <section class="claims-page__comparison" aria-labelledby="claim-comparison-title" data-testid="audit-claim-comparison">
+        <header class="comparison__header">
+          <div>
+            <p class="claims-page__eyebrow">Selected claim #{{ claim.ordinal }}</p>
+            <h2 id="claim-comparison-title">Claim ↔ Evidence comparison</h2>
+          </div>
+          <div class="comparison__states" role="group" aria-label="Verification states">
+            <span><strong>Citation:</strong> {{ claim.citationPresent ? 'Present' : 'Missing' }}</span>
+            <span><strong>Support:</strong> {{ claim.supportLabel }}</span>
+          </div>
+        </header>
+
+        <div class="comparison__panes">
+          <article class="comparison__pane" aria-labelledby="selected-claim-heading">
+            <h3 id="selected-claim-heading">Claim</h3>
+            <p class="comparison__claim-text">{{ claim.text }}</p>
+            @if (!claim.citationPresent) {
+              <p class="comparison__warning">This claim has no citation.</p>
+            }
+            @if (claim.supportStatus === 'Contradicted') {
+              <p class="comparison__warning">Contradiction: the recorded evidence does not support this claim.</p>
+            } @else if (claim.supportStatus === 'Insufficient') {
+              <p class="comparison__warning">Insufficient evidence: the recorded evidence is not enough to verify this claim.</p>
+            } @else if (claim.supportStatus === 'Unverified') {
+              <p class="comparison__warning">Support has not been verified.</p>
+            }
+          </article>
+
+          <article class="comparison__pane" aria-labelledby="selected-evidence-heading">
+            <h3 id="selected-evidence-heading">Authorized source passage</h3>
+            @if (claim.evidence.length > 0) {
+              <div class="evidence-tabs" role="group" aria-label="Evidence passages">
+                @for (evidence of claim.evidence; track evidence.id) {
+                  <button
+                    type="button"
+                    [attr.aria-pressed]="selectedEvidence()?.id === evidence.id"
+                    (click)="selectEvidence(evidence.id)"
+                  >
+                    Evidence {{ evidence.ordinal }}
+                  </button>
+                }
+              </div>
+            }
+
+            @if (selectedEvidence(); as evidence) {
+              <dl class="evidence-meta" data-testid="audit-source-provenance">
+                <div><dt>Stored as</dt><dd>{{ sourceKindLabel(evidence.sourceKind) }}</dd></div>
+                @if (evidence.sourceTitle) {
+                  <div><dt>Source</dt><dd>{{ evidence.sourceTitle }}</dd></div>
+                }
+                @if (evidence.sourceId) {
+                  <div><dt>Source ID</dt><dd><code>{{ evidence.sourceId }}</code></dd></div>
+                }
+                @if (evidence.sourcePublisher) {
+                  <div><dt>Publisher</dt><dd>{{ evidence.sourcePublisher }}</dd></div>
+                }
+                @if (evidence.sourceType) {
+                  <div><dt>Source type</dt><dd>{{ evidence.sourceType }}</dd></div>
+                }
+                <div><dt>Classification</dt><dd>{{ sourceClassificationLabel(evidence.sourceClassification) }}</dd></div>
+                <div>
+                  <dt>Verification</dt>
+                  <dd>
+                    <span class="status-pill" [attr.data-state]="evidence.verificationStatus.toLowerCase()">
+                      {{ verificationLabel(evidence.verificationStatus) }}
+                    </span>
+                  </dd>
+                </div>
+                @if (evidence.publishedAt) {
+                  <div><dt>Published</dt><dd><time [attr.datetime]="evidence.publishedAt">{{ formatTimestamp(evidence.publishedAt) }}</time></dd></div>
+                }
+                @if (evidence.retrievedAt) {
+                  <div><dt>Retrieved</dt><dd><time [attr.datetime]="evidence.retrievedAt">{{ formatTimestamp(evidence.retrievedAt) }}</time></dd></div>
+                }
+                @if (evidence.sourceVersion) {
+                  <div><dt>Version</dt><dd><code>{{ evidence.sourceVersion }}</code></dd></div>
+                }
+                @if (evidence.contentHash) {
+                  <div><dt>Content hash</dt><dd><code>{{ evidence.contentHash }}</code></dd></div>
+                }
+                @if (evidence.location) {
+                  <div><dt>Citation location</dt><dd>{{ evidence.location }}</dd></div>
+                }
+                <div><dt>URL / reference</dt><dd><code>{{ evidence.sourceReference }}</code></dd></div>
+              </dl>
+
+              <blockquote class="evidence-passage">{{ evidence.passage }}</blockquote>
+
+              @if (evidence.sourceId) {
+                <section class="source-usage" aria-labelledby="source-usage-title" data-testid="audit-source-usage">
+                  <header class="source-usage__header">
+                    <div>
+                      <h4 id="source-usage-title">Authorized source usage</h4>
+                      <p>{{ selectedSourceClaimCount() }} referencing claim(s), {{ selectedSourceReferences().length }} citation occurrence(s).</p>
+                    </div>
+                    @if (selectedSourceReferences().length > 1) {
+                      <span class="status-pill" data-state="duplicate">Duplicate reference</span>
+                    }
+                  </header>
+                  <ul>
+                    @for (reference of selectedSourceReferences(); track reference.evidenceId) {
+                      <li>
+                        Claim #{{ reference.claimOrdinal }} · Evidence {{ reference.evidenceOrdinal }}
+                        @if (reference.location) { · {{ reference.location }} }
+                      </li>
+                    }
+                  </ul>
+                  <p class="source-usage__note">Only source usages already authorized in this Artifact version are counted.</p>
+                </section>
+              }
+
+              <button
+                type="button"
+                class="provenance-toggle"
+                data-testid="audit-trace-provenance"
+                [attr.aria-expanded]="traceExpanded()"
+                aria-controls="evidence-provenance-trace"
+                (click)="toggleTrace()"
+              >
+                {{ traceExpanded() ? 'Hide provenance trace' : 'Trace provenance' }}
+              </button>
+
+              @if (traceExpanded()) {
+                <ol id="evidence-provenance-trace" class="evidence-trace" aria-label="Evidence provenance trace">
+                  <li>Claim #{{ claim.ordinal }}</li>
+                  <li>Evidence {{ evidence.ordinal }}</li>
+                  <li>{{ evidence.sourceId || evidence.sourceTitle || sourceKindLabel(evidence.sourceKind) }}</li>
+                  @if (evidence.sourceEventAuditId) {
+                    <li><a [href]="'/app/admin/audit?event=' + evidence.sourceEventAuditId">Related audit event</a></li>
+                  }
+                </ol>
+              }
+            } @else {
+              <p class="comparison__empty">No authorized evidence passage is available for this claim.</p>
+            }
+          </article>
+        </div>
+      </section>
+    }
+  }
+</section>

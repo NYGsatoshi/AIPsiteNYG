@@ -1,6 +1,6 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { inject, Injectable, InjectionToken, signal } from '@angular/core';
-import { Subscription } from 'rxjs';
+import { firstValueFrom, Subscription } from 'rxjs';
 import { normalizeApiError } from '../../core/api/api-error.adapter';
 import {
   ProtectedStateClearReason,
@@ -18,9 +18,11 @@ import {
 } from './announcements.types';
 import {
   AnnouncementAudienceOptionDto,
+  AnnouncementDraftResponseDto,
   AnnouncementDetailDto,
   AnnouncementListItemDto,
   mapAnnouncementAudienceOption,
+  mapAnnouncementDraft,
   mapAnnouncementDetail,
   mapAnnouncementListItem,
   markAnnouncementDetailLoading,
@@ -30,6 +32,10 @@ import {
   markAnnouncementReadPending,
   PagedResponseDto,
   toCreateAnnouncementRequest,
+  toCreateAnnouncementDraftRequest,
+  toPublishAnnouncementDraftRequest,
+  toSaveAnnouncementDraftRequest,
+  toScheduleAnnouncementDraftRequest,
 } from './announcements.api';
 
 export const AIP_ANNOUNCEMENTS_PAGE_MOCK = new InjectionToken<AnnouncementsPageViewModel>(
@@ -59,7 +65,7 @@ export class AnnouncementsFacade {
   private audienceOptions: readonly AnnouncementAudienceOption[] =
     this.mockPage?.editorDraft?.availableAudiences ?? [];
   private editorActive = false;
-  /** A publication has no idempotency contract, so one browser editor permits one in-flight POST. */
+  /** UI single-flight complements the server-owned idempotency contract. */
   private publicationInFlight = false;
   private editorDraftRevision = 0;
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
@@ -83,14 +89,25 @@ export class AnnouncementsFacade {
   }
 
   updateEditorDraft(draft: AnnouncementEditorDraft): void {
-    if (!this.pageState().editorDraft) {
+    const current = this.pageState().editorDraft;
+    if (!current) {
       return;
     }
 
     this.editorDraftRevision += 1;
+    const contentChanged = this.draftContentChanged(current, draft);
     this.pageState.update((page) => ({
       ...page,
-      editorDraft: this.createDraft(this.audienceOptions, draft),
+      editorDraft: this.createDraft(this.audienceOptions, {
+        ...draft,
+        // Keep a create replay key only while its exact initial payload is
+        // unchanged. Any edit gets a distinct accepted-create identity.
+        createIdempotencyKey:
+          draft.id || !contentChanged ? draft.createIdempotencyKey : undefined,
+        // A changed draft must never replay an earlier publish/schedule
+        // transition under its previous idempotency key.
+        transitionIdempotencyKey: contentChanged ? undefined : draft.transitionIdempotencyKey,
+      }),
     }));
   }
 
@@ -102,7 +119,9 @@ export class AnnouncementsFacade {
     this.editorActive = true;
     this.pageState.update((page) => ({
       ...page,
-      editorDraft: this.createDraft(this.audienceOptions),
+      editorDraft: this.createDraft(this.audienceOptions, {
+        createIdempotencyKey: this.newIdempotencyKey('create'),
+      }),
       message: undefined,
       editorError: undefined,
       isPublishing: false,
@@ -111,6 +130,15 @@ export class AnnouncementsFacade {
   }
 
   createAnnouncement(submission: AnnouncementEditorSubmission): void {
+    // The production editor always supplies a delivery mode and therefore
+    // uses the durable #378 workflow below. Retaining the old no-mode path
+    // temporarily keeps older, already-shipped test fixtures compatible while
+    // their callers migrate; it is not selected by the current UI.
+    if (submission.deliveryMode !== undefined) {
+      void this.publishAnnouncementDraft(submission);
+      return;
+    }
+
     const draftRevisionAtSubmission = this.editorDraftRevision;
     const authorizedAudience = this.audienceOptions.find(
       (audience) => audience.key === submission.audience.key,
@@ -209,6 +237,365 @@ export class AnnouncementsFacade {
         },
       });
     this.trackProtectedRequest(request);
+  }
+
+  saveAnnouncementDraft(submission: AnnouncementEditorSubmission): void {
+    void this.saveDraftFromEditor(submission);
+  }
+
+  private async saveDraftFromEditor(submission: AnnouncementEditorSubmission): Promise<void> {
+    const draftRevisionAtSubmission = this.editorDraftRevision;
+    const authorizedSubmission = this.authorizeWorkflowSubmission(submission, draftRevisionAtSubmission);
+    if (!authorizedSubmission || this.publicationInFlight) {
+      return;
+    }
+
+    if (this.mockPage) {
+      this.commitWorkflowDraft(
+        {
+          ...this.pageState().editorDraft!,
+          id: this.pageState().editorDraft?.id ?? `mock-draft-${Date.now()}`,
+          version: (this.pageState().editorDraft?.version ?? 0) + 1,
+          title: authorizedSubmission.title,
+          body: authorizedSubmission.body,
+          priority: authorizedSubmission.priority,
+          audienceKey: authorizedSubmission.audience.key,
+          requiresReadConfirmation: authorizedSubmission.requiresReadConfirmation,
+          deliveryMode: authorizedSubmission.deliveryMode,
+          scheduledLocalDateTime: authorizedSubmission.scheduledLocalDateTime,
+          timeZoneId: authorizedSubmission.timeZoneId,
+        },
+        'Draft saved.',
+        draftRevisionAtSubmission,
+      );
+      return;
+    }
+
+    this.setWorkflowBusy(true);
+    const generation = this.protectedStateGeneration;
+    try {
+      const draft = await this.persistDraftAsync(authorizedSubmission);
+      if (!this.isCurrentProtectedGeneration(generation)) {
+        return;
+      }
+      this.commitWorkflowDraft(draft, 'Draft saved. Review it before requesting publication.', draftRevisionAtSubmission);
+    } catch (error) {
+      if (this.isCurrentProtectedGeneration(generation)) {
+        this.handleWorkflowFailure(authorizedSubmission, error, draftRevisionAtSubmission, 'save');
+      }
+    } finally {
+      if (this.isCurrentProtectedGeneration(generation)) {
+        this.setWorkflowBusy(false);
+      }
+    }
+  }
+
+  private async publishAnnouncementDraft(submission: AnnouncementEditorSubmission): Promise<void> {
+    const draftRevisionAtSubmission = this.editorDraftRevision;
+    const authorizedSubmission = this.authorizeWorkflowSubmission(submission, draftRevisionAtSubmission);
+    if (!authorizedSubmission || this.publicationInFlight) {
+      return;
+    }
+
+    if (this.mockPage) {
+      this.completeMockWorkflowDelivery(authorizedSubmission, draftRevisionAtSubmission);
+      return;
+    }
+
+    this.setWorkflowBusy(true);
+    const generation = this.protectedStateGeneration;
+    // Once the draft has been saved, retain its exact transition identity in
+    // the editor before sending the command. If the browser loses that
+    // response, a retry must replay the same server-owned transition rather
+    // than create another request (or try to edit a now-Scheduled draft).
+    let recoverySubmission = authorizedSubmission;
+    try {
+      if (
+        authorizedSubmission.draftId &&
+        authorizedSubmission.draftVersion !== undefined &&
+        authorizedSubmission.transitionIdempotencyKey
+      ) {
+        recoverySubmission = authorizedSubmission;
+      } else {
+        const persisted = await this.persistDraftAsync(authorizedSubmission);
+        const transitionKey = authorizedSubmission.transitionIdempotencyKey ?? this.newIdempotencyKey('transition');
+        recoverySubmission = {
+          ...authorizedSubmission,
+          draftId: persisted.id,
+          draftVersion: persisted.version,
+          createIdempotencyKey: persisted.createIdempotencyKey,
+          transitionIdempotencyKey: transitionKey,
+        };
+        this.commitWorkflowDraft(
+          {
+            ...persisted,
+            transitionIdempotencyKey: transitionKey,
+          },
+          this.pageState().message ?? '',
+          draftRevisionAtSubmission,
+        );
+      }
+
+      const transition = await this.transitionAnnouncementDraftAsync(recoverySubmission);
+      if (!this.isCurrentProtectedGeneration(generation)) {
+        return;
+      }
+
+      if (transition.publicationState === 'scheduled') {
+        const queuedForImmediatePublication = authorizedSubmission.deliveryMode !== 'scheduled';
+        this.commitWorkflowDraft(
+          transition,
+          queuedForImmediatePublication
+            ? 'Publication queued. It will appear after the server reauthorizes the audience and publishes it.'
+            : `Announcement scheduled${transition.scheduledAtLabel ? ` for ${transition.scheduledAtLabel}` : ''}.`,
+          draftRevisionAtSubmission,
+          !queuedForImmediatePublication,
+        );
+        return;
+      }
+
+      // The returned draft is authoritative proof that the existing
+      // Announcement was created. Refresh the visible read surface from the
+      // normal authorized API; never synthesize a browser-only announcement.
+      this.publicationInFlight = false;
+      this.editorActive = false;
+      this.pageState.update((page) => ({
+        ...page,
+        editorDraft: undefined,
+        editorError: undefined,
+        isPublishing: false,
+        message: 'Announcement published.',
+      }));
+      this.loadAnnouncements();
+    } catch (error) {
+      if (this.isCurrentProtectedGeneration(generation)) {
+        this.handleWorkflowFailure(recoverySubmission, error, draftRevisionAtSubmission, 'publish');
+      }
+    } finally {
+      if (this.isCurrentProtectedGeneration(generation)) {
+        this.setWorkflowBusy(false);
+      }
+    }
+  }
+
+  private authorizeWorkflowSubmission(
+    submission: AnnouncementEditorSubmission,
+    draftRevisionAtSubmission: number,
+  ): AnnouncementEditorSubmission | null {
+    const authorizedAudience = this.audienceOptions.find(
+      (audience) => audience.key === submission.audience.key,
+    );
+    if (!authorizedAudience) {
+      this.preserveSubmissionAsDraft(
+        submission,
+        audienceAuthorizationChangedMessage,
+        draftRevisionAtSubmission,
+      );
+      this.loadAudienceOptions();
+      return null;
+    }
+
+    return {
+      ...submission,
+      audience: authorizedAudience,
+      deliveryMode: submission.deliveryMode ?? 'now',
+      createIdempotencyKey: submission.createIdempotencyKey ?? this.newIdempotencyKey('create'),
+    };
+  }
+
+  private async persistDraftAsync(
+    submission: AnnouncementEditorSubmission,
+  ): Promise<AnnouncementEditorDraft> {
+    let response: AnnouncementDraftResponseDto;
+    if (submission.draftId && submission.draftVersion !== undefined) {
+      response = await firstValueFrom(
+        this.http.put<AnnouncementDraftResponseDto>(
+          `/api/announcement-drafts/${submission.draftId}`,
+          toSaveAnnouncementDraftRequest(submission, submission.draftVersion),
+          { withCredentials: true },
+        ),
+      );
+    } else {
+      response = await firstValueFrom(
+        this.http.post<AnnouncementDraftResponseDto>(
+          '/api/announcement-drafts',
+          toCreateAnnouncementDraftRequest(submission),
+          {
+            withCredentials: true,
+            headers: this.idempotencyHeaders(submission.createIdempotencyKey!),
+          },
+        ),
+      );
+    }
+
+    const draft = mapAnnouncementDraft(response, this.audienceOptions, this.pageState().editorDraft);
+    if (!draft) {
+      throw new Error('Announcement draft response was invalid.');
+    }
+    return draft;
+  }
+
+  private async transitionAnnouncementDraftAsync(
+    submission: AnnouncementEditorSubmission,
+  ): Promise<AnnouncementEditorDraft> {
+    const draftId = submission.draftId;
+    const expectedVersion = submission.draftVersion;
+    if (!draftId || expectedVersion === undefined) {
+      throw new Error('Announcement draft is not ready for delivery.');
+    }
+
+    const scheduled = submission.deliveryMode === 'scheduled';
+    const request = scheduled
+      ? toScheduleAnnouncementDraftRequest(expectedVersion, submission)
+      : toPublishAnnouncementDraftRequest(expectedVersion);
+    if (!request) {
+      throw new Error('A local date, time, and IANA time zone are required for scheduling.');
+    }
+
+    const response = await firstValueFrom(
+      this.http.post<AnnouncementDraftResponseDto>(
+        `/api/announcement-drafts/${draftId}/${scheduled ? 'schedule' : 'publish'}`,
+        request,
+        {
+          withCredentials: true,
+          headers: this.idempotencyHeaders(submission.transitionIdempotencyKey!),
+        },
+      ),
+    );
+    const draft = mapAnnouncementDraft(response, this.audienceOptions, this.pageState().editorDraft);
+    if (!draft) {
+      throw new Error('Announcement delivery response was invalid.');
+    }
+    return draft;
+  }
+
+  private commitWorkflowDraft(
+    draft: AnnouncementEditorDraft,
+    message: string,
+    draftRevisionAtSubmission: number,
+    keepEditorActive = true,
+  ): void {
+    this.editorActive = keepEditorActive;
+    this.pageState.update((page) => {
+      const current = page.editorDraft;
+      const preserveNewerEdits =
+        this.editorDraftRevision > draftRevisionAtSubmission && current !== undefined;
+      const next = preserveNewerEdits
+        ? this.createDraft(this.audienceOptions, {
+            ...current,
+            id: draft.id,
+            version: draft.version,
+            createIdempotencyKey: draft.createIdempotencyKey,
+            transitionIdempotencyKey: draft.transitionIdempotencyKey,
+          })
+        : this.createDraft(this.audienceOptions, draft);
+      return {
+        ...page,
+        editorDraft: next,
+        editorError: undefined,
+        message,
+      };
+    });
+  }
+
+  private completeMockWorkflowDelivery(
+    submission: AnnouncementEditorSubmission,
+    draftRevisionAtSubmission: number,
+  ): void {
+    if (submission.deliveryMode === 'scheduled') {
+      this.commitWorkflowDraft(
+        {
+          ...this.pageState().editorDraft!,
+          id: this.pageState().editorDraft?.id ?? `mock-draft-${Date.now()}`,
+          version: (this.pageState().editorDraft?.version ?? 0) + 1,
+          publicationState: 'scheduled',
+          scheduledAtLabel: submission.scheduledLocalDateTime,
+          timeZoneLabel: submission.timeZoneId,
+          deliveryMode: 'scheduled',
+          scheduledLocalDateTime: submission.scheduledLocalDateTime,
+          timeZoneId: submission.timeZoneId,
+        },
+        'Announcement scheduled.',
+        draftRevisionAtSubmission,
+      );
+      return;
+    }
+
+    const created = this.mockCreatedAnnouncement(submission);
+    this.editorActive = false;
+    this.pageState.update((page) => ({
+      ...page,
+      status: 'ready',
+      announcements: [created, ...page.announcements],
+      selectedAnnouncementId: created.id,
+      editorDraft: undefined,
+      message: 'Announcement published.',
+      editorError: undefined,
+      isPublishing: false,
+    }));
+  }
+
+  private handleWorkflowFailure(
+    submission: AnnouncementEditorSubmission,
+    error: unknown,
+    draftRevisionAtSubmission: number,
+    operation: 'save' | 'publish',
+  ): void {
+    const normalized = normalizeApiError(error);
+    if (this.isWorkflowAudienceAuthorizationFailure(normalized)) {
+      this.preserveSubmissionAsDraft(
+        submission,
+        audienceAuthorizationChangedMessage,
+        draftRevisionAtSubmission,
+      );
+      this.loadAudienceOptions();
+      return;
+    }
+
+    this.preserveSubmissionAsDraft(
+      submission,
+      this.workflowFailureMessage(normalized, operation),
+      draftRevisionAtSubmission,
+    );
+  }
+
+  private setWorkflowBusy(busy: boolean): void {
+    this.publicationInFlight = busy;
+    this.pageState.update((page) => ({ ...page, isPublishing: busy }));
+  }
+
+  private idempotencyHeaders(key: string): HttpHeaders {
+    return new HttpHeaders({ 'Idempotency-Key': key });
+  }
+
+  private newIdempotencyKey(operation: 'create' | 'transition'): string {
+    const random = globalThis.crypto?.randomUUID?.() ??
+      `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 14)}`;
+    return `announcement-draft-${operation}-${random}`.slice(0, 128);
+  }
+
+  private isWorkflowAudienceAuthorizationFailure(error: ReturnType<typeof normalizeApiError>): boolean {
+    return (
+      error.httpStatus === 401 ||
+      error.httpStatus === 403 ||
+      error.code === 'ANNOUNCEMENT_DRAFT_AUDIENCE_DENIED' ||
+      error.code === 'ANNOUNCEMENT_DRAFT_NOT_FOUND'
+    );
+  }
+
+  private workflowFailureMessage(
+    error: ReturnType<typeof normalizeApiError>,
+    operation: 'save' | 'publish',
+  ): string {
+    if (error.code === 'ANNOUNCEMENT_DRAFT_STALE' || error.httpStatus === 409) {
+      return 'This draft changed on the server. Reload it before trying again.';
+    }
+    if (error.code.startsWith('ANNOUNCEMENT_DRAFT_SCHEDULE_')) {
+      return 'The selected schedule needs review. Confirm the local date, time, and IANA time zone.';
+    }
+    return operation === 'save'
+      ? 'The draft could not be saved. Your form values are still available; try again.'
+      : publicationUnavailableMessage;
   }
 
   private loadAnnouncements(): void {
@@ -485,7 +872,7 @@ export class AnnouncementsFacade {
 
   private createDraft(
     audiences: readonly AnnouncementAudienceOption[],
-    previous?: AnnouncementEditorDraft,
+    previous?: Partial<AnnouncementEditorDraft>,
   ): AnnouncementEditorDraft {
     const previousAudienceKey = previous?.audienceKey;
     const audienceKey =
@@ -494,16 +881,44 @@ export class AnnouncementsFacade {
       '';
     return {
       id: previous?.id,
+      ...(previous?.version !== undefined ? { version: previous.version } : {}),
+      ...(previous?.createIdempotencyKey
+        ? { createIdempotencyKey: previous.createIdempotencyKey }
+        : {}),
+      ...(previous?.transitionIdempotencyKey
+        ? { transitionIdempotencyKey: previous.transitionIdempotencyKey }
+        : {}),
       title: previous?.title ?? '',
       body: previous?.body ?? '',
       priority: previous?.priority ?? 'normal',
       audienceKey,
       availableAudiences: audiences,
       requiresReadConfirmation: previous?.requiresReadConfirmation ?? false,
+      ...(previous?.deliveryMode ? { deliveryMode: previous.deliveryMode } : {}),
+      ...(previous?.scheduledLocalDateTime
+        ? { scheduledLocalDateTime: previous.scheduledLocalDateTime }
+        : {}),
+      ...(previous?.timeZoneId ? { timeZoneId: previous.timeZoneId } : {}),
       publicationState: previous?.publicationState ?? 'draft',
       scheduledAtLabel: previous?.scheduledAtLabel,
       timeZoneLabel: previous?.timeZoneLabel,
     };
+  }
+
+  private draftContentChanged(
+    previous: AnnouncementEditorDraft,
+    next: AnnouncementEditorDraft,
+  ): boolean {
+    return (
+      previous.title !== next.title ||
+      previous.body !== next.body ||
+      previous.priority !== next.priority ||
+      previous.audienceKey !== next.audienceKey ||
+      previous.requiresReadConfirmation !== next.requiresReadConfirmation ||
+      previous.deliveryMode !== next.deliveryMode ||
+      previous.scheduledLocalDateTime !== next.scheduledLocalDateTime ||
+      previous.timeZoneId !== next.timeZoneId
+    );
   }
 
   private preserveSubmissionAsDraft(
@@ -512,12 +927,25 @@ export class AnnouncementsFacade {
     draftRevisionAtSubmission: number,
   ): void {
     const submittedDraft: AnnouncementEditorDraft = {
+      id: submission.draftId,
+      ...(submission.draftVersion !== undefined ? { version: submission.draftVersion } : {}),
+      ...(submission.createIdempotencyKey
+        ? { createIdempotencyKey: submission.createIdempotencyKey }
+        : {}),
+      ...(submission.transitionIdempotencyKey
+        ? { transitionIdempotencyKey: submission.transitionIdempotencyKey }
+        : {}),
       title: submission.title,
       body: submission.body,
       priority: submission.priority,
       audienceKey: submission.audience.key,
       availableAudiences: this.audienceOptions,
       requiresReadConfirmation: submission.requiresReadConfirmation,
+      ...(submission.deliveryMode ? { deliveryMode: submission.deliveryMode } : {}),
+      ...(submission.scheduledLocalDateTime
+        ? { scheduledLocalDateTime: submission.scheduledLocalDateTime }
+        : {}),
+      ...(submission.timeZoneId ? { timeZoneId: submission.timeZoneId } : {}),
     };
     this.pageState.update((page) => {
       const currentDraft =

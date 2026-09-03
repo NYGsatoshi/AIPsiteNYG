@@ -1,8 +1,9 @@
 import { HttpClient, HttpEventType, HttpResponse } from '@angular/common/http';
 import { Injectable, InjectionToken, inject, signal } from '@angular/core';
-import { catchError, concatMap, finalize, from, map, of, Subscription, toArray } from 'rxjs';
+import { catchError, concatMap, finalize, from, map, Observable, of, Subscription, toArray } from 'rxjs';
 
 import { normalizeApiError } from '../../core/api/api-error.adapter';
+import { I18nService, TranslationKey } from '../../core/i18n/i18n.service';
 import { ActiveWorkspaceFacade } from '../../core/workspace/active-workspace.facade';
 import { RealtimeFacade } from '../../core/realtime/realtime.facade';
 import { DurableRealtimeEvent } from '../../core/realtime/realtime.models';
@@ -10,11 +11,20 @@ import { ContinueWorkingHistoryService } from '../../shared/continue-working/con
 import {
   AttachmentUploadResponseDto,
   FileDownloadGrantDto,
+  FileDisplayLocalizer,
   FileListItemDto,
+  FileSharingDetailViewModel,
+  mapFileSharingResponse,
   mapFileListItem,
   PagedResponseDto,
   safeFileNameFromHeader,
 } from './files.api';
+import {
+  fileSearchFromDate,
+  fileSearchParams,
+  fileSearchSelectionSnapshotParams,
+  mapFileSearchResponse,
+} from './files-search.api';
 import {
   FileDeleteViewModel,
   FileDownloadState,
@@ -22,12 +32,22 @@ import {
   FileUploadQueueItem,
   FileUploadViewModel,
   FileViewModel,
+  FileSearchFilters,
+  FileSelectionSnapshot,
+  FileSelectionSnapshotState,
+  FileSearchViewModel,
   TaskFilePickerState,
 } from './files.types';
 
 export const AIP_FILES_PAGE_MOCK = new InjectionToken<FilesPageViewModel>('AIP_FILES_PAGE_MOCK');
 
 const FILES_PAGE_SIZE = 50;
+const EMPTY_FILE_SEARCH_FILTERS: FileSearchFilters = {
+  query: '',
+  kind: 'all',
+  modified: 'any',
+  owner: 'any',
+};
 
 export interface AttachmentDownloadContext {
   /** Prevent an obsolete Task route from receiving a completion callback. */
@@ -46,10 +66,14 @@ export class FilesFacade {
   private readonly activeWorkspace = inject(ActiveWorkspaceFacade);
   private readonly realtime = inject(RealtimeFacade);
   private readonly continueWorkingHistory = inject(ContinueWorkingHistoryService);
+  private readonly i18n = inject(I18nService);
   private readonly mockPage = inject(AIP_FILES_PAGE_MOCK, { optional: true });
-  private readonly pageState = signal<FilesPageViewModel>(this.mockPage ?? this.emptyPage('Loading files from backend.'));
+  private readonly pageState = signal<FilesPageViewModel>(this.mockPage ?? this.emptyPage(this.i18n.translate('files.upload.loading')));
   private readonly deleteStateSignal = signal<FileDeleteViewModel>(this.emptyDeleteState());
   private readonly inventoryRevisionSignal = signal(0);
+  private readonly searchState = signal<FileSearchViewModel>(this.emptySearchState());
+  private readonly searchRevisionSignal = signal(0);
+  private readonly selectionSnapshotState = signal<FileSelectionSnapshotState>(this.emptySelectionSnapshotState());
   /** Task detail owns this independent query; it must never alter Files-page workspace state. */
   private readonly pickerState = signal<TaskFilePickerState>(this.emptyPickerState());
   private pageWorkspaceId: string | null = null;
@@ -63,6 +87,12 @@ export class FilesFacade {
   private readonly loadingWorkspaceIds = new Set<string>();
   private readonly pendingUploads = new Map<string, { file: File; subscription: Subscription }>();
   private deleteRequest: Subscription | null = null;
+  private searchRequest: Subscription | null = null;
+  private selectionSnapshotRequest: Subscription | null = null;
+  private selectionSnapshotDeleteRequest: Subscription | null = null;
+  private searchGeneration = 0;
+  private selectionSnapshotGeneration = 0;
+  private searchCurrentUserId: string | null = null;
   private refreshAfterMutation = false;
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -70,6 +100,9 @@ export class FilesFacade {
   readonly deleteState = this.deleteStateSignal.asReadonly();
   /** Changes only when the server inventory is replaced or protected state is cleared. */
   readonly inventoryRevision = this.inventoryRevisionSignal.asReadonly();
+  readonly search = this.searchState.asReadonly();
+  readonly searchRevision = this.searchRevisionSignal.asReadonly();
+  readonly selectionSnapshot = this.selectionSnapshotState.asReadonly();
   readonly pickerStateForTask = this.pickerState.asReadonly();
   /** Compatibility projection for existing consumers; Task detail must consume pickerStateForTask. */
   readonly pickerFiles = () => this.pickerState().files;
@@ -90,7 +123,8 @@ export class FilesFacade {
       this.cancelDeleteOperation();
       this.invalidatePageRequests();
       this.pageWorkspaceId = null;
-      this.pageState.set(this.emptyPage('Select a workspace before uploading files.', false));
+      this.clearFileSearch();
+      this.pageState.set(this.emptyPage(this.i18n.translate('files.upload.unavailable'), false));
       this.inventoryRevisionSignal.update((revision) => revision + 1);
       return;
     }
@@ -100,7 +134,309 @@ export class FilesFacade {
     this.cancelDeleteOperation();
     this.invalidatePageRequests();
     this.pageWorkspaceId = workspaceId;
+    this.clearFileSearch();
     this.loadFiles(workspaceId, 1, FILES_PAGE_SIZE);
+  }
+
+  searchFilesForWorkspace(
+    workspaceId: string,
+    filters: FileSearchFilters,
+    currentUserId: string | null,
+    page = 1,
+  ): void {
+    if (this.mockPage) {
+      return;
+    }
+
+    const normalized: FileSearchFilters = { ...filters, query: filters.query.trim() };
+    const hasFacet = normalized.kind !== 'all' || normalized.modified !== 'any' || normalized.owner !== 'any';
+    if (!normalized.query && !hasFacet) {
+      this.clearFileSearch();
+      return;
+    }
+    if (
+      !workspaceId ||
+      workspaceId !== this.pageWorkspaceId ||
+      workspaceId !== this.activeWorkspace.activeWorkspace()?.id ||
+      (normalized.query.length > 0 && normalized.query.length < 2) ||
+      (normalized.owner === 'me' && !currentUserId)
+    ) {
+      this.cancelSearchRequest();
+      this.clearSearchSelectionSnapshot();
+      this.searchState.set({
+        ...this.emptySearchState(workspaceId || null),
+        status: 'invalid',
+        filters: normalized,
+        message: normalized.query.length === 1
+          ? this.i18n.translate('files.search.invalidShortQuery')
+          : this.i18n.translate('files.search.invalidContext'),
+      });
+      this.searchRevisionSignal.update((revision) => revision + 1);
+      return;
+    }
+
+    const safePage = Math.max(1, Math.floor(page));
+    const generation = ++this.searchGeneration;
+    this.clearSearchSelectionSnapshot();
+    this.searchRequest?.unsubscribe();
+    this.searchRequest = null;
+    this.searchCurrentUserId = currentUserId;
+    const requestedAt = new Date();
+    const fromDate = fileSearchFromDate(normalized.modified, requestedAt);
+    this.searchState.set({
+      ...this.emptySearchState(workspaceId),
+      status: 'loading',
+      filters: normalized,
+      page: safePage,
+      fromDate,
+      message: this.i18n.translate('files.search.loading'),
+    });
+    this.searchRevisionSignal.update((revision) => revision + 1);
+
+    const request = this.http.get<unknown>('/api/search', {
+      params: fileSearchParams(workspaceId, normalized, safePage, FILES_PAGE_SIZE, currentUserId, requestedAt),
+      withCredentials: true,
+    }).subscribe({
+      next: (response) => {
+        if (!this.isCurrentSearch(generation, workspaceId)) {
+          return;
+        }
+        this.searchRequest = null;
+        const pageResult = mapFileSearchResponse(response, workspaceId, this.fileDisplayLocalizer());
+        if (!pageResult) {
+          this.searchState.set({
+            ...this.emptySearchState(workspaceId),
+            status: 'error',
+            filters: normalized,
+            message: this.i18n.translate('files.search.invalidResponse'),
+          });
+          this.searchRevisionSignal.update((revision) => revision + 1);
+          return;
+        }
+        this.searchState.set({
+          ...pageResult,
+          status: pageResult.files.length > 0 ? 'ready' : 'empty',
+          workspaceId,
+          filters: normalized,
+          fromDate,
+          message: pageResult.files.length > 0
+            ? pageResult.totalCount === 1
+              ? this.i18n.translate('files.search.oneMatch')
+              : this.i18n.translate('files.search.matches', { count: pageResult.totalCount })
+            : this.i18n.translate('files.search.noMatches'),
+        });
+        this.searchRevisionSignal.update((revision) => revision + 1);
+      },
+        error: (error: unknown) => {
+        if (!this.isCurrentSearch(generation, workspaceId)) {
+          return;
+        }
+        this.searchRequest = null;
+        this.searchState.set({
+          ...this.emptySearchState(workspaceId),
+          status: 'error',
+          filters: normalized,
+          message: this.localizedError(error, 'files.search.unavailable'),
+        });
+        this.searchRevisionSignal.update((revision) => revision + 1);
+      },
+    });
+    this.searchRequest = request;
+  }
+
+  goToSearchPage(page: number): void {
+    const state = this.searchState();
+    if (!state.workspaceId || state.status === 'idle' || state.status === 'loading') {
+      return;
+    }
+    const totalPages = Math.max(1, Math.ceil(state.totalCount / Math.max(1, state.pageSize)));
+    const target = Math.max(1, Math.min(Math.floor(page), totalPages));
+    if (target !== state.page) {
+      this.searchFilesForWorkspace(state.workspaceId, state.filters, this.searchCurrentUserId, target);
+    }
+  }
+
+  clearFileSearch(): void {
+    this.cancelSearchRequest();
+    this.clearSearchSelectionSnapshot();
+    this.searchCurrentUserId = null;
+    this.searchState.set(this.emptySearchState(this.pageWorkspaceId));
+    this.searchRevisionSignal.update((revision) => revision + 1);
+  }
+
+  /** Captures the exact currently authorized search result set on the server. */
+  captureSearchSelectionSnapshot(): void {
+    if (this.mockPage) {
+      return;
+    }
+
+    const search = this.searchState();
+    const workspaceId = search.workspaceId;
+    if (!workspaceId || search.status !== 'ready' || workspaceId !== this.pageWorkspaceId ||
+      workspaceId !== this.activeWorkspace.activeWorkspace()?.id) {
+      this.selectionSnapshotState.set({
+        ...this.emptySelectionSnapshotState(),
+        status: 'error',
+        message: this.i18n.translate('files.delete.refreshSearch'),
+      });
+      return;
+    }
+
+    const generation = ++this.selectionSnapshotGeneration;
+    const searchGeneration = this.searchGeneration;
+    this.selectionSnapshotRequest?.unsubscribe();
+    this.selectionSnapshotRequest = null;
+    this.selectionSnapshotState.set({
+      ...this.emptySelectionSnapshotState(),
+      status: 'capturing',
+      message: this.i18n.translate('files.delete.capturing'),
+    });
+
+    const request = this.http.post<unknown>('/api/files/selection-snapshots', null, {
+      params: fileSearchSelectionSnapshotParams(workspaceId, search.filters, search.fromDate),
+      withCredentials: true,
+    }).subscribe({
+      next: (response) => {
+        if (!this.isCurrentSelectionSnapshotRequest(generation, searchGeneration, workspaceId)) {
+          return;
+        }
+        this.selectionSnapshotRequest = null;
+        const captured = mapSelectionSnapshotCapture(response, (key, parameters) => this.i18n.translate(key, parameters));
+        if (!captured) {
+          this.selectionSnapshotState.set({
+            ...this.emptySelectionSnapshotState(),
+            status: 'error',
+            message: this.i18n.translate('files.delete.invalidSelection'),
+          });
+          return;
+        }
+        this.selectionSnapshotState.set(captured);
+      },
+      error: (error: unknown) => {
+        if (!this.isCurrentSelectionSnapshotRequest(generation, searchGeneration, workspaceId)) {
+          return;
+        }
+        this.selectionSnapshotRequest = null;
+        const normalized = normalizeApiError(error);
+        this.selectionSnapshotState.set({
+          ...this.emptySelectionSnapshotState(),
+          status: 'error',
+          message: this.i18n.apiErrorMessage(normalized, 'files.delete.selectionUnavailable'),
+        });
+      },
+    });
+    this.selectionSnapshotRequest = request;
+  }
+
+  /** The server consumes the snapshot and reauthorizes every captured FileObject. */
+  deleteSearchSelectionSnapshot(onComplete?: () => void): void {
+    const selection = this.selectionSnapshotState().selection;
+    if (this.mockPage || !selection || this.selectionSnapshotDeleteRequest || this.deleteRequest) {
+      return;
+    }
+
+    const workspaceId = this.pageWorkspaceId;
+    const generation = this.pageGeneration;
+    const searchGeneration = this.searchGeneration;
+    if (!workspaceId) {
+      return;
+    }
+
+    this.deleteStateSignal.set({
+      state: 'pending',
+      message: this.i18n.translate('files.delete.pendingCaptured', { count: selection.selectedCount }),
+      succeededCount: 0,
+      failedCount: 0,
+    });
+    const request = this.http.post<unknown>(
+      `/api/files/selection-snapshots/${selection.id}/delete`,
+      null,
+      { withCredentials: true },
+    ).subscribe({
+      next: (response) => {
+        if (generation !== this.pageGeneration || workspaceId !== this.pageWorkspaceId) {
+          return;
+        }
+        const deleted = mapSelectionSnapshotDelete(response);
+        if (!deleted || deleted.attemptedCount !== selection.selectedCount) {
+          this.deleteStateSignal.set({
+            state: 'failed',
+            message: this.i18n.translate('files.delete.invalidBatchResponse'),
+            succeededCount: 0,
+            failedCount: selection.selectedCount,
+          });
+        } else if (deleted.failedCount === 0) {
+          this.deleteStateSignal.set({
+            state: 'succeeded',
+            message: deleted.succeededCount === 1
+              ? this.i18n.translate('files.delete.oneSuccess')
+              : this.i18n.translate('files.delete.manySuccess', { count: deleted.succeededCount }),
+            succeededCount: deleted.succeededCount,
+            failedCount: 0,
+          });
+        } else if (deleted.succeededCount > 0) {
+          this.deleteStateSignal.set({
+            state: 'partial',
+            message: this.i18n.translate('files.delete.partial', {
+              attempted: deleted.attemptedCount,
+              succeeded: deleted.succeededCount,
+              failed: deleted.failedCount,
+            }),
+            succeededCount: deleted.succeededCount,
+            failedCount: deleted.failedCount,
+          });
+        } else {
+          this.deleteStateSignal.set({
+            state: 'failed',
+            message: this.i18n.translate('files.delete.noneCaptured'),
+            succeededCount: 0,
+            failedCount: deleted.failedCount,
+          });
+        }
+
+        this.clearSearchSelectionSnapshot();
+        onComplete?.();
+        const search = this.searchState();
+        if (this.searchGeneration === searchGeneration &&
+          search.workspaceId === workspaceId &&
+          search.status !== 'idle' && search.status !== 'invalid') {
+          this.searchFilesForWorkspace(workspaceId, search.filters, this.searchCurrentUserId, search.page);
+        }
+        const page = this.pageState();
+        this.loadFiles(workspaceId, page.page, page.pageSize);
+      },
+      error: (error: unknown) => {
+        if (generation !== this.pageGeneration || workspaceId !== this.pageWorkspaceId) {
+          return;
+        }
+        const normalized = normalizeApiError(error);
+        this.deleteStateSignal.set({
+          state: 'failed',
+          message: this.i18n.apiErrorMessage(normalized, 'files.delete.capturedUnavailable'),
+          succeededCount: 0,
+          failedCount: selection.selectedCount,
+        });
+        this.clearSearchSelectionSnapshot();
+        onComplete?.();
+      },
+    });
+    this.selectionSnapshotDeleteRequest = request;
+    request.add(() => {
+      if (this.selectionSnapshotDeleteRequest === request) {
+        this.selectionSnapshotDeleteRequest = null;
+      }
+    });
+  }
+
+  clearSearchSelectionSnapshot(cancelMutation = false): void {
+    this.selectionSnapshotGeneration++;
+    this.selectionSnapshotRequest?.unsubscribe();
+    this.selectionSnapshotRequest = null;
+    if (cancelMutation) {
+      this.selectionSnapshotDeleteRequest?.unsubscribe();
+      this.selectionSnapshotDeleteRequest = null;
+    }
+    this.selectionSnapshotState.set(this.emptySelectionSnapshotState());
   }
 
   goToPage(page: number): void {
@@ -131,7 +467,15 @@ export class FilesFacade {
       return;
     }
 
-    if (!file.name || file.size <= 0) { this.setUpload({ state: 'failed', canUpload: true, selectedFileName: file.name, message: 'Select a non-empty file.' }); return; }
+    if (!file.name || file.size <= 0) {
+      this.setUpload({
+        state: 'failed',
+        canUpload: true,
+        selectedFileName: file.name,
+        message: this.i18n.translate('files.upload.emptyFile'),
+      });
+      return;
+    }
     const clientRequestId = crypto.randomUUID();
     this.updateQueue({ clientRequestId, fileName: file.name, state: 'pending' });
 
@@ -139,7 +483,7 @@ export class FilesFacade {
       state: 'pending',
       canUpload: false,
       selectedFileName: file.name,
-      message: 'Uploading file to backend.',
+      message: this.i18n.translate('files.upload.progress'),
     });
 
     const formData = new FormData();
@@ -153,7 +497,16 @@ export class FilesFacade {
         next: (event) => {
           if (generation !== this.pageGeneration) { return; }
           if (event.type === HttpEventType.Sent) { this.updateQueue({ clientRequestId, fileName: file.name, state: 'uploading' }); return; }
-          if (event.type === HttpEventType.UploadProgress) { this.setUpload({ state: 'progress', canUpload: false, selectedFileName: file.name, progressPercent: event.total ? Math.round(event.loaded / event.total * 100) : undefined, message: 'Uploading file to backend.' }); return; }
+          if (event.type === HttpEventType.UploadProgress) {
+            this.setUpload({
+              state: 'progress',
+              canUpload: false,
+              selectedFileName: file.name,
+              progressPercent: event.total ? Math.round(event.loaded / event.total * 100) : undefined,
+              message: this.i18n.translate('files.upload.progress'),
+            });
+            return;
+          }
           if (event.type !== HttpEventType.Response) { return; }
           const response = event.body ?? {};
           this.pendingUploads.delete(clientRequestId);
@@ -162,7 +515,7 @@ export class FilesFacade {
             state: 'succeeded',
             canUpload: true,
             selectedFileName: stringValue(response.originalFileName) ?? file.name,
-            message: 'Upload accepted by backend.',
+            message: this.i18n.translate('files.upload.accepted'),
           });
           this.loadingWorkspaceIds.delete(workspaceId);
           this.loadFiles(workspaceId, 1, this.pageState().pageSize);
@@ -172,12 +525,13 @@ export class FilesFacade {
           if (generation !== this.pageGeneration) { return; }
           this.pendingUploads.delete(clientRequestId);
           const normalized = normalizeApiError(error);
-          this.updateQueue({ clientRequestId, fileName: file.name, state: 'failed', message: normalized.message });
+          const message = this.i18n.apiErrorMessage(normalized, 'api.requestFailed');
+          this.updateQueue({ clientRequestId, fileName: file.name, state: 'failed', message });
           this.setUpload({
             state: 'failed',
             canUpload: true,
             selectedFileName: file.name,
-            message: normalized.message,
+            message,
           });
           this.reconcileAfterMutation(workspaceId);
         },
@@ -191,12 +545,97 @@ export class FilesFacade {
     pending.subscription.unsubscribe();
     this.pendingUploads.delete(clientRequestId);
     this.updateQueue({ clientRequestId, fileName: pending.file.name, state: 'cancelled' });
-    this.setUpload({ state: 'cancelled', canUpload: this.canUploadNow(), selectedFileName: pending.file.name, message: 'Upload cancelled locally.' });
+    this.setUpload({
+      state: 'cancelled',
+      canUpload: this.canUploadNow(),
+      selectedFileName: pending.file.name,
+      message: this.i18n.translate('files.upload.cancelledMessage'),
+    });
   }
 
   retryUpload(clientRequestId: string): void {
     const item = this.pendingUploads.get(clientRequestId);
     if (item) { this.uploadFile(item.file); }
+  }
+
+  /** Reads the manager-only sharing inspection projection for one File. */
+  getFileSharing(fileObjectId: string): Observable<FileSharingDetailViewModel> {
+    return this.http.get<unknown>(`/api/files/${encodeURIComponent(fileObjectId)}/sharing`, {
+      withCredentials: true,
+    }).pipe(map((response) => this.requireSharingDetail(response)));
+  }
+
+  updateFileSharingPolicy(
+    fileObjectId: string,
+    shareWithWorkspace: boolean,
+    expectedSharingVersion: number,
+  ): Observable<FileSharingDetailViewModel> {
+    return this.http.put<unknown>(`/api/files/${encodeURIComponent(fileObjectId)}/sharing`, {
+      shareWithWorkspace,
+      expectedSharingVersion,
+    }, { withCredentials: true }).pipe(map((response) => this.requireSharingDetail(response)));
+  }
+
+  grantFileSharingRecipient(
+    fileObjectId: string,
+    recipientUserId: string,
+    expectedSharingVersion: number,
+  ): Observable<FileSharingDetailViewModel> {
+    return this.http.post<unknown>(`/api/files/${encodeURIComponent(fileObjectId)}/sharing/recipients`, {
+      recipientUserId,
+      expectedSharingVersion,
+    }, { withCredentials: true }).pipe(map((response) => this.requireSharingDetail(response)));
+  }
+
+  revokeFileSharingRecipient(
+    fileObjectId: string,
+    grantId: string,
+    expectedSharingVersion: number,
+  ): Observable<FileSharingDetailViewModel> {
+    return this.http.delete<unknown>(
+      `/api/files/${encodeURIComponent(fileObjectId)}/sharing/recipients/${encodeURIComponent(grantId)}`,
+      {
+        params: { expectedSharingVersion },
+        withCredentials: true,
+      },
+    ).pipe(map((response) => this.requireSharingDetail(response)));
+  }
+
+  /**
+   * Applies a successful server mutation to every visible Files projection
+   * without manufacturing a state client-side. The page still receives the
+   * regular realtime refresh for all other viewers.
+   */
+  reconcileFileSharing(detail: FileSharingDetailViewModel): void {
+    const replace = (files: readonly FileViewModel[]): readonly FileViewModel[] => {
+      let changed = false;
+      const next = files.map((file) => {
+        if (file.canonicalFileId !== detail.fileObjectId) {
+          return file;
+        }
+        changed = true;
+        return { ...file, sharing: detail.sharing };
+      });
+      return changed ? next : files;
+    };
+
+    this.pageState.update((page) => {
+      const recentFiles = replace(page.recentFiles);
+      const pickerFiles = replace(page.pickerFiles);
+      return recentFiles === page.recentFiles && pickerFiles === page.pickerFiles
+        ? page
+        : { ...page, recentFiles, pickerFiles };
+    });
+    this.searchState.update((search) => {
+      // Do not manufacture a new idle search snapshot. FilesPageComponent
+      // treats a replaced search snapshot as a server-authoritative reset,
+      // so an unnecessary write here would close the active Preview/dialog.
+      if (search.status === 'idle') {
+        return search;
+      }
+      const files = replace(search.files);
+      return files === search.files ? search : { ...search, files };
+    });
   }
 
   downloadFile(fileObjectId: string): void {
@@ -211,7 +650,7 @@ export class FilesFacade {
 
     this.updateFileDownload(fileObjectId, {
       downloadState: 'pending',
-      downloadMessage: 'Authorizing download.',
+      downloadMessage: this.i18n.translate('files.download.authorizing'),
     });
 
     const generation = this.pageGeneration;
@@ -232,7 +671,9 @@ export class FilesFacade {
           const normalized = normalizeApiError(error);
           this.updateFileDownload(fileObjectId, {
             downloadState: 'failed',
-            downloadMessage: normalized.httpStatus === 403 ? 'Download denied.' : normalized.message,
+            downloadMessage: normalized.httpStatus === 403
+              ? this.i18n.translate('files.download.denied')
+              : this.i18n.apiErrorMessage(normalized, 'api.requestFailed'),
           });
           operation.unsubscribe();
         },
@@ -256,7 +697,7 @@ export class FilesFacade {
     if (uniqueFiles.length !== files.length || uniqueFiles.some((file) => file.canDelete !== true)) {
       this.deleteStateSignal.set({
         state: 'failed',
-        message: 'The selected files are not authorized for deletion.',
+        message: this.i18n.translate('files.delete.notAuthorized'),
         succeededCount: 0,
         failedCount: files.length,
       });
@@ -268,8 +709,8 @@ export class FilesFacade {
     this.deleteStateSignal.set({
       state: 'pending',
       message: uniqueFiles.length === 1
-        ? 'Deleting the selected file.'
-        : `Deleting ${uniqueFiles.length} files one at a time.`,
+        ? this.i18n.translate('files.delete.pendingOne')
+        : this.i18n.translate('files.delete.pendingMany', { count: uniqueFiles.length }),
       succeededCount: 0,
       failedCount: 0,
     });
@@ -303,22 +744,26 @@ export class FilesFacade {
         this.deleteStateSignal.set({
           state: 'succeeded',
           message: results.length === 1
-            ? 'The file was deleted.'
-            : `${results.length} files were deleted one at a time.`,
+            ? this.i18n.translate('files.delete.oneSuccess')
+            : this.i18n.translate('files.delete.manySuccess', { count: results.length }),
           succeededCount: results.length,
           failedCount: 0,
         });
       } else if (succeeded.length > 0) {
         this.deleteStateSignal.set({
           state: 'partial',
-          message: `${succeeded.length} of ${results.length} files were deleted. ${failedCount} could not be deleted. Each deletion was processed separately; this was not an atomic batch.`,
+          message: this.i18n.translate('files.delete.partial', {
+            attempted: results.length,
+            succeeded: succeeded.length,
+            failed: failedCount,
+          }),
           succeededCount: succeeded.length,
           failedCount,
         });
       } else {
         this.deleteStateSignal.set({
           state: 'failed',
-          message: 'No files were deleted. The server did not authorize or complete any selected deletion.',
+          message: this.i18n.translate('files.delete.noneSelected'),
           succeededCount: 0,
           failedCount,
         });
@@ -376,7 +821,9 @@ export class FilesFacade {
     })).subscribe({
       next: response => {
         if (generation !== this.pickerGeneration || this.pickerWorkspaceId !== workspaceId) return;
-        const incoming = (response.items ?? []).map(mapFileListItem).filter(file => file.id.length > 0);
+        const incoming = (response.items ?? [])
+          .map((item) => mapFileListItem(item, this.fileDisplayLocalizer()))
+          .filter(file => file.id.length > 0);
         const existing = replace ? [] : this.pickerState().files;
         const ids = new Set(existing.map(file => file.id));
         const files = [...existing, ...incoming.filter(file => !ids.has(file.id) && (ids.add(file.id), true))];
@@ -386,7 +833,14 @@ export class FilesFacade {
         if (generation !== this.pickerGeneration || this.pickerWorkspaceId !== workspaceId) return;
         const normalized = normalizeApiError(error);
         const current = this.pickerState();
-        this.pickerState.set({ ...current, workspaceId, status: normalized.httpStatus === 401 || normalized.httpStatus === 403 ? 'permissionDenied' : 'error', message: normalized.message, requestId: normalized.requestId, failedPage: page });
+        this.pickerState.set({
+          ...current,
+          workspaceId,
+          status: normalized.httpStatus === 401 || normalized.httpStatus === 403 ? 'permissionDenied' : 'error',
+          message: this.i18n.apiErrorMessage(normalized, 'api.requestFailed'),
+          requestId: normalized.requestId,
+          failedPage: page,
+        });
       }
     });
   }
@@ -399,7 +853,7 @@ export class FilesFacade {
     if (operationWorkspaceId && this.activeWorkspace.activeWorkspace()?.id !== operationWorkspaceId) return null;
     if (!expectedFileObjectId) {
       if (context.isCurrent?.() !== false) {
-        context.onState?.('failed', 'Download is unavailable because its authorized file identity is missing.');
+          context.onState?.('failed', this.i18n.translate('files.download.missingIdentity'));
       }
       return null;
     }
@@ -411,14 +865,18 @@ export class FilesFacade {
       if (operationIsCurrent()) context.onState?.(state, message);
     };
     const denied = () => { if (operationIsCurrent()) context.onPermissionDenied?.(); };
-    report('pending', 'Authorizing download.');
+    report('pending', this.i18n.translate('files.download.authorizing'));
     const grantRequest = this.http.post<FileDownloadGrantDto>(`/api/attachments/${attachmentId}/download-grants`, { purpose: 'task-detail-download' }, { withCredentials: true }).subscribe({
       next: grant => {
         if (!operationIsCurrent()) { operation.unsubscribe(); return; }
         const grantId = stringValue(grant.fileDownloadGrantId);
         const fileObjectId = fileObjectIdentity(grant.fileObjectId);
         const token = stringValue(grant.token);
-        if (!grantId || !fileObjectId || !token || fileObjectId !== expectedFileObjectId) { report('failed', 'Download grant response was incomplete or mismatched.'); operation.unsubscribe(); return; }
+        if (!grantId || !fileObjectId || !token || fileObjectId !== expectedFileObjectId) {
+          report('failed', this.i18n.translate('files.download.invalidGrant'));
+          operation.unsubscribe();
+          return;
+        }
         const downloadRequest = this.http.post(`/api/attachment-download-grants/${grantId}/download`, { token }, { observe: 'response', responseType: 'blob', withCredentials: true }).subscribe({
           next: response => {
             if (!operationIsCurrent()) { operation.unsubscribe(); return; }
@@ -426,14 +884,16 @@ export class FilesFacade {
             if (downloaded && operationWorkspaceId) {
               this.continueWorkingHistory.touchFile(expectedFileObjectId, operationWorkspaceId);
             }
-            report('succeeded', 'Download started.');
+            report('succeeded', this.i18n.translate('files.download.started'));
             operation.unsubscribe();
           },
           error: error => {
             if (!operationIsCurrent()) { operation.unsubscribe(); return; }
             const normalized = normalizeApiError(error);
             if (normalized.httpStatus === 401 || normalized.httpStatus === 403) denied();
-            report('failed', normalized.httpStatus === 403 ? 'Download denied.' : normalized.message);
+            report('failed', normalized.httpStatus === 403
+              ? this.i18n.translate('files.download.denied')
+              : this.i18n.apiErrorMessage(normalized, 'api.requestFailed'));
             operation.unsubscribe();
           }
         });
@@ -443,7 +903,9 @@ export class FilesFacade {
         if (!operationIsCurrent()) { operation.unsubscribe(); return; }
         const normalized = normalizeApiError(error);
         if (normalized.httpStatus === 401 || normalized.httpStatus === 403) denied();
-        report('failed', normalized.httpStatus === 403 ? 'Download denied.' : normalized.message);
+        report('failed', normalized.httpStatus === 403
+          ? this.i18n.translate('files.download.denied')
+          : this.i18n.apiErrorMessage(normalized, 'api.requestFailed'));
         operation.unsubscribe();
       }
     });
@@ -479,7 +941,9 @@ export class FilesFacade {
             return;
           }
 
-          const files = (response.items ?? []).map((item) => mapFileListItem(item)).filter((file) => file.id.length > 0);
+          const files = (response.items ?? [])
+            .map((item) => mapFileListItem(item, this.fileDisplayLocalizer()))
+            .filter((file) => file.id.length > 0);
           const responsePage = numberValue(response.page) ?? safePage;
           const responsePageSize = numberValue(response.pageSize) ?? safePageSize;
           const totalCount = numberValue(response.totalCount) ?? files.length;
@@ -491,7 +955,9 @@ export class FilesFacade {
           }
 
           this.pageState.set({
-            ...this.emptyPage(files.length === 0 ? 'No files returned by backend.' : 'Files are loaded from backend.'),
+            ...this.emptyPage(files.length === 0
+              ? this.i18n.translate('files.empty')
+              : this.i18n.translate('files.loaded')),
             upload: currentUpload,
             uploadQueue: this.pageState().uploadQueue,
             recentFiles: files,
@@ -510,7 +976,7 @@ export class FilesFacade {
           }
           const normalized = normalizeApiError(error);
           this.pageState.set({
-            ...this.emptyPage(normalized.message),
+            ...this.emptyPage(this.i18n.apiErrorMessage(normalized, 'api.requestFailed')),
             upload: { ...currentUpload, canUpload: true },
             uploadQueue: this.pageState().uploadQueue,
             page: safePage,
@@ -530,7 +996,7 @@ export class FilesFacade {
     if (!expectedFileObjectId || !grantId || !grantedFileObjectId || grantedFileObjectId !== expectedFileObjectId || !token) {
       this.updateFileDownload(fileObjectId, {
         downloadState: 'failed',
-        downloadMessage: 'Download grant response was incomplete or mismatched.',
+        downloadMessage: this.i18n.translate('files.download.invalidGrant'),
       });
       operation.unsubscribe();
       return;
@@ -547,7 +1013,7 @@ export class FilesFacade {
           if (!this.isCurrentPageOperation(generation, fileObjectId)) { return; }
           const fileName = safeFileNameFromHeader(
             response.headers.get('content-disposition'),
-            this.findFile(fileObjectId)?.originalFileName ?? 'download',
+            this.findFile(fileObjectId)?.originalFileName ?? this.i18n.translate('files.untitledFile'),
           );
           const downloaded = this.saveBlob(response, fileName);
           if (downloaded) {
@@ -555,7 +1021,7 @@ export class FilesFacade {
           }
           this.updateFileDownload(fileObjectId, {
             downloadState: 'succeeded',
-            downloadMessage: 'Download started.',
+            downloadMessage: this.i18n.translate('files.download.started'),
           });
           operation.unsubscribe();
         },
@@ -564,7 +1030,9 @@ export class FilesFacade {
           const normalized = normalizeApiError(error);
           this.updateFileDownload(fileObjectId, {
             downloadState: 'failed',
-            downloadMessage: normalized.httpStatus === 403 ? 'Download denied.' : normalized.message,
+            downloadMessage: normalized.httpStatus === 403
+              ? this.i18n.translate('files.download.denied')
+              : this.i18n.apiErrorMessage(normalized, 'api.requestFailed'),
           });
           operation.unsubscribe();
         },
@@ -607,6 +1075,19 @@ export class FilesFacade {
         ),
       };
     });
+    this.searchState.update((search) => ({
+      ...search,
+      files: search.files.map((file) =>
+        file.canonicalFileId === fileObjectId ? { ...file, ...patch } : file),
+    }));
+  }
+
+  private requireSharingDetail(response: unknown): FileSharingDetailViewModel {
+    const detail = mapFileSharingResponse(response);
+    if (!detail) {
+      throw new Error('Invalid File sharing response.');
+    }
+    return detail;
   }
 
   private handleRealtimeEvent(event: DurableRealtimeEvent): void {
@@ -637,6 +1118,10 @@ export class FilesFacade {
     }
     this.refreshTimer = setTimeout(() => {
       this.refreshTimer = null;
+      const search = this.searchState();
+      if (search.workspaceId === workspaceId && search.status !== 'idle' && search.status !== 'invalid') {
+        this.searchFilesForWorkspace(workspaceId, search.filters, this.searchCurrentUserId, search.page);
+      }
       const state = this.pageState();
       this.loadFiles(workspaceId, state.page, state.pageSize);
     }, 100);
@@ -647,24 +1132,27 @@ export class FilesFacade {
   }
 
   private findFile(fileObjectId: string): FileViewModel | undefined {
-    return this.pageState().recentFiles.find((file) => file.canonicalFileId === fileObjectId);
+    return this.searchState().files.find((file) => file.canonicalFileId === fileObjectId) ??
+      this.pageState().recentFiles.find((file) => file.canonicalFileId === fileObjectId);
   }
 
   private emptyPage(subtitle: string, canUpload = true): FilesPageViewModel {
     return {
-      title: 'Files',
+      title: this.i18n.translate('files.title'),
       subtitle,
       upload: {
         state: 'idle',
         canUpload,
-        message: canUpload ? 'Select a file to upload to the backend.' : 'Workspace context is required before upload.',
+        message: canUpload
+          ? this.i18n.translate('files.upload.select')
+          : this.i18n.translate('files.upload.unavailable'),
       },
       uploadQueue: [],
       quota: {
         state: 'available',
         usedBytes: 0,
         limitBytes: 0,
-        message: 'Quota summary is not available in MVP0.',
+        message: this.i18n.translate('files.quota.unavailable'),
       },
       recentFiles: [],
       pickerFiles: [],
@@ -683,8 +1171,40 @@ export class FilesFacade {
     return { status: 'idle', workspaceId, files: [], page: 1, pageSize: 20, totalCount: 0, hasMore: false };
   }
 
+  private emptySearchState(workspaceId: string | null = null): FileSearchViewModel {
+    return {
+      status: 'idle',
+      workspaceId,
+      filters: EMPTY_FILE_SEARCH_FILTERS,
+      files: [],
+      page: 1,
+      pageSize: FILES_PAGE_SIZE,
+      totalCount: 0,
+      hasMore: false,
+      message: '',
+    };
+  }
+
+  private emptySelectionSnapshotState(): FileSelectionSnapshotState {
+    return { status: 'idle', selection: null, message: '' };
+  }
+
   private emptyDeleteState(): FileDeleteViewModel {
     return { state: 'idle', succeededCount: 0, failedCount: 0 };
+  }
+
+  private fileDisplayLocalizer(): FileDisplayLocalizer {
+    return {
+      untitledFile: this.i18n.translate('files.untitledFile'),
+      unknownUser: this.i18n.translate('files.unknownUser'),
+      formatDate: (value) => value
+        ? this.i18n.formatDateTime(value, { dateStyle: 'medium', timeStyle: 'short' })
+        : '',
+    };
+  }
+
+  private localizedError(error: unknown, fallback: TranslationKey): string {
+    return this.i18n.apiErrorMessage(normalizeApiError(error), fallback);
   }
 
   private cancelDeleteOperation(): void {
@@ -705,6 +1225,28 @@ export class FilesFacade {
     this.loadingWorkspaceIds.clear();
   }
 
+  private cancelSearchRequest(): void {
+    this.searchGeneration++;
+    this.searchRequest?.unsubscribe();
+    this.searchRequest = null;
+  }
+
+  private isCurrentSearch(generation: number, workspaceId: string): boolean {
+    return generation === this.searchGeneration &&
+      this.pageWorkspaceId === workspaceId &&
+      this.activeWorkspace.activeWorkspace()?.id === workspaceId;
+  }
+
+  private isCurrentSelectionSnapshotRequest(
+    generation: number,
+    searchGeneration: number,
+    workspaceId: string,
+  ): boolean {
+    return generation === this.selectionSnapshotGeneration &&
+      searchGeneration === this.searchGeneration &&
+      this.isCurrentSearch(searchGeneration, workspaceId);
+  }
+
   private isCurrentPageOperation(generation: number, fileObjectId: string): boolean {
     return generation === this.pageGeneration &&
       this.pageWorkspaceId !== null &&
@@ -713,8 +1255,10 @@ export class FilesFacade {
 
   private clearProtectedState(): void {
     this.cancelDeleteOperation();
+    this.clearSearchSelectionSnapshot(true);
     this.invalidatePageRequests();
     this.pageWorkspaceId = null;
+    this.clearFileSearch();
     this.clearPickerFiles();
     for (const pending of [...this.pendingUploads.values()]) pending.subscription.unsubscribe();
     this.pendingUploads.clear();
@@ -726,7 +1270,7 @@ export class FilesFacade {
       this.refreshTimer = null;
     }
     this.refreshAfterMutation = false;
-    this.pageState.set(this.emptyPage('Select a workspace before uploading files.', false));
+    this.pageState.set(this.emptyPage(this.i18n.translate('files.upload.unavailable'), false));
     this.inventoryRevisionSignal.update((revision) => revision + 1);
   }
 
@@ -745,3 +1289,77 @@ function fileObjectIdentity(value: unknown): string | undefined {
 }
 
 const fileObjectIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+
+function mapSelectionSnapshotCapture(
+  value: unknown,
+  translate: (key: TranslationKey, parameters?: Readonly<Record<string, string | number>>) => string,
+): FileSelectionSnapshotState | null {
+  if (!isRecord(value) || typeof value['outcome'] !== 'string') {
+    return null;
+  }
+
+  if (value['outcome'] === 'Overflow' && positiveInteger(value['maximumSelectionCount'])) {
+    const maximumSelectionCount = positiveInteger(value['maximumSelectionCount']);
+    return {
+      status: 'overflow',
+      selection: null,
+      message: translate('files.selection.overflow', { count: maximumSelectionCount }),
+    };
+  }
+  if (value['outcome'] === 'Empty') {
+    return {
+      status: 'empty',
+      selection: null,
+      message: translate('files.selection.empty'),
+    };
+  }
+  if (value['outcome'] !== 'Captured') {
+    return null;
+  }
+
+  const id = fileObjectIdentity(value['selectionSnapshotId']);
+  const selectedCount = positiveInteger(value['selectedCount']);
+  const expiresAt = isoTimestamp(value['expiresAt']);
+  if (!id || !selectedCount || !expiresAt) {
+    return null;
+  }
+  return {
+    status: 'ready',
+    selection: { id, selectedCount, expiresAt },
+    message: translate('files.selection.capturedCount', { count: selectedCount }),
+  };
+}
+
+function mapSelectionSnapshotDelete(value: unknown): {
+  attemptedCount: number;
+  succeededCount: number;
+  failedCount: number;
+} | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const attemptedCount = nonNegativeInteger(value['attemptedCount']);
+  const succeededCount = nonNegativeInteger(value['succeededCount']);
+  const failedCount = nonNegativeInteger(value['failedCount']);
+  if (attemptedCount === null || succeededCount === null || failedCount === null ||
+    attemptedCount !== succeededCount + failedCount) {
+    return null;
+  }
+  return { attemptedCount, succeededCount, failedCount };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function positiveInteger(value: unknown): number | null {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : null;
+}
+
+function nonNegativeInteger(value: unknown): number | null {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : null;
+}
+
+function isoTimestamp(value: unknown): string | undefined {
+  return typeof value === 'string' && Number.isFinite(Date.parse(value)) ? value : undefined;
+}

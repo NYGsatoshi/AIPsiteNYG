@@ -6,11 +6,18 @@ The legacy vanilla JavaScript i18n layer under `src/AipPortal.Web/wwwroot/script
 
 Do not add new locale files under `src/AipPortal.Web/wwwroot`. That directory is for hosted Angular build artifacts only.
 
-Angular locale file paths, the default locale, and persistence rules are pending frontend implementation.
+The active runtime locale layer is `frontend/src/app/core/i18n/i18n.service.ts`.
+It currently supports Japanese (`ja`) and English (`en`). Japanese is the default
+when no preference has been saved, preserving the existing browser experience.
+
+The Account page lets each user select a display language. The selection applies
+immediately, updates the document `lang` attribute, and is persisted in that
+browser's local storage as `aip.locale`. It is intentionally a browser UI
+preference: no tenant-wide setting or user-profile API is changed by this flow.
 
 ## Adding UI text
 
-1. Add text through the Angular i18n mechanism selected for MVP-A.
+1. Add text to `I18nService` through its Angular runtime translation mechanism.
 2. Keep keys or message identifiers hierarchical and feature-oriented, for example:
    - `common.save`
    - `auth.signIn`
@@ -23,5 +30,6 @@ Angular locale file paths, the default locale, and persistence rules are pending
 
 - New visible UI text must use translation keys instead of hardcoded English or Japanese strings.
 - Do not translate user-generated content, including posts, chat messages, comments, uploaded file names, project names, user-entered titles, descriptions, or free-form text fields.
-- Date/time display should use the selected locale through the shared formatting helpers.
+- Date/time and number display should use `I18nService.formatDateTime` and
+  `I18nService.formatNumber`, rather than a hard-coded browser locale.
 - Keep Japanese concise and natural for school users.

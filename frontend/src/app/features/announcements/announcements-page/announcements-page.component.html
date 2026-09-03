@@ -46,11 +46,12 @@
   } @else if ((vm.status === 'empty' || vm.announcements.length === 0) && !detailRouteActive()) {
     @if (editorVisible() && activeEditorDraft()) {
       <div class="announcements-page__main">
-        <app-announcement-editor
+        <app-announcement-multi-audience-editor
           [draft]="activeEditorDraft()!"
           [submissionError]="editingAnnouncementId() === null ? vm.editorError : undefined"
           [publishing]="editingAnnouncementId() === null && vm.isPublishing === true"
           (draftChanged)="updateAnnouncementDraft($event)"
+          (saveDraftRequested)="saveAnnouncementDraft($event)"
           (publishRequested)="publishAnnouncement($event)"
         />
       </div>
@@ -101,11 +102,12 @@
             表示できるお知らせがありません。
           </section>
         } @else if (editorVisible() && activeEditorDraft()) {
-          <app-announcement-editor
+          <app-announcement-multi-audience-editor
             [draft]="activeEditorDraft()!"
             [submissionError]="editingAnnouncementId() === null ? vm.editorError : undefined"
             [publishing]="editingAnnouncementId() === null && vm.isPublishing === true"
             (draftChanged)="updateAnnouncementDraft($event)"
+            (saveDraftRequested)="saveAnnouncementDraft($event)"
             (publishRequested)="publishAnnouncement($event)"
           />
         } @else {

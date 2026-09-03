@@ -1,7 +1,7 @@
-<section class="attachment-picker" aria-label="Attachment picker" data-testid="attachment-picker">
+<section class="attachment-picker" [attr.aria-label]="i18n.translate('files.picker.ariaLabel')" data-testid="attachment-picker">
   <header>
-    <p>Attachment picker</p>
-    <h2>Choose one clean, authorized file</h2>
+    <p>{{ i18n.translate('files.picker.eyebrow') }}</p>
+    <h2>{{ i18n.translate('files.picker.title') }}</h2>
   </header>
 
   <div class="attachment-picker__list">
@@ -19,13 +19,13 @@
         <span class="attachment-picker__name">{{ file.originalFileName }}</span>
         <app-file-scan-status-badge [status]="file.scanStatus" />
         @if (disabled) {
-          <span class="attachment-picker__note" data-testid="attachment-picker-disabled">{{ disabledMessage }}</span>
+          <span class="attachment-picker__note" data-testid="attachment-picker-disabled">{{ disabledMessage ?? i18n.translate('files.picker.unavailable') }}</span>
         } @else if (file.scanStatus !== 'allowed') {
-          <span class="attachment-picker__note" data-testid="non-canonical-disabled">Only files with a clean scan can be associated.</span>
+          <span class="attachment-picker__note" data-testid="non-canonical-disabled">{{ i18n.translate('files.picker.cleanOnly') }}</span>
         }
       </label>
     }
   </div>
 
-  <p class="attachment-picker__selection" data-testid="selected-attachment">{{ selectedAttachmentId ? 'A file is selected.' : 'No file selected.' }}</p>
+  <p class="attachment-picker__selection" data-testid="selected-attachment">{{ selectedAttachmentId ? i18n.translate('files.picker.selected') : i18n.translate('files.picker.noneSelected') }}</p>
 </section>

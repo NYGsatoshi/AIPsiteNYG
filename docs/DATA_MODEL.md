@@ -298,10 +298,25 @@ Indexes:
 ### ConversationMember
 
 - `Id`
+- `TenantId`
 - `ConversationId`
 - `UserId`
+- `Role`
+- `CanRead`
+- `CanPost`
+- `CanManageMembers`
+- `CanCreateThread`
 - `JoinedAtUtc`
+- `LeftAtUtc` nullable
+- `RemovedAtUtc` nullable
+- `LastOpenedAtUtc` nullable
 - `LastReadMessageId` nullable
+- `LastReadAtUtc` nullable
+- `UnreadCursorMessageId` nullable
+- `IsMuted`
+- `IsArchived`
+- `IsLater` — current participant's private follow-up state; independent of
+  read and Mention state
 
 ### Message
 
@@ -350,6 +365,28 @@ Use `ReadState` for channels, conversations, posts, and announcements where a ge
 Indexes:
 
 - Unique `(AnnouncementId, UserId)`
+
+### AnnouncementDraft
+
+`AnnouncementDraft` is the bounded, server-owned #378 publication workflow
+record. It is distinct from a published `Announcement`: one stored target and
+author move only through `Draft -> Scheduled -> Published`; the due worker
+creates the normal Announcement only at the final transition.
+
+- `Id`, `TenantId`, `AuthorUserId`
+- one exact persisted `WorkspaceId` / `GroupId` / `ChannelId` target
+- bounded title, body, priority, pin/read-confirmation, and optional expiry
+- `Status`, optimistic `VersionNo`
+- immutable accepted `ScheduledForUtc` plus retained local wall-clock value,
+  IANA `ScheduleTimeZoneId`, and DST-overlap offset where applicable
+- one nullable `PublishedAnnouncementId` and `PublishedAtUtc`
+- bounded server-only claim/retry fields for the due worker
+
+Indexes include author/status reads, due-time claim candidates, and a unique
+published Announcement link. Parent target foreign keys are restrictive: a
+physical parent deletion cannot silently turn a retained target into a global
+publication. Current authorization is rechecked at every mutation and again
+by the worker before publication.
 
 ### Notification
 
@@ -528,11 +565,17 @@ Task run request, not a source-material or execution-output record:
 - `TenantId`, `WorkspaceId`, `ProjectId`, `TaskItemId`, `RequestedByUserId`
 - `RequestedAtUtc`, mutable lifecycle `FinishedAtUtc`/`Status`/safe failure
   code, and `VersionNo`
-- immutable snapshot schema, scope origin, Project/Task-override versions, and
-  the two source-policy booleans.
+- immutable snapshot schema, scope origin, Project/Task-override versions, the
+  two source-policy booleans, canonical runtime provider/version, and the
+  optional exact `ResearchPlanRevision` reference/positive revision number
+  current at acceptance; PostgreSQL binds that reference, number, and ownership
+  scope to the same revision row.
 
 No persisted snapshot contains URLs, source identifiers, file metadata or
-bytes, credentials, provider data, prompt content, or an execution result.
+bytes, credentials, provider data, prompt content, duplicated plan content, or
+an execution result. The optional plan reference/number is constrained to the
+same Tenant, Workspace, Project, and Task and the referenced revision is
+append-only, so later plan edits cannot alter a recorded execution-start plan.
 
 ### TaskDependency
 

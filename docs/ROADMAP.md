@@ -64,12 +64,12 @@ Development and controlled technical-evaluation build, not a turnkey pilot or br
 Known blockers:
 
 - First-user/PlatformAdmin bootstrap depends on the explicit `AIP_SEED_ADMIN_*` startup seed and operator control.
-- Invite registration does not create tenant/workspace membership.
+- Invite registration membership atomicity has an Issue #527 implementation candidate with PostgreSQL-backed transaction, replay, rollback, and cross-scope coverage; hosted CI remains the merge gate.
 - Production object storage is not implemented.
 - PostgreSQL-backed search isolation tests are enforced in CI through `POSTGRES_TEST_CONNECTION_STRING`.
 - Backup/restore drill has not been recorded for each target environment.
 - Full tenant restore is not implemented.
-- On-prem Compose does not apply migrations and reverse-proxy forwarded headers are not configured.
+- On-prem Compose now stages migrations before the app, but fresh-stack runtime evidence and the intended reverse-proxy topology are still required.
 
 OnPremSingleTenant is the safest controlled pilot mode after manual smoke and restore rehearsal.
 

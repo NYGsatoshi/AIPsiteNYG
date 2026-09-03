@@ -103,6 +103,22 @@ it cannot prove an outbound-Web or source-material workflow. See
 `docs/verification/p0-task-execution-scope-foundation.md` for the current
 candidate evidence and limitations.
 
+### Issue #339 Task context summary
+
+Focused Angular coverage derives only a zero-to-two count from the two
+server-authorized Issue #357 policy booleans, distinguishes Project default
+from Task override, follows authoritative Project/Task invalidation refetches,
+and synchronously removes the compact summary on authorization clearing or a
+denied refresh. Contract coverage requires the explicit non-inventory label
+and rejects source identifiers/details.
+
+The existing Task execution-scope Playwright scenario runs at 320 pixels and
+adds keyboard focus transfer from the compact summary to the detailed context,
+horizontal-containment, and axe checks. Its API is mocked and does not replace
+the existing backend authorization tests. Issue #339 adds no backend route,
+schema, provider, or runtime behavior. See
+`docs/verification/p1-task-context-summary.md`.
+
 ### Issue #330 Workspace Continue working
 
 Focused Angular coverage validates the strict versioned opaque history schema,
@@ -130,6 +146,38 @@ conditional PostgreSQL execution and a new real-backend mutation scenario are
 not applicable to the local browser-history behavior. See
 `docs/verification/p0-continue-working.md` for exact candidate results and
 remaining exact-head gates.
+
+### Issue #349 exact-event Audit metadata disclosure
+
+Focused backend coverage verifies the independent sensitive-metadata
+capability is denied before identifier lookup, current-Tenant projection,
+generic absent/malformed/cross-Tenant 404 behavior, recursive prohibited-field
+removal, canonical response redaction, and absence of metadata from the Audit
+grid list and errors. These tests use EF Core InMemory; the change adds no
+schema or provider-specific query.
+
+Focused Angular coverage verifies capability-gated presentation, no request
+before explicit disclosure, safe text-only JSON rendering, fixed error text,
+hide/focus behavior, exact-event request cancellation, and stale-response
+rejection. The static Playwright case exercises the same flow at 320 pixels
+with keyboard activation, horizontal-overflow checks, and axe. Its responses
+are mocked and do not replace backend authorization evidence. See
+`docs/verification/p0-audit-sensitive-metadata.md`.
+
+### Issue #356 Files inspector tabs
+
+Focused Angular coverage verifies the single Preview/Details/Activity
+inspector, native tab semantics and keyboard movement, Preview reset, essential
+versus secondary metadata, absent edit controls, and non-rendering of internal
+storage/scan values. The built-app Chromium scenario runs at 320 pixels in both
+configured projects and covers focus restoration, horizontal containment, axe,
+and the absence of Audit/activity/version requests.
+
+This Issue changes no backend contract. Static Playwright responses are mocked
+and do not establish ASP.NET Core integration. The Activity tab remains an
+explicit unavailable state until Issue #363 defines a bounded, file-specific,
+server-authorized activity/version projection. See
+`docs/verification/p0-files-inspector-tabs.md` for exact results and limits.
 
 ### Issue #410 canonical Task create
 
@@ -160,6 +208,82 @@ container or Playwright assertion ran, and scoped cleanup completed. This is
 an environmental startup limitation, not a P0 assertion failure or
 real-backend evidence. See `docs/verification/p0-task-create.md` for scope and
 limits.
+
+### Issue #359 Message search and quick filters
+
+Focused Angular coverage verifies the exact bounded `type=Message` Search
+request, strict result type/identity/internal-route validation, canonical DM
+route reuse, removable condition chips, clear-all behavior, zero-result focus
+recovery, stale-request cancellation, and fixed error redaction. Issue #355
+replaces its initial client-only Conversation conditions with the authoritative
+views covered below. The static Playwright scenario uses a 320-pixel viewport
+and exercises the mobile disclosure, keyboard submit/toggle/remove/Escape/
+focus-return flow, no horizontal overflow, and axe. Its APIs are mocked; the
+existing HTTP/PostgreSQL Search tests remain the authorization evidence. See
+`docs/verification/p1-message-search-filters.md`.
+
+### Issue #367 advanced Message filters
+
+Tests tagged `Scope=Issue367` cover validation, fixed non-reflective HTTP model
+binding failures, current readable-Conversation authorization, cross-Tenant
+and cross-Workspace non-disclosure, author-option projection, half-open date
+boundaries, exact `(CreatedAt, Id)` read-cursor ties, legacy zero-sequence and
+null-ID compatibility, corrupt cursor fail-closed behavior, and canonical safe
+attachment `With`/`Without` complements. The PostgreSQL test must run with a
+real `POSTGRES_TEST_CONNECTION_STRING`; an environment skip is not provider
+evidence.
+
+Focused Angular tests cover compound request mapping, removable chips,
+authorized sender resolution, malformed/deferred URL state, private free-text
+scrubbing across history, request cancellation/generation guards, same-filter
+held-author races, dialog focus containment, and keyboard sender selection.
+The static Playwright scenario forces 320 CSS pixels and covers the canonical
+query parameters, local-calendar date conversion, chips, Back/Forward privacy,
+focus return, no horizontal overflow, and axe. Its APIs are mocked and do not
+replace the HTTP/PostgreSQL authorization proof. See
+`docs/verification/p2-message-advanced-filters.md`.
+
+### Issue #355 Conversation inbox views
+
+Backend tests tagged `Scope=Issue355` cover All/Unread/Mentions/Later counts
+and filtering, the current recursive Conversation-read boundary, nonparticipant
+and cross-Tenant non-disclosure, private Later mutation, and independence from
+the read cursor. Conditional PostgreSQL cases apply the additive migration over
+the previous schema, verify its column/index and Down/reapply path, and execute
+the composed unread/Mention/Later predicates with an inaccessible Conversation
+present. They require `POSTGRES_TEST_CONNECTION_STRING`; an environment-skipped
+local result is not PostgreSQL evidence.
+
+Focused Angular tests cover authoritative count/view mapping, Later mutation
+and refresh, independent search-result scope, loading/error/filtered-empty
+states, and keyboard operation. The static Playwright flow exercises the
+desktop and forced-320-pixel navigation, direct Conversation return, visible
+focus, horizontal overflow, and axe. Its API is mocked, so the HTTP and
+PostgreSQL tests remain the authorization and persistence evidence.
+
+### Issue #368 saved Message follow-up
+
+Backend tests tagged `Scope=Issue368` cover current-user privacy, sequential
+idempotent save/complete, exact timeline and older-reply anchor loading,
+deleted/mismatched/cross-Tenant reply-anchor non-disclosure, cross-Tenant and
+nonparticipant non-disclosure, revocation after save, list/count
+reauthorization, and unchanged read cursors. Conditional PostgreSQL tests
+verify the additive table, unique and paging indexes, Down/reapply chain,
+production composed readability query, bounded exact-reply projection,
+durable-but-hidden revoked rows, and concurrent save/complete reconciliation.
+They require
+`POSTGRES_TEST_CONNECTION_STRING`; a local skip is not PostgreSQL evidence.
+
+Focused Angular tests cover strict fail-closed DTO mapping, private paging and
+completion, the distinct Saved messages surface, exact Message/thread route
+parameters, anchored thread request/refresh behavior, truthful bounded-state
+copy, and the shared Message More action. The static Playwright case runs at
+320 pixels and verifies keyboard operation, 44-pixel controls, exact focus on
+an older reply included outside the ordinary latest window, zero read-state
+calls, CSRF-protected completion, no horizontal overflow, and axe. Its API is
+mocked, so HTTP/PostgreSQL tests remain
+the backend compatibility and authorization evidence. See
+`docs/verification/p2-message-follow-ups.md`.
 
 ### Issue #362 same-Conversation Message threads
 
@@ -518,6 +642,34 @@ node tests/ui/run-real-backend-playwright.mjs
 The normal `dotnet run` launch profile uses port 5098; the Compose application
 uses internal port 8080. Direct execution does not start ASP.NET Core for you.
 
+### Public HTTPS production Golden Path
+
+Issue #481 adds a separately protected release gate for a deployed public
+origin. It is not part of the static or Compose suites and must not be pointed
+at localhost, Kestrel, or a private proxy port. See
+`docs/verification/p0-public-https-golden-path.md` for the full synthetic
+fixture contract and security behavior.
+
+After deployment, run the manual **Public HTTPS Production Golden Path** GitHub
+Actions workflow. It reads only protected `public-https-gate` environment
+values and fails closed when the public HTTPS endpoint or its fixture is not
+available. The test checks `/health/ready` only as a bounded preflight before
+the real browser journey; readiness never constitutes a pass on its own.
+
+The equivalent controlled operator command is:
+
+```bash
+npm run test:ui:public-https
+```
+
+The command requires `AIP_PUBLIC_HTTPS_SMOKE=1`,
+`AIP_PUBLIC_SMOKE_SYNTHETIC_FIXTURE=1`, a root public
+`AIP_PUBLIC_SMOKE_URL`, synthetic `@example.test` credentials, and the seven
+authorized/denied fixture IDs documented in the verification record. Public
+mode disables Playwright trace, screenshots, video, HTML, JUnit, and test
+attachments; no credentials, cookies, CSRF values, response bodies, or fixture
+identifiers are written to a CI artifact.
+
 ### Node DEP0205 note
 
 Historical static-suite evidence shows `[DEP0205] module.register()` only after
@@ -590,6 +742,13 @@ Linux screenshot parity:
 npm run test:ui:angular:docker
 ```
 
+Issue #344 Audit filter evidence is concentrated in the AuditGrid tenancy
+tests, `frontend/src/app/features/admin/admin-ui.spec.ts`,
+`frontend/src/app/features/admin/audit-view-preference.service.spec.ts`, and the
+320px keyboard/axe Audit-filter flow in `tests/ui/angular-smoke.spec.ts`. A
+mocked browser filter response demonstrates UI behavior only; server predicate,
+count, and negative-authorization claims require the backend tests.
+
 Use the Linux runner for screenshot baseline approval. Do not approve
 Windows/macOS host-native screenshots as authoritative baselines.
 
@@ -603,7 +762,18 @@ docker compose -p aipsite-real-backend-smoke-config -f docker-compose.real-backe
 DB_PASSWORD=validation_only docker compose config --quiet
 docker compose -f docker-compose.local.yml config --quiet
 DB_PASSWORD=validation_only docker compose -f docker-compose.onprem.yml config --quiet
+DB_PASSWORD=validation_only docker compose -f docker-compose.onprem.yml -f docker-compose.onprem.ci.yml config --quiet
 ```
+
+CI also starts the on-prem PostgreSQL and one-shot `migrate` services under an
+isolated Compose project and requires the migration container to exit
+successfully. Its CI-only override uses Docker's built-in bridge and a local
+loopback connection, so cancelled jobs do not consume another per-project
+subnet. It does not alter the production on-prem topology, build, or start the
+licensed production app image; the full TLS-proxy startup remains environment
+evidence. That CI-only check uses a dummy database and does not start the app;
+the normal cleanup trap removes its scoped containers and volumes, while a
+force-cancelled runner can still leave those non-network resources behind.
 
 ## Coverage gaps
 
@@ -623,7 +793,7 @@ High priority:
 - successful invite acceptance creating tenant/workspace membership;
 - frontend/backend DTO contract tests;
 - cookie-authenticated tenant isolation against PostgreSQL;
-- on-prem migration/startup flow;
+- clean-volume on-prem app startup behind the intended TLS/reverse-proxy topology;
 - reverse-proxy/forwarded-header behavior;
 - object storage when implemented;
 - backup/restore rehearsal.

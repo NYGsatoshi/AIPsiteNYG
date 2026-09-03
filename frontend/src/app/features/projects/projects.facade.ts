@@ -680,7 +680,13 @@ export class ProjectsFacade {
         // reauthorizes this exact route against the selected Workspace.
         if (response.workspacePending) return;
         if (response.parentProject) this.replaceProject(response.parentProject);
-        const refreshActivity = this.getDetailSectionState('activity').status !== 'idle';
+        // An aggregate refresh must not cancel an Activity request that the
+        // user has already opened. Cancelling it starts a second request that
+        // can remain loading after the first real response has completed.
+        // Only refresh a settled Activity projection; errors retain their
+        // explicit retry state and an in-flight request owns its response.
+        const activityState = this.getDetailSectionState('activity').status;
+        const refreshActivity = activityState === 'ready' || activityState === 'empty';
         this.applyAggregate(taskId, response.detail, scope);
         this.replaceTask(response.task);
         const authorizedTask = (response.detail.task ?? response.detail) as TaskDto;

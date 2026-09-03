@@ -44,7 +44,8 @@ async function configureHttpTest(
       {
         provide: ActivatedRoute,
         useValue: {
-          paramMap: of(convertToParamMap(routeParams))
+          paramMap: of(convertToParamMap(routeParams)),
+          queryParamMap: of(convertToParamMap({}))
         }
       }
     ]
@@ -465,6 +466,49 @@ describe('Messaging MVP0 backend wiring', () => {
 
     expect(root.querySelector('#message-message-own')).toBeNull();
     expect(root.querySelector('[data-testid="message-action-status"]')?.textContent).toContain('Message deleted.');
+  });
+
+  it('keeps Reply, private Save, and More as direct actions and saves without changing read state', async () => {
+    const httpMock = await configureHttpTest([ChannelMessagingPageComponent]);
+    const fixture = TestBed.createComponent(ChannelMessagingPageComponent);
+    flushConversationOpen(httpMock);
+    fixture.detectChanges();
+
+    const root = fixture.nativeElement as HTMLElement;
+    const actionGroup = root.querySelector<HTMLElement>('#message-message-a .message__actions')!;
+    const reply = root.querySelector<HTMLButtonElement>('[data-testid="open-message-thread-message-a"]')!;
+    const save = root.querySelector<HTMLButtonElement>('[data-testid="save-message-for-later-message-a"]')!;
+    const more = root.querySelector<HTMLButtonElement>('[data-testid="message-more-actions-message-a"]')!;
+
+    expect(reply.getAttribute('aria-label')).toBe('Reply in thread for message from Other User');
+    expect(save.getAttribute('aria-label')).toBe('Save message from Other User for later');
+    expect(more.getAttribute('aria-label')).toBe('More actions for message from Other User');
+    expect(save.closest('.message__overflow')).toBeNull();
+    expect(actionGroup.querySelector('[data-testid="message-action-overflow"]')).toBeNull();
+    expect([...actionGroup.querySelectorAll(':scope > button, :scope > .message__overflow > button')]
+      .map((button) => button.getAttribute('data-testid')))
+      .toEqual([
+        'open-message-thread-message-a',
+        'save-message-for-later-message-a',
+        'message-more-actions-message-a'
+      ]);
+
+    save.click();
+
+    const saveRequest = httpMock.expectOne('/api/me/message-follow-ups/message-a');
+    expect(saveRequest.request.method).toBe('PUT');
+    expect(saveRequest.request.withCredentials).toBe(true);
+    expect(saveRequest.request.body).toEqual({});
+    saveRequest.flush({
+      messageId: 'message-a',
+      isSaved: true,
+      savedAt: '2026-08-29T11:00:00Z'
+    });
+    fixture.detectChanges();
+
+    expect(root.querySelector('[data-testid="message-action-status"]')?.textContent)
+      .toContain('Message saved for later.');
+    httpMock.expectNone('/api/conversations/conversation-a/read');
   });
 
   it('does not replace an active edit with an action from another message', async () => {

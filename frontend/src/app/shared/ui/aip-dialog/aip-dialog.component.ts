@@ -7,8 +7,11 @@ import {
   Input,
   OnChanges,
   Output,
-  SimpleChanges
+  SimpleChanges,
+  inject
 } from '@angular/core';
+
+import { I18nService } from '../../../core/i18n/i18n.service';
 
 @Component({
   selector: 'app-aip-dialog',
@@ -20,6 +23,7 @@ import {
       <div class="aip-dialog__backdrop" (mousedown)="handleBackdrop($event)">
         <section
           class="aip-dialog"
+          [class.aip-dialog--wide]="size === 'wide'"
           role="dialog"
           aria-modal="true"
           [attr.aria-labelledby]="titleId"
@@ -37,7 +41,7 @@ import {
                 <p [id]="descriptionId">{{ description }}</p>
               }
             </div>
-            <button type="button" class="aip-dialog__close" [disabled]="busy" aria-label="Close dialog" (click)="requestCancel()">×</button>
+            <button type="button" class="aip-dialog__close" [disabled]="busy" [attr.aria-label]="i18n.translate('common.close')" (click)="requestCancel()">×</button>
           </header>
 
           <div class="aip-dialog__content">
@@ -45,7 +49,7 @@ import {
           </div>
 
           <footer class="aip-dialog__actions">
-            <button type="button" [disabled]="busy" (click)="requestCancel()">{{ cancelLabel }}</button>
+            <button type="button" [disabled]="busy" (click)="requestCancel()">{{ cancelLabel || i18n.translate('common.cancel') }}</button>
             <button
               [attr.type]="confirmForm ? 'submit' : 'button'"
               [attr.form]="confirmForm"
@@ -54,7 +58,7 @@ import {
               [disabled]="busy || confirmDisabled"
               (click)="requestConfirm()"
             >
-              {{ busy ? 'Working…' : confirmLabel }}
+              {{ busy ? i18n.translate('common.working') : (confirmLabel || i18n.translate('common.confirm')) }}
             </button>
           </footer>
         </section>
@@ -65,6 +69,7 @@ import {
     :host { display: contents; }
     .aip-dialog__backdrop { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 1rem; background: var(--aip-color-overlay, rgb(0 0 0 / 58%)); }
     .aip-dialog { width: min(42rem, 100%); max-height: min(48rem, calc(100vh - 2rem)); overflow: auto; border: 1px solid var(--aip-color-border-default, #48505e); border-radius: var(--aip-radius-lg, 0.75rem); background: var(--aip-color-bg-elevated, #171b22); color: var(--aip-color-text-primary, #f4f7fb); box-shadow: var(--aip-shadow-floating, 0 1.5rem 4rem rgb(0 0 0 / 45%)); }
+    .aip-dialog--wide { width: min(72rem, 100%); }
     .aip-dialog__header, .aip-dialog__actions { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; padding: 1rem 1.25rem; }
     .aip-dialog__header { border-bottom: 1px solid var(--aip-color-border-default, #48505e); }
     .aip-dialog__header h2, .aip-dialog__header p { margin: 0; }
@@ -82,6 +87,7 @@ import {
 export class AipDialogComponent implements OnChanges {
   private static nextInstanceId = 0;
 
+  protected readonly i18n = inject(I18nService);
   private readonly instanceId = AipDialogComponent.nextInstanceId++;
   private invocationFocus: HTMLElement | null = null;
   private focusTransition = 0;
@@ -91,13 +97,14 @@ export class AipDialogComponent implements OnChanges {
   @Input() description: string | null = null;
   @Input() titleId = `aip-dialog-title-${this.instanceId}`;
   @Input() descriptionId = `aip-dialog-description-${this.instanceId}`;
-  @Input() confirmLabel = 'Confirm';
-  @Input() cancelLabel = 'Cancel';
+  @Input() confirmLabel = '';
+  @Input() cancelLabel = '';
   @Input() confirmForm: string | null = null;
   @Input() focusReturnFallbackId: string | null = null;
   @Input() busy = false;
   @Input() confirmDisabled = false;
   @Input() destructive = false;
+  @Input() size: 'default' | 'wide' = 'default';
 
   @Output() readonly confirm = new EventEmitter<void>();
   @Output() readonly cancel = new EventEmitter<void>();

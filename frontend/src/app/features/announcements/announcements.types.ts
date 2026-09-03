@@ -43,15 +43,42 @@ export interface AnnouncementAudienceOption {
   readonly workspaceId?: string;
   readonly groupId?: string;
   readonly channelId?: string;
+  /** Server-resolved Workspace -> Tenant -> UTC organizational default. */
+  readonly scheduleTimeZoneId?: string;
+}
+
+/** A recipient-visible action. URLs are revalidated by both API and mapper. */
+export interface AnnouncementActionLink {
+  readonly label: string;
+  readonly url: string;
 }
 
 export interface AnnouncementEditorSubmission {
+  /** Durable server draft identity; absent until the first successful save. */
+  readonly draftId?: string;
+  /** Optimistic version supplied by the server-owned draft workflow. */
+  readonly draftVersion?: number;
+  /** Browser retry identities, never authority for target or publication. */
+  readonly createIdempotencyKey?: string;
+  readonly transitionIdempotencyKey?: string;
   readonly title: string;
   readonly body: string;
   readonly priority: AnnouncementPriority;
+  /** Backwards-compatible primary target. */
   readonly audience: AnnouncementAudienceOption;
+  /** #388 target set. When absent, audience is the complete target set. */
+  readonly audiences?: readonly AnnouncementAudienceOption[];
   readonly requiresReadConfirmation: boolean;
+  readonly cta?: AnnouncementActionLink;
+  readonly attachment?: AnnouncementActionLink;
+  readonly deliveryMode?: AnnouncementDeliveryMode;
+  /** A local wall-clock value without a UTC offset. The server resolves it. */
+  readonly scheduledLocalDateTime?: string;
+  /** Server-authoritative organizational IANA time-zone ID shown to the user. */
+  readonly timeZoneId?: string;
 }
+
+export type AnnouncementDeliveryMode = 'now' | 'scheduled';
 
 /**
  * Current-tab presentation only. It is not persisted, routed, or sent as an
@@ -62,7 +89,10 @@ export interface AnnouncementLocalPreview {
   readonly body: string;
   readonly priority: AnnouncementPriority;
   readonly audience: AnnouncementAudienceOption;
+  readonly audiences?: readonly AnnouncementAudienceOption[];
   readonly requiresReadConfirmation: boolean;
+  readonly cta?: AnnouncementActionLink;
+  readonly attachment?: AnnouncementActionLink;
 }
 
 export type AnnouncementCapability = 'readAnnouncement' | 'createAnnouncement' | 'editAnnouncement';
@@ -90,9 +120,8 @@ export interface AnnouncementReadStateViewModel {
   readonly markReadError?: string;
 }
 
-export interface AnnouncementAttachmentViewModel {
-  readonly mode: 'disabled';
-  readonly label: string;
+export interface AnnouncementAttachmentViewModel extends AnnouncementActionLink {
+  readonly mode: 'linked';
 }
 
 export interface AnnouncementViewModel {
@@ -114,17 +143,30 @@ export interface AnnouncementViewModel {
   readonly readState: AnnouncementReadStateViewModel;
   readonly capabilities: readonly AnnouncementCapability[];
   readonly notificationTarget: 'announcementDetail';
+  readonly cta?: AnnouncementActionLink;
   readonly attachment?: AnnouncementAttachmentViewModel;
 }
 
 export interface AnnouncementEditorDraft {
+  /** Durable workflow identity. It is unrelated to a published announcement ID. */
   readonly id?: string;
+  readonly version?: number;
+  readonly createIdempotencyKey?: string;
+  readonly transitionIdempotencyKey?: string;
   readonly title: string;
   readonly body: string;
   readonly priority: AnnouncementPriority;
+  /** Backwards-compatible primary selected audience. */
   readonly audienceKey: string;
+  /** Ordered #388 selection. When absent, audienceKey is the only target. */
+  readonly audienceKeys?: readonly string[];
   readonly availableAudiences: readonly AnnouncementAudienceOption[];
   readonly requiresReadConfirmation: boolean;
+  readonly cta?: AnnouncementActionLink;
+  readonly attachment?: AnnouncementActionLink;
+  readonly deliveryMode?: AnnouncementDeliveryMode;
+  readonly scheduledLocalDateTime?: string;
+  readonly timeZoneId?: string;
   readonly publicationState?: AnnouncementPublicationState;
   readonly scheduledAtLabel?: string;
   readonly timeZoneLabel?: string;

@@ -2,8 +2,8 @@
 <section class="task-detail-page" data-testid="task-detail-page">
   @if (vm.detailSectionState.status === 'loading' || vm.status === 'loading') { <app-inline-loading label="Loading task" /> }
   @else if (vm.detailSectionState.status === 'permissionDenied' || vm.status === 'permissionDenied') { <app-permission-denied [title]="vm.detailSectionState.message ?? vm.message ?? 'Task detail is not available for this workspace.'" /> }
-  @else if (vm.detailSectionState.status === 'error') { <app-empty-state title="Task detail could not be loaded" [message]="vm.detailSectionState.message ?? 'Try again.'" /><button type="button" (click)="retry()">Retry</button> }
-  @else if (vm.detailSectionState.status === 'conflict' && !vm.task) { <app-empty-state title="Task changed elsewhere" [message]="vm.detailSectionState.message ?? 'Reload the authoritative task detail before continuing.'" /><button type="button" (click)="retry()">Reload</button> }
+  @else if (vm.detailSectionState.status === 'error') { <app-empty-state title="Task detail could not be loaded" [message]="vm.detailSectionState.message ?? 'Try again.'" /><button type="button" class="aip-button aip-button--secondary" (click)="retry()">Retry</button> }
+  @else if (vm.detailSectionState.status === 'conflict' && !vm.task) { <app-empty-state title="Task changed elsewhere" [message]="vm.detailSectionState.message ?? 'Reload the authoritative task detail before continuing.'" /><button type="button" class="aip-button aip-button--secondary" (click)="retry()">Reload</button> }
   @else if (!vm.task || !vm.editorTask) { <app-empty-state title="Task not found" message="No authorized task detail was returned by the backend." /> }
   @else {
     <nav class="task-detail-page__hierarchy" aria-label="Project and task hierarchy" data-testid="project-task-hierarchy">
@@ -24,11 +24,12 @@
     </section>
     <section class="task-detail-page__summary" aria-label="Task-specific summary"><div><span>Priority</span><strong>{{ vm.task.priorityLabel }}</strong></div><div><span>Assignee</span><strong>{{ vm.detail?.relationships?.primaryAssignee ?? vm.task.assignee }}</strong></div><div><span>Version</span><strong data-testid="task-detail-version">{{ vm.detail?.taskVersion }}</strong></div><div><span>Due</span><strong>{{ vm.task.dueDate }}</strong></div></section>
     <app-task-execution-scope [projectId]="vm.task.projectId" [taskId]="vm.task.id" />
+    <app-task-research-plan [taskId]="vm.task.id" (dirtyChange)="researchPlanDirty.set($event)" />
     <app-task-editor [task]="vm.editorTask" [capabilities]="vm.capabilities" [state]="vm.detailState" [transitionNote]="vm.transitionNote" [mutationState]="mutationState()" [expectedVersion]="vm.detail?.taskVersion ?? ''" [conflictReloadState]="conflictReloadState()" (save)="saveTask($event)" (cancel)="resetMutationState()" (reloadRequested)="reloadTaskAfterConflict()" (dirtyChange)="taskEditorDirty.set($event)" />
     <app-task-dependencies-readonly [dependencies]="vm.dependencies" />
     @if (vm.detail; as detail) {
-      <details class="task-detail-page__section task-detail-page__activity" data-testid="task-activity-log" (toggle)="loadActivity($event)">
-        <summary><span class="task-detail-page__activity-heading" role="heading" aria-level="2">Activity log</span>@if (sectionState('activity')().status === 'loading') { <span>Loading…</span> } @else if (detail.activity.items.length || sectionState('activity')().status === 'ready' || sectionState('activity')().status === 'empty') { <span>{{ detail.activity.totalCount }} recorded</span> }</summary>
+      <details class="task-detail-page__section task-detail-page__activity" data-testid="task-activity-log">
+        <summary (click)="loadActivity()"><span class="task-detail-page__activity-heading" role="heading" aria-level="2">Activity log</span>@if (sectionState('activity')().status === 'loading') { <span>Loading…</span> } @else if (detail.activity.items.length || sectionState('activity')().status === 'ready' || sectionState('activity')().status === 'empty') { <span>{{ detail.activity.totalCount }} recorded</span> }</summary>
         <div class="task-detail-page__activity-content">
           <p class="task-detail-page__hint">Detailed Task-linked events are shown separately from current Progress. Status updates are emphasized; historical Workflow Stage changes are not synthesized.</p>
           @if (detail.activity.items.length) {
@@ -68,9 +69,70 @@
         @if (detail.permissions.canManageLabelDefinitions) { <details><summary>Manage project label definitions</summary><div class="task-detail-page__form"><label for="new-label">New label name</label><input id="new-label" [attr.maxlength]="labelNameMaxLength" [ngModel]="newLabelName()" (ngModelChange)="newLabelName.set($event)" /><button type="button" (click)="createLabel()" [disabled]="!newLabelName().trim() || newLabelName().trim().length > labelNameMaxLength || sectionState('labels')().status === 'submitting'">Create label</button>@if (newLabelName().trim().length > labelNameMaxLength) { <small role="alert">Label name must be {{ labelNameMaxLength }} characters or fewer.</small> }</div><ul class="task-detail-page__list">@for (label of detail.labelDefinitions; track label.id) { <li>@if (editingLabelId() === label.id) { <input [attr.maxlength]="labelNameMaxLength" [ngModel]="editingLabelName()" (ngModelChange)="editingLabelName.set($event)" [ngModelOptions]="{standalone: true}" /><textarea [attr.maxlength]="labelDescriptionMaxLength" [ngModel]="editingLabelDescription()" (ngModelChange)="editingLabelDescription.set($event)" [ngModelOptions]="{standalone: true}"></textarea><input type="number" [ngModel]="editingLabelSortKey()" (ngModelChange)="editingLabelSortKey.set($event)" [ngModelOptions]="{standalone: true}" /><button type="button" (click)="saveLabel(label)" [disabled]="!editingLabelName().trim() || editingLabelName().trim().length > labelNameMaxLength || editingLabelDescription().trim().length > labelDescriptionMaxLength">Save</button>@if (editingLabelName().trim().length > labelNameMaxLength || editingLabelDescription().trim().length > labelDescriptionMaxLength) { <small role="alert">Label name must be {{ labelNameMaxLength }} characters or fewer and description must be {{ labelDescriptionMaxLength }} characters or fewer.</small> }<button type="button" (click)="cancelEditLabel()">Cancel</button> } @else { <span>{{ label.name }}</span><span>{{ label.isArchived ? 'Archived' : 'Active' }}</span><button type="button" (click)="editLabel(label)">Edit</button><button type="button" (click)="setLabelArchived(label, !label.isArchived)">{{ label.isArchived ? 'Restore' : 'Archive' }}</button> }</li> }</ul></details> }
       </section>
       <section class="task-detail-page__section" aria-labelledby="watch-heading"><div class="task-detail-page__section-heading"><h2 id="watch-heading">Watch</h2><span>{{ detail.watchState.isWatching ? 'Watching' : 'Not watching' }}</span></div><p>@if (detail.watchState.isExplicitOptOut) { You have explicitly opted out of automatic watching. } @else if (detail.watchState.automaticSources.length) { Automatic source: {{ detail.watchState.automaticSources.join(', ') }}. } @else { You can manually watch this task. }</p>@if (detail.permissions.canChangeWatch) { <button type="button" (click)="toggleWatch()" [disabled]="sectionState('watch')().status === 'submitting'">{{ detail.watchState.isWatching ? 'Unwatch task' : 'Watch task' }}</button> } @if (sectionState('watch')().status === 'error' || sectionState('watch')().status === 'permissionDenied' || sectionState('watch')().status === 'conflict') { <p role="alert">{{ sectionState('watch')().message }} <button type="button" (click)="retrySection('watch')">{{ sectionState('watch')().status === 'conflict' ? 'Reload' : 'Retry' }}</button></p> }</section>
-      <section class="task-detail-page__section" aria-labelledby="files-heading"><div class="task-detail-page__section-heading"><h2 id="files-heading">Files</h2><span>{{ detail.files.totalCount }}</span></div>
-        @if (detail.files.items.length) { <ul class="task-detail-page__list">@for (file of detail.files.items; track file.id) { <li><strong class="task-detail-page__file-name">{{ file.fileName }}</strong><span>{{ file.contentType }} · {{ file.sizeBytes }} bytes</span><span>Scan: {{ file.scanStatus }}</span><span>Access: {{ file.accessState }}</span>@if (file.restrictionCode) { <strong>{{ file.restrictionCode }}</strong> } @if (file.canOpen && file.canRequestDownloadGrant && file.downloadGrantRequired) { <button type="button" (click)="downloadFile(file.id, file.fileObjectId, file.fileName)">Download</button> } @else if (file.canOpen) { <span>Open is available, but download is not granted.</span> } @else { <span>Open/download unavailable</span> } @if (detail.permissions.canRemoveFiles) { <button type="button" (click)="removeFile(file.id)">Remove association</button> }</li> }</ul> } @else { <p class="task-detail-page__empty">No files associated.</p> }
-        @if (fileDownloadMessage()) { <p role="status">{{ fileDownloadMessage() }}</p> } @if (detail.permissions.canAssociateFiles) { @if (filePickerState().status === 'idle') { <button type="button" (click)="loadPickerFiles()">Load eligible workspace files</button> } @else if (filePickerState().status === 'loading') { <app-inline-loading label="Loading workspace files" /> } @else if (filePickerState().status === 'empty') { <p>No eligible workspace files are available.</p> } @else if (filePickerState().status === 'permissionDenied' || filePickerState().status === 'error') { <p role="alert">{{ filePickerState().message }} <button type="button" (click)="retryPickerFiles()">Retry</button></p> } @else { <app-attachment-picker-dialog [files]="filePickerState().files" [selectedAttachmentId]="selectedAttachmentId() || null" [disabled]="sectionState('files')().status === 'submitting'" disabledMessage="Choose a clean, authorized workspace file to associate." (selectionChange)="setSelectedAttachment($event)" /> @if (filePickerState().hasMore) { <button type="button" (click)="loadMorePickerFiles()">Load more files</button> } } <button type="button" (click)="associateSelectedFile()" [disabled]="!selectedAttachmentId() || sectionState('files')().status === 'submitting'">Associate selected file</button> } @if (sectionState('files')().status === 'error' || sectionState('files')().status === 'conflict' || sectionState('files')().status === 'permissionDenied') { <p role="alert">{{ sectionState('files')().message }} <button type="button" (click)="retrySection('files')">Retry</button></p> } @if (detail.files.hasMore) { <button type="button" (click)="loadMore('files')" [disabled]="sectionState('files')().status === 'loading'">Load more files</button> }
+      <section class="task-detail-page__section" aria-labelledby="files-heading">
+        <div class="task-detail-page__section-heading">
+          <h2 id="files-heading">{{ i18n.translate('files.task.title') }}</h2>
+          <span>{{ detail.files.totalCount }}</span>
+        </div>
+        @if (detail.files.items.length) {
+          <ul class="task-detail-page__list">
+            @for (file of detail.files.items; track file.id) {
+              <li>
+                <strong class="task-detail-page__file-name">{{ file.fileName }}</strong>
+                <span>{{ taskFileMetadataLabel(file) }}</span>
+                <span>{{ taskFileScanLabel(file.scanStatus) }}</span>
+                <span>{{ taskFileAccessLabel(file.accessState) }}</span>
+                @if (taskFileRestrictionLabel(file.restrictionCode); as restrictionLabel) {
+                  <strong>{{ restrictionLabel }}</strong>
+                }
+                @if (file.canOpen && file.canRequestDownloadGrant && file.downloadGrantRequired) {
+                  <button type="button" (click)="downloadFile(file.id, file.fileObjectId, file.fileName)">{{ i18n.translate('files.actions.download') }}</button>
+                } @else if (file.canOpen) {
+                  <span>{{ i18n.translate('files.task.downloadNotGranted') }}</span>
+                } @else {
+                  <span>{{ i18n.translate('files.task.openUnavailable') }}</span>
+                }
+                @if (detail.permissions.canRemoveFiles) {
+                  <button type="button" (click)="removeFile(file.id)">{{ i18n.translate('files.task.removeAssociation') }}</button>
+                }
+              </li>
+            }
+          </ul>
+        } @else {
+          <p class="task-detail-page__empty">{{ i18n.translate('files.task.empty') }}</p>
+        }
+        @if (fileDownloadMessage()) {
+          <p role="status">{{ fileDownloadMessage() }}</p>
+        }
+        @if (detail.permissions.canAssociateFiles) {
+          @if (filePickerState().status === 'idle') {
+            <button type="button" (click)="loadPickerFiles()">{{ i18n.translate('files.task.loadEligible') }}</button>
+          } @else if (filePickerState().status === 'loading') {
+            <app-inline-loading [label]="i18n.translate('files.task.loadingEligible')" />
+          } @else if (filePickerState().status === 'empty') {
+            <p>{{ i18n.translate('files.task.noEligible') }}</p>
+          } @else if (filePickerState().status === 'permissionDenied' || filePickerState().status === 'error') {
+            <p role="alert">{{ taskFilePickerMessage() }} <button type="button" (click)="retryPickerFiles()">{{ i18n.translate('common.retry') }}</button></p>
+          } @else {
+            <app-attachment-picker-dialog
+              [files]="filePickerState().files"
+              [selectedAttachmentId]="selectedAttachmentId() || null"
+              [disabled]="sectionState('files')().status === 'submitting'"
+              [disabledMessage]="i18n.translate('files.task.pickerDisabled')"
+              (selectionChange)="setSelectedAttachment($event)"
+            />
+            @if (filePickerState().hasMore) {
+              <button type="button" (click)="loadMorePickerFiles()">{{ i18n.translate('files.task.loadMore') }}</button>
+            }
+          }
+          <button type="button" (click)="associateSelectedFile()" [disabled]="!selectedAttachmentId() || sectionState('files')().status === 'submitting'">{{ i18n.translate('files.task.associate') }}</button>
+        }
+        @if (sectionState('files')().status === 'error' || sectionState('files')().status === 'conflict' || sectionState('files')().status === 'permissionDenied') {
+          <p role="alert">{{ taskFileSectionMessage(sectionState('files')()) }} <button type="button" (click)="retrySection('files')">{{ i18n.translate('common.retry') }}</button></p>
+        }
+        @if (detail.files.hasMore) {
+          <button type="button" (click)="loadMore('files')" [disabled]="sectionState('files')().status === 'loading'">{{ i18n.translate('files.task.loadMore') }}</button>
+        }
       </section>
     } @else if (vm.detailSectionState.status === 'empty') { <app-empty-state title="No task detail sections" message="The task was authorized but no section data was returned." /> }
     @else { <app-empty-state title="Task detail unavailable" message="No authorized task detail was returned." /> }

@@ -31,20 +31,10 @@ permissions:
 
 jobs:
   audit:
-    runs-on: [self-hosted, aipsite-ci, general]
+    runs-on: ubuntu-latest
     timeout-minutes: 30
 
     steps:
-      - name: Repair previous Docker workspace ownership
-        shell: bash
-        run: |
-          uid="$(id -u)"
-          gid="$(id -g)"
-          docker run --rm \
-            -v "$GITHUB_WORKSPACE:/workspace" \
-            alpine:3.21 \
-            sh -c "chown -R ${uid}:${gid} /workspace"
-
       - name: Checkout
         uses: actions/checkout@v7
         with:
@@ -147,6 +137,9 @@ jobs:
 
       - name: Upload npm audit reports
         if: always()
+        # The baseline check below remains authoritative if artifact storage
+        # is unavailable or its quota is exhausted.
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: npm-audit-reports
@@ -170,24 +163,15 @@ jobs:
   install-policy:
     name: npm install policy
     needs: audit
-    runs-on: [self-hosted, aipsite-ci, general]
+    runs-on: ubuntu-latest
     timeout-minutes: 30
 
     steps:
-      - name: Repair previous Docker workspace ownership
-        shell: bash
-        run: |
-          uid="$(id -u)"
-          gid="$(id -g)"
-          docker run --rm \
-            -v "$GITHUB_WORKSPACE:/workspace" \
-            alpine:3.21 \
-            sh -c "chown -R ${uid}:${gid} /workspace"
-
       - name: Checkout
         uses: actions/checkout@v7
         with:
           clean: true
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Setup Node.js
@@ -196,11 +180,73 @@ jobs:
           node-version: "24"
           package-manager-cache: false
 
+      - name: Classify changed npm install scopes
+        id: scope
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          zero_sha="0000000000000000000000000000000000000000"
+          base_sha="${BASE_SHA:-}"
+          head_sha="${HEAD_SHA:-$GITHUB_SHA}"
+          root=false
+          frontend=false
+          legacy=false
+
+          route_all() {
+            root=true
+            frontend=true
+            legacy=true
+          }
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]] || \
+             [[ -z "$base_sha" || "$base_sha" == "$zero_sha" ]] || \
+             ! git cat-file -e "${base_sha}^{commit}" 2>/dev/null || \
+             ! git cat-file -e "${head_sha}^{commit}" 2>/dev/null; then
+            route_all
+          else
+            while IFS= read -r path; do
+              [[ -n "$path" ]] || continue
+              case "$path" in
+                .github/workflows/npm-security-audit.yml|scripts/ci/verify-npm-lockfile.mjs|scripts/ci/npm-ci-retry.sh)
+                  route_all
+                  ;;
+                package.json|package-lock.json)
+                  root=true
+                  ;;
+                frontend/package.json|frontend/package-lock.json)
+                  frontend=true
+                  ;;
+                aipsite-frontend/package.json|aipsite-frontend/package-lock.json)
+                  legacy=true
+                  ;;
+              esac
+            done < <(git diff --name-only "$base_sha" "$head_sha")
+          fi
+
+          {
+            echo "root=$root"
+            echo "frontend=$frontend"
+            echo "legacy=$legacy"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### npm install-policy routing"
+            echo "- root: $root"
+            echo "- frontend: $frontend"
+            echo "- legacy frontend: $legacy"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Enforce root install policy
+        if: steps.scope.outputs.root == 'true'
         run: bash scripts/ci/npm-ci-retry.sh .
 
       - name: Enforce frontend install policy
+        if: steps.scope.outputs.frontend == 'true'
         run: bash scripts/ci/npm-ci-retry.sh frontend
 
       - name: Enforce legacy frontend install policy
+        if: steps.scope.outputs.legacy == 'true'
         run: bash scripts/ci/npm-ci-retry.sh aipsite-frontend

@@ -1,4 +1,16 @@
-import { mapFileListItem, safeFileNameFromHeader } from './files.api';
+import {
+  FileDisplayLocalizer,
+  mapFileListItem,
+  mapFileSharingPresentation,
+  mapFileSharingResponse,
+  safeFileNameFromHeader,
+} from './files.api';
+
+const DISPLAY_LOCALIZER: FileDisplayLocalizer = {
+  untitledFile: '無題のファイル',
+  unknownUser: '不明なユーザー',
+  formatDate: (value) => value ? `表示日時: ${value}` : '',
+};
 
 describe('files api mapper', () => {
   it('maps backend file list items to safe view models', () => {
@@ -16,7 +28,7 @@ describe('files api mapper', () => {
       createdAt: '2026-07-08T00:00:00Z',
       updatedAt: '2026-07-09T12:30:00Z',
       canDelete: true,
-    });
+    }, DISPLAY_LOCALIZER);
 
     expect(vm.id).toBe('attachment-1');
     expect(vm.canonicalFileId).toBe('file-object-1');
@@ -26,8 +38,8 @@ describe('files api mapper', () => {
     expect(vm.capabilities).toEqual(['download']);
     expect(vm.canDelete).toBe(true);
     expect(vm.uploadedByDisplay).toBe('Fixture User');
-    expect(vm.modifiedAtLabel).toBe(new Date('2026-07-09T12:30:00Z').toLocaleString());
-    expect(vm.createdAtLabel).toBe(new Date('2026-07-08T00:00:00Z').toLocaleString());
+    expect(vm.modifiedAtLabel).toBe('表示日時: 2026-07-09T12:30:00Z');
+    expect(vm.createdAtLabel).toBe('表示日時: 2026-07-08T00:00:00Z');
   });
 
   it('maps a missing or malformed delete capability fail-closed', () => {
@@ -37,7 +49,7 @@ describe('files api mapper', () => {
       originalFileName: 'missing.txt',
       status: 'Active',
       scanStatus: 'Clean',
-    });
+    }, DISPLAY_LOCALIZER);
     const malformed = mapFileListItem({
       id: 'attachment-malformed',
       fileObjectId: 'file-malformed',
@@ -45,7 +57,7 @@ describe('files api mapper', () => {
       status: 'Active',
       scanStatus: 'Clean',
       canDelete: 'true',
-    });
+    }, DISPLAY_LOCALIZER);
 
     expect(missing.canDelete).toBe(false);
     expect(malformed.canDelete).toBe(false);
@@ -59,7 +71,7 @@ describe('files api mapper', () => {
       status: 'Active',
       scanStatus: 'Skipped',
       createdAt: '2026-07-08T00:00:00Z',
-    });
+    }, DISPLAY_LOCALIZER);
 
     expect(vm.modifiedAtLabel).toBe(vm.createdAtLabel);
   });
@@ -73,7 +85,7 @@ describe('files api mapper', () => {
       sizeBytes: 4096,
       status: 'Quarantined',
       scanStatus: 'Infected',
-    });
+    }, DISPLAY_LOCALIZER);
     const deleted = mapFileListItem({
       id: 'attachment-3',
       fileObjectId: 'file-object-3',
@@ -83,7 +95,7 @@ describe('files api mapper', () => {
       status: 'Deleted',
       scanStatus: 'Skipped',
       deletedAt: '2026-07-08T00:00:00Z',
-    });
+    }, DISPLAY_LOCALIZER);
 
     expect(quarantined.scanStatus).toBe('blocked');
     expect(quarantined.capabilities).toEqual([]);
@@ -101,5 +113,43 @@ describe('files api mapper', () => {
       'report copy.pdf',
     );
     expect(safeFileNameFromHeader(null, 'fallback.txt')).toBe('fallback.txt');
+  });
+
+  it('renders only explicit server sharing states and redacts external counts without inspection authority', () => {
+    expect(mapFileSharingPresentation({ accessState: 'Private', sharingVersion: 2, canManageSharing: true }))
+      .toEqual({ accessState: 'private', canManageSharing: true, sharingVersion: 2, externalRecipientCount: undefined });
+    expect(mapFileSharingPresentation({ accessState: 'Workspace', sharingVersion: 3, canManageSharing: true }))
+      .toEqual({ accessState: 'workspace', canManageSharing: true, sharingVersion: 3, externalRecipientCount: undefined });
+    expect(mapFileSharingPresentation({
+      accessState: 'External', externalRecipientCount: 2, canManageSharing: true, sharingVersion: 4,
+    })).toEqual({ accessState: 'external', externalRecipientCount: 2, canManageSharing: true, sharingVersion: 4 });
+    expect(mapFileSharingPresentation({
+      accessState: 'External', externalRecipientCount: 2, canManageSharing: false, sharingVersion: 4,
+    })).toEqual({ accessState: 'external', externalRecipientCount: undefined, canManageSharing: false, sharingVersion: 4 });
+    expect(mapFileSharingPresentation({ accessState: 'External', externalRecipientCount: '2', canManageSharing: true }))
+      .toEqual({ accessState: 'external', externalRecipientCount: undefined, canManageSharing: false, sharingVersion: undefined });
+  });
+
+  it('does not expose recipient data when the server withholds sharing inspection authority', () => {
+    const detail = mapFileSharingResponse({
+      fileObjectId: 'file-object-1',
+      sharingPolicy: 'Private',
+      accessState: 'External',
+      sharingVersion: 4,
+      canManageSharing: false,
+      canInspectSharing: false,
+      externalRecipientCount: 9,
+      recipients: [{ grantId: 'grant-1', displayName: 'Protected person', accessKind: 'ExternalProjectMember' }],
+      availableRecipients: [{ userId: 'person-1', displayName: 'Protected person', accessKind: 'ExternalProjectMember' }],
+    });
+
+    expect(detail).toEqual({
+      fileObjectId: 'file-object-1',
+      sharing: { accessState: 'external', canManageSharing: false, sharingVersion: 4, externalRecipientCount: undefined },
+      shareWithWorkspace: false,
+      canInspectSharing: false,
+      recipients: [],
+      availableRecipients: [],
+    });
   });
 });

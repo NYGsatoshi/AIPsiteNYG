@@ -1,5 +1,6 @@
-import { Component, Input } from '@angular/core';
+import { Component, Input, inject } from '@angular/core';
 
+import { I18nService } from '../../../core/i18n/i18n.service';
 import { FileQuotaViewModel } from '../files.types';
 
 @Component({
@@ -8,7 +9,7 @@ import { FileQuotaViewModel } from '../files.types';
   template: `
     <section class="quota" [class]="'quota quota--' + quota.state" data-testid="file-quota-state">
       <div>
-        <p>容量</p>
+        <p>{{ i18n.translate('files.quota.title') }}</p>
         <strong>{{ quota.message }}</strong>
       </div>
       <span>{{ formatBytes(quota.usedBytes) }} / {{ formatBytes(quota.limitBytes) }}</span>
@@ -17,9 +18,11 @@ import { FileQuotaViewModel } from '../files.types';
   styleUrl: './file-quota-state.component.scss'
 })
 export class FileQuotaStateComponent {
+  readonly i18n = inject(I18nService);
+
   @Input({ required: true }) quota!: FileQuotaViewModel;
 
   formatBytes(bytes: number): string {
-    return `${Math.round(bytes / 1024 / 1024)} MB`;
+    return `${this.i18n.formatNumber(Math.max(0, Math.round(bytes / 1024 / 1024)))} MB`;
   }
 }

@@ -267,6 +267,129 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                     b.ToTable("announcements", (string)null);
                 });
 
+            modelBuilder.Entity("AipPortal.Domain.Entities.AnnouncementDraft", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AuthorUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasMaxLength(20000)
+                        .HasColumnType("character varying(20000)");
+
+                    b.Property<Guid?>("ChannelId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("GroupId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsPinned")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("LastPublicationFailureCode")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<DateTimeOffset?>("NextPublicationAttemptAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Priority")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<int>("PublicationAttemptCount")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("PublicationClaimExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PublicationClaimOwner")
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<Guid?>("PublicationClaimToken")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("PublishedAnnouncementId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("PublishedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("RequiresReadConfirmation")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("ScheduleLocalDateTime")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("ScheduleTimeZoneId")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<int?>("ScheduleUtcOffsetMinutes")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("ScheduledForUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("VersionNo")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid?>("WorkspaceId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AuthorUserId");
+
+                    b.HasIndex("ChannelId");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("GroupId");
+
+                    b.HasIndex("PublishedAnnouncementId")
+                        .IsUnique();
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("WorkspaceId");
+
+                    b.HasIndex("TenantId", "AuthorUserId", "Status", "UpdatedAt");
+
+                    b.HasIndex("TenantId", "Status", "ScheduledForUtc", "NextPublicationAttemptAtUtc", "PublicationClaimExpiresAtUtc");
+
+                    b.ToTable("announcement_drafts", (string)null);
+                });
+
             modelBuilder.Entity("AipPortal.Domain.Entities.AnnouncementRead", b =>
                 {
                     b.Property<Guid>("Id")
@@ -444,6 +567,280 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                     b.HasIndex("TenantId", "Status");
 
                     b.ToTable("artifacts", (string)null);
+                });
+
+            modelBuilder.Entity("AipPortal.Domain.Entities.ArtifactClaim", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ArtifactVersionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("CitationPresent")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("LogicalClaimId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Ordinal")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ReviewStatus")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("SupportStatus")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ArtifactVersionId");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "ArtifactVersionId", "Ordinal")
+                        .IsUnique();
+
+                    b.ToTable("artifact_claims", null, t =>
+                        {
+                            t.ExcludeFromMigrations();
+
+                            t.HasCheckConstraint("CK_artifact_claims_ordinal", "\"Ordinal\" > 0");
+                        });
+                });
+
+            modelBuilder.Entity("AipPortal.Domain.Entities.ArtifactEvidence", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ArtifactClaimId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LocationSnapshot")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<int>("Ordinal")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("PassageSnapshot")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<Guid?>("SourceEventAuditId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("SourceKind")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("SourceReference")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<string>("SourceTitleSnapshot")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ArtifactClaimId");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("SourceEventAuditId");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "ArtifactClaimId", "Ordinal")
+                        .IsUnique();
+
+                    b.ToTable("artifact_evidence", null, t =>
+                        {
+                            t.ExcludeFromMigrations();
+
+                            t.HasCheckConstraint("CK_artifact_evidence_ordinal", "\"Ordinal\" > 0");
+                        });
+                });
+
+            modelBuilder.Entity("AipPortal.Domain.Entities.ArtifactReportCitation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("AnchorLengthUtf16")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("AnchorStartUtf16")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("ArtifactClaimId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ArtifactReportSectionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Ordinal")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ArtifactClaimId");
+
+                    b.HasIndex("ArtifactReportSectionId");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "ArtifactReportSectionId", "Ordinal")
+                        .IsUnique();
+
+                    b.ToTable("artifact_report_citations", null, t =>
+                        {
+                            t.ExcludeFromMigrations();
+
+                            t.HasCheckConstraint("CK_artifact_report_citations_anchor", "\"Ordinal\" > 0 AND \"AnchorStartUtf16\" >= 0 AND \"AnchorLengthUtf16\" > 0");
+                        });
+                });
+
+            modelBuilder.Entity("AipPortal.Domain.Entities.ArtifactReportDocument", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ArtifactVersionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("SchemaVersion")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ArtifactVersionId")
+                        .IsUnique();
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("TenantId");
+
+                    b.ToTable("artifact_report_documents", null, t =>
+                        {
+                            t.ExcludeFromMigrations();
+                        });
+                });
+
+            modelBuilder.Entity("AipPortal.Domain.Entities.ArtifactReportSection", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ArtifactReportDocumentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("BodyText")
+                        .IsRequired()
+                        .HasMaxLength(50000)
+                        .HasColumnType("character varying(50000)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Heading")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<Guid>("LogicalSectionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Ordinal")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ArtifactReportDocumentId");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "ArtifactReportDocumentId", "Ordinal")
+                        .IsUnique();
+
+                    b.ToTable("artifact_report_sections", null, t =>
+                        {
+                            t.ExcludeFromMigrations();
+
+                            t.HasCheckConstraint("CK_artifact_report_sections_ordinal", "\"Ordinal\" > 0");
+                        });
                 });
 
             modelBuilder.Entity("AipPortal.Domain.Entities.ArtifactVersion", b =>
@@ -1188,6 +1585,11 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                         .HasColumnType("boolean")
                         .HasDefaultValue(false);
 
+                    b.Property<bool>("IsLater")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<bool>("IsMuted")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
@@ -1259,6 +1661,8 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("TenantId", "ConversationId", "UserId")
                         .IsUnique();
+
+                    b.HasIndex("TenantId", "UserId", "IsLater");
 
                     b.ToTable("conversation_members", (string)null);
                 });
@@ -1619,6 +2023,71 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                     b.ToTable("feedback", (string)null);
                 });
 
+            modelBuilder.Entity("AipPortal.Domain.Entities.FileAccessGrant", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("FileObjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("GrantedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("RecipientKind")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<Guid>("RecipientUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("RevokedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("WorkspaceId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("FileObjectId");
+
+                    b.HasIndex("GrantedByUserId");
+
+                    b.HasIndex("RecipientUserId");
+
+                    b.HasIndex("RevokedByUserId");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("WorkspaceId");
+
+                    b.HasIndex("TenantId", "FileObjectId", "RecipientUserId")
+                        .IsUnique()
+                        .HasFilter("\"RevokedAt\" IS NULL");
+
+                    b.HasIndex("TenantId", "RecipientUserId", "RevokedAt");
+
+                    b.HasIndex("TenantId", "WorkspaceId", "FileObjectId", "RevokedAt");
+
+                    b.ToTable("file_access_grants", (string)null);
+                });
+
             modelBuilder.Entity("AipPortal.Domain.Entities.FileDownloadGrant", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1712,6 +2181,158 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                     b.ToTable("file_download_grants", (string)null);
                 });
 
+            modelBuilder.Entity("AipPortal.Domain.Entities.FileFolder", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DeleteReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("DeletedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(180)
+                        .HasColumnType("character varying(180)");
+
+                    b.Property<Guid?>("ParentFolderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(1L);
+
+                    b.Property<Guid>("WorkspaceId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("DeletedAt");
+
+                    b.HasIndex("DeletedByUserId");
+
+                    b.HasIndex("ParentFolderId");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("WorkspaceId");
+
+                    b.HasIndex("TenantId", "WorkspaceId", "DeletedAt");
+
+                    b.HasIndex("TenantId", "WorkspaceId", "ParentFolderId", "SortOrder");
+
+                    b.ToTable("file_folders", (string)null);
+                });
+
+            modelBuilder.Entity("AipPortal.Domain.Entities.FileFolderPlacement", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("FileObjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("FolderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(1L);
+
+                    b.Property<Guid>("WorkspaceId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("FileObjectId")
+                        .IsUnique();
+
+                    b.HasIndex("FolderId");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("WorkspaceId");
+
+                    b.HasIndex("TenantId", "WorkspaceId", "FolderId");
+
+                    b.ToTable("file_folder_placements", (string)null);
+                });
+
+            modelBuilder.Entity("AipPortal.Domain.Entities.FileFolderRootState", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(1L);
+
+                    b.Property<Guid>("WorkspaceId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("WorkspaceId")
+                        .IsUnique();
+
+                    b.HasIndex("TenantId", "WorkspaceId");
+
+                    b.ToTable("file_folder_root_states", (string)null);
+                });
+
             modelBuilder.Entity("AipPortal.Domain.Entities.FileObject", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1754,6 +2375,19 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
 
                     b.Property<Guid?>("ProjectId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("SharingPolicy")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasDefaultValue("Private");
+
+                    b.Property<long>("SharingVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(1L);
 
                     b.Property<long>("SizeBytes")
                         .HasColumnType("bigint");
@@ -1803,6 +2437,8 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("TenantId", "Status", "CreatedAt");
 
+                    b.HasIndex("TenantId", "WorkspaceId", "SharingPolicy");
+
                     b.ToTable("file_objects", (string)null);
                 });
 
@@ -1844,6 +2480,85 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                     b.HasIndex("TenantId");
 
                     b.ToTable("file_scan_results", (string)null);
+                });
+
+            modelBuilder.Entity("AipPortal.Domain.Entities.FileSelectionSnapshot", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ActorUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("ConsumedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("ConsumptionVersion")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("FileKind")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTimeOffset?>("FromDateUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("NormalizedQuery")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<bool>("OnlyMyUploads")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("WorkspaceId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActorUserId");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("ExpiresAt");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("WorkspaceId");
+
+                    b.HasIndex("TenantId", "ActorUserId", "ExpiresAt");
+
+                    b.ToTable("file_selection_snapshots", (string)null);
+                });
+
+            modelBuilder.Entity("AipPortal.Domain.Entities.FileSelectionSnapshotItem", b =>
+                {
+                    b.Property<Guid>("SelectionSnapshotId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("FileObjectId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("SelectionSnapshotId", "FileObjectId");
+
+                    b.HasIndex("FileObjectId");
+
+                    b.ToTable("file_selection_snapshot_items", (string)null);
                 });
 
             modelBuilder.Entity("AipPortal.Domain.Entities.FormAnswer", b =>
@@ -2529,6 +3244,45 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("message_attachments", (string)null);
+                });
+
+            modelBuilder.Entity("AipPortal.Domain.Entities.MessageFollowUp", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("MessageId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("MessageId");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("TenantId", "UserId", "MessageId")
+                        .IsUnique();
+
+                    b.HasIndex("TenantId", "UserId", "CreatedAt", "Id");
+
+                    b.ToTable("message_follow_ups", (string)null);
                 });
 
             modelBuilder.Entity("AipPortal.Domain.Entities.Milestone", b =>
@@ -3592,6 +4346,184 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                     b.ToTable("read_states", (string)null);
                 });
 
+            modelBuilder.Entity("AipPortal.Domain.Entities.ResearchPlan", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("CurrentRevisionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TaskItemId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("VersionNo")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(1L);
+
+                    b.Property<Guid>("WorkspaceId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CurrentRevisionId");
+
+                    b.HasIndex("ProjectId");
+
+                    b.HasIndex("TaskItemId")
+                        .IsUnique();
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("CurrentRevisionId", "Id");
+
+                    b.HasIndex("TaskItemId", "ProjectId")
+                        .IsUnique();
+
+                    b.HasIndex("TenantId", "WorkspaceId", "ProjectId", "TaskItemId");
+
+                    b.ToTable("research_plans", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_research_plans_version_positive", "\"VersionNo\" > 0");
+                        });
+                });
+
+            modelBuilder.Entity("AipPortal.Domain.Entities.ResearchPlanRevision", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CreatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ResearchPlanId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("RevisionNo")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(1L);
+
+                    b.Property<Guid>("TaskItemId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("WorkspaceId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasAlternateKey("Id", "TenantId", "WorkspaceId", "ProjectId", "TaskItemId", "RevisionNo")
+                        .HasName("AK_research_plan_revisions_execution_snapshot_identity");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("ProjectId");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("ResearchPlanId", "RevisionNo")
+                        .IsUnique();
+
+                    b.HasIndex("TaskItemId", "ProjectId");
+
+                    b.HasIndex("TenantId", "WorkspaceId", "ProjectId", "TaskItemId", "RevisionNo");
+
+                    b.ToTable("research_plan_revisions", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_research_plan_revisions_revision_positive", "\"RevisionNo\" > 0");
+                        });
+                });
+
+            modelBuilder.Entity("AipPortal.Domain.Entities.ResearchPlanStep", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Objective")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ResearchPlanId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ResearchPlanRevisionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ScopeSummary")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasDefaultValue("Planned");
+
+                    b.Property<Guid>("TaskItemId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(240)
+                        .HasColumnType("character varying(240)");
+
+                    b.Property<Guid>("WorkspaceId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProjectId");
+
+                    b.HasIndex("ResearchPlanId");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("ResearchPlanRevisionId", "ResearchPlanId");
+
+                    b.HasIndex("ResearchPlanRevisionId", "SortOrder")
+                        .IsUnique();
+
+                    b.HasIndex("TaskItemId", "ProjectId");
+
+                    b.HasIndex("TenantId", "WorkspaceId", "ProjectId", "TaskItemId", "ResearchPlanRevisionId");
+
+                    b.ToTable("research_plan_steps", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_research_plan_steps_sort_order_positive", "\"SortOrder\" > 0");
+                        });
+                });
+
             modelBuilder.Entity("AipPortal.Domain.Entities.SecurityEvent", b =>
                 {
                     b.Property<Guid>("Id")
@@ -4287,16 +5219,37 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("ProjectId")
                         .HasColumnType("uuid");
 
+                    b.Property<DateTimeOffset?>("QueuedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<DateTimeOffset>("RequestedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<Guid>("RequestedByUserId")
                         .HasColumnType("uuid");
 
+                    b.Property<int>("RuntimeContractVersion")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
+
+                    b.Property<string>("RuntimeProvider")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasDefaultValue("FirstPartyProjectFilesRuntimeV1");
+
                     b.Property<bool>("SnapshotProjectFilesEnabled")
                         .HasColumnType("boolean");
 
                     b.Property<long>("SnapshotProjectScopeVersion")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid?>("SnapshotResearchPlanRevisionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long?>("SnapshotResearchPlanRevisionNo")
                         .HasColumnType("bigint");
 
                     b.Property<int>("SnapshotSchemaVersion")
@@ -4312,6 +5265,9 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
 
                     b.Property<bool>("SnapshotWebEnabled")
                         .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset?>("StartedAtUtc")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -4347,7 +5303,18 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("TenantId", "TaskItemId", "RequestedAtUtc");
 
-                    b.ToTable("task_execution_runs", (string)null);
+                    b.HasIndex("TenantId", "TaskItemId", "SnapshotResearchPlanRevisionId")
+                        .HasDatabaseName("IX_task_execution_runs_plan_snapshot_lookup");
+
+                    b.HasIndex("SnapshotResearchPlanRevisionId", "TenantId", "WorkspaceId", "ProjectId", "TaskItemId", "SnapshotResearchPlanRevisionNo")
+                        .HasDatabaseName("IX_task_execution_runs_plan_snapshot_scope");
+
+                    b.ToTable("task_execution_runs", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_task_execution_runs_research_plan_snapshot", "(\"SnapshotResearchPlanRevisionId\" IS NULL AND \"SnapshotResearchPlanRevisionNo\" IS NULL) OR (\"SnapshotResearchPlanRevisionId\" IS NOT NULL AND \"SnapshotResearchPlanRevisionNo\" IS NOT NULL AND \"SnapshotResearchPlanRevisionNo\" > 0)");
+
+                            t.HasCheckConstraint("CK_task_execution_runs_runtime_contract", "\"RuntimeProvider\" = 'FirstPartyProjectFilesRuntimeV1' AND \"RuntimeContractVersion\" = 1");
+                        });
                 });
 
             modelBuilder.Entity("AipPortal.Domain.Entities.TaskExecutionScopeOverride", b =>
@@ -5623,6 +6590,45 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                     b.Navigation("Workspace");
                 });
 
+            modelBuilder.Entity("AipPortal.Domain.Entities.AnnouncementDraft", b =>
+                {
+                    b.HasOne("AipPortal.Domain.Entities.User", "AuthorUser")
+                        .WithMany()
+                        .HasForeignKey("AuthorUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("AipPortal.Domain.Entities.Channel", "Channel")
+                        .WithMany()
+                        .HasForeignKey("ChannelId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("AipPortal.Domain.Entities.Group", "Group")
+                        .WithMany()
+                        .HasForeignKey("GroupId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("AipPortal.Domain.Entities.Announcement", "PublishedAnnouncement")
+                        .WithMany()
+                        .HasForeignKey("PublishedAnnouncementId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("AipPortal.Domain.Entities.Workspace", "Workspace")
+                        .WithMany()
+                        .HasForeignKey("WorkspaceId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("AuthorUser");
+
+                    b.Navigation("Channel");
+
+                    b.Navigation("Group");
+
+                    b.Navigation("PublishedAnnouncement");
+
+                    b.Navigation("Workspace");
+                });
+
             modelBuilder.Entity("AipPortal.Domain.Entities.AnnouncementRead", b =>
                 {
                     b.HasOne("AipPortal.Domain.Entities.Announcement", "Announcement")
@@ -5684,6 +6690,69 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                     b.Navigation("Project");
 
                     b.Navigation("TaskItem");
+                });
+
+            modelBuilder.Entity("AipPortal.Domain.Entities.ArtifactClaim", b =>
+                {
+                    b.HasOne("AipPortal.Domain.Entities.ArtifactVersion", "ArtifactVersion")
+                        .WithMany()
+                        .HasForeignKey("ArtifactVersionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("ArtifactVersion");
+                });
+
+            modelBuilder.Entity("AipPortal.Domain.Entities.ArtifactEvidence", b =>
+                {
+                    b.HasOne("AipPortal.Domain.Entities.ArtifactClaim", "ArtifactClaim")
+                        .WithMany("Evidence")
+                        .HasForeignKey("ArtifactClaimId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("ArtifactClaim");
+                });
+
+            modelBuilder.Entity("AipPortal.Domain.Entities.ArtifactReportCitation", b =>
+                {
+                    b.HasOne("AipPortal.Domain.Entities.ArtifactClaim", "Claim")
+                        .WithMany()
+                        .HasForeignKey("ArtifactClaimId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("AipPortal.Domain.Entities.ArtifactReportSection", "Section")
+                        .WithMany("Citations")
+                        .HasForeignKey("ArtifactReportSectionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Claim");
+
+                    b.Navigation("Section");
+                });
+
+            modelBuilder.Entity("AipPortal.Domain.Entities.ArtifactReportDocument", b =>
+                {
+                    b.HasOne("AipPortal.Domain.Entities.ArtifactVersion", "ArtifactVersion")
+                        .WithMany()
+                        .HasForeignKey("ArtifactVersionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("ArtifactVersion");
+                });
+
+            modelBuilder.Entity("AipPortal.Domain.Entities.ArtifactReportSection", b =>
+                {
+                    b.HasOne("AipPortal.Domain.Entities.ArtifactReportDocument", "Document")
+                        .WithMany("Sections")
+                        .HasForeignKey("ArtifactReportDocumentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Document");
                 });
 
             modelBuilder.Entity("AipPortal.Domain.Entities.ArtifactVersion", b =>
@@ -6051,6 +7120,103 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                     b.Navigation("Workspace");
                 });
 
+            modelBuilder.Entity("AipPortal.Domain.Entities.FileAccessGrant", b =>
+                {
+                    b.HasOne("AipPortal.Domain.Entities.FileObject", "FileObject")
+                        .WithMany()
+                        .HasForeignKey("FileObjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("AipPortal.Domain.Entities.User", "GrantedByUser")
+                        .WithMany()
+                        .HasForeignKey("GrantedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("AipPortal.Domain.Entities.User", "RecipientUser")
+                        .WithMany()
+                        .HasForeignKey("RecipientUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("AipPortal.Domain.Entities.User", "RevokedByUser")
+                        .WithMany()
+                        .HasForeignKey("RevokedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("AipPortal.Domain.Entities.Workspace", "Workspace")
+                        .WithMany()
+                        .HasForeignKey("WorkspaceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("FileObject");
+
+                    b.Navigation("GrantedByUser");
+
+                    b.Navigation("RecipientUser");
+
+                    b.Navigation("RevokedByUser");
+
+                    b.Navigation("Workspace");
+                });
+
+            modelBuilder.Entity("AipPortal.Domain.Entities.FileFolder", b =>
+                {
+                    b.HasOne("AipPortal.Domain.Entities.FileFolder", "ParentFolder")
+                        .WithMany("ChildFolders")
+                        .HasForeignKey("ParentFolderId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("AipPortal.Domain.Entities.Workspace", "Workspace")
+                        .WithMany()
+                        .HasForeignKey("WorkspaceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("ParentFolder");
+
+                    b.Navigation("Workspace");
+                });
+
+            modelBuilder.Entity("AipPortal.Domain.Entities.FileFolderPlacement", b =>
+                {
+                    b.HasOne("AipPortal.Domain.Entities.FileObject", "FileObject")
+                        .WithMany()
+                        .HasForeignKey("FileObjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("AipPortal.Domain.Entities.FileFolder", "Folder")
+                        .WithMany()
+                        .HasForeignKey("FolderId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("AipPortal.Domain.Entities.Workspace", "Workspace")
+                        .WithMany()
+                        .HasForeignKey("WorkspaceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("FileObject");
+
+                    b.Navigation("Folder");
+
+                    b.Navigation("Workspace");
+                });
+
+            modelBuilder.Entity("AipPortal.Domain.Entities.FileFolderRootState", b =>
+                {
+                    b.HasOne("AipPortal.Domain.Entities.Workspace", "Workspace")
+                        .WithMany()
+                        .HasForeignKey("WorkspaceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Workspace");
+                });
+
             modelBuilder.Entity("AipPortal.Domain.Entities.FileObject", b =>
                 {
                     b.HasOne("AipPortal.Domain.Entities.Group", "Group")
@@ -6092,6 +7258,17 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("Attachment");
+                });
+
+            modelBuilder.Entity("AipPortal.Domain.Entities.FileSelectionSnapshotItem", b =>
+                {
+                    b.HasOne("AipPortal.Domain.Entities.FileSelectionSnapshot", "SelectionSnapshot")
+                        .WithMany("Items")
+                        .HasForeignKey("SelectionSnapshotId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("SelectionSnapshot");
                 });
 
             modelBuilder.Entity("AipPortal.Domain.Entities.FormAnswer", b =>
@@ -6311,6 +7488,25 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                     b.Navigation("Attachment");
 
                     b.Navigation("Message");
+                });
+
+            modelBuilder.Entity("AipPortal.Domain.Entities.MessageFollowUp", b =>
+                {
+                    b.HasOne("AipPortal.Domain.Entities.Message", "Message")
+                        .WithMany()
+                        .HasForeignKey("MessageId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("AipPortal.Domain.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Message");
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("AipPortal.Domain.Entities.Milestone", b =>
@@ -6552,6 +7748,107 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("AipPortal.Domain.Entities.ResearchPlan", b =>
+                {
+                    b.HasOne("AipPortal.Domain.Entities.Project", "Project")
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("AipPortal.Domain.Entities.ResearchPlanRevision", "CurrentRevision")
+                        .WithMany()
+                        .HasForeignKey("CurrentRevisionId", "Id")
+                        .HasPrincipalKey("Id", "ResearchPlanId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("AipPortal.Domain.Entities.TaskItem", "TaskItem")
+                        .WithOne("ResearchPlan")
+                        .HasForeignKey("AipPortal.Domain.Entities.ResearchPlan", "TaskItemId", "ProjectId")
+                        .HasPrincipalKey("AipPortal.Domain.Entities.TaskItem", "Id", "ProjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("CurrentRevision");
+
+                    b.Navigation("Project");
+
+                    b.Navigation("TaskItem");
+                });
+
+            modelBuilder.Entity("AipPortal.Domain.Entities.ResearchPlanRevision", b =>
+                {
+                    b.HasOne("AipPortal.Domain.Entities.User", "CreatedByUser")
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("AipPortal.Domain.Entities.Project", "Project")
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("AipPortal.Domain.Entities.ResearchPlan", "ResearchPlan")
+                        .WithMany("Revisions")
+                        .HasForeignKey("ResearchPlanId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("AipPortal.Domain.Entities.TaskItem", "TaskItem")
+                        .WithMany()
+                        .HasForeignKey("TaskItemId", "ProjectId")
+                        .HasPrincipalKey("Id", "ProjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("CreatedByUser");
+
+                    b.Navigation("Project");
+
+                    b.Navigation("ResearchPlan");
+
+                    b.Navigation("TaskItem");
+                });
+
+            modelBuilder.Entity("AipPortal.Domain.Entities.ResearchPlanStep", b =>
+                {
+                    b.HasOne("AipPortal.Domain.Entities.Project", "Project")
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("AipPortal.Domain.Entities.ResearchPlan", "ResearchPlan")
+                        .WithMany()
+                        .HasForeignKey("ResearchPlanId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("AipPortal.Domain.Entities.ResearchPlanRevision", "ResearchPlanRevision")
+                        .WithMany("Steps")
+                        .HasForeignKey("ResearchPlanRevisionId", "ResearchPlanId")
+                        .HasPrincipalKey("Id", "ResearchPlanId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("AipPortal.Domain.Entities.TaskItem", "TaskItem")
+                        .WithMany()
+                        .HasForeignKey("TaskItemId", "ProjectId")
+                        .HasPrincipalKey("Id", "ProjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Project");
+
+                    b.Navigation("ResearchPlan");
+
+                    b.Navigation("ResearchPlanRevision");
+
+                    b.Navigation("TaskItem");
+                });
+
             modelBuilder.Entity("AipPortal.Domain.Entities.SecurityEvent", b =>
                 {
                     b.HasOne("AipPortal.Domain.Entities.User", "User")
@@ -6776,9 +8073,18 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("AipPortal.Domain.Entities.ResearchPlanRevision", "SnapshotResearchPlanRevision")
+                        .WithMany()
+                        .HasForeignKey("SnapshotResearchPlanRevisionId", "TenantId", "WorkspaceId", "ProjectId", "TaskItemId", "SnapshotResearchPlanRevisionNo")
+                        .HasPrincipalKey("Id", "TenantId", "WorkspaceId", "ProjectId", "TaskItemId", "RevisionNo")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_task_execution_runs_plan_snapshot_revision");
+
                     b.Navigation("Project");
 
                     b.Navigation("RequestedByUser");
+
+                    b.Navigation("SnapshotResearchPlanRevision");
 
                     b.Navigation("TaskItem");
                 });
@@ -7090,6 +8396,21 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                     b.Navigation("Versions");
                 });
 
+            modelBuilder.Entity("AipPortal.Domain.Entities.ArtifactClaim", b =>
+                {
+                    b.Navigation("Evidence");
+                });
+
+            modelBuilder.Entity("AipPortal.Domain.Entities.ArtifactReportDocument", b =>
+                {
+                    b.Navigation("Sections");
+                });
+
+            modelBuilder.Entity("AipPortal.Domain.Entities.ArtifactReportSection", b =>
+                {
+                    b.Navigation("Citations");
+                });
+
             modelBuilder.Entity("AipPortal.Domain.Entities.Attachment", b =>
                 {
                     b.Navigation("ScanResults");
@@ -7116,6 +8437,16 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                     b.Navigation("CommandDefinitions");
 
                     b.Navigation("PanelDefinitions");
+                });
+
+            modelBuilder.Entity("AipPortal.Domain.Entities.FileFolder", b =>
+                {
+                    b.Navigation("ChildFolders");
+                });
+
+            modelBuilder.Entity("AipPortal.Domain.Entities.FileSelectionSnapshot", b =>
+                {
+                    b.Navigation("Items");
                 });
 
             modelBuilder.Entity("AipPortal.Domain.Entities.FormQuestion", b =>
@@ -7187,6 +8518,16 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                     b.Navigation("Items");
                 });
 
+            modelBuilder.Entity("AipPortal.Domain.Entities.ResearchPlan", b =>
+                {
+                    b.Navigation("Revisions");
+                });
+
+            modelBuilder.Entity("AipPortal.Domain.Entities.ResearchPlanRevision", b =>
+                {
+                    b.Navigation("Steps");
+                });
+
             modelBuilder.Entity("AipPortal.Domain.Entities.TaskDeadlineDigestAttempt", b =>
                 {
                     b.Navigation("RestartAttempts");
@@ -7214,6 +8555,8 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                     b.Navigation("Labels");
 
                     b.Navigation("PredecessorDependencies");
+
+                    b.Navigation("ResearchPlan");
 
                     b.Navigation("SuccessorDependencies");
 

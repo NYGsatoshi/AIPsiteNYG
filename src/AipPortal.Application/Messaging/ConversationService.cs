@@ -31,10 +31,17 @@ public sealed class ConversationService(
     private const int MaximumThreadParticipantNames = 3;
     private static readonly HashSet<string> AllowedExtensions = [".pdf", ".png", ".jpg", ".jpeg", ".gif", ".txt", ".docx", ".xlsx", ".pptx", ".zip"];
 
-    public async Task<Result<PagedResponse<ConversationListItemResponse>>> ListAsync(ConversationListQuery query, CancellationToken cancellationToken = default)
+    public async Task<Result<ConversationInboxResponse>> ListAsync(ConversationListQuery query, CancellationToken cancellationToken = default)
     {
-        if (!TryCurrentUser(out var userId)) return Result<PagedResponse<ConversationListItemResponse>>.Failure("Authentication is required.");
-        var conversations = await messaging.ListForUserAsync(userId, query.SafePage, query.SafePageSize, cancellationToken);
+        if (!TryCurrentUser(out var userId)) return Result<ConversationInboxResponse>.Failure("Authentication is required.");
+        if (!Enum.IsDefined(query.View)) return Result<ConversationInboxResponse>.Failure("Inbox view is invalid.");
+        var inbox = await messaging.ListInboxForUserAsync(
+            userId,
+            query.View,
+            query.SafePage,
+            query.SafePageSize,
+            cancellationToken);
+        var conversations = inbox.Page;
         var readableIds = await messaging.FilterReadableConversationIdsAsync(
             userId,
             conversations.Items.Select(conversation => conversation.Id).ToArray(),
@@ -77,10 +84,17 @@ public sealed class ConversationService(
                 mentionConversationIds.Contains(conversation.Id),
                 member?.IsMuted ?? false,
                 member?.IsArchived ?? false,
+                member?.IsLater ?? false,
                 conversation.CreatedAt,
                 conversation.UpdatedAt));
         }
-        return Result<PagedResponse<ConversationListItemResponse>>.Success(new PagedResponse<ConversationListItemResponse>(result, conversations.Page, conversations.PageSize, conversations.TotalCount));
+        return Result<ConversationInboxResponse>.Success(new ConversationInboxResponse(
+            result,
+            conversations.Page,
+            conversations.PageSize,
+            conversations.TotalCount,
+            query.View,
+            inbox.Counts));
     }
 
     public async Task<Result<IReadOnlyList<ConversationRecipientResponse>>> ListRecipientsAsync(string? query, CancellationToken cancellationToken = default)
@@ -368,7 +382,38 @@ public sealed class ConversationService(
             return await DenyAsync<PagedResponse<MessageResponse>>(userId, "ConversationAccessDenied", "Conversation", conversationId, "Conversation not found.", cancellationToken);
         }
 
-        var page = await messaging.ListMessagesAsync(conversationId, query.SafeLimit, query.Before, cancellationToken);
+        PagedResponse<Message> page;
+        if (query.AnchorMessageId.HasValue)
+        {
+            var focusMessage = await messaging.GetMessageAsync(query.AnchorMessageId.Value, cancellationToken);
+            if (focusMessage is null ||
+                focusMessage.DeletedAt.HasValue ||
+                focusMessage.ConversationId != conversationId)
+            {
+                return await DenyAsync<PagedResponse<MessageResponse>>(
+                    userId,
+                    "ConversationAccessDenied",
+                    "Message",
+                    query.AnchorMessageId.Value,
+                    "Message not found.",
+                    cancellationToken,
+                    "anchor_message_denied");
+            }
+
+            // Replies are rendered inside their root's thread panel. Anchor
+            // the Conversation timeline on that root while preserving the
+            // exact reply identity in the route so the client can open/focus it.
+            var timelineAnchorId = focusMessage.ThreadRootMessageId ?? focusMessage.Id;
+            page = await messaging.ListMessageContextAsync(
+                conversationId,
+                timelineAnchorId,
+                query.SafeLimit,
+                cancellationToken);
+        }
+        else
+        {
+            page = await messaging.ListMessagesAsync(conversationId, query.SafeLimit, query.Before, cancellationToken);
+        }
         var threadSummaries = await messaging.GetThreadSummariesAsync(
             conversationId,
             page.Items.Select(message => message.Id).ToArray(),
@@ -568,6 +613,7 @@ public sealed class ConversationService(
 
     public async Task<Result<MessageThreadResponse>> GetMessageThreadAsync(
         Guid messageId,
+        Guid? anchorReplyMessageId = null,
         CancellationToken cancellationToken = default)
     {
         if (!TryCurrentUser(out var userId))
@@ -603,12 +649,52 @@ public sealed class ConversationService(
                 "conversation_read_denied");
         }
 
-        var replyPage = await messaging.ListThreadRepliesAsync(
-            rootMessage.ConversationId,
-            rootMessage.Id,
-            MaximumThreadReplies,
-            before: null,
-            cancellationToken: cancellationToken);
+        if (anchorReplyMessageId.HasValue)
+        {
+            var anchorReply = await messaging.GetMessageAsync(anchorReplyMessageId.Value, cancellationToken);
+            if (anchorReply is null ||
+                anchorReply.DeletedAt.HasValue ||
+                anchorReply.ConversationId != rootMessage.ConversationId ||
+                anchorReply.ThreadRootMessageId != rootMessage.Id)
+            {
+                return await DenyAsync<MessageThreadResponse>(
+                    userId,
+                    "MessageThreadAccessDenied",
+                    "Message",
+                    messageId,
+                    "Message thread not found.",
+                    cancellationToken,
+                    "thread_reply_anchor_invalid");
+            }
+        }
+
+        var replyPage = anchorReplyMessageId.HasValue
+            ? await messaging.ListThreadReplyContextAsync(
+                rootMessage.ConversationId,
+                rootMessage.Id,
+                anchorReplyMessageId.Value,
+                MaximumThreadReplies,
+                cancellationToken)
+            : await messaging.ListThreadRepliesAsync(
+                rootMessage.ConversationId,
+                rootMessage.Id,
+                MaximumThreadReplies,
+                before: null,
+                cancellationToken: cancellationToken);
+        if (anchorReplyMessageId.HasValue &&
+            !replyPage.Items.Any(message =>
+                message.Id == anchorReplyMessageId.Value &&
+                !message.DeletedAt.HasValue))
+        {
+            return await DenyAsync<MessageThreadResponse>(
+                userId,
+                "MessageThreadAccessDenied",
+                "Message",
+                messageId,
+                "Message thread not found.",
+                cancellationToken,
+                "thread_reply_anchor_invalid");
+        }
         var summary = await messaging.GetThreadSummaryAsync(
             rootMessage.ConversationId,
             rootMessage.Id,
@@ -983,6 +1069,11 @@ public sealed class ConversationService(
             member.IsArchived = request.IsArchived.Value;
         }
 
+        if (request.IsLater.HasValue)
+        {
+            member.IsLater = request.IsLater.Value;
+        }
+
         await AuditParticipantStateAsync(userId, "update_participant_state", conversationId, "allow", "self_state_only", cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result<ParticipantStateResponse>.Success(await ToParticipantStateAsync(member, userId, cancellationToken));
@@ -1272,6 +1363,7 @@ public sealed class ConversationService(
             unread,
             member.IsMuted,
             member.IsArchived,
+            member.IsLater,
             member.CreatedAt,
             member.UpdatedAt);
     }

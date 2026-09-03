@@ -1,3 +1,5 @@
+using System.Data;
+using System.Data.Common;
 using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Domain.Entities;
@@ -19,6 +21,40 @@ public sealed class FileRepository(AppDbContext dbContext) : IFileRepository
         int pageSize,
         CancellationToken cancellationToken = default)
     {
+        return await ListWorkspaceFileObjectsCoreAsync(
+            workspaceId,
+            null,
+            canManageSharing: true,
+            page,
+            pageSize,
+            cancellationToken);
+    }
+
+    public async Task<PagedResponse<Attachment>> ListAccessibleWorkspaceFileObjectsAsync(
+        Guid workspaceId,
+        Guid userId,
+        bool canManageSharing,
+        int page,
+        int pageSize,
+        CancellationToken cancellationToken = default)
+    {
+        return await ListWorkspaceFileObjectsCoreAsync(
+            workspaceId,
+            userId,
+            canManageSharing,
+            page,
+            pageSize,
+            cancellationToken);
+    }
+
+    private async Task<PagedResponse<Attachment>> ListWorkspaceFileObjectsCoreAsync(
+        Guid workspaceId,
+        Guid? userId,
+        bool canManageSharing,
+        int page,
+        int pageSize,
+        CancellationToken cancellationToken)
+    {
         var query = dbContext.Attachments
             .AsNoTracking()
             .Include(attachment => attachment.FileObject)
@@ -33,6 +69,25 @@ public sealed class FileRepository(AppDbContext dbContext) : IFileRepository
                 !attachment.FileObject.DeletedAt.HasValue &&
                 attachment.FileObject.Status != FileObjectStatus.Deleted);
 
+        // This is the metadata-discovery boundary for the Files inventory.
+        // Never return a Private File merely because the caller can see the
+        // Workspace: explicit grants and direct-file ownership are evaluated
+        // in the query, not reconstructed by the browser.
+        if (!canManageSharing && userId.HasValue)
+        {
+            var currentUserId = userId.Value;
+            var effectiveGrantFileObjectIds = EffectiveGrants()
+                .Where(grant =>
+                    grant.WorkspaceId == workspaceId &&
+                    grant.RecipientUserId == currentUserId)
+                .Select(grant => grant.FileObjectId);
+            query = query.Where(attachment =>
+                attachment.FileObject!.SharingPolicy == FileSharingPolicy.Workspace ||
+                attachment.UploadedByUserId == currentUserId ||
+                attachment.OwnerUserId == currentUserId ||
+                effectiveGrantFileObjectIds.Contains(attachment.FileObjectId));
+        }
+
         var total = await query.CountAsync(cancellationToken);
         var items = await query
             .OrderByDescending(attachment => attachment.FileObject!.CreatedAt)
@@ -42,6 +97,59 @@ public sealed class FileRepository(AppDbContext dbContext) : IFileRepository
             .ToListAsync(cancellationToken);
 
         return new PagedResponse<Attachment>(items, page, pageSize, total);
+    }
+
+    private IQueryable<FileAccessGrant> EffectiveGrants()
+    {
+        return dbContext.FileAccessGrants.Where(grant =>
+            grant.RevokedAt == null &&
+            dbContext.FileObjects.Any(file =>
+                   file.Id == grant.FileObjectId &&
+                   file.TenantId == grant.TenantId &&
+                   file.WorkspaceId == grant.WorkspaceId &&
+                   file.DeletedAt == null &&
+                   file.Status != FileObjectStatus.Deleted) &&
+            dbContext.Attachments.Any(attachment =>
+                   attachment.FileObjectId == grant.FileObjectId &&
+                   attachment.WorkspaceId == grant.WorkspaceId &&
+                   attachment.OwnerType == AttachmentOwnerType.Workspace &&
+                   attachment.OwnerId == grant.WorkspaceId &&
+                   attachment.DeletedAt == null) &&
+            dbContext.Workspaces.Any(workspace =>
+                   workspace.Id == grant.WorkspaceId &&
+                   workspace.TenantId == grant.TenantId &&
+                   workspace.DeletedAt == null &&
+                   workspace.Status == WorkspaceStatus.Active) &&
+            dbContext.TenantUsers.Any(tenantUser =>
+                   tenantUser.TenantId == grant.TenantId &&
+                   tenantUser.UserId == grant.RecipientUserId &&
+                   tenantUser.Status == TenantUserStatus.Active) &&
+            dbContext.Users.Any(user =>
+                   user.Id == grant.RecipientUserId &&
+                   user.Status == UserStatus.Active &&
+                   user.DeletedAt == null) &&
+             ((grant.RecipientKind == FileAccessGrantRecipientKind.WorkspaceMember &&
+                 dbContext.WorkspaceMembers.Any(member =>
+                     member.TenantId == grant.TenantId &&
+                     member.WorkspaceId == grant.WorkspaceId &&
+                     member.UserId == grant.RecipientUserId &&
+                     member.Status == MembershipStatus.Active)) ||
+                (grant.RecipientKind == FileAccessGrantRecipientKind.ExternalProjectMember &&
+                 !dbContext.WorkspaceMembers.Any(member =>
+                     member.TenantId == grant.TenantId &&
+                     member.WorkspaceId == grant.WorkspaceId &&
+                     member.UserId == grant.RecipientUserId &&
+                     member.Status == MembershipStatus.Active) &&
+                 dbContext.ProjectMembers.Any(member =>
+                     member.TenantId == grant.TenantId &&
+                     member.UserId == grant.RecipientUserId &&
+                     dbContext.Projects.Any(project =>
+                         project.Id == member.ProjectId &&
+                         project.TenantId == grant.TenantId &&
+                         project.WorkspaceId == grant.WorkspaceId &&
+                         project.DeletedAt == null &&
+                         project.Status != ProjectStatus.Archived &&
+                         project.Status != ProjectStatus.Deleted)))));
     }
 
     public async Task AddFileObjectAsync(FileObject fileObject, CancellationToken cancellationToken = default)
@@ -66,6 +174,140 @@ public sealed class FileRepository(AppDbContext dbContext) : IFileRepository
     public async Task AddAttachmentAsync(Attachment attachment, CancellationToken cancellationToken = default)
     {
         await dbContext.Attachments.AddAsync(attachment, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<FileVersionRecord>> ListFileVersionsAsync(
+        Guid tenantId,
+        Guid fileObjectId,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        var safeLimit = Math.Clamp(limit, 1, 100);
+        return await ReadFileVersionsAsync(
+            tenantId,
+            fileObjectId,
+            versionId: null,
+            safeLimit,
+            cancellationToken);
+    }
+
+    public async Task<FileVersionRecord?> GetFileVersionAsync(
+        Guid tenantId,
+        Guid fileObjectId,
+        Guid versionId,
+        CancellationToken cancellationToken = default)
+    {
+        var versions = await ReadFileVersionsAsync(
+            tenantId,
+            fileObjectId,
+            versionId,
+            limit: 1,
+            cancellationToken);
+        return versions.FirstOrDefault();
+    }
+
+    public async Task<IReadOnlyList<FileSharingActivityRecord>> ListFileSharingActivityAsync(
+        Guid tenantId,
+        Guid fileObjectId,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        var safeLimit = Math.Clamp(limit, 1, 100);
+        return await dbContext.AuditLogs
+            .AsNoTracking()
+            .Where(log =>
+                log.TenantId == tenantId &&
+                log.EntityType == "FileObject" &&
+                log.EntityId == fileObjectId &&
+                log.Action == "FileSharingChanged")
+            .OrderByDescending(log => log.CreatedAt)
+            .ThenByDescending(log => log.Id)
+            .Take(safeLimit)
+            .Select(log => new FileSharingActivityRecord(
+                log.Id,
+                log.ActorUser != null ? log.ActorUser.DisplayName : string.Empty,
+                log.CreatedAt,
+                log.MetadataJson))
+            .ToListAsync(cancellationToken);
+    }
+
+    private async Task<IReadOnlyList<FileVersionRecord>> ReadFileVersionsAsync(
+        Guid tenantId,
+        Guid fileObjectId,
+        Guid? versionId,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        var connection = dbContext.Database.GetDbConnection();
+        var shouldClose = connection.State != ConnectionState.Open;
+        if (shouldClose)
+        {
+            await connection.OpenAsync(cancellationToken);
+        }
+
+        try
+        {
+            await using var command = connection.CreateCommand();
+            command.CommandText = """
+                SELECT
+                    fv."Id",
+                    fv."FileObjectId",
+                    fv."VersionNumber",
+                    fv."OriginalFileName",
+                    fv."StorageKey",
+                    fv."ContentType",
+                    fv."SizeBytes",
+                    fv."HashSha256",
+                    fv."CreatedByUserId",
+                    COALESCE(NULLIF(u."DisplayName", ''), 'Unknown user') AS "CreatedByDisplayName",
+                    fv."CreatedAt"
+                FROM file_versions AS fv
+                LEFT JOIN users AS u ON u."Id" = fv."CreatedByUserId"
+                WHERE fv."TenantId" = @tenantId
+                  AND fv."FileObjectId" = @fileObjectId
+                  AND (@versionId IS NULL OR fv."Id" = @versionId)
+                ORDER BY fv."VersionNumber" DESC, fv."CreatedAt" DESC, fv."Id" DESC
+                LIMIT @limit;
+                """;
+            AddParameter(command, "@tenantId", tenantId);
+            AddParameter(command, "@fileObjectId", fileObjectId);
+            AddParameter(command, "@versionId", versionId.HasValue ? versionId.Value : DBNull.Value);
+            AddParameter(command, "@limit", limit);
+
+            var versions = new List<FileVersionRecord>();
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                versions.Add(new FileVersionRecord(
+                    reader.GetGuid(0),
+                    reader.GetGuid(1),
+                    reader.GetInt32(2),
+                    reader.GetString(3),
+                    reader.GetString(4),
+                    reader.GetString(5),
+                    reader.GetInt64(6),
+                    reader.IsDBNull(7) ? null : reader.GetString(7),
+                    reader.GetGuid(8),
+                    reader.GetString(9),
+                    reader.GetFieldValue<DateTimeOffset>(10)));
+            }
+            return versions;
+        }
+        finally
+        {
+            if (shouldClose)
+            {
+                await connection.CloseAsync();
+            }
+        }
+    }
+
+    private static void AddParameter(DbCommand command, string name, object value)
+    {
+        var parameter = command.CreateParameter();
+        parameter.ParameterName = name;
+        parameter.Value = value;
+        command.Parameters.Add(parameter);
     }
 
     public async Task<IReadOnlyList<Attachment>> ListTaskAttachmentsAsync(Guid taskItemId, CancellationToken cancellationToken = default) =>

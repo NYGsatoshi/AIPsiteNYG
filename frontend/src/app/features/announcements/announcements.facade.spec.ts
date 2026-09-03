@@ -409,6 +409,195 @@ describe('AnnouncementsFacade', () => {
     expect(facade.page().announcements[0].audienceScope).toBe('group');
   });
 
+  it('queues an immediate reviewed delivery through the durable draft endpoints without inventing a published announcement', async () => {
+    const workspaceId = '11111111-1111-1111-1111-111111111111';
+    const audienceDto = {
+      key: `workspace:${workspaceId}`,
+      scopeType: 'workspace',
+      workspaceId,
+      groupId: null,
+      channelId: null,
+      displayName: 'School',
+      estimatedRecipientCount: 1248,
+    };
+
+    httpMock.expectOne('/api/announcements').flush({ items: [] });
+    httpMock.expectOne('/api/announcements/audiences').flush([audienceDto]);
+    expect(facade.beginCreate()).toBe(true);
+    const audience = facade.page().editorDraft!.availableAudiences[0]!;
+
+    facade.createAnnouncement({
+      title: 'Immediate durable delivery',
+      body: 'The worker, not the browser, must create the announcement.',
+      priority: 'important',
+      audience,
+      requiresReadConfirmation: true,
+      deliveryMode: 'now',
+      createIdempotencyKey: 'announcement-draft-create-test-0001',
+      transitionIdempotencyKey: 'announcement-draft-transition-test-0001',
+    });
+
+    const create = httpMock.expectOne('/api/announcement-drafts');
+    expect(create.request.method).toBe('POST');
+    expect(create.request.headers.get('Idempotency-Key')).toBe('announcement-draft-create-test-0001');
+    expect(create.request.body).toEqual({
+      content: {
+        target: { workspaceId, groupId: null, channelId: null },
+        title: 'Immediate durable delivery',
+        body: 'The worker, not the browser, must create the announcement.',
+        priority: 1,
+        isPinned: false,
+        requiresReadConfirmation: true,
+        expiresAt: null,
+      },
+    });
+    create.flush({
+      id: '11111111-1111-1111-1111-111111111119',
+      version: 1,
+      status: 'Draft',
+      workspaceId,
+      groupId: null,
+      channelId: null,
+      title: 'Immediate durable delivery',
+      body: 'The worker, not the browser, must create the announcement.',
+      priority: 'Important',
+      isPinned: false,
+      requiresReadConfirmation: true,
+    });
+
+    await nextAsyncCommandTurn();
+    const transition = httpMock.expectOne('/api/announcement-drafts/11111111-1111-1111-1111-111111111119/publish');
+    expect(transition.request.method).toBe('POST');
+    expect(transition.request.headers.get('Idempotency-Key')).toBe('announcement-draft-transition-test-0001');
+    expect(transition.request.body).toEqual({ expectedVersion: 1 });
+    transition.flush({
+      id: '11111111-1111-1111-1111-111111111119',
+      version: 2,
+      status: 'Scheduled',
+      workspaceId,
+      groupId: null,
+      channelId: null,
+      title: 'Immediate durable delivery',
+      body: 'The worker, not the browser, must create the announcement.',
+      priority: 'Important',
+      isPinned: false,
+      requiresReadConfirmation: true,
+      scheduledForUtc: '2026-08-30T00:00:00Z',
+      scheduleTimeZoneId: 'UTC',
+      scheduleLocalDateTime: '2026-08-30T00:00:00',
+    });
+
+    await nextAsyncCommandTurn();
+    expect(facade.page().announcements).toEqual([]);
+    expect(facade.page().editorDraft).toMatchObject({
+      id: '11111111-1111-1111-1111-111111111119',
+      version: 2,
+      publicationState: 'scheduled',
+      scheduledAtLabel: 'Aug 30, 2026 · 00:00 UTC',
+    });
+    expect(facade.page().message).toContain('Publication queued');
+    expect(facade.page().isPublishing).toBe(false);
+    httpMock.expectNone('/api/announcements');
+  });
+
+  it('replays a lost immediate-delivery transition without creating or editing another draft', async () => {
+    const workspaceId = '11111111-1111-1111-1111-111111111111';
+    const draftId = '11111111-1111-1111-1111-111111111120';
+    const audienceDto = {
+      key: `workspace:${workspaceId}`,
+      scopeType: 'workspace',
+      workspaceId,
+      groupId: null,
+      channelId: null,
+      displayName: 'School',
+      estimatedRecipientCount: 1248,
+    };
+
+    httpMock.expectOne('/api/announcements').flush({ items: [] });
+    httpMock.expectOne('/api/announcements/audiences').flush([audienceDto]);
+    expect(facade.beginCreate()).toBe(true);
+    const audience = facade.page().editorDraft!.availableAudiences[0]!;
+    const submission = {
+      title: 'Retryable durable delivery',
+      body: 'The same transition key must survive a lost response.',
+      priority: 'normal' as const,
+      audience,
+      requiresReadConfirmation: false,
+      deliveryMode: 'now' as const,
+      createIdempotencyKey: 'announcement-draft-create-test-0002',
+      transitionIdempotencyKey: 'announcement-draft-transition-test-0002',
+    };
+
+    facade.createAnnouncement(submission);
+    httpMock.expectOne('/api/announcement-drafts').flush({
+      id: draftId,
+      version: 1,
+      status: 'Draft',
+      workspaceId,
+      groupId: null,
+      channelId: null,
+      title: submission.title,
+      body: submission.body,
+      priority: 'Normal',
+      isPinned: false,
+      requiresReadConfirmation: false,
+    });
+
+    await nextAsyncCommandTurn();
+    const firstTransition = httpMock.expectOne(`/api/announcement-drafts/${draftId}/publish`);
+    expect(firstTransition.request.headers.get('Idempotency-Key')).toBe(submission.transitionIdempotencyKey);
+    firstTransition.flush(
+      { error: 'The server could not confirm the transition.' },
+      { status: 503, statusText: 'Service Unavailable' },
+    );
+
+    await nextAsyncCommandTurn();
+    expect(facade.page().editorDraft).toMatchObject({
+      id: draftId,
+      version: 1,
+      transitionIdempotencyKey: submission.transitionIdempotencyKey,
+      publicationState: 'draft',
+    });
+
+    const retryDraft = facade.page().editorDraft!;
+    facade.createAnnouncement({
+      ...submission,
+      draftId: retryDraft.id,
+      draftVersion: retryDraft.version,
+      createIdempotencyKey: retryDraft.createIdempotencyKey,
+      transitionIdempotencyKey: retryDraft.transitionIdempotencyKey,
+    });
+
+    const replay = httpMock.expectOne(`/api/announcement-drafts/${draftId}/publish`);
+    expect(replay.request.headers.get('Idempotency-Key')).toBe(submission.transitionIdempotencyKey);
+    httpMock.expectNone(`/api/announcement-drafts/${draftId}`);
+    httpMock.expectNone('/api/announcement-drafts');
+    replay.flush({
+      id: draftId,
+      version: 2,
+      status: 'Scheduled',
+      workspaceId,
+      groupId: null,
+      channelId: null,
+      title: submission.title,
+      body: submission.body,
+      priority: 'Normal',
+      isPinned: false,
+      requiresReadConfirmation: false,
+      scheduledForUtc: '2026-08-30T00:00:00Z',
+      scheduleTimeZoneId: 'UTC',
+      scheduleLocalDateTime: '2026-08-30T00:00:00',
+    });
+
+    await nextAsyncCommandTurn();
+    expect(facade.page().editorDraft).toMatchObject({
+      id: draftId,
+      version: 2,
+      publicationState: 'scheduled',
+    });
+    expect(facade.page().message).toContain('Publication queued');
+  });
+
   it('keeps immediate publication single-flight while the authoritative response is pending', () => {
     const workspaceId = '11111111-1111-1111-1111-111111111111';
     const audienceDto = {
@@ -769,3 +958,6 @@ describe('AnnouncementsFacade', () => {
     expect(facade.page().message).toContain('新規公開を無効化');
   });
 });
+
+const nextAsyncCommandTurn = (): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve));

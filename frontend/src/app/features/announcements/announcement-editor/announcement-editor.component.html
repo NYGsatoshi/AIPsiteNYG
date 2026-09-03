@@ -2,7 +2,7 @@
   class="announcement-editor"
   [formGroup]="form"
   novalidate
-  (ngSubmit)="publish()"
+  (ngSubmit)="submitCurrentStep()"
   data-testid="announcement-editor"
 >
   <header>
@@ -35,6 +35,33 @@
     </div>
   </header>
 
+  <nav
+    class="announcement-editor__progress"
+    aria-label="Announcement creation progress"
+    data-testid="announcement-editor-progress"
+  >
+    <p aria-live="polite" data-testid="announcement-editor-current-step">
+      Step {{ stepNumber(currentStep()) }} of {{ editorSteps.length }}: {{ currentStepLabel() }}
+    </p>
+    <ol>
+      @for (step of editorSteps; track step.id) {
+        <li>
+          <button
+            type="button"
+            [disabled]="!canNavigateToStep(step.id)"
+            [attr.aria-current]="currentStep() === step.id ? 'step' : null"
+            [attr.aria-label]="'Step ' + stepNumber(step.id) + ' of ' + editorSteps.length + ': ' + step.label"
+            (click)="goToStep(step.id)"
+            [attr.data-testid]="'announcement-editor-step-' + step.id"
+          >
+            <span aria-hidden="true">{{ stepNumber(step.id) }}</span>
+            <span>{{ step.label }}</span>
+          </button>
+        </li>
+      }
+    </ol>
+  </nav>
+
   @if (previewOpen()) {
     @if (preview(); as localPreview) {
       <app-announcement-local-preview [preview]="localPreview" />
@@ -53,7 +80,22 @@
         @for (error of summaryErrors; track error.field) {
           <li>
             <a
-              [href]="'#announcement-' + (error.field === 'audienceKey' ? 'audience' : error.field)"
+              [href]="
+                '#announcement-' +
+                (error.field === 'audienceKey'
+                  ? 'audience'
+                  : error.field === 'scheduledLocalDateTime'
+                    ? 'schedule-local-time'
+                    : error.field === 'ctaLabel'
+                      ? 'cta-label'
+                      : error.field === 'ctaUrl'
+                        ? 'cta-url'
+                        : error.field === 'attachmentLabel'
+                          ? 'attachment-label'
+                          : error.field === 'attachmentUrl'
+                            ? 'attachment-url'
+                            : error.field)
+              "
               (click)="focusField(error.field, $event)"
             >
               {{ error.message }}
@@ -78,6 +120,13 @@
     </section>
   }
 
+  <section
+    class="announcement-editor__step"
+    [hidden]="currentStep() !== 'content'"
+    aria-labelledby="announcement-editor-content-step-heading"
+    data-testid="announcement-editor-content-step"
+  >
+  <h3 id="announcement-editor-content-step-heading">Content</h3>
   <label for="announcement-title">
     <span>タイトル <span aria-hidden="true">*</span></span>
     <input
@@ -119,7 +168,7 @@
       data-testid="announcement-editor-body"
     ></textarea>
     <small id="announcement-body-help"
-      >必須・20,000文字以内。本文はプレーンテキストとして表示されます。</small
+      >必須・20,000文字以内。本文はプレーンテキストとして表示されます。CTAまたはリンク添付を設定した場合は、そのメタデータもサーバーの保存上限に含まれます。</small
     >
     @if (fieldError('body'); as error) {
       <small
@@ -133,8 +182,155 @@
     }
   </label>
 
-  <div class="announcement-editor__row">
-    <label for="announcement-priority">
+  <fieldset
+    class="announcement-editor__content-links"
+    aria-describedby="announcement-content-links-help"
+    data-testid="announcement-content-links"
+  >
+    <legend>CTA・リンク添付</legend>
+    <p id="announcement-content-links-help">
+      任意項目です。表示名とURLを両方入力してください。URLは <code>/</code> から始まるアプリ内パス、またはHTTPS URLに限定されます。Previewでは移動を発生させません。
+    </p>
+
+    <div class="announcement-editor__row">
+      <label for="announcement-cta-label">
+        <span>CTA表示名</span>
+        <input
+          #ctaLabelInput
+          id="announcement-cta-label"
+          type="text"
+          autocomplete="off"
+          maxlength="120"
+          [value]="ctaLabel()"
+          [disabled]="!canSaveDraft || publishing"
+          [attr.aria-invalid]="linkFieldError('ctaLabel') ? 'true' : null"
+          [attr.aria-describedby]="linkFieldDescribedBy('ctaLabel', 'announcement-cta-label-help')"
+          (input)="updateContentLink('ctaLabel', $event)"
+          (blur)="touchContentLink('ctaLabel')"
+          data-testid="announcement-editor-cta-label"
+        />
+        <small id="announcement-cta-label-help">例: 申請フォームを開く</small>
+        @if (linkFieldError('ctaLabel'); as error) {
+          <small
+            id="announcement-cta-label-error"
+            class="announcement-editor__field-error"
+            role="alert"
+            data-testid="announcement-cta-label-error"
+          >
+            {{ error }}
+          </small>
+        }
+      </label>
+
+      <label for="announcement-cta-url">
+        <span>CTA URL</span>
+        <input
+          #ctaUrlInput
+          id="announcement-cta-url"
+          type="text"
+          inputmode="url"
+          autocomplete="off"
+          maxlength="2048"
+          placeholder="/forms/example または https://example.jp/..."
+          [value]="ctaUrl()"
+          [disabled]="!canSaveDraft || publishing"
+          [attr.aria-invalid]="linkFieldError('ctaUrl') ? 'true' : null"
+          [attr.aria-describedby]="linkFieldDescribedBy('ctaUrl', 'announcement-cta-url-help')"
+          (input)="updateContentLink('ctaUrl', $event)"
+          (blur)="touchContentLink('ctaUrl')"
+          data-testid="announcement-editor-cta-url"
+        />
+        <small id="announcement-cta-url-help">認証情報を含むURL、HTTP、javascript:、プロトコル相対URLは使用できません。</small>
+        @if (linkFieldError('ctaUrl'); as error) {
+          <small
+            id="announcement-cta-url-error"
+            class="announcement-editor__field-error"
+            role="alert"
+            data-testid="announcement-cta-url-error"
+          >
+            {{ error }}
+          </small>
+        }
+      </label>
+    </div>
+
+    <div class="announcement-editor__row">
+      <label for="announcement-attachment-label">
+        <span>リンク添付の表示名</span>
+        <input
+          #attachmentLabelInput
+          id="announcement-attachment-label"
+          type="text"
+          autocomplete="off"
+          maxlength="120"
+          [value]="attachmentLabel()"
+          [disabled]="!canSaveDraft || publishing"
+          [attr.aria-invalid]="linkFieldError('attachmentLabel') ? 'true' : null"
+          [attr.aria-describedby]="linkFieldDescribedBy('attachmentLabel', 'announcement-attachment-label-help')"
+          (input)="updateContentLink('attachmentLabel', $event)"
+          (blur)="touchContentLink('attachmentLabel')"
+          data-testid="announcement-editor-attachment-label"
+        />
+        <small id="announcement-attachment-label-help">例: 行事要項 PDF</small>
+        @if (linkFieldError('attachmentLabel'); as error) {
+          <small
+            id="announcement-attachment-label-error"
+            class="announcement-editor__field-error"
+            role="alert"
+            data-testid="announcement-attachment-label-error"
+          >
+            {{ error }}
+          </small>
+        }
+      </label>
+
+      <label for="announcement-attachment-url">
+        <span>リンク添付 URL</span>
+        <input
+          #attachmentUrlInput
+          id="announcement-attachment-url"
+          type="text"
+          inputmode="url"
+          autocomplete="off"
+          maxlength="2048"
+          placeholder="/files/... または https://example.jp/file.pdf"
+          [value]="attachmentUrl()"
+          [disabled]="!canSaveDraft || publishing"
+          [attr.aria-invalid]="linkFieldError('attachmentUrl') ? 'true' : null"
+          [attr.aria-describedby]="linkFieldDescribedBy('attachmentUrl', 'announcement-attachment-url-help')"
+          (input)="updateContentLink('attachmentUrl', $event)"
+          (blur)="touchContentLink('attachmentUrl')"
+          data-testid="announcement-editor-attachment-url"
+        />
+        <small id="announcement-attachment-url-help">この欄は既存ファイルへのリンクです。Storage key、署名URL、ダウンロード権限は保存しません。</small>
+        @if (linkFieldError('attachmentUrl'); as error) {
+          <small
+            id="announcement-attachment-url-error"
+            class="announcement-editor__field-error"
+            role="alert"
+            data-testid="announcement-attachment-url-error"
+          >
+            {{ error }}
+          </small>
+        }
+      </label>
+    </div>
+  </fieldset>
+
+  </section>
+
+  <section
+    class="announcement-editor__step"
+    [hidden]="currentStep() !== 'audience' && currentStep() !== 'delivery'"
+    aria-label="Audience and delivery"
+  >
+    <h3 [hidden]="currentStep() !== 'audience'">Audience</h3>
+    <h3 [hidden]="currentStep() !== 'delivery'">Delivery</h3>
+  <div
+    class="announcement-editor__row"
+    [class.announcement-editor__row--single]="currentStep() === 'audience' || currentStep() === 'delivery'"
+  >
+    <label for="announcement-priority" [hidden]="currentStep() !== 'delivery'">
       <span>優先度 <span aria-hidden="true">*</span></span>
       <select
         #priorityInput
@@ -165,7 +361,7 @@
       }
     </label>
 
-    <label for="announcement-audience">
+    <label for="announcement-audience" [hidden]="currentStep() !== 'audience'">
       <span>対象 <span aria-hidden="true">*</span></span>
       <select
         #audienceInput
@@ -196,6 +392,7 @@
     </label>
   </div>
 
+  <div [hidden]="currentStep() !== 'audience'">
   @if (availableAudiences().length === 0) {
     <p
       class="announcement-editor__audience-note"
@@ -226,8 +423,13 @@
       <p class="announcement-editor__audience-note">公開時にサーバーで権限と対象を再確認します。</p>
     </section>
   }
+  </div>
 
-  <label class="announcement-editor__check" for="announcement-read-confirmation">
+  <label
+    class="announcement-editor__check"
+    for="announcement-read-confirmation"
+    [hidden]="currentStep() !== 'delivery'"
+  >
     <input
       id="announcement-read-confirmation"
       type="checkbox"
@@ -237,10 +439,98 @@
     <span>既読確認</span>
   </label>
 
-  <section class="announcement-editor__review" data-testid="announcement-review-summary">
-    <h3>公開前の確認</h3>
+  <fieldset
+    class="announcement-editor__delivery announcement-editor__review"
+    aria-describedby="announcement-delivery-help"
+    [hidden]="currentStep() !== 'delivery'"
+  >
+    <legend>Delivery</legend>
+    <label class="announcement-editor__check announcement-editor__radio" for="announcement-delivery-now">
+      <input
+        id="announcement-delivery-now"
+        type="radio"
+        value="now"
+        formControlName="deliveryMode"
+        data-testid="announcement-editor-delivery-now"
+      />
+      <span>Publish immediately after confirmation</span>
+    </label>
+    <label class="announcement-editor__check announcement-editor__radio" for="announcement-delivery-scheduled">
+      <input
+        id="announcement-delivery-scheduled"
+        type="radio"
+        value="scheduled"
+        formControlName="deliveryMode"
+        data-testid="announcement-editor-delivery-scheduled"
+      />
+      <span>Schedule publication</span>
+    </label>
+    <small id="announcement-delivery-help">
+      The server resolves the selected local time and IANA time zone to one immutable UTC due time.
+    </small>
+
+    @if (form.controls.deliveryMode.value === 'scheduled') {
+      <div class="announcement-editor__row announcement-editor__schedule">
+        <label for="announcement-schedule-local-time">
+          <span>Local date and time <span aria-hidden="true">*</span></span>
+          <input
+            #scheduleInput
+            id="announcement-schedule-local-time"
+            type="datetime-local"
+            formControlName="scheduledLocalDateTime"
+            required
+            [attr.aria-invalid]="fieldError('scheduledLocalDateTime') ? 'true' : null"
+            [attr.aria-describedby]="fieldDescribedBy('scheduledLocalDateTime', 'announcement-schedule-local-time-help')"
+            data-testid="announcement-editor-schedule-local-time"
+          />
+          <small id="announcement-schedule-local-time-help">Use the local wall-clock time intended for this audience.</small>
+          @if (fieldError('scheduledLocalDateTime'); as error) {
+            <small
+              id="announcement-schedule-local-time-error"
+              class="announcement-editor__field-error"
+              role="alert"
+              data-testid="announcement-schedule-local-time-error"
+            >
+              {{ error }}
+            </small>
+          }
+        </label>
+        <label for="announcement-schedule-time-zone">
+          <span>Organizational time zone</span>
+          <input
+            id="announcement-schedule-time-zone"
+            type="text"
+            formControlName="timeZoneId"
+            autocomplete="off"
+            required
+            readonly
+            data-testid="announcement-editor-schedule-time-zone"
+          />
+          <small>Workspace default, then Tenant default, then UTC. Select a different audience to change this value. The server rejects DST gaps and overlaps rather than silently converting them.</small>
+        </label>
+      </div>
+    }
+  </fieldset>
+
+  </section>
+
+  <section
+    class="announcement-editor__review announcement-editor__step"
+    [hidden]="currentStep() !== 'review'"
+    aria-labelledby="announcement-editor-review-step-heading"
+    data-testid="announcement-review-summary"
+  >
+    <h3 #reviewStepHeading id="announcement-editor-review-step-heading" tabindex="-1">Review before publication</h3>
     @if (selectedAudience(); as audience) {
       <dl>
+        <div>
+          <dt>Title</dt>
+          <dd>{{ form.controls.title.value.trim() }}</dd>
+        </div>
+        <div>
+          <dt>Message</dt>
+          <dd class="announcement-editor__confirmation-body">{{ form.controls.body.value.trim() }}</dd>
+        </div>
         <div>
           <dt>対象</dt>
           <dd>{{ audience.displayName }}</dd>
@@ -260,30 +550,97 @@
           <dd>{{ priorityLabels[form.controls.priority.value] }}</dd>
         </div>
         <div>
+          <dt>CTA</dt>
+          <dd>{{ ctaLabel().trim() || 'なし' }}</dd>
+        </div>
+        <div>
+          <dt>リンク添付</dt>
+          <dd>{{ attachmentLabel().trim() || 'なし' }}</dd>
+        </div>
+        <div>
           <dt>Delivery</dt>
           <dd>{{ publicationTimingLabel() }}</dd>
         </div>
       </dl>
+      <div class="announcement-editor__review-edits" role="group" aria-label="Edit review sections">
+        <button
+          type="button"
+          (click)="goToStep('content')"
+          data-testid="announcement-review-edit-content"
+        >
+          Edit Content
+        </button>
+        <button
+          type="button"
+          (click)="goToStep('audience')"
+          data-testid="announcement-review-edit-audience"
+        >
+          Edit Audience
+        </button>
+        <button
+          type="button"
+          (click)="goToStep('delivery')"
+          data-testid="announcement-review-edit-delivery"
+        >
+          Edit Delivery
+        </button>
+        <button
+          type="button"
+          (click)="openPreview()"
+          data-testid="announcement-review-preview"
+        >
+          Open live preview
+        </button>
+      </div>
     }
   </section>
 
-  <div class="announcement-editor__actions">
+  <div class="announcement-editor__actions announcement-editor__step-actions">
+    @if (currentStep() !== 'content') {
+      <button
+        type="button"
+        (click)="previousStep()"
+        [disabled]="publishing"
+        data-testid="announcement-previous-step"
+      >
+        Back
+      </button>
+    }
+    <button
+      type="button"
+      data-testid="announcement-save-draft-action"
+      [disabled]="!canSaveDraft || selectedAudience() === null || publishing"
+      (click)="saveDraft()"
+    >
+      Save draft
+    </button>
+    @if (currentStep() !== 'review') {
+      <button
+        type="submit"
+        class="announcement-editor__primary"
+        [disabled]="publishing"
+        data-testid="announcement-next-step"
+      >
+        Next: {{ editorSteps[stepNumber(currentStep())]?.label ?? 'Review' }}
+      </button>
+    } @else {
     <button
       type="submit"
       class="announcement-editor__primary"
       data-testid="announcement-publish-action"
       [disabled]="!canPublish || selectedAudience() === null || publishing"
     >
-      Review publication
+      Review {{ form.controls.deliveryMode.value === 'scheduled' ? 'schedule' : 'publication' }}
     </button>
+    }
   </div>
   }
 </form>
 
 <app-aip-dialog
   [open]="publicationReviewOpen()"
-  title="Confirm publication"
-  description="Review the authorized audience and delivery before publishing."
+  title="Confirm publication — Confirm delivery"
+  description="Review the authorized audience, recipient estimate, priority, actions, attachment, and delivery timing before the server accepts this request."
   [confirmLabel]="confirmationLabel()"
   cancelLabel="Back to editing"
   [busy]="publicationConfirming() || publishing"
@@ -327,13 +684,33 @@
           <dd data-testid="announcement-confirmation-priority">{{ priorityLabels[review.priority] }}</dd>
         </div>
         <div>
+          <dt>CTA</dt>
+          <dd data-testid="announcement-confirmation-cta">
+            @if (review.cta; as cta) {
+              {{ cta.label }} — {{ cta.url }}
+            } @else {
+              None
+            }
+          </dd>
+        </div>
+        <div>
+          <dt>Linked attachment</dt>
+          <dd data-testid="announcement-confirmation-attachment">
+            @if (review.attachment; as attachment) {
+              {{ attachment.label }} — {{ attachment.url }}
+            } @else {
+              None
+            }
+          </dd>
+        </div>
+        <div>
           <dt>Delivery</dt>
           <dd data-testid="announcement-confirmation-delivery">{{ publicationTimingLabel() }}</dd>
         </div>
       </dl>
       <p class="announcement-editor__audience-note">
-        The server rechecks this selected audience when publication is confirmed. This form publishes now;
-        scheduled delivery and saved drafts are not available here.
+        The server rechecks the selected audience when this delivery is accepted. A scheduled request stores
+        the local time, IANA time zone, and resolved UTC due instant; it is reauthorized again at due time.
       </p>
     </section>
   }

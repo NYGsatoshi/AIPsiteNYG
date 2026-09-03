@@ -36,6 +36,57 @@ public sealed class AnnouncementRead : Entity, ITenantEntity
     public User? User { get; set; }
 }
 
+/// <summary>
+/// A server-owned editable Announcement buffer. Browser form state is never
+/// publication authority: every transition reauthorizes this stored scope.
+/// The selected scope remains one exact canonical target; #378 deliberately
+/// does not introduce a campaign or multi-audience model.
+/// </summary>
+public sealed class AnnouncementDraft : AuditableEntity, ITenantEntity
+{
+    public Guid TenantId { get; set; }
+    public Guid AuthorUserId { get; set; }
+    public Guid? WorkspaceId { get; set; }
+    public Guid? GroupId { get; set; }
+    public Guid? ChannelId { get; set; }
+    public string Title { get; set; } = string.Empty;
+    public string Body { get; set; } = string.Empty;
+    public AnnouncementPriority Priority { get; set; } = AnnouncementPriority.Normal;
+    public bool IsPinned { get; set; }
+    public bool RequiresReadConfirmation { get; set; }
+    public DateTimeOffset? ExpiresAt { get; set; }
+    public AnnouncementDraftStatus Status { get; set; } = AnnouncementDraftStatus.Draft;
+    public long VersionNo { get; set; } = 1;
+
+    /// <summary>
+    /// The original local value and IANA zone are retained only so the author
+    /// can accurately review the accepted schedule. The worker uses the UTC
+    /// instant below and never reinterprets a wall-clock value.
+    /// </summary>
+    public DateTimeOffset? ScheduledForUtc { get; set; }
+    public string? ScheduleTimeZoneId { get; set; }
+    public DateTime? ScheduleLocalDateTime { get; set; }
+    public int? ScheduleUtcOffsetMinutes { get; set; }
+
+    public Guid? PublishedAnnouncementId { get; set; }
+    public DateTimeOffset? PublishedAtUtc { get; set; }
+
+    // Short-lived worker lease. It is server operational state, never an API
+    // authority or browser-visible credential.
+    public string? PublicationClaimOwner { get; set; }
+    public Guid? PublicationClaimToken { get; set; }
+    public DateTimeOffset? PublicationClaimExpiresAtUtc { get; set; }
+    public DateTimeOffset? NextPublicationAttemptAtUtc { get; set; }
+    public int PublicationAttemptCount { get; set; }
+    public string? LastPublicationFailureCode { get; set; }
+
+    public User? AuthorUser { get; set; }
+    public Workspace? Workspace { get; set; }
+    public Group? Group { get; set; }
+    public Channel? Channel { get; set; }
+    public Announcement? PublishedAnnouncement { get; set; }
+}
+
 public sealed class Notification : Entity, ITenantEntity
 {
     public Guid TenantId { get; set; }

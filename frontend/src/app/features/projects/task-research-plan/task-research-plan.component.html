@@ -1,0 +1,123 @@
+<section class="task-research-plan" aria-labelledby="task-research-plan-heading" data-testid="task-research-plan">
+  <header class="task-research-plan__header">
+    <div>
+      <p class="task-research-plan__eyebrow">Task planning</p>
+      <h2 id="task-research-plan-heading">Research Plan</h2>
+      <p class="task-research-plan__intro">Ordered saved steps define the plan reviewed at execution start. Editing creates a new immutable revision.</p>
+    </div>
+  </header>
+
+  @if (loading()) {
+    <p role="status">Loading Research Plan...</p>
+  } @else if (error(); as message) {
+    <p class="task-research-plan__error" role="alert">{{ message }} <button type="button" (click)="retry()">Retry</button></p>
+  } @else if (plan(); as current) {
+    <section class="task-research-plan__review" aria-labelledby="task-research-plan-review-heading">
+      <h3 id="task-research-plan-review-heading">Start and review summary</h3>
+      @if (current.currentRevision; as revision) {
+        <p data-testid="task-research-plan-revision">Current saved revision {{ revision.number }} &middot; {{ revision.steps.length }} {{ revision.steps.length === 1 ? 'step' : 'steps' }}</p>
+        <p>This is the current persisted plan used for execution-start review. When a run is accepted, the server records this exact immutable revision rather than a browser-provided plan.</p>
+      } @else {
+        <p>No Research Plan has been saved yet. Add steps to create the first revision.</p>
+      }
+    </section>
+
+    <ol class="task-research-plan__steps" aria-label="Research Plan steps">
+      @for (step of draft(); track step.baseStepId ?? $index; let index = $index) {
+        <li class="task-research-plan__step">
+          <div class="task-research-plan__step-heading">
+            <h3>Step {{ index + 1 }}</h3>
+            @if (canManage()) {
+              <div class="task-research-plan__step-actions" aria-label="Reorder and remove Step {{ index + 1 }}">
+                <button type="button" [disabled]="previewing() || saving() || index === 0" (click)="moveStep(index, -1)" [attr.aria-label]="'Move Step ' + (index + 1) + ' up'">Move up</button>
+                <button type="button" [disabled]="previewing() || saving() || index === draft().length - 1" (click)="moveStep(index, 1)" [attr.aria-label]="'Move Step ' + (index + 1) + ' down'">Move down</button>
+                <button type="button" [disabled]="previewing() || saving()" (click)="removeStep(index)" [attr.aria-label]="'Remove Step ' + (index + 1)">Remove</button>
+              </div>
+            }
+          </div>
+          @if (canManage()) {
+            <label>Title <input type="text" maxlength="240" [value]="step.title" (input)="updateText(index, 'title', $any($event.target).value)" [disabled]="previewing() || saving()" /></label>
+            <label>Objective <textarea maxlength="4000" [value]="step.objective" (input)="updateText(index, 'objective', $any($event.target).value)" [disabled]="previewing() || saving()"></textarea></label>
+            <label>Scope summary <textarea maxlength="4000" [value]="step.scopeSummary" (input)="updateText(index, 'scopeSummary', $any($event.target).value)" [disabled]="previewing() || saving()"></textarea></label>
+            <label>Status <select [value]="step.status" (change)="updateStatus(index, $any($event.target).value)" [disabled]="previewing() || saving()">@for (status of statuses; track status) { <option [value]="status">{{ status }}</option> }</select></label>
+          } @else {
+            <dl><div><dt>Title</dt><dd>{{ step.title }}</dd></div><div><dt>Objective</dt><dd>{{ step.objective || 'Not specified' }}</dd></div><div><dt>Scope summary</dt><dd>{{ step.scopeSummary || 'Not specified' }}</dd></div><div><dt>Status</dt><dd>{{ step.status }}</dd></div></dl>
+          }
+        </li>
+      }
+    </ol>
+
+    @if (!draft().length) { <p class="task-research-plan__empty">No plan steps yet.</p> }
+
+    @if (preview(); as reviewed) {
+      <section class="task-research-plan__diff" aria-labelledby="task-research-plan-diff-heading" data-testid="task-research-plan-diff">
+        <div class="task-research-plan__diff-heading">
+          <div>
+            <p class="task-research-plan__eyebrow">Before save</p>
+            <h3 id="task-research-plan-diff-heading">Review changes and impacts</h3>
+          </div>
+          <p>Compared with {{ reviewed.baseRevisionNumber === null ? 'no saved revision' : 'revision ' + reviewed.baseRevisionNumber }}.</p>
+        </div>
+
+        @if (reviewed.changes.length) {
+          <ol class="task-research-plan__changes" aria-label="Research Plan changes">
+            @for (change of reviewed.changes; track $index) {
+              <li class="task-research-plan__change" [attr.data-change-kinds]="change.kinds.join(',')">
+                <div class="task-research-plan__change-heading">
+                  <strong>{{ change.kinds.join(' + ') }}</strong>
+                  @if (change.beforePosition !== null || change.afterPosition !== null) {
+                    <span>
+                      @if (change.beforePosition !== null) { Before {{ change.beforePosition }} }
+                      @if (change.beforePosition !== null && change.afterPosition !== null) { &rarr; }
+                      @if (change.afterPosition !== null) { After {{ change.afterPosition }} }
+                    </span>
+                  }
+                </div>
+                @if (change.changedFields.length) { <p>Changed fields: {{ change.changedFields.join(', ') }}</p> }
+                <div class="task-research-plan__before-after">
+                  @if (change.before; as before) {
+                    <div><span>Before</span><strong>{{ before.title }}</strong><small>{{ before.objective || 'No objective' }}</small><small>Scope: {{ before.scopeSummary || 'Not specified' }}</small><small>Status: {{ before.status }}</small></div>
+                  }
+                  @if (change.after; as after) {
+                    <div><span>After</span><strong>{{ after.title }}</strong><small>{{ after.objective || 'No objective' }}</small><small>Scope: {{ after.scopeSummary || 'Not specified' }}</small><small>Status: {{ after.status }}</small></div>
+                  }
+                </div>
+              </li>
+            }
+          </ol>
+        } @else {
+          <p>The normalized draft is identical to the current saved plan. No new revision needs to be saved.</p>
+        }
+
+        <section class="task-research-plan__impact" aria-labelledby="task-research-plan-impact-heading">
+          <h4 id="task-research-plan-impact-heading">Impact summary</h4>
+          <p>{{ reviewed.impact.beforeStepCount }} &rarr; {{ reviewed.impact.afterStepCount }} steps.</p>
+          @if (reviewed.impact.items.length) {
+            <ul>
+              @for (impact of reviewed.impact.items; track $index) { <li [attr.data-impact-kind]="impact.kind">{{ impact.message }}</li> }
+            </ul>
+          } @else {
+            <p>No material execution-plan impact was detected.</p>
+          }
+          @if (reviewed.impact.sourceScopeGuidanceChanged) {
+            <p class="task-research-plan__impact-note">Scope-summary text changed. This review does not widen source authorization; effective source access remains controlled by the Task execution source policy.</p>
+          }
+          @if (reviewed.impact.deliverableAlignmentReviewRequired) {
+            <p class="task-research-plan__impact-note">Plan coverage changed. Confirm that the Task deliverable still matches the intended result before saving.</p>
+          }
+        </section>
+      </section>
+    }
+
+    @if (canManage()) {
+      <div class="task-research-plan__actions">
+        <button type="button" (click)="addStep()" [disabled]="previewing() || saving() || draft().length >= 100">Add step</button>
+        <button type="button" (click)="discard()" [disabled]="previewing() || saving() || !dirty()">Discard changes</button>
+        <button type="button" (click)="reviewChanges()" [disabled]="previewing() || saving() || !dirty()">{{ previewing() ? 'Reviewing changes...' : 'Review changes' }}</button>
+        <button type="button" class="task-research-plan__save" (click)="save()" [disabled]="!canSaveReviewed()">{{ saving() ? 'Saving plan...' : 'Save reviewed Plan' }}</button>
+      </div>
+    }
+  }
+
+  @if (feedback(); as message) { <p class="task-research-plan__feedback" role="status">{{ message }}</p> }
+</section>

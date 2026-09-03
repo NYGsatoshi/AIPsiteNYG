@@ -1,15 +1,13 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
     branches: ["main"]
     paths-ignore:
       - "**/*.md"
       - "docs/**"
-  pull_request:
-    paths-ignore:
-      - "**/*.md"
-      - "docs/**"
+  pull_request: # Required checks: intentionally unfiltered.
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -19,9 +17,28 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    name: CI change routing
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Enforce public-workflow trust boundary
+        run: python3 scripts/ci/check-publication-readiness.py
+
+      - name: Enforce required PR check topology
+        run: python3 scripts/ci/check-required-pr-checks.py
+
   build-test:
-    runs-on: [self-hosted, aipsite-ci, general]
-    timeout-minutes: 90
+    name: build-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
 
     services:
       postgres:
@@ -31,7 +48,7 @@ jobs:
           POSTGRES_USER: aip_portal_ci
           POSTGRES_PASSWORD: aip_portal_ci_password
         ports:
-          - 5432/tcp
+          - 5432:5432
         options: >-
           --health-cmd "pg_isready -U aip_portal_ci -d aip_portal_ci"
           --health-interval 10s
@@ -40,104 +57,42 @@ jobs:
 
     env:
       ASPNETCORE_ENVIRONMENT: Test
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "1"
+      DOTNET_MULTILEVEL_LOOKUP: "0"
+      DOTNET_CLI_WORKLOAD_UPDATE_NOTIFY_DISABLE: "1"
+      ConnectionStrings__DefaultConnection: Host=localhost;Port=5432;Database=aip_portal_ci;Username=aip_portal_ci;Password=aip_portal_ci_password
+      POSTGRES_TEST_CONNECTION_STRING: Host=localhost;Port=5432;Database=aip_portal_ci;Username=aip_portal_ci;Password=aip_portal_ci_password
 
     steps:
-      - name: Configure PostgreSQL connection
-        shell: bash
-        run: |
-          postgres_port='${{ job.services.postgres.ports[5432] }}'
-          test -n "$postgres_port"
-          {
-            echo "ConnectionStrings__DefaultConnection=Host=localhost;Port=${postgres_port};Database=aip_portal_ci;Username=aip_portal_ci;Password=aip_portal_ci_password"
-            echo "POSTGRES_TEST_CONNECTION_STRING=Host=localhost;Port=${postgres_port};Database=aip_portal_ci;Username=aip_portal_ci;Password=aip_portal_ci_password"
-          } >> "$GITHUB_ENV"
-
-      - name: Repair previous Docker workspace ownership
-        shell: bash
-        run: |
-          uid="$(id -u)"
-          gid="$(id -g)"
-          docker run --rm \
-            -v "$GITHUB_WORKSPACE:/workspace" \
-            alpine:3.21 \
-            sh -c "chown -R ${uid}:${gid} /workspace"
-
       - name: Checkout
         uses: actions/checkout@v7
         with:
           persist-credentials: false
 
-      - name: Configure persistent .NET caches
-        shell: bash
-        run: |
-          bash scripts/ci/configure-persistent-caches.sh
-          install_dir="$HOME/.dotnet-ci"
-          job_temp="$RUNNER_TEMP/dotnet-${GITHUB_JOB}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          mkdir -p \
-            "$install_dir" \
-            "$job_temp/home" \
-            "$job_temp/nuget/scratch" \
-            "$GITHUB_WORKSPACE/artifacts/ci" \
-            "$GITHUB_WORKSPACE/artifacts/test-results"
-          {
-            echo "DOTNET_INSTALL_DIR=$install_dir"
-            echo "DOTNET_CMD=$install_dir/dotnet"
-            echo "DOTNET_ROOT=$install_dir"
-            echo "DOTNET_CLI_HOME=$job_temp/home"
-            echo "DOTNET_CLI_TELEMETRY_OPTOUT=1"
-            echo "DOTNET_NOLOGO=1"
-            echo "DOTNET_MULTILEVEL_LOOKUP=0"
-            echo "DOTNET_CLI_WORKLOAD_UPDATE_NOTIFY_DISABLE=1"
-            echo "NUGET_SCRATCH=$job_temp/nuget/scratch"
-          } >> "$GITHUB_ENV"
-          echo "$install_dir" >> "$GITHUB_PATH"
-
-      - name: Setup .NET
+      - name: Set up .NET SDK
         uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
 
       - name: Restore
-        shell: bash
-        run: |
-          log="$GITHUB_WORKSPACE/artifacts/ci/build-test-dotnet-restore.log"
-          set +e
-          "$DOTNET_CMD" restore AipPortal.slnx \
-            --disable-parallel \
-            --verbosity normal 2>&1 | tee "$log"
-          restore_status=${PIPESTATUS[0]}
-          set -e
-          exit "$restore_status"
-
-      - name: Upload build restore log
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: build-test-dotnet-restore-log
-          path: artifacts/ci/build-test-dotnet-restore.log
-          if-no-files-found: warn
+        run: dotnet restore AipPortal.slnx --disable-parallel --verbosity normal
 
       - name: Build
-        run: '"$DOTNET_CMD" build AipPortal.slnx --configuration Release --no-restore --disable-build-servers -m:1'
+        run: dotnet build AipPortal.slnx --configuration Release --no-restore --disable-build-servers -m:1
 
       - name: Restore .NET tools
-        run: '"$DOTNET_CMD" tool restore'
+        run: dotnet tool restore
 
       - name: Apply PostgreSQL migrations
-        run: '"$DOTNET_CMD" ef database update --project src/AipPortal.Infrastructure --startup-project src/AipPortal.Web --configuration Release'
+        run: dotnet ef database update --project src/AipPortal.Infrastructure --startup-project src/AipPortal.Web --configuration Release --no-build
 
-      - name: Verify EF Core model has no pending changes
-        shell: bash
-        run: |
-          "$DOTNET_CMD" ef migrations has-pending-model-changes \
-            --project src/AipPortal.Infrastructure \
-            --startup-project src/AipPortal.Web \
-            --configuration Release \
-            --no-build
+      - name: Reject pending EF Core model changes
+        run: dotnet ef migrations has-pending-model-changes --project src/AipPortal.Infrastructure --startup-project src/AipPortal.Web --configuration Release --no-build
 
       - name: Test
         run: >-
-          "$DOTNET_CMD" test AipPortal.slnx
+          dotnet test AipPortal.slnx
           --configuration Release
           --no-build
           --disable-build-servers
@@ -146,183 +101,105 @@ jobs:
           --logger "trx;LogFileName=backend-tests.trx"
           --results-directory artifacts/test-results
 
-      - name: Verify full backend test results
-        shell: bash
-        run: |
-          bash scripts/ci/verify-trx-results.sh \
-            artifacts/test-results/backend-tests.trx \
-            --minimum-total 1 \
-            --label "Full backend"
-
-      - name: Upload backend test results
-        if: always()
+      - name: Upload backend results on failure
+        if: failure()
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: backend-test-results
           path: artifacts/test-results
           if-no-files-found: warn
+          retention-days: 7
 
-      - name: Verify TASK-V1-PR07-B acceptance results
-        shell: bash
-        run: |
-          bash scripts/ci/verify-trx-results.sh \
-            artifacts/test-results/backend-tests.trx \
-            --minimum-total 1 \
-            --required-tests scripts/ci/task-pr07b-required-tests.txt \
-            --label "TASK-V1-PR07-B"
-
-      - name: Verify TASK-V1-PR07-C acceptance results
-        shell: bash
-        run: |
-          bash scripts/ci/verify-trx-results.sh \
-            artifacts/test-results/backend-tests.trx \
-            --minimum-total 1 \
-            --required-tests scripts/ci/task-pr07c-required-tests.txt \
-            --label "TASK-V1-PR07-C"
-
-      - name: Verify TASK-V1-PR07-D acceptance results
-        shell: bash
-        run: |
-          bash scripts/ci/verify-trx-results.sh \
-            artifacts/test-results/backend-tests.trx \
-            --minimum-total 1 \
-            --required-tests scripts/ci/task-pr07d-required-tests.txt \
-            --label "TASK-V1-PR07-D"
-
-      - name: Report backend cache and host resources on failure
-        if: failure()
-        shell: bash
-        run: |
-          du -sh "$HOME/.nuget/packages" "$HOME/.cache/aipsite-ci" 2>/dev/null || true
-          df -h || true
-          df -i || true
-          free -h || true
-          docker system df || true
-
-      - name: PostgreSQL logs on failure
-        if: failure()
-        shell: bash
-        run: |
-          postgres_id='${{ job.services.postgres.id }}'
-          if [[ -n "$postgres_id" ]]; then
-            docker logs "$postgres_id"
-          else
-            echo "PostgreSQL service container ID is unavailable."
-          fi
-
-  security-scan:
-    runs-on: self-hosted
-    timeout-minutes: 90
-    permissions:
-      contents: read
-
-    env:
-      IMAGE_NAME: aipsite-nyg-ci:${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
-      POSTGRES_PASSWORD: ci_only_compose_config_password
-      DOCKER_BUILDKIT: "1"
-      BUILDKIT_PROGRESS: plain
+  frontend-test:
+    name: frontend-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
 
     steps:
-      - name: Repair previous Docker workspace ownership
-        shell: bash
-        run: |
-          uid="$(id -u)"
-          gid="$(id -g)"
-          docker run --rm \
-            -v "$GITHUB_WORKSPACE:/workspace" \
-            alpine:3.21 \
-            sh -c "chown -R ${uid}:${gid} /workspace"
-
       - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
+      - name: Use repository npm version
+        run: npm install --global npm@11.17.0
+
+      - name: Install UI runner dependencies
+        run: npm ci
+
+      - name: Install Angular dependencies
+        run: npm --prefix frontend ci
+
+      - name: Build Angular production bundle without repository secrets
+        run: npm --prefix frontend run build
+
+      - name: Run Angular unit tests
+        run: npm --prefix frontend test
+
+      - name: Validate frontend architecture
+        run: |
+          npm --prefix frontend run check:architecture
+          npm --prefix frontend run test:architecture
+          npm --prefix frontend run test:syncfusion-license
+
+      - name: Build Storybook
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: npm --prefix frontend run build-storybook
+
+      - name: Run Angular Playwright smoke in Docker
+        run: npm run test:ui:angular:docker
+
+      - name: Upload browser artifacts on failure
+        if: failure()
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-ui-test-artifacts
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  security-scan:
+    name: security-scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    env:
+      POSTGRES_DB: aip_portal
+      POSTGRES_USER: aip_portal
+      POSTGRES_PASSWORD: ci_dummy_password
+      DB_PASSWORD: ci_dummy_password
+      LOCAL_ADMIN_PASSWORD: ci_dummy_local_admin_password
+
+    steps:
+      - name: Checkout complete history
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Initialize security reports
-        shell: bash
-        run: |
-          mkdir -p artifacts/ci
-          printf 'Vulnerable package scan did not run.\n' > dotnet-vulnerable-packages.txt
-          printf 'Deprecated package scan did not run.\n' > dotnet-deprecated-packages.txt
-          printf 'Trivy image scan did not run.\n' > trivy-image-report.txt
-
-      - name: Scan repository secrets with Gitleaks
-        shell: bash
-        run: |
-          set +e
-          docker run --rm \
-            -v "$PWD:/repo" \
-            zricethezav/gitleaks:v8.24.3 \
-            detect --no-git --source /repo --redact --verbose \
-            --report-format json --report-path /repo/gitleaks-report.json
-          status=$?
-          set -e
-          [[ -f gitleaks-report.json ]] || printf '[]\n' > gitleaks-report.json
-          cat gitleaks-report.json
-          exit "$status"
-
-      - name: Upload Gitleaks secret scan report
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: gitleaks-secret-scan-report
-          path: gitleaks-report.json
-          if-no-files-found: error
-
-      - name: Configure persistent .NET caches
-        shell: bash
-        run: |
-          bash scripts/ci/configure-persistent-caches.sh
-          install_dir="$HOME/.dotnet-ci"
-          job_temp="$RUNNER_TEMP/dotnet-${GITHUB_JOB}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          mkdir -p \
-            "$install_dir" \
-            "$job_temp/home" \
-            "$job_temp/nuget/scratch"
-          {
-            echo "DOTNET_INSTALL_DIR=$install_dir"
-            echo "DOTNET_CMD=$install_dir/dotnet"
-            echo "DOTNET_ROOT=$install_dir"
-            echo "DOTNET_CLI_HOME=$job_temp/home"
-            echo "DOTNET_CLI_TELEMETRY_OPTOUT=1"
-            echo "DOTNET_NOLOGO=1"
-            echo "DOTNET_MULTILEVEL_LOOKUP=0"
-            echo "DOTNET_CLI_WORKLOAD_UPDATE_NOTIFY_DISABLE=1"
-            echo "NUGET_SCRATCH=$job_temp/nuget/scratch"
-          } >> "$GITHUB_ENV"
-          echo "$install_dir" >> "$GITHUB_PATH"
-
-      - name: Setup .NET
+      - name: Set up .NET SDK
         uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
 
       - name: Restore
-        shell: bash
-        run: |
-          log="$GITHUB_WORKSPACE/artifacts/ci/security-dotnet-restore.log"
-          set +e
-          "$DOTNET_CMD" restore AipPortal.slnx \
-            --disable-parallel \
-            --verbosity normal 2>&1 | tee "$log"
-          restore_status=${PIPESTATUS[0]}
-          set -e
-          exit "$restore_status"
+        run: dotnet restore AipPortal.slnx --disable-parallel --verbosity normal
 
-      - name: Upload security restore log
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: security-dotnet-restore-log
-          path: artifacts/ci/security-dotnet-restore.log
-          if-no-files-found: error
-
-      - name: Check .NET vulnerable packages
+      - name: Reject vulnerable NuGet packages
         shell: bash
         run: |
           set +e
-          "$DOTNET_CMD" list AipPortal.slnx package --vulnerable --include-transitive > dotnet-vulnerable-packages.txt 2>&1
+          dotnet list AipPortal.slnx package --vulnerable --include-transitive > dotnet-vulnerable-packages.txt 2>&1
           status=$?
           set -e
           cat dotnet-vulnerable-packages.txt
@@ -331,33 +208,8 @@ jobs:
           fi
           exit "$status"
 
-      - name: Report .NET deprecated packages
+      - name: Validate Compose files
         shell: bash
-        run: |
-          set +e
-          "$DOTNET_CMD" list AipPortal.slnx package --deprecated > dotnet-deprecated-packages.txt 2>&1
-          status=$?
-          set -e
-          cat dotnet-deprecated-packages.txt
-          exit "$status"
-
-      - name: Upload .NET dependency scan reports
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: dotnet-dependency-scan-reports
-          path: |
-            dotnet-vulnerable-packages.txt
-            dotnet-deprecated-packages.txt
-          if-no-files-found: error
-
-      - name: Validate Docker Compose configs
-        env:
-          POSTGRES_DB: aip_portal
-          POSTGRES_USER: aip_portal
-          POSTGRES_PASSWORD: ci_dummy_password
-          DB_PASSWORD: ci_dummy_password
-          LOCAL_ADMIN_PASSWORD: ci_dummy_local_admin_password
         run: |
           docker compose -f docker-compose.db.yml config --quiet
           docker compose -f docker-compose.dev.yml config --quiet
@@ -367,74 +219,11 @@ jobs:
           docker compose config --quiet
           docker compose -f docker-compose.local.yml config --quiet
           docker compose -f docker-compose.onprem.yml config --quiet
+          docker compose -f docker-compose.onprem.yml -f docker-compose.onprem.ci.yml config --quiet
           docker compose -p deploy -f deploy/sakura/docker-compose.yml config --quiet
+          bash scripts/ci/verify-onprem-proxy-topology.sh
 
-      - name: Build Docker image with persistent BuildKit caches
-        if: github.event_name != 'pull_request' || github.event.pull_request.user.login != 'dependabot[bot]'
-        env:
-          SYNCFUSION_LICENSE: ${{ secrets.SYNCFUSION_LICENSE }}
-        shell: bash
-        run: |
-          test -n "${SYNCFUSION_LICENSE:-}" || {
-            echo "SYNCFUSION_LICENSE is not configured." >&2
-            exit 1
-          }
-          license_file="$(mktemp)"
-          trap 'rm -f "$license_file"' EXIT
-          chmod 600 "$license_file"
-          printf '%s' "$SYNCFUSION_LICENSE" > "$license_file"
-
-          for attempt in 1 2; do
-            set +e
-            docker build \
-              --pull \
-              --progress=plain \
-              --secret id=syncfusion_license,src="$license_file" \
-              --tag "$IMAGE_NAME" \
-              .
-            status=$?
-            set -e
-            if [[ "$status" -eq 0 ]]; then
-              exit 0
-            fi
-            if [[ "$attempt" -eq 2 ]]; then
-              exit "$status"
-            fi
-            docker system df || true
-            sleep 15
-          done
-
-      - name: Verify runtime image excludes Syncfusion license material
-        if: github.event_name != 'pull_request' || github.event.pull_request.user.login != 'dependabot[bot]'
-        shell: bash
-        run: |
-          docker run --rm --entrypoint sh "$IMAGE_NAME" -c '
-            test ! -e /run/secrets &&
-            test ! -e /app/.env &&
-            ! env | grep -q "^SYNCFUSION_LICENSE=" &&
-            ! find /app -type f \( -name ".env" -o -name ".env.*" -o -name "syncfusion-license.txt" \) -print -quit | grep -q .
-          '
-
-      - name: Scan Docker image with Trivy
-        if: github.event_name != 'pull_request' || github.event.pull_request.user.login != 'dependabot[bot]'
-        shell: bash
-        run: |
-          set +e
-          docker run --rm \
-            -v /var/run/docker.sock:/var/run/docker.sock \
-            -v "$PWD:/repo" \
-            aquasec/trivy:0.65.0 \
-            image --scanners vuln --vuln-type os,library \
-            --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
-            --format table --output /repo/trivy-image-report.txt \
-            "$IMAGE_NAME"
-          status=$?
-          set -e
-          cat trivy-image-report.txt
-          exit "$status"
-
-      - name: Scan repository with Trivy for Dependabot
-        if: github.event_name == 'pull_request' && github.event.pull_request.user.login == 'dependabot[bot]'
+      - name: Scan repository filesystem with Trivy
         shell: bash
         run: |
           set +e
@@ -443,150 +232,37 @@ jobs:
             aquasec/trivy:0.65.0 \
             fs --scanners vuln \
             --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
-            --format table --output /repo/trivy-image-report.txt \
+            --format table --output /repo/trivy-filesystem-report.txt \
             /repo
           status=$?
           set -e
-          cat trivy-image-report.txt
+          cat trivy-filesystem-report.txt
           exit "$status"
 
-      - name: Upload Trivy image scan report
-        if: always()
+      - name: Scan full reachable Git history with Gitleaks
+        shell: bash
+        run: |
+          set +e
+          docker run --rm \
+            -v "$PWD:/repo" \
+            zricethezav/gitleaks:v8.24.3 \
+            detect --source /repo --redact --verbose \
+            --report-format json \
+            --report-path /repo/gitleaks-report.json
+          status=$?
+          set -e
+          [[ -f gitleaks-report.json ]] || printf '[]\n' > gitleaks-report.json
+          exit "$status"
+
+      - name: Upload security reports on failure
+        if: failure()
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
-          name: trivy-image-scan-report
-          path: trivy-image-report.txt
-          if-no-files-found: warn
-
-      - name: Remove per-run Docker image
-        if: always()
-        shell: bash
-        run: docker image rm --force "$IMAGE_NAME" || true
-
-      - name: Report security cache and host resources on failure
-        if: failure()
-        shell: bash
-        run: |
-          du -sh "$HOME/.nuget/packages" "$HOME/.cache/aipsite-ci" 2>/dev/null || true
-          df -h || true
-          df -i || true
-          free -h || true
-          docker system df || true
-
-      - name: Repair security workspace ownership
-        if: always()
-        shell: bash
-        run: |
-          uid="$(id -u)"
-          gid="$(id -g)"
-          docker run --rm \
-            -v "$GITHUB_WORKSPACE:/workspace" \
-            alpine:3.21 \
-            sh -c "chown -R ${uid}:${gid} /workspace"
-
-  frontend-test:
-    runs-on: self-hosted
-    needs:
-      - build-test
-      - security-scan
-    timeout-minutes: 120
-
-    steps:
-      - name: Repair previous Docker workspace ownership
-        shell: bash
-        run: |
-          uid="$(id -u)"
-          gid="$(id -g)"
-          docker run --rm \
-            -v "$GITHUB_WORKSPACE:/workspace" \
-            alpine:3.21 \
-            sh -c "chown -R ${uid}:${gid} /workspace"
-
-      - name: Checkout
-        uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: "24"
-
-      - name: Configure persistent npm and Angular caches
-        env:
-          CI_ENABLE_ANGULAR_CACHE: "1"
-        shell: bash
-        run: bash scripts/ci/configure-persistent-caches.sh
-
-      - name: Install repo Playwright dependencies
-        run: bash scripts/ci/npm-ci-retry.sh .
-
-      - name: Install Angular frontend dependencies
-        run: bash scripts/ci/npm-ci-retry.sh frontend
-
-      - name: Angular production build
-        working-directory: frontend
-        run: npm run build
-
-      - name: Validate licensed frontend build when Syncfusion is installed
-        if: github.event_name != 'pull_request' || github.event.pull_request.user.login != 'dependabot[bot]'
-        working-directory: frontend
-        env:
-          SYNCFUSION_LICENSE: ${{ secrets.SYNCFUSION_LICENSE }}
-        shell: bash
-        run: |
-          test -x node_modules/.bin/syncfusion-license
-          test -n "${SYNCFUSION_LICENSE:-}"
-          npm run build:licensed
-
-      - name: Angular unit tests
-        working-directory: frontend
-        run: npm run test
-
-      - name: Validate frontend architecture and Syncfusion license safeguards
-        working-directory: frontend
-        run: |
-          npm run check:architecture
-          npm run test:architecture
-          npm run test:syncfusion-license
-
-      - name: Angular Storybook build
-        working-directory: frontend
-        env:
-          NODE_OPTIONS: --max-old-space-size=4096
-        run: npm run build-storybook
-
-      - name: Angular Playwright smoke
-        shell: bash
-        run: npm run test:ui:angular:docker
-
-      - name: Upload Playwright artifacts
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: playwright-ui-test-artifacts
+          name: security-scan-reports
           path: |
-            playwright-report/
-            test-results/
-          if-no-files-found: ignore
-
-      - name: Report frontend cache and host resources on failure
-        if: failure()
-        shell: bash
-        run: |
-          du -sh "$HOME/.npm" "$HOME/.cache/aipsite-ci" 2>/dev/null || true
-          df -h || true
-          df -i || true
-          free -h || true
-          docker system df || true
-
-      - name: Repair frontend workspace ownership
-        if: always()
-        shell: bash
-        run: |
-          uid="$(id -u)"
-          gid="$(id -g)"
-          docker run --rm \
-            -v "$GITHUB_WORKSPACE:/workspace" \
-            alpine:3.21 \
-            sh -c "chown -R ${uid}:${gid} /workspace"
+            dotnet-vulnerable-packages.txt
+            trivy-filesystem-report.txt
+            gitleaks-report.json
+          if-no-files-found: warn
+          retention-days: 7

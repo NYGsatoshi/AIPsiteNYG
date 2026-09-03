@@ -211,6 +211,28 @@ public enum DataClassification
     Private = 5
 }
 
+/// <summary>
+/// The baseline audience for a Workspace-owned file. Explicit grants can add
+/// individual Workspace members or existing Project-scoped external users;
+/// they never turn an email address or a browser-held identifier into access.
+/// </summary>
+public enum FileSharingPolicy
+{
+    Private = 0,
+    Workspace = 1
+}
+
+/// <summary>
+/// The server-recorded kind of an explicit File access grant. Its current
+/// effectiveness is re-evaluated from the corresponding membership boundary
+/// on every read and download authorization.
+/// </summary>
+public enum FileAccessGrantRecipientKind
+{
+    WorkspaceMember = 0,
+    ExternalProjectMember = 1
+}
+
 public enum SchoolRole
 {
     Student = 0,
@@ -257,6 +279,19 @@ public enum AnnouncementPriority
     Normal = 0,
     Important = 1,
     Urgent = 2
+}
+
+/// <summary>
+/// Durable, server-owned publication state for an Announcement draft. A draft
+/// may be saved, scheduled for one resolved UTC instant, and then published
+/// exactly once. Publication failures are retained as safe diagnostics on the
+/// scheduled draft; they never produce a fake Published state.
+/// </summary>
+public enum AnnouncementDraftStatus
+{
+    Draft = 0,
+    Scheduled = 1,
+    Published = 2
 }
 
 public enum SourceType

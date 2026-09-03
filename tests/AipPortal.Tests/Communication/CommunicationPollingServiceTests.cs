@@ -298,6 +298,8 @@ public sealed class CommunicationPollingServiceTests
             return Task.FromResult(new PagedResponse<Conversation>(items, page, pageSize, query.Count));
         }
 
+        public Task<ConversationInboxRepositoryResult> ListInboxForUserAsync(Guid userId, ConversationInboxView view, int page, int pageSize, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
         public IQueryable<Guid>? QueryReadableConversationIds(Guid userId) => null;
 
         public Task<IReadOnlySet<Guid>> FilterReadableConversationIdsAsync(

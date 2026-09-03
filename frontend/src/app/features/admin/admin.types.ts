@@ -11,8 +11,45 @@ export type AdminPageStatus = 'ready' | 'loading' | 'empty' | 'error' | 'permiss
  */
 export type AuditLogLoadPhase = 'idle' | 'initial' | 'retry';
 export type AuditDetailStatus = 'idle' | 'loading' | 'ready' | 'notFound' | 'permissionDenied' | 'error';
+export type AuditSensitiveMetadataStatus =
+  | 'hidden'
+  | 'loading'
+  | 'ready'
+  | 'empty'
+  | 'notFound'
+  | 'permissionDenied'
+  | 'error';
 export type AuditSeverity = 'info' | 'warning' | 'critical';
 export type AuditResult = 'success' | 'denied' | 'failed';
+export type AuditSeverityFilter = '' | AuditSeverity;
+export type AuditStatusFilter = '' | AuditResult;
+export type AuditTimeRange = '' | '24h' | '7d' | '30d';
+
+export interface AuditFilterSnapshot {
+  readonly q: string;
+  readonly severity: AuditSeverityFilter;
+  readonly type: string;
+  readonly actor: string;
+  readonly source: string;
+  readonly status: AuditStatusFilter;
+  readonly range: AuditTimeRange;
+}
+
+export const EMPTY_AUDIT_FILTERS: AuditFilterSnapshot = {
+  q: '',
+  severity: '',
+  type: '',
+  actor: '',
+  source: '',
+  status: '',
+  range: '',
+};
+
+export interface AuditSavedView {
+  readonly id: string;
+  readonly name: string;
+  readonly snapshot: AuditFilterSnapshot;
+}
 /**
  * The API contract currently classifies these values as `AuditSeverity` and
  * `AuditResult`. Keep an explicit, neutral display state for an unexpected
@@ -26,7 +63,7 @@ export type ExportJobResult = 'notReady' | 'available' | 'failed' | 'suppressed'
 export const AUDIT_TYPED_FIELD_NOTE = {
   owner: 'backendApiTypedFieldsWhenLive',
   severityResultSource: 'typedViewModelFields',
-  metadataParsing: 'prohibited'
+  metadataParsing: 'serverAuthorizedProgressiveDisclosure'
 } as const;
 
 export const EXPORT_AUTHORIZATION_NOTE = {
@@ -84,6 +121,8 @@ export interface AuditLogViewModel {
   readonly title: string;
   readonly subtitle: string;
   readonly rows: readonly AuditGridRow[];
+  readonly totalCount: number;
+  readonly appliedFilters: AuditFilterSnapshot;
   readonly columns: readonly AppDataGridColumnDef<AuditGridRow>[];
   readonly pageSize: AdminPageSizePolicy;
   readonly typedFieldNote: typeof AUDIT_TYPED_FIELD_NOTE;
@@ -91,14 +130,26 @@ export interface AuditLogViewModel {
 }
 
 /**
- * The drawer deliberately reuses the audit-grid projection. It does not model
- * raw audit metadata, IDs, duration, Claims, Evidence, or a writable event
- * history that the current backend does not authorize or expose.
+ * The drawer reuses the audit-grid projection for its initial view. Sensitive
+ * metadata has a separate exact-event state and is never part of this model.
  */
 export interface AuditDetailViewModel {
   readonly status: AuditDetailStatus;
   readonly auditId: string | null;
   readonly row: AuditGridRow | null;
+  readonly message?: string;
+}
+
+export interface AuditCapabilityViewModel {
+  readonly loaded: boolean;
+  readonly canViewSensitiveMetadata: boolean;
+}
+
+export interface AuditSensitiveMetadataViewModel {
+  readonly status: AuditSensitiveMetadataStatus;
+  readonly auditId: string | null;
+  readonly formattedJson: string;
+  readonly redactionApplied: boolean;
   readonly message?: string;
 }
 
@@ -109,6 +160,7 @@ export interface AuditLogScenario {
   readonly title: string;
   readonly subtitle: string;
   readonly auditRecords: readonly AuditMockRecord[];
+  readonly canViewSensitiveMetadata?: boolean;
   readonly message?: string;
 }
 

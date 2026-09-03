@@ -3,17 +3,20 @@
 <section class="account-page" data-testid="account-page">
   <header class="account-page__header">
     <div>
-      <p class="account-page__eyebrow">アカウント</p>
-      <h1>{{ accountPage.title }}</h1>
+      <p class="account-page__eyebrow">{{ i18n.translate('account.eyebrow') }}</p>
+      <h1>{{ i18n.translate('account.eyebrow') }}</h1>
     </div>
   </header>
 
   @if (accountPage.status === 'loading') {
-    <app-inline-loading label="アカウント情報を読み込み中" />
+    <app-inline-loading [label]="i18n.translate('account.loading')" />
   } @else if (accountPage.status === 'error') {
-    <app-empty-state title="読み込めませんでした" [message]="accountPage.message ?? 'アカウント情報を読み込めませんでした。'" />
+    <app-empty-state
+      [title]="i18n.translate('account.loadErrorTitle')"
+      [message]="i18n.translate('account.loadErrorMessage')"
+    />
   } @else if (accountPage.status === 'permissionDenied') {
-    <app-permission-denied [title]="accountPage.message ?? 'アカウント情報を表示する権限がありません。'" />
+    <app-permission-denied [title]="i18n.translate('account.permissionDenied')" />
   } @else {
     <div class="account-page__grid">
       <div class="account-page__main">
@@ -27,6 +30,7 @@
         />
       </div>
       <aside class="account-page__aside">
+        <app-language-preferences />
         <app-task-notification-preferences />
         @if (accountPage.accountStatus) {
           <app-account-status-panel [status]="accountPage.accountStatus" />

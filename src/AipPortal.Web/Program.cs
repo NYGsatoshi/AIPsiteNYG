@@ -28,6 +28,10 @@ var browserSmokeSeedEnabled = BrowserSmokeTestBoundary.IsEnabled(
     builder.Environment.EnvironmentName,
     builder.Configuration.GetValue<bool>("BrowserSmokeSeed:Enabled") ||
     builder.Configuration.GetValue<bool>("AIP_BROWSER_SMOKE_SEED_ENABLED"));
+var demoDatasetSeedEnabled = DemoDatasetBoundary.IsEnabled(
+    builder.Environment.EnvironmentName,
+    builder.Configuration.GetValue<bool>("DemoDataset:Enabled") ||
+    builder.Configuration.GetValue<bool>("AIP_DEMO_DATASET_ENABLED"));
 var browserSmokeResponseGateEnabled =
     browserSmokeSeedEnabled &&
     builder.Configuration.GetValue<bool>("AIP_BROWSER_SMOKE_RESPONSE_GATE_ENABLED");
@@ -68,6 +72,7 @@ builder.Services.AddAuthorization();
 builder.Services.AddSignalR();
 builder.Services.Configure<RealtimeOptions>(builder.Configuration.GetSection("Realtime"));
 builder.Services.Configure<TaskDeadlineDigestWorkerOptions>(builder.Configuration.GetSection("TaskDeadlineDigest"));
+builder.Services.Configure<AnnouncementPublisherWorkerOptions>(builder.Configuration.GetSection("AnnouncementPublisher"));
 builder.Services.AddSingleton<TaskDeadlineDigestDiagnostics>();
 builder.Services.AddScoped<ITaskDeadlineDigestScheduler, TaskDeadlineDigestScheduler>();
 builder.Services.AddScoped<ITaskDeadlineDigestGenerator, TaskDeadlineDigestGenerator>();
@@ -79,6 +84,7 @@ builder.Services.AddScoped<IHubSubscriptionAuthorizer, HubSubscriptionAuthorizer
 builder.Services.AddScoped<IRealtimeDispatchAuthorizer, RealtimeDispatchAuthorizer>();
 builder.Services.AddHostedService<OutboxDispatcher>();
 builder.Services.AddHostedService<TaskDeadlineDigestWorker>();
+builder.Services.AddHostedService<AnnouncementPublisherWorker>();
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -116,7 +122,8 @@ builder.Services.AddRateLimiter(options =>
 
 if (ForwardedHeadersConfiguration.ShouldTrustForwardedHeaders(builder.Configuration))
 {
-    builder.Services.Configure<ForwardedHeadersOptions>(ForwardedHeadersConfiguration.Configure);
+    builder.Services.Configure<ForwardedHeadersOptions>(options =>
+        ForwardedHeadersConfiguration.Configure(options, builder.Configuration));
 }
 
 var app = builder.Build();
@@ -139,6 +146,7 @@ if (tenancyOptions.SeedOnStartup ||
     tenancyOptions.AppMode == AppMode.OnPremSingleTenant ||
     builder.Configuration.GetValue<bool>("UiShell:SeedOnStartup") ||
     browserSmokeSeedEnabled ||
+    demoDatasetSeedEnabled ||
     seedAdminEnabled ||
     !string.IsNullOrWhiteSpace(bootstrapAdminEmail))
 {
@@ -225,6 +233,30 @@ if (tenancyOptions.SeedOnStartup ||
         await BrowserSmokeNotificationFixtureSeed.EnsureRevocableProjectAccessAsync(
             dbContext,
             defaultTenant.Id);
+    }
+
+    if (demoDatasetSeedEnabled)
+    {
+        var demoEmail =
+            builder.Configuration["DemoDataset:Email"] ??
+            builder.Configuration["AIP_DEMO_DATASET_EMAIL"] ??
+            DemoDatasetSeed.OwnerEmail;
+        var demoPassword =
+            builder.Configuration["DemoDataset:Password"] ??
+            builder.Configuration["AIP_DEMO_DATASET_PASSWORD"];
+        if (string.IsNullOrWhiteSpace(demoPassword))
+        {
+            throw new InvalidOperationException(
+                "Demo dataset seed is enabled but DemoDataset:Password is missing.");
+        }
+
+        await DemoDatasetSeed.SeedAsync(
+            dbContext,
+            scope.ServiceProvider.GetRequiredService<IPasswordHasher>(),
+            scope.ServiceProvider.GetRequiredService<IFileStorageService>(),
+            defaultTenant.Id,
+            demoEmail,
+            demoPassword);
     }
 }
 

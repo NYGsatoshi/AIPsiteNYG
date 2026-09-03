@@ -31,6 +31,7 @@ describe('FeatureMenuComponent', () => {
   }
 
   afterEach(() => {
+    window.localStorage.removeItem('aip.locale');
     TestBed.resetTestingModule();
   });
 
@@ -66,7 +67,7 @@ describe('FeatureMenuComponent', () => {
     expect(primary?.querySelector('[data-testid="nav-workspaces"]')).toBeTruthy();
     expect(primary?.querySelector('[data-testid="nav-projects"]')).toBeNull();
     expect(pinned?.querySelector('[data-testid="nav-projects"]')).toBeTruthy();
-    expect(pinned?.textContent).toContain('Pinned');
+    expect(pinned?.textContent).toContain('ピン留め');
   });
 
   it('keeps primary and pinned destinations reachable in the collapsed rail', async () => {
@@ -78,12 +79,12 @@ describe('FeatureMenuComponent', () => {
 
     expect(toggle).toBeTruthy();
     expect(toggle?.getAttribute('aria-expanded')).toBe('false');
-    expect(toggle?.getAttribute('aria-label')).toBe('メニューを展開');
+    expect(toggle?.getAttribute('aria-label')).toBe('メニューを開く');
     expect(element.querySelector('[data-testid="feature-menu-rail"]')).toBeTruthy();
     expect(primaryLink?.getAttribute('href')).toBe('/workspaces');
-    expect(primaryLink?.getAttribute('title')).toBe('Workspaces');
+    expect(primaryLink?.getAttribute('title')).toBe('ワークスペース');
     expect(pinnedLink?.getAttribute('href')).toBe('/projects');
-    expect(pinnedLink?.getAttribute('title')).toBe('Pinned: Projects');
+    expect(pinnedLink?.getAttribute('title')).toBe('ピン留め: プロジェクト');
   });
 
   it('allows the Pinned section to be collapsed independently', async () => {
@@ -114,7 +115,7 @@ describe('FeatureMenuComponent', () => {
 
     expect(moveUp?.disabled).toBe(true);
     expect(moveDown?.disabled).toBe(false);
-    expect(moveDown?.getAttribute('aria-label')).toBe('Projectsを下へ移動');
+    expect(moveDown?.getAttribute('aria-label')).toBe('プロジェクトを下へ移動');
 
     moveDown?.click();
 

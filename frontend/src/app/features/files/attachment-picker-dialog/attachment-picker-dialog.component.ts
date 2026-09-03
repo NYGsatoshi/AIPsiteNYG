@@ -1,5 +1,6 @@
-import { Component, EventEmitter, Input, Output } from '@angular/core';
+import { Component, EventEmitter, Input, Output, inject } from '@angular/core';
 
+import { I18nService } from '../../../core/i18n/i18n.service';
 import { FileScanStatusBadgeComponent } from '../file-scan-status-badge/file-scan-status-badge.component';
 import { FileViewModel } from '../files.types';
 
@@ -11,10 +12,12 @@ import { FileViewModel } from '../files.types';
   styleUrl: './attachment-picker-dialog.component.scss'
 })
 export class AttachmentPickerDialogComponent {
+  readonly i18n = inject(I18nService);
+
   @Input({ required: true }) files: readonly FileViewModel[] = [];
   @Input() selectedAttachmentId: string | null = null;
   @Input() disabled = true;
-  @Input() disabledMessage = 'Attachment picker is not available in MVP0.';
+  @Input() disabledMessage?: string;
 
   @Output() selectionChange = new EventEmitter<string | null>();
 

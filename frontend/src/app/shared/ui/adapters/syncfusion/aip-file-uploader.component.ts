@@ -1,4 +1,6 @@
-import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output, inject } from '@angular/core';
+
+import { I18nService } from '../../../../core/i18n/i18n.service';
 
 export interface AipFileUploaderItem {
   readonly clientRequestId: string;
@@ -15,7 +17,7 @@ export interface AipFileUploaderItem {
     <section
       class="aip-uploader"
       [class.aip-uploader--disabled]="disabled"
-      [attr.aria-label]="ariaLabel"
+      [attr.aria-label]="resolvedAriaLabel()"
       [attr.data-adapter]="syncfusionEnabled ? 'syncfusion' : 'native-fallback'"
       (dragover)="handleDragOver($event)"
       (drop)="handleDrop($event)"
@@ -24,19 +26,20 @@ export interface AipFileUploaderItem {
         #fileInput
         class="aip-uploader__input"
         type="file"
+        [attr.aria-label]="resolvedAriaLabel()"
         [multiple]="multiple"
         [disabled]="disabled"
         (change)="handleInputChange($event)"
       />
 
       <div class="aip-uploader__prompt">
-        <strong>Upload files</strong>
-        <span>Drop files here or choose them from this device. File policy is enforced by the backend.</span>
-        <button type="button" [disabled]="disabled" (click)="fileInput.click()">Choose files</button>
+        <strong>{{ i18n.translate('files.upload.title') }}</strong>
+        <span>{{ i18n.translate('files.upload.prompt') }}</span>
+        <button type="button" [disabled]="disabled" (click)="fileInput.click()">{{ i18n.translate('files.upload.choose') }}</button>
       </div>
 
       @if (items.length > 0) {
-        <ul class="aip-uploader__queue" aria-label="Upload queue">
+        <ul class="aip-uploader__queue" [attr.aria-label]="i18n.translate('files.upload.queue')">
           @for (item of items; track item.clientRequestId) {
             <li>
               <div>
@@ -48,9 +51,9 @@ export interface AipFileUploaderItem {
               </div>
 
               @if (item.state === 'pending' || item.state === 'uploading') {
-                <button type="button" [disabled]="disabled" (click)="cancel.emit(item.clientRequestId)">Cancel</button>
+                <button type="button" [disabled]="disabled" (click)="cancel.emit(item.clientRequestId)">{{ i18n.translate('files.upload.cancel') }}</button>
               } @else if (item.state === 'failed' || item.state === 'cancelled') {
-                <button type="button" [disabled]="disabled" (click)="retry.emit(item.clientRequestId)">Retry</button>
+                <button type="button" [disabled]="disabled" (click)="retry.emit(item.clientRequestId)">{{ i18n.translate('common.retry') }}</button>
               }
             </li>
           }
@@ -59,22 +62,27 @@ export interface AipFileUploaderItem {
     </section>
   `,
   styles: [`
-    :host { display: block; }
-    .aip-uploader { border: 1px dashed var(--aip-border-strong, #687282); border-radius: 0.75rem; padding: 1rem; background: var(--aip-surface-raised, #171b22); color: var(--aip-text-primary, #f4f7fb); }
+    :host { display: block; min-width: 0; container-type: inline-size; }
+    .aip-uploader { min-width: 0; border: 1px dashed var(--aip-color-border-strong); border-radius: 0.75rem; padding: 1rem; background: var(--aip-color-bg-elevated); color: var(--aip-color-text-primary); }
     .aip-uploader--disabled { opacity: 0.65; }
     .aip-uploader__input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
     .aip-uploader__prompt { display: grid; justify-items: start; gap: 0.5rem; }
-    .aip-uploader__prompt span, .aip-uploader__queue span, .aip-uploader__queue small { color: var(--aip-text-secondary, #b8c0cc); }
-    button { min-height: 2.5rem; border: 1px solid var(--aip-border-strong, #687282); border-radius: 0.5rem; padding: 0.5rem 0.9rem; background: var(--aip-surface-interactive, #242b35); color: inherit; cursor: pointer; }
+    .aip-uploader__prompt span, .aip-uploader__queue span, .aip-uploader__queue small { color: var(--aip-color-text-secondary); }
+    button { min-height: 2.5rem; border: 1px solid var(--aip-color-border-strong); border-radius: 0.5rem; padding: 0.5rem 0.9rem; background: var(--aip-color-bg-surface-subtle); color: var(--aip-color-text-primary); cursor: pointer; }
+    button:hover:not(:disabled) { background: var(--aip-color-bg-hover); }
+    button:focus-visible { outline: var(--aip-focus-outline); outline-offset: var(--aip-focus-offset); }
     button:disabled { cursor: not-allowed; opacity: 0.55; }
     .aip-uploader__queue { display: grid; gap: 0.5rem; margin: 1rem 0 0; padding: 0; list-style: none; }
-    .aip-uploader__queue li { display: flex; align-items: center; justify-content: space-between; gap: 1rem; border-top: 1px solid var(--aip-border-subtle, #48505e); padding-top: 0.75rem; }
-    .aip-uploader__queue li > div { display: grid; gap: 0.2rem; min-width: 0; }
+    .aip-uploader__queue li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem; min-width: 0; border-top: 1px solid var(--aip-color-border-default); padding-top: 0.75rem; }
+    .aip-uploader__queue li > div { display: grid; flex: 1 1 12rem; gap: 0.2rem; min-width: 0; }
     .aip-uploader__queue strong, .aip-uploader__queue span, .aip-uploader__queue small { overflow-wrap: anywhere; }
+    @container (max-width: 26rem) { .aip-uploader__queue li > button { width: 100%; } }
   `]
 })
 export class AipFileUploaderComponent {
-  @Input() ariaLabel = 'File uploader';
+  readonly i18n = inject(I18nService);
+
+  @Input() ariaLabel?: string;
   @Input() items: readonly AipFileUploaderItem[] = [];
   @Input() multiple = false;
   @Input() disabled = false;
@@ -115,13 +123,11 @@ export class AipFileUploaderComponent {
   }
 
   stateLabel(state: AipFileUploaderItem['state']): string {
-    switch (state) {
-      case 'pending': return 'Pending';
-      case 'uploading': return 'Uploading';
-      case 'succeeded': return 'Uploaded';
-      case 'failed': return 'Failed';
-      case 'cancelled': return 'Cancelled';
-    }
+    return this.i18n.fileUploadStateLabel(state);
+  }
+
+  resolvedAriaLabel(): string {
+    return this.ariaLabel ?? this.i18n.translate('files.upload.ariaLabel');
   }
 
   private emitFiles(fileList: FileList | null): void {

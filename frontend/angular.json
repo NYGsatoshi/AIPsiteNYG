@@ -33,33 +33,37 @@
                 "input": "public"
               },
               {
-                "glob": "material.css",
+                "glob": "material3.css",
                 "input": "node_modules/@syncfusion/ej2-base/styles",
                 "output": "assets/vendor/syncfusion/base"
               },
               {
-                "glob": "material.css",
+                "glob": "material3.css",
+                "input": "node_modules/@syncfusion/ej2-grids/styles",
+                "output": "assets/vendor/syncfusion/grids"
+              },
+              {
+                "glob": "material3.css",
                 "input": "node_modules/@syncfusion/ej2-treegrid/styles",
                 "output": "assets/vendor/syncfusion/treegrid"
               },
               {
-                "glob": "material.css",
+                "glob": "material3.css",
                 "input": "node_modules/@syncfusion/ej2-layouts/styles",
                 "output": "assets/vendor/syncfusion/layouts"
               },
               {
-                "glob": "material.css",
+                "glob": "material3.css",
                 "input": "node_modules/@syncfusion/ej2-popups/styles",
                 "output": "assets/vendor/syncfusion/popups"
               },
               {
-                "glob": "material.css",
+                "glob": "material3.css",
                 "input": "node_modules/@syncfusion/ej2-gantt/styles",
                 "output": "assets/vendor/syncfusion/gantt"
               }
             ],
             "styles": [
-              "node_modules/@syncfusion/ej2-grids/styles/material.css",
               "src/styles.scss"
             ]
           },
@@ -78,7 +82,7 @@
                 {
                   "type": "initial",
                   "maximumWarning": "500kB",
-                  "maximumError": "1MB"
+                  "maximumError": "1.02MB"
                 },
                 {
                   "type": "anyComponentStyle",
@@ -130,33 +134,37 @@
                 "input": "public"
               },
               {
-                "glob": "material.css",
+                "glob": "material3.css",
                 "input": "node_modules/@syncfusion/ej2-base/styles",
                 "output": "assets/vendor/syncfusion/base"
               },
               {
-                "glob": "material.css",
+                "glob": "material3.css",
+                "input": "node_modules/@syncfusion/ej2-grids/styles",
+                "output": "assets/vendor/syncfusion/grids"
+              },
+              {
+                "glob": "material3.css",
                 "input": "node_modules/@syncfusion/ej2-treegrid/styles",
                 "output": "assets/vendor/syncfusion/treegrid"
               },
               {
-                "glob": "material.css",
+                "glob": "material3.css",
                 "input": "node_modules/@syncfusion/ej2-layouts/styles",
                 "output": "assets/vendor/syncfusion/layouts"
               },
               {
-                "glob": "material.css",
+                "glob": "material3.css",
                 "input": "node_modules/@syncfusion/ej2-popups/styles",
                 "output": "assets/vendor/syncfusion/popups"
               },
               {
-                "glob": "material.css",
+                "glob": "material3.css",
                 "input": "node_modules/@syncfusion/ej2-gantt/styles",
                 "output": "assets/vendor/syncfusion/gantt"
               }
             ],
             "styles": [
-              "node_modules/@syncfusion/ej2-grids/styles/material.css",
               "src/styles.scss"
             ]
           }

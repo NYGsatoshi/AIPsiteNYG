@@ -9,11 +9,120 @@
       <p class="admin-page__eyebrow">{{ page.subtitle }}</p>
       <h1 data-testid="audit-log-title" tabindex="-1">{{ page.title }}</h1>
     </div>
+    <nav aria-label="Audit views">
+      <a href="/app/admin/audit" aria-current="page">Event log</a>
+      <a href="/app/admin/audit/claims-evidence">Claims &amp; Evidence</a>
+    </nav>
   </header>
 
   <p class="admin-page__policy" data-testid="audit-typed-field-note">
-    This read-only inspector uses server-classified fields only. It does not parse or request raw metadata.
+    This read-only inspector uses server-classified fields. Sensitive metadata is requested only after explicit disclosure and a server capability check.
   </p>
+
+  <section class="admin-page__filters" aria-labelledby="audit-filter-title" data-testid="audit-filter-panel">
+    <div class="admin-page__filters-heading">
+      <div>
+        <h2 id="audit-filter-title">Find audit events</h2>
+        <p>Filters use AND logic and apply to the current authorized Tenant or platform scope.</p>
+      </div>
+      <button type="button" class="admin-page__clear" data-testid="audit-clear-all" [disabled]="!hasActiveFilters()" (click)="clearAllFilters()">Clear all</button>
+    </div>
+
+    <form class="admin-page__filter-form" (ngSubmit)="applyFilters()">
+      <label class="admin-page__field admin-page__field--search">
+        <span>Global search</span>
+        <input type="search" name="audit-search" data-testid="audit-filter-search" maxlength="200" [(ngModel)]="searchDraft" />
+      </label>
+      <label class="admin-page__field">
+        <span>Severity</span>
+        <select name="audit-severity" data-testid="audit-filter-severity" [(ngModel)]="severityDraft">
+          <option value="">Any severity</option>
+          <option value="info">Info</option>
+          <option value="warning">Warning</option>
+          <option value="critical">Critical</option>
+        </select>
+      </label>
+      <label class="admin-page__field">
+        <span>Status</span>
+        <select name="audit-status" data-testid="audit-filter-status" [(ngModel)]="statusDraft">
+          <option value="">Any status</option>
+          <option value="success">Success</option>
+          <option value="denied">Denied</option>
+          <option value="failed">Failed</option>
+        </select>
+      </label>
+      <label class="admin-page__field">
+        <span>Time range</span>
+        <select name="audit-range" data-testid="audit-filter-range" [(ngModel)]="rangeDraft">
+          <option value="">Any time</option>
+          <option value="24h">Last 24 hours</option>
+          <option value="7d">Last 7 days</option>
+          <option value="30d">Last 30 days</option>
+        </select>
+      </label>
+
+      <details class="admin-page__more-filters">
+        <summary>More filters</summary>
+        <div class="admin-page__more-grid">
+          <label class="admin-page__field">
+            <span>Type (exact Action)</span>
+            <input type="text" name="audit-type" data-testid="audit-filter-type" maxlength="160" [(ngModel)]="typeDraft" />
+          </label>
+          <label class="admin-page__field">
+            <span>Actor name</span>
+            <input type="text" name="audit-actor" data-testid="audit-filter-actor" maxlength="200" aria-describedby="audit-actor-note" [(ngModel)]="actorDraft" />
+          </label>
+          <label class="admin-page__field">
+            <span>Source (exact entity type)</span>
+            <input type="text" name="audit-source" data-testid="audit-filter-source" maxlength="80" [(ngModel)]="sourceDraft" />
+          </label>
+        </div>
+        <p id="audit-actor-note">Actor filtering requires the independent sensitive-metadata capability and is always enforced by the server.</p>
+      </details>
+
+      <button type="submit" class="admin-page__apply" data-testid="audit-apply-filters">Apply filters</button>
+    </form>
+
+    @if (hasActiveFilters()) {
+      <div class="admin-page__chips" aria-label="Applied audit filters" data-testid="audit-filter-chips">
+        @for (chip of activeFilterChips(); track chip.key) {
+          <app-aip-filter-chip [label]="chip.label" [value]="chip.value" (removed)="removeFilter(chip.key)" />
+        }
+      </div>
+    }
+
+    @if (page.status === 'ready' || page.status === 'empty') {
+      <p class="admin-page__result-count" data-testid="audit-result-count">
+        {{ page.totalCount }} authorized {{ page.totalCount === 1 ? 'result' : 'results' }}
+      </p>
+    }
+
+    <div class="admin-page__saved-views" aria-labelledby="audit-saved-view-title">
+      <h3 id="audit-saved-view-title">Saved views</h3>
+      <div class="admin-page__saved-row">
+        <label class="admin-page__field">
+          <span>View name</span>
+          <input type="text" data-testid="audit-saved-view-name" maxlength="80" [(ngModel)]="savedViewName" />
+        </label>
+        <button type="button" data-testid="audit-save-view" (click)="saveCurrentView()">Save current filters</button>
+      </div>
+      <div class="admin-page__saved-row">
+        <label class="admin-page__field">
+          <span>Saved view</span>
+          <select data-testid="audit-saved-view-select" [(ngModel)]="selectedSavedViewId">
+            <option value="">Choose a view</option>
+            @for (view of savedViews(); track view.id) {
+              <option [value]="view.id">{{ view.name }}</option>
+            }
+          </select>
+        </label>
+        <button type="button" data-testid="audit-apply-saved-view" [disabled]="!selectedSavedViewId" (click)="applySelectedView()">Apply view</button>
+        <button type="button" data-testid="audit-delete-saved-view" [disabled]="!selectedSavedViewId" (click)="deleteSelectedView()">Delete view</button>
+      </div>
+    </div>
+    <p class="admin-page__filter-message" role="status" aria-live="polite" data-testid="audit-filter-message">{{ filterMessage() }}</p>
+  </section>
+
   <p class="admin-page__status" role="status" aria-live="polite" aria-atomic="true" data-testid="audit-log-status">
     {{ accessibilityStatus() }}
   </p>
@@ -32,7 +141,15 @@
   } @else if (page.status === 'error') {
     <app-empty-state title="Audit log could not be loaded" message="Try again." />
   } @else if (page.status === 'empty' || page.rows.length === 0) {
-    <app-empty-state title="No audit entries" message="No audit entries are available for the current authorized scope." />
+    @if (hasActiveFilters()) {
+      <div class="admin-page__zero-results" data-testid="audit-zero-results">
+        <h2>No audit entries match</h2>
+        <p>Change a filter or clear every condition to recover.</p>
+        <button type="button" data-testid="audit-zero-clear" (click)="clearAllFilters()">Clear all filters</button>
+      </div>
+    } @else {
+      <app-empty-state title="No audit entries" message="No audit entries are available for the current authorized scope." />
+    }
   } @else {
     <div class="admin-page__layout" [class.admin-page__layout--drawer-open]="drawerOpen()">
       <div class="admin-page__desktop-grid">
@@ -107,8 +224,11 @@
         [audit]="selectedAudit()"
         [status]="auditDetail().status"
         [message]="auditDetail().message"
+        [canViewSensitiveMetadata]="auditCapabilities().loaded && auditCapabilities().canViewSensitiveMetadata"
+        [sensitiveMetadata]="sensitiveMetadata()"
         [selectedAuditId]="selectedAuditId()"
         (close)="closeDrawer()"
+        (sensitiveMetadataToggle)="toggleSensitiveMetadata()"
       />
     </div>
   }

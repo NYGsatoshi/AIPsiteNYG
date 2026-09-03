@@ -369,19 +369,19 @@ Status after the MVP-A P0 Angular migration: obsolete as active frontend defects
 - Impact: SaaS example configurations cannot store or read files.
 - Suggested issue: **Implement and test an S3-compatible object-storage adapter**.
 
-### KI-005: On-prem Compose cannot initialize a fresh database
+### KI-005: On-prem Compose fresh-stack startup requires runtime evidence
 
-- Status: confirmed deployment gap.
-- Evidence: `docker-compose.onprem.yml` has no migration service; the app does not apply migrations.
-- Impact: startup seed queries an absent schema on a fresh database.
-- Suggested issue: **Add controlled migrations to the on-prem Compose workflow**.
+- Status: migration path verified under Issue #465; full app startup verification pending.
+- Evidence: `docker-compose.onprem.yml` now uses a one-shot SDK `migrate` service and makes the app wait for successful completion. An isolated clean PostgreSQL volume applied all current migrations successfully; the app itself still does not auto-migrate.
+- Remaining impact: the intended TLS/reverse-proxy topology, production build-secret availability, and a clean-volume startup still require recorded execution evidence.
+- Tracking issue: **#465 — Make on-prem Compose migrate a fresh database before app startup**.
 
 ### KI-006: Reverse-proxy HTTPS behavior still requires deployment-specific verification
 
-- Status: partially implemented.
-- Evidence: `Program.cs` now has opt-in forwarded-header handling behind `ReverseProxy:TrustForwardedHeaders`, and focused tests cover `GET /api/security/csrf-token` with forwarded HTTPS. Compose still does not bundle a TLS proxy, and the current trust model assumes the app is reachable only behind that proxy or tunnel.
-- Impact: environment-specific mistakes can still cause redirect loops, incorrect scheme detection, or incorrect host-based tenant resolution.
-- Suggested issue: **Add deployment-specific proxy examples plus explicit trusted proxy/network allowlists**.
+- Status: configuration boundary and repeatable deployment gate implemented; target-host execution pending.
+- Evidence: `Program.cs` enables forwarded headers only after an operator opts in and supplies explicit IP/CIDR trust boundaries; it retains loopback defaults rather than trusting all peers. `docker-compose.onprem.yml` binds the origin to loopback by default and fails startup when proxy mode lacks a boundary. Focused Kestrel coverage verifies secure CSRF-cookie issuance through a trusted forwarded HTTPS request. Issue #481 adds `tests/ui/public-https-golden-path.spec.ts` and a protected manual workflow that requires the real public HTTPS route, HTTP-to-HTTPS redirect, HSTS, Secure cookies, CSRF, authenticated Task execution, reload, logout, and re-login.
+- Remaining impact: an operator can still misstate the trusted proxy peer or public DNS/TLS route, and the gate cannot execute until its protected synthetic fixture is configured. The exact target topology remains unverified until a successful recorded public-gate run; `/health/ready` alone is not sufficient.
+- Tracking issues: **#467 — Decide and verify the on-prem TLS/reverse-proxy topology**; **#481 — Public HTTPS Production Golden Path**.
 
 ## Medium priority
 
@@ -483,10 +483,11 @@ Status after the MVP-A P0 Angular migration: obsolete as active frontend defects
 - SSO/MFA.
 - Realtime messaging/notifications.
 - Background jobs and scheduled reminders.
-- Task automation, outbound Web retrieval, source materialization, and
-  execution-provider contracts. Issue #357 supplies only a policy/snapshot
-  foundation and intentionally does not close this work pending canonical-spec
-  promotion and an approved provider/egress security contract.
+- Task automation, server Project File materialization, durable Task results,
+  and the contest end-to-end execution path. Issue #461 fixes the provider to
+  the no-Web `FirstPartyProjectFilesRuntimeV1` contract; #462 and #463 own
+  materialization and durable result implementation respectively. Outbound Web
+  retrieval remains out of scope and disabled.
 - Full billing/payment integration.
 - Advanced Gantt/resource planning.
 - Full free-form docking/radial UI.

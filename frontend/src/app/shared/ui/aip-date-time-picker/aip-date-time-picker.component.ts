@@ -15,8 +15,8 @@ import { ChangeDetectionStrategy, Component, EventEmitter, Input, OnChanges, Out
   `,
   styles: [`
     :host { display: block; }
-    input { width: 100%; min-height: 2.75rem; box-sizing: border-box; border: 1px solid var(--aip-border-strong, #687282); border-radius: 0.5rem; padding: 0.55rem 0.7rem; background: var(--aip-surface-input, #11151b); color: var(--aip-text-primary, #f4f7fb); color-scheme: dark; }
-    input:focus-visible { outline: 2px solid var(--aip-focus-ring, #78a9ff); outline-offset: 2px; }
+    input { width: 100%; min-height: 2.75rem; box-sizing: border-box; border: 1px solid var(--aip-color-border-strong); border-radius: 0.5rem; padding: 0.55rem 0.7rem; background: var(--aip-color-bg-control); color: var(--aip-color-text-primary); }
+    input:focus-visible { outline: var(--aip-focus-outline); outline-offset: var(--aip-focus-offset); }
     input:read-only { opacity: 0.7; }
   `]
 })

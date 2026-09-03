@@ -11,7 +11,24 @@ export type WorkspaceActionCapability =
   | 'openProjects'
   | 'openProjectCreate'
   | 'createProject'
-  | 'addFiles';
+  | 'addFiles'
+  | 'inspectSharing'
+  | 'manageSharing';
+
+export interface WorkspaceMemberPreview {
+  readonly id: string;
+  readonly displayName: string;
+}
+
+export type WorkspaceNeedsAttentionKind = 'ReviewRequired' | 'ResearchFailed';
+
+export interface WorkspaceNeedsAttentionItemViewModel {
+  readonly id: string;
+  readonly kind: WorkspaceNeedsAttentionKind;
+  readonly label: string;
+  readonly targetRoute: string;
+  readonly occurredAtLabel: string | null;
+}
 
 export type WorkspacePageCapability = 'createWorkspace';
 
@@ -38,6 +55,11 @@ export interface WorkspaceCardViewModel {
   readonly activeProjectCount: number | null;
   readonly runningProjectCount: number | null;
   readonly needsReviewProjectCount: number | null;
+  readonly needsAttentionCount?: number;
+  readonly needsAttentionItems?: readonly WorkspaceNeedsAttentionItemViewModel[];
+  readonly hasExternalShares?: boolean;
+  readonly externalShareCount?: number | null;
+  readonly memberPreview?: readonly WorkspaceMemberPreview[];
   readonly lastUpdatedLabel: string | null;
   readonly availability: WorkspaceSummaryAvailability;
   readonly capabilities: readonly WorkspaceActionCapability[];

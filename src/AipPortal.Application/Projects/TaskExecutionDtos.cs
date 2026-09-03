@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
 
 namespace AipPortal.Application.Projects;
@@ -7,27 +8,30 @@ namespace AipPortal.Application.Projects;
 public sealed record UpdateProjectExecutionScopeRequest(
     bool WebEnabled,
     bool ProjectFilesEnabled,
-    long ExpectedVersion);
+    long ExpectedVersion,
+    TaskExecutionSourcePolicyV2? PolicyV2 = null);
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record UpdateTaskExecutionScopeOverrideRequest(
     bool WebEnabled,
     bool ProjectFilesEnabled,
-    long ExpectedVersion);
+    long ExpectedVersion,
+    TaskExecutionSourcePolicyV2? PolicyV2 = null);
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record ClearTaskExecutionScopeOverrideRequest(long ExpectedVersion);
 
 /// <summary>
-/// Intentionally empty foundation request. An Idempotency-Key identifies a
-/// requested immutable policy snapshot; source material is not accepted here.
+/// An Idempotency-Key identifies a requested immutable policy snapshot; source
+/// material is never accepted in a run request.
 /// </summary>
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record RequestTaskExecutionRunRequest;
 
 public sealed record TaskExecutionSourcePolicyResponse(
     bool WebEnabled,
-    bool ProjectFilesEnabled);
+    bool ProjectFilesEnabled,
+    TaskExecutionSourcePolicyV2? PolicyV2 = null);
 
 public sealed record ProjectExecutionScopeResponse(
     TaskExecutionSourcePolicyResponse Policy,
@@ -42,7 +46,8 @@ public sealed record TaskExecutionScopeResponse(
     TaskExecutionSourcePolicyResponse? TaskOverridePolicy,
     bool CanManage,
     TaskExecutionRunResponse? LatestRun,
-    string ChangesApplyTo);
+    string ChangesApplyTo,
+    IReadOnlyList<TaskExecutionSourceInventoryItemResponse>? SourceInventory = null);
 
 public sealed record TaskExecutionRunResponse(
     Guid Id,
@@ -55,4 +60,25 @@ public sealed record TaskExecutionRunResponse(
     long SnapshotProjectScopeVersion,
     long? SnapshotTaskOverrideVersion,
     bool SnapshotWebEnabled,
-    bool SnapshotProjectFilesEnabled);
+    bool SnapshotProjectFilesEnabled,
+    [property: JsonConverter(typeof(JsonStringEnumConverter))] TaskExecutionProvider RuntimeProvider = TaskExecutionProvider.FirstPartyProjectFilesRuntimeV1,
+    int RuntimeContractVersion = TaskExecutionRun.RuntimeContractVersion1,
+    DateTimeOffset? QueuedAtUtc = null,
+    DateTimeOffset? StartedAtUtc = null,
+    Guid? SnapshotResearchPlanRevisionId = null,
+    long? SnapshotResearchPlanRevisionNo = null,
+    TaskExecutionSourcePolicyV2? SnapshotPolicyV2 = null)
+{
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public TaskExecutionMajorState MajorState => Status switch
+    {
+        TaskExecutionRunStatus.Accepted => TaskExecutionMajorState.Accepted,
+        TaskExecutionRunStatus.Queued => TaskExecutionMajorState.Queued,
+        TaskExecutionRunStatus.Running => TaskExecutionMajorState.Running,
+        TaskExecutionRunStatus.Succeeded => TaskExecutionMajorState.Succeeded,
+        TaskExecutionRunStatus.Failed => TaskExecutionMajorState.Failed,
+        TaskExecutionRunStatus.Stopped => TaskExecutionMajorState.Stopped,
+        TaskExecutionRunStatus.Redirected => TaskExecutionMajorState.Redirected,
+        _ => TaskExecutionMajorState.Failed
+    };
+}

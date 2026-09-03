@@ -4,6 +4,29 @@ This document is the active API convention guide. For endpoint examples, use `do
 
 Implementation note: this document describes the intended contract. The current controllers do not consistently follow one error shape or HTTP status mapping. Global exceptions return `ErrorResponse(Code, Message, TraceId)`, while many controller failures return `{ "error": "..." }` and map authorization/not-found failures to `400`. TASK-V1-PR06 adds a narrow safe envelope for Gantt routes. WPC-01 now does the same for Workspace capabilities/create, their authentication/model-binding/CSRF/exception boundary, Project activation-transition conflicts, disabled legacy Project create, and masked Project detail. Neither change resolves the repository-wide mismatch. Track that broader mismatch in `docs/KNOWN_ISSUES.md`; exact controller/service findings are in `docs/BACKEND_LOGIC_AUDIT.md`.
 
+## #378 durable announcement draft delivery
+
+The Announcement editor’s production create path uses the durable
+`/api/announcement-drafts` workflow. These routes retain the legacy
+announcement controller’s redacted error style, so callers must not render
+raw `error` text. Missing, cross-Tenant, other-author, or currently revoked
+drafts are deliberately indistinguishable from not found.
+
+| Route | Request | Success |
+| --- | --- | --- |
+| `POST /api/announcement-drafts` | exact target/content plus required `Idempotency-Key` | 201 Draft response |
+| `PUT /api/announcement-drafts/{draftId}` | `expectedVersion`, target/content | 200 Draft response |
+| `POST /api/announcement-drafts/{draftId}/publish` | `expectedVersion` plus required `Idempotency-Key` | 200 **Scheduled** response due immediately |
+| `POST /api/announcement-drafts/{draftId}/schedule` | `expectedVersion`, local wall-clock time, IANA zone, optional valid overlap offset, and `Idempotency-Key` | 200 Scheduled response |
+| `GET /api/announcement-drafts` / `/{draftId}` | none | current authorized author’s Draft/Scheduled/Published response |
+
+The accepted lifecycle is `Draft -> Scheduled -> Published`. In particular,
+the publish route does not return an Announcement or claim delivery has
+completed. The due worker creates the Announcement after it reauthorizes the
+persisted selected target. Idempotency is Tenant/actor/operation scoped;
+unchanged lost-response replay reconciles one logical draft or transition,
+while payload/key mismatch and version conflicts return 409.
+
 ## WPC-02B canonical Workspace creation
 
 WPC-01 established the retry-safe transaction and error boundary. WPC-02B
@@ -242,6 +265,122 @@ The browser-only unread-badge display setting is not part of this API. It is
 namespaced by Tenant and user in local storage and has no authorization or
 delivery effect.
 
+## Issue #355 Conversation inbox views
+
+`GET /api/conversations` remains paginated and accepts `page`, `pageSize`, and
+one `view` value: `All`, `Unread`, `Mentions`, or `Later`. Its additive response
+keeps `items`, `page`, `pageSize`, and `totalCount`, and adds the selected
+string `view` plus exact Conversation counts:
+
+```json
+{
+  "items": [],
+  "page": 1,
+  "pageSize": 20,
+  "totalCount": 0,
+  "view": "All",
+  "counts": {
+    "all": 0,
+    "unread": 0,
+    "mentions": 0,
+    "later": 0
+  }
+}
+```
+
+Every item and count is evaluated from the current user's authoritative,
+depth-bounded readable-Conversation relation before filtering or paging. A
+nonparticipant contributes no row, title, last Message, count, or state bit.
+The four counts count Conversations, not Messages:
+
+- `Unread` means at least one non-deleted Message from another author is after
+  the current user's server read cursor.
+- `Mentions` means an unread recipient-owned Mention Notification currently
+  resolves to a non-deleted Message in that readable Conversation.
+- `Later` is the current active participant's private `isLater` Boolean.
+- `All` is the complete currently readable Conversation count.
+
+`PATCH /api/conversations/{conversationId}/state` accepts additive nullable
+`isLater`. Only the current active participant's row can be read or changed.
+Changing `isLater` does not change `ReadState`, `lastReadMessageId`, unread
+counts, Mention Notification state, another participant's state, or Message
+delivery. The successful state and list item responses include `isLater`.
+Existing rows default to `false`; no prior read, mute, or archive value is
+reclassified.
+
+This `isLater` value defers an entire Conversation in the inbox. It is not a
+saved-Message or reminder contract: it carries no Message ID, completion state,
+due time, or notification schedule. Issue #368 owns those distinct per-Message
+follow-up semantics and must not infer them from `ConversationMember.IsLater`.
+
+## Issue #368 saved Message follow-ups
+
+The current participant owns these private routes:
+
+- `GET /api/me/message-follow-ups?page=1&pageSize=20`
+- `PUT /api/me/message-follow-ups/{messageId}`
+- `DELETE /api/me/message-follow-ups/{messageId}`
+
+PUT and DELETE are idempotent after the Message is reauthorized through its
+current readable Conversation. PUT returns `isSaved: true` and the saved UTC
+timestamp; DELETE returns `isSaved: false`. A missing, deleted, cross-Tenant,
+nonparticipant, removed, or otherwise unreadable Message is the same generic
+failure and reveals neither whether a private marker exists nor target data.
+
+GET returns a normal paged response. Each row contains the Message and
+Conversation IDs needed for navigation, Workspace ID, Conversation type and
+safe title, optional `threadRootMessageId`, current authorized author display
+name/body, Message creation time, and saved time. Current Conversation
+readability is applied before count, ordering, and paging. Deleted or revoked
+rows contribute neither an item nor `totalCount`.
+
+`GET /api/conversations/{conversationId}/messages` accepts additive
+`anchorMessageId`. After the existing Conversation boundary, the target must
+be a current non-deleted Message in that exact Conversation. The response
+includes the target timeline Message plus recent context even when it is older
+than the default page; for a thread reply the timeline anchor is its root and
+the client opens `GET /api/messages/{rootMessageId}/thread` with
+`anchorReplyMessageId={savedReplyId}`. That optional reply anchor must be a
+current non-deleted reply in the same Conversation whose exact
+`threadRootMessageId` is the route root. A valid anchor is returned with the
+latest 99 other replies, preserving the 100-row bound even when the selected
+reply is older than the ordinary latest window. Deleted, missing,
+cross-Conversation, mismatched-root, and cross-Tenant anchors all return the
+same generic thread-not-found failure without counts or target metadata.
+Anchor loading, save, and complete never update read state.
+
+No reminder field or endpoint exists. Adding a reminder requires a separate
+scheduler, delivery, timezone, retry, and cancellation contract; clients must
+not infer one from `savedAt`.
+
+## Issue #367 advanced Message filters
+
+`GET /api/search` accepts additive Message-only fields when `type=Message`:
+`authorUserId`, `fromDate`, exclusive `toDateExclusive`, `messageRead` (`All`,
+`Read`, or `Unread`), and `messageAttachment` (`All`, `With`, or `Without`). A
+text query is optional when any filter is active. `toDateExclusive` cannot be
+combined with legacy inclusive `toDate`, and invalid UUID, enum, or date query
+binding returns fixed `SearchRequestInvalid` HTTP 400 without reflecting input.
+
+`GET /api/search/message-authors` accepts either a trimmed `q` of 2 to 120
+characters with `limit` capped at 20, or `selectedUserId` with `limit=1` for
+validated route replay. It returns only `{ userId, displayName }` and no count,
+email, role, lifecycle, Conversation identity, or Message content. Missing,
+cross-Tenant, and unauthorized selected IDs all return the same empty success
+projection.
+
+All facets compose before ordering/limiting with the current user's recursive
+readable-Conversation relation and exact Message/Conversation Tenant and
+Workspace consistency. Read coverage uses an exact same-scope cursor Message
+and `(CreatedAt, Id)` ordering even when a legacy sequence is zero. A null
+cursor ID retains the established `LastReadAt` compatibility fallback; a
+non-null invalid or mismatched cursor fails closed. `With` means a clean,
+classified, active, non-deleted, exact Message-owned Attachment/FileObject
+relationship. `Without` is its negation; no file metadata or invalid-link
+detail is projected. This does not enable Message attachment upload or resolve
+BE-004. The full contract is in
+`docs/contracts/message-advanced-filters-v1.md`.
+
 ## Same-Conversation Message threads
 
 The canonical Message-thread routes are:
@@ -257,13 +396,16 @@ service never guesses a Message anchor for them. Main Conversation Message
 lists return roots only and attach an authorized summary when replies exist.
 
 GET inherits the current Conversation read boundary before projecting any
-body, count, timestamp, or display name. It returns the pinned root, the latest
-at most 100 replies in stable chronological order, the exact durable reply
-count, latest reply timestamp, at most three distinct display names, `hasMore`,
-and `maximumReplies: 100`. There is no older-reply cursor in this version;
-`hasMore: true` explicitly means older replies were not loaded. Deleted roots
-and replies are bodyless/attachment-free tombstones; deleted replies remain in
-the order and count.
+body, count, timestamp, or display name. Without an anchor it returns the
+pinned root and latest at most 100 replies in stable chronological order. With
+an authorized `anchorReplyMessageId`, it returns that exact non-deleted reply
+plus the latest at most 99 other replies, still in stable chronological order.
+Both forms return the exact durable reply count, latest reply timestamp, at
+most three distinct display names, `hasMore`, and `maximumReplies: 100`. There
+is no older-reply cursor in this version; `hasMore: true` means additional
+replies were not loaded. Deleted roots and ordinary projected replies are
+bodyless/attachment-free tombstones; deleted replies remain in the order and
+count but cannot themselves be selected as an anchor.
 
 The main Conversation list retains a deleted main-timeline root only while it
 has at least one durable same-Conversation reply. That root is projected as a
@@ -611,10 +753,10 @@ immediately. Historical Workflow Stage transitions are not available in the
 current ActivityLog contract and are not synthesized from current state or
 generic Activity rows.
 
-## Issue #357 Task execution source-scope foundation
+## Issues #357 / #461 Task execution source scope and runtime contract
 
 The foundation is a server-authorized policy and immutable next-run snapshot
-boundary. It exposes no source inventory or execution capability:
+boundary. It exposes no source inventory or browser execution capability:
 
 - `GET /api/projects/{projectId}/execution-scope`
 - `PUT /api/projects/{projectId}/execution-scope`
@@ -637,18 +779,56 @@ Clearing an override sends `{ "expectedVersion": 1 }`; `0` is the creation or
 already-inherit token when no Task override exists. A run request sends an
 empty `{}` body and a required `Idempotency-Key`; the key represents the same
 Task request even if a later policy edit changes the current effective policy.
-The accepted row retains its original immutable policy snapshot. A successful
-foundation POST returns 201 only to mean that the policy record was stored; its
-current status is `RuntimeUnavailable`, not execution success.
+The accepted row retains its original immutable policy snapshot plus the
+server-owned `FirstPartyProjectFilesRuntimeV1` provider identity and runtime
+contract version. Snapshot schema version 2 additionally retains the optional
+same-Task `ResearchPlanRevision` identifier and positive revision number that
+were current inside the accepted idempotent creation stage. PostgreSQL binds
+that identifier, number, and Tenant/Workspace/Project/Task scope to one
+revision row. It stores no copy
+of plan content. A successful POST returns 201 only to mean that a logical run
+was durably accepted; its initial status is `Accepted`, not execution success.
+Replaying the same key returns the same logical run and plan revision.
 
 Responses expose only effective/origin/version booleans, a safe latest-run
-policy snapshot, and `changesApplyTo: "nextRun"`. They never expose a URL,
-host, source/file identifier or name, count, raw content, credential, provider
-configuration, prompt, or output. Version/idempotency conflicts use safe 409
-responses; application-level unavailable persistence/replay states use 503.
-The browser sends CSRF protection for unsafe cookie-authenticated methods.
-There is no outbound-Web, source-materialization, provider, worker, or runtime
-configuration contract in this issue.
+policy snapshot/provider/version/lifecycle projection, the optional authorized
+plan revision reference/number, and
+`changesApplyTo: "nextRun"`. They never expose a URL, host, source/file
+identifier or name, count, raw content, credential, provider configuration,
+prompt, or output. Version/idempotency conflicts use safe 409 responses. The
+browser sends CSRF protection for unsafe cookie-authenticated methods.
+
+The selected V1 runtime disables all Web/network execution and fails closed if
+the immutable scope requires Web input. It accepts no browser source list,
+file ID, path, object key, filename, content, credential, or provider setting.
+Issue #462 owns post-commit server materialization of authorized clean Project
+Files; Issue #463 owns durable result storage and retrieval. The `Accepted`
+state alone is not evidence that any input was consumed or a result exists.
+
+## Issue #364 Task Research Plan
+
+`GET /api/tasks/{taskItemId}/research-plan` returns the current authorized
+Task-owned Research Plan revision (or a null current revision when no plan has
+been saved). `PUT /api/tasks/{taskItemId}/research-plan` accepts only a complete
+ordered step list and `expectedVersion`. It creates the next immutable revision
+atomically; it never updates or deletes an earlier revision or accepts ownership,
+source, provider, or execution identifiers from the client.
+
+Steps are bounded to 100 per revision. Each has a required title (240
+characters), optional objective and scope summary (4,000 characters each), and
+one of `Planned`, `Ready`, `Blocked`, or `Deferred`. Current Project readers may
+read; only current `CanManageProject` authority may save. Missing,
+cross-Tenant, deleted, and unauthorized Tasks use the same safe not-found
+response. A stale aggregate version returns 409 `RESEARCH_PLAN_STALE_VERSION`.
+
+The response returns the current immutable revision and safe Task-scoped fields
+only. It returns no historical raw sources, storage details, credentials,
+provider configuration, or execution outcome. The execution request captures
+this exact current revision in snapshot schema version 2 inside its existing
+immutable run snapshot; its identifier and number are one database-enforced
+scoped provenance identity. The Research Plan introduces no separate execution
+snapshot system. Both plan revision fields are null when the Task has no saved
+plan. Existing version-1 runs remain readable with null plan provenance.
 
 ## TASK-V1-PR07-B hard deadline mutation
 

@@ -4,7 +4,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 
 import { AnnouncementDetailComponent } from '../announcement-detail/announcement-detail.component';
-import { AnnouncementEditorComponent } from '../announcement-editor/announcement-editor.component';
+import { AnnouncementMultiAudienceEditorComponent } from '../announcement-multi-audience-editor/announcement-multi-audience-editor.component';
 import { AnnouncementListComponent } from '../announcement-list/announcement-list.component';
 import { AnnouncementNavigationStateService } from '../announcement-navigation-state.service';
 import { AnnouncementsFacade } from '../announcements.facade';
@@ -21,7 +21,7 @@ import {
   imports: [
     FormsModule,
     AnnouncementDetailComponent,
-    AnnouncementEditorComponent,
+    AnnouncementMultiAudienceEditorComponent,
     AnnouncementListComponent,
   ],
   templateUrl: './announcements-page.component.html',
@@ -97,6 +97,7 @@ export class AnnouncementsPageComponent implements OnDestroy {
       body: announcement.body,
       priority: announcement.priority,
       audienceKey,
+      audienceKeys: audienceKey ? [audienceKey] : [],
       availableAudiences,
       requiresReadConfirmation: announcement.readState.requiresReadConfirmation,
       publicationState: announcement.publicationState,
@@ -164,7 +165,11 @@ export class AnnouncementsPageComponent implements OnDestroy {
   }
 
   showCreateEditor(): void {
-    if (this.canCreate() && this.facade.beginCreate()) {
+    // The button is rendered from the page capability, but a background list
+    // refresh can replace that projection between pointer-down and click. The
+    // facade owns the current authorized audience set, so beginCreate() is the
+    // final fail-closed authority for whether the editor may actually open.
+    if (this.facade.beginCreate()) {
       this.editingAnnouncementId.set(null);
       this.editorVisible.set(true);
     }
@@ -180,12 +185,19 @@ export class AnnouncementsPageComponent implements OnDestroy {
   }
 
   publishAnnouncement(submission: AnnouncementEditorSubmission): void {
-    // #377 wires the create/publish path. Existing-announcement mutation remains
-    // a separate contract, so never reinterpret an edit action as a new create.
+    // Existing-announcement mutation remains a separate contract, so never
+    // reinterpret an edit action as a new durable draft delivery request.
     if (this.editingAnnouncementId() !== null) {
       return;
     }
     this.facade.createAnnouncement(submission);
+  }
+
+  saveAnnouncementDraft(submission: AnnouncementEditorSubmission): void {
+    if (this.editingAnnouncementId() !== null) {
+      return;
+    }
+    this.facade.saveAnnouncementDraft(submission);
   }
 
   updateAnnouncementDraft(draft: AnnouncementEditorDraft): void {

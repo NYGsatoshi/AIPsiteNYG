@@ -61,6 +61,18 @@ public static class DependencyInjection
                 options.InvalidModelStateResponseFactory = context =>
                 {
                     var path = context.HttpContext.Request.Path.Value;
+                    if (IsSearchPath(path))
+                    {
+                        // Query conversion errors can otherwise echo raw Guid,
+                        // enum, or date input through ValidationProblemDetails.
+                        return new BadRequestObjectResult(ApiEnvelope.Error(
+                            context.HttpContext,
+                            StatusCodes.Status400BadRequest,
+                            "SearchRequestInvalid",
+                            "The search parameters are invalid.",
+                            "query"));
+                    }
+
                     if (IsWpcCreatePath(path, context.HttpContext.Request.Method))
                     {
                         if (context.HttpContext.User.Identity?.IsAuthenticated != true)
@@ -147,6 +159,13 @@ public static class DependencyInjection
         (NormalizePath(path).EndsWith("/schedule", StringComparison.OrdinalIgnoreCase) ||
          NormalizePath(path).EndsWith("/progress", StringComparison.OrdinalIgnoreCase) ||
          NormalizePath(path).Contains("/dependencies", StringComparison.OrdinalIgnoreCase));
+
+    private static bool IsSearchPath(string? path)
+    {
+        var normalized = NormalizePath(path);
+        return normalized.Equals("/api/search", StringComparison.OrdinalIgnoreCase) ||
+               normalized.Equals("/api/search/message-authors", StringComparison.OrdinalIgnoreCase);
+    }
 
     private static bool IsWpcCreatePath(string? path, string method) =>
         HttpMethods.IsPost(method) && ApiEnvelope.IsCanonicalCreatePath(path);

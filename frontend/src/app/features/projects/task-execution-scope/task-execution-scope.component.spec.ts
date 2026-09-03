@@ -64,7 +64,7 @@ describe('TaskExecutionScopeComponent', () => {
     TestBed.resetTestingModule();
   });
 
-  it('renders only the authorized effective policy and the fail-closed runtime notice', () => {
+  it('renders only the authorized effective policy and the first-party runtime contract notice', () => {
     const requests = expectScopeReads(http);
     expect(requests.project.request.withCredentials).toBe(true);
     expect(requests.task.request.withCredentials).toBe(true);
@@ -75,13 +75,39 @@ describe('TaskExecutionScopeComponent', () => {
     expect(native.querySelector('[data-testid="task-execution-scope-origin"]')?.textContent).toContain('Project default');
     expect(native.querySelector('[data-testid="task-execution-scope-web"]')?.textContent).toContain('Disabled');
     expect(native.querySelector('[data-testid="task-execution-scope-files"]')?.textContent).toContain('Disabled');
-    expect(native.querySelector('[data-testid="task-execution-scope-future-only"]')?.textContent).toContain('future run requests only');
-    expect(native.querySelector('[data-testid="task-execution-runtime-unavailable"]')?.textContent).toContain('No execution runtime is configured');
-    expect(native.querySelectorAll('button').length).toBe(0);
+    expect(native.querySelector('[data-testid="task-execution-scope-future-only"]')?.textContent).toContain('future Run requests only');
+    expect(native.querySelector('[data-testid="task-execution-runtime-contract"]')?.textContent).toContain('Execution provider: First-party Project Files V1');
+    expect(native.querySelectorAll('button').length).toBe(1);
+    expect(native.querySelector('[data-testid="task-context-summary-count"]')?.textContent).toContain('0 of 4 source kinds eligible');
     expect(native.textContent).not.toContain('Start execution');
   });
 
-  it('saves the Project default with the server version and refreshes the Task-effective projection', () => {
+  it('summarizes only authorized source kinds and moves keyboard focus to the detailed context', () => {
+    flushScope(expectScopeReads(http), {
+      taskOrigin: 'TaskOverride',
+      taskOverrideVersion: 2,
+      taskWebEnabled: true,
+      taskFilesEnabled: false,
+    });
+    fixture.detectChanges();
+
+    const native = fixture.nativeElement as HTMLElement;
+    const summary = native.querySelector<HTMLButtonElement>('[data-testid="task-context-summary"]');
+    const details = native.querySelector<HTMLElement>('[data-testid="task-context-details"]');
+    expect(summary).not.toBeNull();
+    expect(summary?.getAttribute('aria-controls')).toBe(details?.id);
+    expect(native.querySelector('[data-testid="task-context-summary-count"]')?.textContent).toContain('1 of 4 source kinds eligible');
+    expect(native.querySelector('[data-testid="task-context-summary-origin"]')?.textContent).toContain('Task override');
+    expect(native.querySelector('[data-testid="task-context-summary-web"]')?.textContent).toContain('Web: Allow');
+    expect(native.querySelector('[data-testid="task-context-summary-files"]')?.textContent).toContain('Project files: Exclude');
+    expect(summary?.textContent).toContain('never a hidden inventory count');
+
+    summary?.click();
+
+    expect(document.activeElement).toBe(details);
+  });
+
+  it('saves the Project default with source policy v2 and refreshes the Task-effective projection', () => {
     flushScope(expectScopeReads(http), {
       projectCanManage: true,
       taskCanManage: true,
@@ -96,7 +122,19 @@ describe('TaskExecutionScopeComponent', () => {
     const save = http.expectOne(`/api/projects/${PROJECT_ID}/execution-scope`);
     expect(save.request.method).toBe('PUT');
     expect(save.request.withCredentials).toBe(true);
-    expect(save.request.body).toEqual({ webEnabled: true, projectFilesEnabled: true, expectedVersion: 4 });
+    expect(save.request.body).toEqual({
+      webEnabled: true,
+      projectFilesEnabled: true,
+      expectedVersion: 4,
+      policyV2: {
+        schemaVersion: 2,
+        web: 'Allow',
+        webSite: 'Exclude',
+        projectFile: 'Allow',
+        connectedApp: 'Exclude',
+        items: [],
+      },
+    });
     save.flush({ policy: { webEnabled: true, projectFilesEnabled: true }, version: 5, canManage: true });
 
     flushScope(expectScopeReads(http), {
@@ -110,14 +148,15 @@ describe('TaskExecutionScopeComponent', () => {
     });
     fixture.detectChanges();
 
-    expect((fixture.nativeElement as HTMLElement).textContent).toContain('Project default source settings saved.');
-    expect(component.scope()?.task.effectivePolicy).toEqual({ webEnabled: true, projectFilesEnabled: true });
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('Project default source policy saved.');
+    expect(component.scope()?.task.effectivePolicy.webEnabled).toBe(true);
+    expect(component.scope()?.task.effectivePolicy.projectFilesEnabled).toBe(true);
   });
 
-  it('renders a locked policy-only snapshot without offering a start control', () => {
+  it('renders a locked policy snapshot and derives its major state only from durable run status', () => {
     flushScope(expectScopeReads(http), {
       latestRun: {
-        status: 'RuntimeUnavailable',
+        status: 'Failed',
         snapshotScopeOrigin: 'TaskOverride',
         snapshotWebEnabled: true,
         snapshotProjectFilesEnabled: false,
@@ -127,8 +166,30 @@ describe('TaskExecutionScopeComponent', () => {
 
     const native = fixture.nativeElement as HTMLElement;
     expect(native.querySelector('[data-testid="task-execution-snapshot"]')?.textContent).toContain('Task override');
-    expect(native.querySelector('[data-testid="task-execution-snapshot"]')?.textContent).toContain('Unavailable - no execution was started.');
+    expect(native.querySelector('[data-testid="task-execution-major-state"]')?.textContent).toContain('Failed');
+    expect(native.querySelector('[data-testid="task-execution-snapshot"]')?.textContent).toContain('Execution failed.');
     expect(native.textContent).not.toContain('Start execution');
+  });
+
+  it('renders Queued from the server major-state contract in an atomic polite status region', () => {
+    flushScope(expectScopeReads(http), {
+      latestRun: {
+        status: 'Queued',
+        majorState: 'Queued',
+        snapshotScopeOrigin: 'ProjectDefault',
+        snapshotWebEnabled: false,
+        snapshotProjectFilesEnabled: true,
+      },
+    });
+    fixture.detectChanges();
+
+    const native = fixture.nativeElement as HTMLElement;
+    const status = native.querySelector('[data-testid="task-execution-major-state-status"]');
+    expect(status?.getAttribute('role')).toBe('status');
+    expect(status?.getAttribute('aria-live')).toBe('polite');
+    expect(status?.getAttribute('aria-atomic')).toBe('true');
+    expect(native.querySelector('[data-testid="task-execution-major-state"]')?.textContent).toContain('Queued');
+    expect(native.querySelector('[data-testid="task-execution-snapshot"]')?.textContent).toContain('Execution is queued for server materialization.');
   });
 
   it('saves a complete Task override instead of merging it with the Project default', () => {
@@ -148,7 +209,19 @@ describe('TaskExecutionScopeComponent', () => {
 
     const save = http.expectOne(`/api/tasks/${TASK_ID}/execution-scope-override`);
     expect(save.request.method).toBe('PUT');
-    expect(save.request.body).toEqual({ webEnabled: false, projectFilesEnabled: true, expectedVersion: 0 });
+    expect(save.request.body).toEqual({
+      webEnabled: false,
+      projectFilesEnabled: true,
+      expectedVersion: 0,
+      policyV2: {
+        schemaVersion: 2,
+        web: 'Exclude',
+        webSite: 'Exclude',
+        projectFile: 'Allow',
+        connectedApp: 'Exclude',
+        items: [],
+      },
+    });
     save.flush(taskScopeResponse({
       taskOrigin: 'TaskOverride',
       taskOverrideVersion: 1,
@@ -169,7 +242,49 @@ describe('TaskExecutionScopeComponent', () => {
     fixture.detectChanges();
 
     expect(component.scope()?.task.origin).toBe('TaskOverride');
-    expect(component.scope()?.task.effectivePolicy).toEqual({ webEnabled: false, projectFilesEnabled: true });
+    expect(component.scope()?.task.effectivePolicy.webEnabled).toBe(false);
+    expect(component.scope()?.task.effectivePolicy.projectFilesEnabled).toBe(true);
+  });
+
+  it('sends Prioritize and canonical site item rules in the complete Task override', () => {
+    flushScope(expectScopeReads(http), {
+      projectCanManage: true,
+      taskCanManage: true,
+    });
+    fixture.detectChanges();
+
+    component.setTaskEditorMode('override');
+    component.overrideFileState.set('Prioritize');
+    component.overrideProjectFilesEnabled.set(true);
+    component.addSiteRule('task', 'https://Docs.Example.com/path');
+    component.saveTaskScope();
+
+    const save = http.expectOne(`/api/tasks/${TASK_ID}/execution-scope-override`);
+    expect(save.request.body).toEqual({
+      webEnabled: false,
+      projectFilesEnabled: true,
+      expectedVersion: 0,
+      policyV2: {
+        schemaVersion: 2,
+        web: 'Exclude',
+        webSite: 'Exclude',
+        projectFile: 'Prioritize',
+        connectedApp: 'Exclude',
+        items: [{ kind: 'WebSite', sourceId: 'site:docs.example.com', state: 'Allow' }],
+      },
+    });
+    save.flush(taskScopeResponse({
+      taskOrigin: 'TaskOverride',
+      taskOverrideVersion: 1,
+      taskFilesEnabled: true,
+      taskCanManage: true,
+    }));
+    flushScope(expectScopeReads(http), {
+      taskOrigin: 'TaskOverride',
+      taskOverrideVersion: 1,
+      taskFilesEnabled: true,
+      taskCanManage: true,
+    });
   });
 
   it('clears an existing Task override using its own optimistic version', () => {
@@ -216,6 +331,7 @@ describe('TaskExecutionScopeComponent', () => {
 
     expect(component.scope()).toBeNull();
     expect((fixture.nativeElement as HTMLElement).textContent).toContain('unavailable in the current session');
+    expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="task-context-summary"]')).toBeNull();
     expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="task-execution-scope-summary"]')).toBeNull();
   });
 
@@ -249,6 +365,7 @@ describe('TaskExecutionScopeComponent', () => {
     const native = fixture.nativeElement as HTMLElement;
     expect(component.scope()).toBeNull();
     expect(component.canManageAnything()).toBe(false);
+    expect(native.querySelector('[data-testid="task-context-summary"]')).toBeNull();
     expect(native.querySelector('[data-testid="task-execution-scope-summary"]')).toBeNull();
     expect(native.textContent).toContain('unavailable in the current session');
     expect(native.textContent).not.toContain('authorization details');
@@ -269,6 +386,7 @@ describe('TaskExecutionScopeComponent', () => {
     });
     fixture.detectChanges();
     expect(component.scope()?.task.effectivePolicy.webEnabled).toBe(true);
+    expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="task-context-summary-count"]')?.textContent).toContain('1 of 4 source kinds eligible');
 
     realtimeEvents.next(realtimeEvent('Projects.TaskChanged.v1', TASK_ID));
     flushScope(expectScopeReads(http), {
@@ -281,6 +399,7 @@ describe('TaskExecutionScopeComponent', () => {
     });
     fixture.detectChanges();
     expect(component.scope()?.task.effectivePolicy.projectFilesEnabled).toBe(true);
+    expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="task-context-summary-count"]')?.textContent).toContain('2 of 4 source kinds eligible');
   });
 });
 

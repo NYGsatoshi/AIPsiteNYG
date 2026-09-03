@@ -6,13 +6,13 @@
     aria-labelledby="login-title"
   >
     <header class="login-page__header">
-      <p>アカウント</p>
-      <h1 id="login-title">ログイン</h1>
+      <p>{{ i18n.translate('login.eyebrow') }}</p>
+      <h1 id="login-title">{{ i18n.translate('login.title') }}</h1>
     </header>
 
     <form class="login-page__form" [formGroup]="form" (ngSubmit)="submit()" novalidate>
       <label class="login-page__field">
-        <span>メールアドレス</span>
+        <span>{{ i18n.translate('login.email') }}</span>
         <input
           type="email"
           formControlName="email"
@@ -24,7 +24,7 @@
       </label>
 
       <label class="login-page__field">
-        <span>パスワード</span>
+        <span>{{ i18n.translate('login.password') }}</span>
         <input
           type="password"
           formControlName="password"
@@ -39,7 +39,7 @@
       }
 
       <button type="submit" data-testid="login-submit" [disabled]="isSubmitting()">
-        {{ isSubmitting() ? '送信中' : 'ログイン' }}
+        {{ isSubmitting() ? i18n.translate('login.submitting') : i18n.translate('login.submit') }}
       </button>
     </form>
   </section>

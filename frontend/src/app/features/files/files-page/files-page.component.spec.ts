@@ -13,7 +13,7 @@ import { FilesPageViewModel } from '../files.types';
 import { AipFileUploaderComponent } from '../../../shared/ui/adapters/syncfusion/aip-file-uploader.component';
 import { FilesPageComponent } from './files-page.component';
 
-const WORKSPACE_ID = '11111111-1111-1111-1111-111111111111';
+const WORKSPACE_ID = '11111111-1111-4111-8111-111111111111';
 const FILE_OBJECT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
 const backendFile = {
@@ -66,9 +66,17 @@ const renderLiveFilesPage = async (
   const fixture = TestBed.createComponent(FilesPageComponent);
   const http = TestBed.inject(HttpTestingController);
   fixture.detectChanges();
+  flushFolderList(http);
   flushFileList(http, items);
   fixture.detectChanges();
   return { fixture, http };
+};
+
+const flushFolderList = (http: HttpTestingController): void => {
+  const request = http.expectOne((candidate) => candidate.url === '/api/file-folders' && candidate.method === 'GET');
+  expect(request.request.params.get('workspaceId')).toBe(WORKSPACE_ID);
+  expect(request.request.withCredentials).toBe(true);
+  request.flush([]);
 };
 
 const flushFileList = (http: HttpTestingController, items: readonly unknown[]): void => {
@@ -87,7 +95,10 @@ const downloadButton = (fixture: ComponentFixture<FilesPageComponent>): HTMLButt
   (fixture.nativeElement as HTMLElement).querySelector('[data-testid="download-action"]') as HTMLButtonElement;
 
 describe('FilesPageComponent', () => {
+  beforeEach(() => window.localStorage.setItem('aip.locale', 'en'));
+
   afterEach(() => {
+    window.localStorage.removeItem('aip.locale');
     TestBed.inject(HttpTestingController).verify();
     vi.restoreAllMocks();
     TestBed.resetTestingModule();
@@ -116,6 +127,159 @@ describe('FilesPageComponent', () => {
     expect(textContent(fixture)).toContain('Upload accepted by backend.');
     expect(textContent(fixture)).toContain('note.txt');
   }, 15_000);
+
+  it('renders Files actions, filters, and destructive confirmation in Japanese without raw keys', async () => {
+    window.localStorage.setItem('aip.locale', 'ja');
+    const { fixture, http } = await renderLiveFilesPage([backendFile]);
+    const host = fixture.nativeElement as HTMLElement;
+
+    expect(document.documentElement.lang).toBe('ja');
+    expect(textContent(fixture)).toContain('ファイルを検索・絞り込み');
+    expect(textContent(fixture)).toContain('ファイルをアップロード');
+    expect((host.querySelector('[data-testid="files-search-input"]') as HTMLInputElement).placeholder).toBe('ファイル名を検索');
+
+    const type = host.querySelector('[data-testid="files-filter-type"]') as HTMLSelectElement;
+    type.value = 'pdf';
+    type.dispatchEvent(new Event('change'));
+    (host.querySelector('[data-testid="files-search-surface"] form') as HTMLFormElement)
+      .dispatchEvent(new Event('submit'));
+    const search = http.expectOne((request) => request.url === '/api/search');
+    search.flush({
+      page: 1,
+      pageSize: 50,
+      totalCount: 1,
+      items: [{
+        type: 13,
+        id: FILE_OBJECT_ID,
+        title: 'report.pdf',
+        workspaceId: WORKSPACE_ID,
+        createdAt: '2026-08-20T00:00:00Z',
+        authorDisplayName: 'Fixture User',
+        contentType: 'application/pdf',
+        sizeBytes: 2048,
+        status: 'Active',
+        scanStatus: 'Allowed',
+      }],
+    });
+    fixture.detectChanges();
+
+    expect(textContent(fixture)).toContain('種類: PDF');
+    expect(textContent(fixture)).toContain('現在閲覧できるファイルが1件見つかりました。');
+    expect(host.querySelector('button[aria-label="フィルターを削除: 種類: PDF"]')).not.toBeNull();
+    expect(textContent(fixture)).not.toContain('files.search.');
+
+    const file = fixture.componentInstance.page().recentFiles[0];
+    if (!file) {
+      throw new Error('Expected a listed file.');
+    }
+    fixture.componentInstance.handleSelectionChanged({ rows: [file] });
+    fixture.detectChanges();
+    (host.querySelector('[data-testid="files-selected-delete"]') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    expect(textContent(fixture)).toContain('note.txtを削除しますか？');
+    expect(textContent(fixture)).toContain('キャンセル');
+    expect(textContent(fixture)).toContain('ファイルを削除');
+  }, 15_000);
+
+  it('keeps File search and Type, Modified, and Owner filters in one scoped surface with removable chips', async () => {
+    const { fixture, http } = await renderLiveFilesPage([backendFile]);
+    const host = fixture.nativeElement as HTMLElement;
+    const input = host.querySelector('[data-testid="files-search-input"]') as HTMLInputElement;
+    const type = host.querySelector('[data-testid="files-filter-type"]') as HTMLSelectElement;
+    const modified = host.querySelector('[data-testid="files-filter-modified"]') as HTMLSelectElement;
+    const owner = host.querySelector('[data-testid="files-filter-owner"]') as HTMLSelectElement;
+
+    input.value = 'report';
+    input.dispatchEvent(new Event('input'));
+    type.value = 'pdf';
+    type.dispatchEvent(new Event('change'));
+    modified.value = 'last30Days';
+    modified.dispatchEvent(new Event('change'));
+    owner.value = 'me';
+    owner.dispatchEvent(new Event('change'));
+    (host.querySelector('[data-testid="files-search-surface"] form') as HTMLFormElement)
+      .dispatchEvent(new Event('submit'));
+    fixture.detectChanges();
+
+    const search = http.expectOne(request => request.url === '/api/search');
+    expect(search.request.params.get('workspaceId')).toBe(WORKSPACE_ID);
+    expect(search.request.params.get('type')).toBe('File');
+    expect(search.request.params.get('q')).toBe('report');
+    expect(search.request.params.get('fileKind')).toBe('Pdf');
+    expect(search.request.params.get('fromDate')).toBeTruthy();
+    expect(search.request.params.get('authorUserId')).toBe(DEFAULT_AUTH_SESSION.currentUser?.userId);
+    search.flush({
+      page: 1,
+      pageSize: 50,
+      totalCount: 1,
+      items: [{
+        type: 13,
+        id: FILE_OBJECT_ID,
+        title: 'report.pdf',
+        workspaceId: WORKSPACE_ID,
+        createdAt: '2026-08-20T00:00:00Z',
+        updatedAt: '2026-08-28T00:00:00Z',
+        authorDisplayName: 'Fixture User',
+        contentType: 'application/pdf',
+        sizeBytes: 2048,
+        status: 'Active',
+        scanStatus: 'Allowed',
+      }],
+    });
+    fixture.detectChanges();
+
+    expect(textContent(fixture)).toContain('Results and counts include only files you are currently authorized to view.');
+    expect(textContent(fixture)).toContain('Type: PDF');
+    expect(textContent(fixture)).toContain('Modified: Last 30 days');
+    expect(textContent(fixture)).toContain('Owner: Uploaded by me');
+    expect(textContent(fixture)).toContain('1 currently authorized file matches.');
+    expect(textContent(fixture)).toContain('report.pdf');
+
+    input.value = 'unsubmitted draft';
+    input.dispatchEvent(new Event('input'));
+    owner.value = 'any';
+    owner.dispatchEvent(new Event('change'));
+    const removeType = host.querySelector('button[aria-label="Remove filter Type: PDF"]') as HTMLButtonElement;
+    removeType.click();
+    const refreshed = http.expectOne(request => request.url === '/api/search');
+    expect(refreshed.request.params.has('fileKind')).toBe(false);
+    expect(refreshed.request.params.get('q')).toBe('report');
+    expect(refreshed.request.params.get('authorUserId')).toBe(DEFAULT_AUTH_SESSION.currentUser?.userId);
+    refreshed.flush({ page: 1, pageSize: 50, totalCount: 0, items: [] });
+    fixture.detectChanges();
+    expect(host.querySelector('button[aria-label="Remove filter Type: PDF"]')).toBeNull();
+  });
+
+  it('fails closed without rendering a mismatched Workspace search row or server count', async () => {
+    const { fixture, http } = await renderLiveFilesPage([]);
+    const host = fixture.nativeElement as HTMLElement;
+    const input = host.querySelector('[data-testid="files-search-input"]') as HTMLInputElement;
+    input.value = 'report';
+    input.dispatchEvent(new Event('input'));
+    (host.querySelector('[data-testid="files-search-surface"] form') as HTMLFormElement)
+      .dispatchEvent(new Event('submit'));
+    http.expectOne(request => request.url === '/api/search').flush({
+      page: 1,
+      pageSize: 50,
+      totalCount: 99,
+      items: [{
+        type: 13,
+        id: FILE_OBJECT_ID,
+        title: 'other-workspace-secret.pdf',
+        workspaceId: '22222222-2222-4222-8222-222222222222',
+        createdAt: '2026-08-20T00:00:00Z',
+        contentType: 'application/pdf',
+        sizeBytes: 1,
+        status: 'Active',
+      }],
+    });
+    fixture.detectChanges();
+
+    expect(textContent(fixture)).toContain('invalid or mismatched response');
+    expect(textContent(fixture)).not.toContain('other-workspace-secret.pdf');
+    expect(textContent(fixture)).not.toContain('99 files');
+  });
 
   it('keeps retry state when backend upload fails', async () => {
     const { fixture, http } = await renderLiveFilesPage([]);
@@ -251,7 +415,7 @@ describe('FilesPageComponent', () => {
     expect(textContent(fixture)).not.toContain('note.txt');
   });
 
-  it('does not render a delete control when the server capability is absent', async () => {
+  it('keeps the batch Delete action visible but disabled when the server capability is absent', async () => {
     const { fixture } = await renderLiveFilesPage([{ ...backendFile, canDelete: undefined }]);
     const component = fixture.componentInstance;
     const file = component.page().recentFiles[0];
@@ -263,8 +427,107 @@ describe('FilesPageComponent', () => {
     fixture.detectChanges();
 
     const host = fixture.nativeElement as HTMLElement;
-    expect(host.querySelector('[data-testid="files-selected-delete"]')).toBeNull();
+    expect((host.querySelector('[data-testid="files-selected-delete"]') as HTMLButtonElement).disabled).toBe(true);
     expect(host.querySelector('[data-testid="files-selected-download"]')).not.toBeNull();
+  });
+
+  it('captures all search results on the server and batch-deletes the opaque selection', async () => {
+    const secondFileObjectId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+    const { fixture, http } = await renderLiveFilesPage([backendFile]);
+    const host = fixture.nativeElement as HTMLElement;
+    const input = host.querySelector('[data-testid="files-search-input"]') as HTMLInputElement;
+    input.value = 'report';
+    input.dispatchEvent(new Event('input'));
+    (host.querySelector('[data-testid="files-search-surface"] form') as HTMLFormElement)
+      .dispatchEvent(new Event('submit'));
+
+    const search = http.expectOne((request) => request.url === '/api/search');
+    search.flush({
+      page: 1,
+      pageSize: 50,
+      totalCount: 2,
+      items: [
+        {
+          type: 13,
+          id: FILE_OBJECT_ID,
+          title: 'report-one.pdf',
+          workspaceId: WORKSPACE_ID,
+          createdAt: '2026-08-20T00:00:00Z',
+          contentType: 'application/pdf',
+          sizeBytes: 10,
+          status: 'Active',
+        },
+        {
+          type: 13,
+          id: secondFileObjectId,
+          title: 'report-two.pdf',
+          workspaceId: WORKSPACE_ID,
+          createdAt: '2026-08-21T00:00:00Z',
+          contentType: 'application/pdf',
+          sizeBytes: 20,
+          status: 'Active',
+        },
+      ],
+    });
+    fixture.detectChanges();
+
+    (host.querySelector('[data-testid="files-select-all-search-results"]') as HTMLButtonElement).click();
+    const capture = http.expectOne(request =>
+      request.url === '/api/files/selection-snapshots' && request.method === 'POST');
+    expect(capture.request.params.get('workspaceId')).toBe(WORKSPACE_ID);
+    expect(capture.request.params.get('q')).toBe('report');
+    capture.flush({
+      outcome: 'Captured',
+      selectionSnapshotId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      selectedCount: 2,
+      maximumSelectionCount: 100,
+      expiresAt: '2026-08-31T12:00:00Z',
+    });
+    fixture.detectChanges();
+
+    expect(textContent(fixture)).toContain('2 selected');
+    expect(textContent(fixture)).toContain('Captured search-result selection');
+    expect((host.querySelector('[data-testid="files-selected-download"]') as HTMLButtonElement).disabled).toBe(true);
+
+    (host.querySelector('[data-testid="files-selected-delete"]') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(textContent(fixture)).toContain('Delete 2 captured search-result files?');
+    expect(textContent(fixture)).toContain('restoration follows your organization’s recovery policy');
+
+    (host.querySelector('.aip-dialog__confirm') as HTMLButtonElement).click();
+    const deletion = http.expectOne('/api/files/selection-snapshots/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb/delete');
+    expect(deletion.request.method).toBe('POST');
+    deletion.flush({ attemptedCount: 2, succeededCount: 1, failedCount: 1, items: [] });
+
+    const refreshedSearch = http.expectOne((request) => request.url === '/api/search');
+    refreshedSearch.flush({ page: 1, pageSize: 50, totalCount: 1, items: [] });
+    flushFileList(http, []);
+    fixture.detectChanges();
+
+    expect(textContent(fixture)).toContain('1 of 2 files were deleted.');
+    expect(host.querySelector('[data-testid="files-normal-toolbar"]')).not.toBeNull();
+  }, 15_000);
+
+  it('selects a mobile checkbox range from the last selection anchor', async () => {
+    const { fixture } = await renderLiveFilesPage([
+      backendFile,
+      { ...backendFile, id: 'attachment-2', fileObjectId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', originalFileName: 'two.txt' },
+      { ...backendFile, id: 'attachment-3', fileObjectId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', originalFileName: 'three.txt' },
+    ]);
+    const component = fixture.componentInstance;
+    const files = component.page().recentFiles;
+    const first = files[0];
+    const last = files[2];
+    if (!first || !last) {
+      throw new Error('Expected three listed files.');
+    }
+
+    component.handleMobileSelection({ file: first, selected: true });
+    component.handleMobileSelection({ file: last, selected: true, range: true });
+    fixture.detectChanges();
+
+    expect(component.selectedCount()).toBe(3);
+    expect(textContent(fixture)).toContain('3 selected');
   });
 
   it('shows a safe denied state when download grant issuance is denied', async () => {
@@ -304,7 +567,7 @@ describe('FilesPageComponent', () => {
     expect(host.querySelector('object')).toBeNull();
     expect(host.querySelector('embed')).toBeNull();
     expect(host.querySelector('video')).toBeNull();
-    expect(host.querySelector('svg')).toBeNull();
+    expect(host.querySelector('[data-testid="files-preview-pane"] svg')).toBeNull();
     expect(text).toContain('Preview is not available in MVP0.');
     expect(text).toContain('CDN links, public links, and external signed URL sharing are disabled.');
   });

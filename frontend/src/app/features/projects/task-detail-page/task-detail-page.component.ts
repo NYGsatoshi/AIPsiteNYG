@@ -7,11 +7,13 @@ import { Subscription } from 'rxjs';
 import { AppEmptyStateComponent } from '../../../shared/empty-state/app-empty-state/app-empty-state.component';
 import { AppInlineLoadingComponent } from '../../../shared/loading/app-inline-loading/app-inline-loading.component';
 import { AppPermissionDeniedComponent } from '../../../shared/permission/app-permission-denied/app-permission-denied.component';
+import { I18nService } from '../../../core/i18n/i18n.service';
 import { ProjectsFacade } from '../projects.facade';
 import { TASK_LABEL_DESCRIPTION_MAX_LENGTH, TASK_LABEL_NAME_MAX_LENGTH, TaskActivityLogType, TaskDetailSection, TaskDetailSectionState, TaskEditorSaveRequest, TaskStageCategory, TaskStatus } from '../projects.types';
 import { TaskDependenciesReadonlyComponent } from '../task-dependencies-readonly/task-dependencies-readonly.component';
 import { TaskEditorComponent } from '../task-editor/task-editor.component';
 import { TaskExecutionScopeComponent } from '../task-execution-scope/task-execution-scope.component';
+import { TaskResearchPlanComponent } from '../task-research-plan/task-research-plan.component';
 import { TaskStatusBadgeComponent } from '../task-status-badge/task-status-badge.component';
 import { AppMentionInputComponent } from '../../../shared/mention-input/app-mention-input.component';
 import { FilesFacade } from '../../files/files.facade';
@@ -30,6 +32,7 @@ import { AttachmentPickerDialogComponent } from '../../files/attachment-picker-d
     TaskDependenciesReadonlyComponent,
     TaskEditorComponent,
     TaskExecutionScopeComponent,
+    TaskResearchPlanComponent,
     TaskStatusBadgeComponent,
     AppMentionInputComponent,
     AttachmentPickerDialogComponent
@@ -41,9 +44,11 @@ export class TaskDetailPageComponent implements OnDestroy {
   private readonly facade = inject(ProjectsFacade);
   private readonly route = inject(ActivatedRoute);
   private readonly files = inject(FilesFacade);
+  readonly i18n = inject(I18nService);
   private routeSubscription: Subscription | null = null;
   private readonly projectId = signal<string | undefined>(undefined);
   private readonly taskId = signal<string | undefined>(undefined);
+  private readonly activityRequested = signal(false);
 
   readonly page = computed(() =>
     this.facade.getTaskDetail(
@@ -89,11 +94,13 @@ export class TaskDetailPageComponent implements OnDestroy {
   readonly fileDownloadMessage = signal('');
   readonly subtaskTitle = signal('');
   readonly taskEditorDirty = signal(false);
+  readonly researchPlanDirty = signal(false);
   readonly labelNameMaxLength = TASK_LABEL_NAME_MAX_LENGTH;
   readonly labelDescriptionMaxLength = TASK_LABEL_DESCRIPTION_MAX_LENGTH;
   /** One local source of truth for realtime protection; focus alone never makes this true. */
   readonly detailEditing = computed(() =>
     this.taskEditorDirty() ||
+    this.researchPlanDirty() ||
     this.subtaskTitle().trim().length > 0 ||
     this.checklistText().trim().length > 0 ||
     (this.editingChecklistId() !== null && this.editingChecklistText().trim() !== this.originalChecklistText().trim()) ||
@@ -111,6 +118,18 @@ export class TaskDetailPageComponent implements OnDestroy {
     // Test/story doubles from before the Task-body/subresource split may not expose
     // this additive facade method yet.
     effect(() => (this.facade as unknown as { setTaskBodyEditing?: (editing: boolean) => void }).setTaskBodyEditing?.(this.taskEditorDirty()));
+    // Authorization loss intentionally clears all protected Task projections and
+    // invalidates in-flight Activity responses. Preserve only the local fact that
+    // this mounted route requested Activity, then re-read page one after the same
+    // Task is authoritatively rehydrated under the new authorization generation.
+    effect(() => {
+      const requested = this.activityRequested();
+      const taskId = this.taskId();
+      const vm = this.page();
+      const activityState = this.sectionState('activity')().status;
+      if (!requested || !taskId || !vm.task || !vm.detail || vm.task.id !== taskId || activityState !== 'idle') return;
+      this.facade.loadActivity(taskId);
+    });
     this.routeSubscription = this.route.paramMap.subscribe((params) => {
       const projectId = params.get('projectId') ?? undefined;
       const taskId = params.get('taskId') ?? undefined;
@@ -150,9 +169,15 @@ export class TaskDetailPageComponent implements OnDestroy {
 
   retry(): void { const taskId = this.taskId(); if (taskId) this.facade.retryTaskDetail(taskId); }
   retrySection(section: TaskDetailSection): void { const taskId = this.taskId(); if (taskId) this.facade.retrySection(taskId, section); }
-  loadActivity(event: Event): void {
+  /**
+   * Use the bubbling interaction path rather than relying on the native
+   * non-bubbling `toggle` event to reach Angular's component listener.
+   */
+  loadActivity(): void {
     const taskId = this.taskId();
-    if (taskId && (event.currentTarget as HTMLDetailsElement | null)?.open) this.facade.loadActivity(taskId);
+    if (!taskId) return;
+    this.activityRequested.set(true);
+    this.facade.loadActivity(taskId);
   }
   loadMore(section: 'activity' | 'subtasks' | 'comments' | 'files'): void { const taskId = this.taskId(); if (!taskId) return; if (section === 'activity') this.facade.loadMoreActivity(taskId); else if (section === 'subtasks') this.facade.loadMoreSubtasks(taskId); else if (section === 'comments') this.facade.loadMoreComments(taskId); else this.facade.loadMoreFiles(taskId); }
   phaseStateLabel(category: TaskStageCategory | undefined, status: TaskStatus, isBlocked: boolean | undefined): string {
@@ -210,8 +235,45 @@ export class TaskDetailPageComponent implements OnDestroy {
   loadMorePickerFiles(): void { this.files.loadMorePickerFiles(); }
   retryPickerFiles(): void { this.files.retryPickerFiles(); }
 
+  taskFileMetadataLabel(file: { readonly contentType: string; readonly sizeBytes: number }): string {
+    return this.i18n.translate('files.task.fileMetadata', {
+      type: file.contentType
+        ? this.i18n.fileContentTypeLabel(file.contentType)
+        : this.i18n.translate('files.details.unavailable'),
+      size: this.i18n.formatFileSize(file.sizeBytes)
+    });
+  }
+
+  taskFileScanLabel(scanStatus: string): string {
+    return this.i18n.translate('files.task.scan', { status: this.i18n.taskFileScanStatusLabel(scanStatus) });
+  }
+
+  taskFileAccessLabel(accessState: string): string {
+    return this.i18n.translate('files.task.access', { status: this.i18n.taskFileAccessStateLabel(accessState) });
+  }
+
+  taskFileRestrictionLabel(restrictionCode: string | null): string | null {
+    return this.i18n.taskFileRestrictionLabel(restrictionCode);
+  }
+
+  taskFileSectionMessage(state: TaskDetailSectionState): string {
+    if (this.i18n.locale() === 'en') return state.message ?? this.i18n.translate('files.task.error');
+    if (state.status === 'permissionDenied') return this.i18n.translate('api.permissionDenied');
+    if (state.status === 'conflict') return this.i18n.translate('api.conflict');
+    return this.i18n.translate('files.task.error');
+  }
+
+  taskFilePickerMessage(): string {
+    const state = this.filePickerState();
+    if (this.i18n.locale() === 'en') return state.message ?? this.i18n.translate('files.task.error');
+    return state.status === 'permissionDenied'
+      ? this.i18n.translate('api.permissionDenied')
+      : this.i18n.translate('files.task.error');
+  }
+
   private resetLocalTaskDraftState(): void {
-    this.subtaskTitle.set(''); this.checklistText.set(''); this.editingChecklistId.set(null); this.editingChecklistText.set(''); this.originalChecklistText.set(''); this.taskEditorDirty.set(false);
+    this.activityRequested.set(false);
+    this.subtaskTitle.set(''); this.checklistText.set(''); this.editingChecklistId.set(null); this.editingChecklistText.set(''); this.originalChecklistText.set(''); this.taskEditorDirty.set(false); this.researchPlanDirty.set(false);
     this.commentBody.set(''); this.commentImportant.set(false); this.cancelEditComment();
     this.selectedLabelId.set(''); this.newLabelName.set(''); this.cancelEditLabel(); this.selectedAttachmentId.set(''); this.fileDownloadMessage.set('');
     this.files.cancelAttachmentDownloads(); this.files.clearPickerFiles(); this.facade.setDetailEditing(false);

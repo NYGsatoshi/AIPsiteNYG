@@ -11,7 +11,7 @@ This document describes what the repository currently supports. It is not a prod
 | Direct local development | Partially implemented | Requires external PostgreSQL and migrations; initial administrator seed is opt-in |
 | `docker-compose.local.yml` | Partially implemented | Migrates and can opt in to initial administrator seed |
 | `docker-compose.yml` | Partially implemented | Migrates and can opt in to initial administrator seed |
-| `docker-compose.onprem.yml` | Incomplete | Does not run migrations and expects production HTTPS behavior without including a reverse proxy |
+| `docker-compose.onprem.yml` | Partially implemented | Runs controlled migrations and binds the app origin to loopback by default; an operator-provided TLS proxy with an explicit forwarded-header trust boundary is required for public use and still needs target-host evidence |
 | `deploy/sakura/docker-compose.yml` | Implemented for the current Sakura VPS topology | Requires owner-only external environment and Syncfusion license files |
 | Broad public SaaS | Not ready | Object storage, bootstrap, API-token auth, recovery evidence, and deployment hardening are incomplete |
 
@@ -47,11 +47,18 @@ This document describes what the repository currently supports. It is not a prod
 
 ### `docker-compose.onprem.yml`
 
-- PostgreSQL and app only.
-- No migration service and no automatic migration in the app.
-- `Tenancy:SeedOnStartup=true`, but seeding cannot work against a fresh database before the schema exists.
+- PostgreSQL, a controlled one-shot SDK migration service, and the app.
+- The app waits for a successful migration service completion; the application process still does not auto-migrate.
+- `Tenancy:SeedOnStartup=true` begins only after the schema migration has completed.
 - Production HTTPS redirect and secure-cookie settings are enabled.
-- No reverse-proxy/TLS service is included.
+- No reverse-proxy/TLS service is included: the supported public topology is an
+  operator-provided external TLS proxy terminating before the Compose origin.
+- The application port binds to `127.0.0.1` by default, not all host
+  interfaces. `AIP_PORTAL_BIND_ADDRESS` may be changed only for a documented
+  private, trusted-network topology.
+- Forwarded headers are disabled by default. An operator enabling proxy mode
+  must also supply at least one trusted proxy IP or CIDR or startup fails
+  closed.
 
 ### `deploy/sakura/docker-compose.yml`
 
@@ -65,7 +72,17 @@ This document describes what the repository currently supports. It is not a prod
 - Is deployed through `deploy/sakura/deploy.sh`, which rejects dirty source
   worktrees and group/other-readable secret or environment files.
 
-For a fresh on-prem deployment, apply migrations before starting the app.
+For a fresh on-prem deployment, configure the external TLS proxy boundary,
+then start the Compose profile normally; its one-shot `migrate` service applies
+the schema before the app is allowed to start. A failed migration keeps the app
+from starting successfully. This is not a replacement for a fresh-stack
+deployment verification with the intended TLS proxy, credentials, and build
+secret.
+
+The current migration-only verification record is
+`docs/verification/procon-onprem-compose-migration.md`. The canonical external
+TLS-proxy contract and operator verification procedure are in
+`docs/verification/procon-onprem-reverse-proxy-topology.md`.
 
 ## Configuration sources
 
@@ -227,19 +244,65 @@ Tenant metadata export does not include file bodies and cannot replace storage b
 
 Production startup requires HTTPS redirect, HSTS, and secure cookies.
 
-The host now enables `UseForwardedHeaders` when `ReverseProxy:TrustForwardedHeaders=true` (for example `ReverseProxy__TrustForwardedHeaders=true` in Compose or environment variables). This opt-in path applies `X-Forwarded-For`, `X-Forwarded-Proto`, and `X-Forwarded-Host`, which fixes secure-cookie and HTTPS detection for TLS-terminating proxies such as Caddy or Cloudflare Tunnel.
+The canonical on-prem topology is vendor-neutral:
 
-Do not enable `ReverseProxy:TrustForwardedHeaders` when the app is directly reachable from untrusted clients. The current implementation clears the ASP.NET Core proxy allowlists and assumes the app is network-isolated behind the trusted proxy or tunnel.
+```text
+Internet
+  -> operator-provided external TLS proxy or tunnel
+  -> host loopback/private origin port
+  -> AIPsite Compose app
+  -> PostgreSQL on the internal Compose network
+```
 
-Focused automated coverage now verifies that `GET /api/security/csrf-token` succeeds with `Security:CookieSecurePolicy=Always` when `X-Forwarded-Proto: https` is trusted.
+The proxy owns certificates and TLS termination. The app container has no
+certificate files and must not be published directly to an untrusted public
+HTTP interface. The stock on-prem Compose mapping is
+`127.0.0.1:${AIP_PORTAL_PORT:-8080}:8080`; do not override that to
+`0.0.0.0` unless a separate trusted private-network design is recorded and
+firewalled.
 
-Do not claim reverse-proxy readiness until the exact deployment topology is tested end to end.
+Set the following operator values before a public on-prem startup:
+
+```bash
+AIP_PORTAL_BIND_ADDRESS=127.0.0.1
+AIP_PORTAL_PORT=8080
+REVERSE_PROXY_TRUST_FORWARDED_HEADERS=true
+# One or more comma-delimited proxy peer IPs as seen by the app container.
+REVERSE_PROXY_TRUSTED_PROXIES=172.17.0.1
+# Or, when the proxy is on a dedicated internal Docker/private network:
+REVERSE_PROXY_TRUSTED_NETWORKS=172.30.50.0/24
+```
+
+`ReverseProxy:TrustForwardedHeaders` enables `X-Forwarded-For`,
+`X-Forwarded-Proto`, and `X-Forwarded-Host` only after the immediate peer
+matches an explicitly configured IP or CIDR (loopback remains an ASP.NET Core
+default). Hostnames are rejected rather than DNS-resolved, the proxy chain is
+limited to one hop, and header symmetry is required. This prevents a public
+client that reaches a non-public origin by mistake from spoofing scheme, host,
+or client IP. Leaving proxy mode disabled also leaves forwarded headers
+untrusted; enabling it without a boundary causes startup validation to fail.
+
+The existing Sakura Caddy deployment is a conforming implementation of this
+contract. It declares its private Docker proxy network as the trusted boundary;
+operators with a fixed internal subnet should narrow the supplied CIDR further.
+Cloudflare Tunnel is another possible external proxy implementation, but the
+application contract does not depend on Cloudflare APIs or credentials.
+
+Focused Kestrel coverage verifies secure CSRF-cookie issuance through an
+explicit trusted HTTPS proxy boundary. It does not replace target-host proxy
+verification.
 
 ## Health endpoints
 
 - `GET /health/live`: process liveness.
 - `GET /health/ready`: database connection, no pending migrations, storage readiness, Data Protection path, and default tenant in single-tenant mode.
 - `GET /health`: temporary redirect to readiness.
+
+`/health/ready` is the canonical operator and proxy readiness path. Configure
+the external proxy health check against the public HTTPS host, preserving its
+normal `Host`, `X-Forwarded-Proto: https`, and `X-Forwarded-For` behavior. The
+in-container health check may use loopback only to determine whether the app
+process itself is ready; it is not evidence that the public proxy route works.
 
 Readiness does not prove:
 
@@ -263,5 +326,8 @@ Before any pilot:
 7. Back up and restore PostgreSQL plus file storage.
 8. Record the app image/tag and configuration.
 9. Confirm no placeholder secrets or example configuration remain.
+10. Confirm `ss -ltn` (or equivalent) shows the app origin only on loopback or
+    the documented trusted private interface, then verify
+    `https://<public-host>/health/ready` through the external proxy.
 
 See `docs/KNOWN_ISSUES.md` and `docs/OPERATIONS.md`.

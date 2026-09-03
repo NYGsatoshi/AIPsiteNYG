@@ -127,6 +127,7 @@ public sealed class TaskItem : SoftDeletableEntity, ITenantEntity
     public ICollection<WorkItemLabel> Labels { get; } = new List<WorkItemLabel>();
     public TaskExecutionScopeOverride? ExecutionScopeOverride { get; set; }
     public ICollection<TaskExecutionRun> ExecutionRuns { get; } = new List<TaskExecutionRun>();
+    public ResearchPlan? ResearchPlan { get; set; }
 }
 
 public sealed class TaskChecklistItem : Entity, ITenantEntity

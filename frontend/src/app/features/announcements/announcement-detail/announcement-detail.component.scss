@@ -51,7 +51,9 @@ h2 {
 }
 
 h2:focus-visible,
-.announcement-detail__read-status:focus-visible {
+.announcement-detail__read-status:focus-visible,
+.announcement-detail__attachment a:focus-visible,
+.announcement-detail__cta:focus-visible {
   outline: 2px solid var(--aip-color-focus);
   outline-offset: 4px;
 }
@@ -160,13 +162,42 @@ h2:focus-visible,
 }
 
 .announcement-detail__attachment {
+  display: grid;
+  gap: 4px;
   margin: 0;
-  border: 1px dashed var(--aip-color-border-strong);
+  border: 1px solid var(--aip-color-border-strong);
   border-radius: 8px;
   padding: 10px 12px;
   background: var(--aip-color-bg-surface-subtle);
+  overflow-wrap: anywhere;
+}
+
+.announcement-detail__attachment > span {
   color: var(--aip-color-text-secondary);
+  font-size: 0.78rem;
   font-weight: 800;
+}
+
+.announcement-detail__attachment a {
+  color: var(--aip-color-action-primary);
+  font-weight: 900;
+}
+
+.announcement-detail__cta {
+  justify-self: start;
+  box-sizing: border-box;
+  min-height: 44px;
+  border: 1px solid var(--aip-color-action-primary);
+  border-radius: 6px;
+  padding: 11px 14px;
+  background: var(--aip-color-action-primary);
+  color: var(--aip-color-text-inverse);
+  font-weight: 900;
+  text-decoration: none;
+}
+
+.announcement-detail__cta:hover {
+  background: var(--aip-color-action-primary-hover);
 }
 
 @media (max-width: 860px) {
@@ -183,8 +214,14 @@ h2:focus-visible,
   }
 
   .announcement-detail__edit,
-  .announcement-detail__mark-read {
+  .announcement-detail__mark-read,
+  .announcement-detail__cta {
     width: 100%;
+  }
+
+  .announcement-detail__cta {
+    justify-self: stretch;
+    text-align: center;
   }
 
   .announcement-detail__meta {

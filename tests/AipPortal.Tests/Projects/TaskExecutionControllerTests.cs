@@ -14,15 +14,15 @@ namespace AipPortal.Tests.Projects;
 public sealed class TaskExecutionControllerTests
 {
     [Fact]
-    [Trait("Scope", "Issue357")]
-    public async Task RequestRunReturnsCreatedForTheRecordedFailClosedRuntimeOutcome()
+    [Trait("Scope", "Issue461")]
+    public async Task RequestRunReturnsCreatedForTheDurablyAcceptedRuntimeContract()
     {
         var run = new TaskExecutionRunResponse(
             Guid.NewGuid(),
-            TaskExecutionRunStatus.RuntimeUnavailable,
-            "TASK_EXECUTION_RUNTIME_UNAVAILABLE",
+            TaskExecutionRunStatus.Accepted,
+            null,
             new DateTimeOffset(2026, 8, 25, 8, 30, 0, TimeSpan.Zero),
-            new DateTimeOffset(2026, 8, 25, 8, 30, 0, TimeSpan.Zero),
+            null,
             TaskExecutionRun.SnapshotSchemaVersion1,
             TaskExecutionScopeOrigin.ProjectDefault,
             1,
@@ -45,8 +45,40 @@ public sealed class TaskExecutionControllerTests
         Assert.Equal(StatusCodes.Status201Created, response.StatusCode);
         var body = Assert.IsType<TaskExecutionRunResponse>(response.Value);
         Assert.Equal(run.Id, body.Id);
-        Assert.Equal(TaskExecutionRunStatus.RuntimeUnavailable, body.Status);
-        Assert.Equal("TASK_EXECUTION_RUNTIME_UNAVAILABLE", body.FailureCode);
+        Assert.Equal(TaskExecutionRunStatus.Accepted, body.Status);
+        Assert.Equal(TaskExecutionMajorState.Accepted, body.MajorState);
+        Assert.Null(body.FailureCode);
+        Assert.Equal(TaskExecutionProvider.FirstPartyProjectFilesRuntimeV1, body.RuntimeProvider);
+        Assert.Equal(TaskExecutionRun.RuntimeContractVersion1, body.RuntimeContractVersion);
+    }
+
+    [Theory]
+    [Trait("Scope", "Issue461")]
+    [InlineData(TaskExecutionRunStatus.Accepted, TaskExecutionMajorState.Accepted)]
+    [InlineData(TaskExecutionRunStatus.Queued, TaskExecutionMajorState.Queued)]
+    [InlineData(TaskExecutionRunStatus.Running, TaskExecutionMajorState.Running)]
+    [InlineData(TaskExecutionRunStatus.Failed, TaskExecutionMajorState.Failed)]
+    [InlineData(TaskExecutionRunStatus.Succeeded, TaskExecutionMajorState.Succeeded)]
+    public void ExecutionRunProjectsStableMajorState(
+        TaskExecutionRunStatus status,
+        TaskExecutionMajorState expected)
+    {
+        var run = new TaskExecutionRunResponse(
+            Guid.NewGuid(),
+            status,
+            status is TaskExecutionRunStatus.Failed ? "EXECUTION_FAILED" : null,
+            new DateTimeOffset(2026, 8, 29, 8, 30, 0, TimeSpan.Zero),
+            status is TaskExecutionRunStatus.Succeeded or TaskExecutionRunStatus.Failed
+                ? new DateTimeOffset(2026, 8, 29, 8, 31, 0, TimeSpan.Zero)
+                : null,
+            TaskExecutionRun.SnapshotSchemaVersion1,
+            TaskExecutionScopeOrigin.ProjectDefault,
+            1,
+            null,
+            false,
+            false);
+
+        Assert.Equal(expected, run.MajorState);
     }
 
     [Fact]
@@ -71,6 +103,43 @@ public sealed class TaskExecutionControllerTests
         Assert.Contains("TASK_EXECUTION_NOT_FOUND", payload, StringComparison.Ordinal);
         Assert.Contains("\"redactionApplied\":true", payload, StringComparison.Ordinal);
         Assert.DoesNotContain("taskItemId", payload, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    [Trait("Scope", "Issue361")]
+    public async Task ProjectScopeFailsClosedWhenProjectFileRuleAuthorizationCannotBeRevalidated()
+    {
+        var fileId = Guid.NewGuid();
+        var policy = new TaskExecutionSourcePolicyV2(
+            TaskExecutionSourcePolicyV2.CurrentSchemaVersion,
+            TaskExecutionSourceState.Exclude,
+            TaskExecutionSourceState.Exclude,
+            TaskExecutionSourceState.Exclude,
+            TaskExecutionSourceState.Exclude,
+            [new TaskExecutionSourceRule(
+                TaskExecutionSourceKind.ProjectFile,
+                TaskExecutionSourcePolicyV2.ProjectFileSourceId(fileId),
+                TaskExecutionSourceState.Allow)]);
+        var service = new StubTaskExecutionScopeService
+        {
+            ProjectResult = Result<ProjectExecutionScopeResponse>.Success(new ProjectExecutionScopeResponse(
+                new TaskExecutionSourcePolicyResponse(
+                    WebEnabled: false,
+                    ProjectFilesEnabled: true,
+                    PolicyV2: policy),
+                Version: 3,
+                CanManage: true))
+        };
+        var controller = Controller(service);
+
+        var action = await controller.GetProjectScope(Guid.NewGuid(), CancellationToken.None);
+
+        var ok = Assert.IsType<OkObjectResult>(action);
+        var body = Assert.IsType<ProjectExecutionScopeResponse>(ok.Value);
+        Assert.False(body.CanManage);
+        Assert.NotNull(body.Policy.PolicyV2);
+        Assert.Empty(body.Policy.PolicyV2!.Items);
+        Assert.False(body.Policy.ProjectFilesEnabled);
     }
 
     [Fact]
