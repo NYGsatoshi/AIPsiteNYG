@@ -1,5 +1,4 @@
 @let panel = state();
-@let announcement = saveAnnouncement();
 @let isSaving = saving();
 
 <section
@@ -26,9 +25,7 @@
   <p class="decision-panel__status" role="status" aria-live="polite" aria-atomic="true">
     @switch (panel.status) {
       @case ('loading') { Loading structured decision. }
-      @case ('ready') {
-        {{ announcement || (panel.response.reviewCompleted ? 'A structured decision is recorded.' : 'No structured decision is recorded yet.') }}
-      }
+      @case ('ready') { {{ readyStatusMessage() }} }
       @default { {{ panel.message }} }
     }
   </p>
