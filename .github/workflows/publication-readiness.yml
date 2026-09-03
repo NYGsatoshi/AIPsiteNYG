@@ -5,26 +5,6 @@ on:
   pull_request: # Required check: intentionally unfiltered.
   push:
     branches: ["main"]
-    paths:
-      - ".github/**"
-      - ".gitleaksignore"
-      - "scripts/ci/check-publication-readiness.py"
-      - "scripts/ci/test-publication-readiness.py"
-      - "scripts/ci/check-required-pr-checks.py"
-      - "scripts/ci/test-required-pr-checks.py"
-      - "scripts/ci/npm-audit-baseline.json"
-      - "README.md"
-      - "COPYRIGHT.md"
-      - "CONTRIBUTING.md"
-      - "THIRD_PARTY_NOTICES.md"
-      - "package.json"
-      - "package-lock.json"
-      - "frontend/package.json"
-      - "frontend/package-lock.json"
-      - "aipsite-frontend/package.json"
-      - "aipsite-frontend/package-lock.json"
-      - "docs/PUBLICATION_RUNBOOK.md"
-      - "docs/audit/publication-readiness-2026-09-03.md"
 
 concurrency:
   group: publication-readiness-${{ github.event.pull_request.number || github.ref }}
