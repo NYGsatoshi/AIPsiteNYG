@@ -664,11 +664,10 @@ export class ProjectsFacade {
     this.detailRequest?.unsubscribe();
     const authorizationGeneration = this.authorizationGeneration;
     const generation = this.detailGeneration;
-    // Bind the whole async chain to the Workspace authorization scope observed
-    // when this read starts. Reading ActiveWorkspace later inside switchMap is
-    // a TOCTOU race: cold direct-route hydration can change null -> Workspace
-    // after the Task GET starts and cause both the old and reauthorized chains
-    // to fetch the same parent Project.
+    // Bind the asynchronous read to the Workspace authorization scope observed here.
+    // Reading ActiveWorkspace later inside switchMap would create a TOCTOU race.
+    // Cold direct-route hydration can otherwise change null -> Workspace mid-flight.
+    // That race can duplicate the parent Project read across authorization generations.
     const expectedWorkspaceId = this.activeWorkspace.activeWorkspace()?.id ?? null;
     if (scope.kind === 'initialLoad') {this.setSectionState('detail', { status: 'loading' });}
     if (scope.kind === 'sectionRecovery') {this.setSectionState(scope.section, { status: 'loading', retryKind: 'aggregate' });}
@@ -681,9 +680,8 @@ export class ProjectsFacade {
           this.denyTaskDetail();
           return;
         }
-        // A cold direct route can resolve its Task before shell Workspace
-        // hydration. Keep the aggregate undisclosed until the Workspace effect
-        // reauthorizes this exact route against the selected Workspace.
+        // A cold direct route can resolve its Task before shell Workspace hydration.
+        // Keep the aggregate undisclosed until this route is reauthorized.
         if (response.workspacePending) {return;}
         if (response.parentProject) {this.replaceProject(response.parentProject);}
         // An aggregate refresh must not cancel an Activity request that the
