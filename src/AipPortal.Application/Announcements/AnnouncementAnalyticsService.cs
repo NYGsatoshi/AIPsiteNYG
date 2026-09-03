@@ -74,20 +74,25 @@ public interface IAnnouncementAnalyticsService
 /// </summary>
 public sealed class AnnouncementAnalyticsService(
     IAnnouncementRepository announcements,
-    IAnnouncementEngagementStore engagementStore,
-    IAnnouncementDistributionStore distributionStore,
     IWorkspaceAuthorizationService workspaceAuthorization,
     IGroupAuthorizationService groupAuthorization,
     IChannelAuthorizationService channelAuthorization,
     IUserRepository users,
     ICurrentUser currentUser,
     IClock clock,
-    IUnitOfWork unitOfWork) : IAnnouncementAnalyticsService
+    IUnitOfWork unitOfWork,
+    IAnnouncementEngagementStore? engagementStore = null,
+    IAnnouncementDistributionStore? distributionStore = null) : IAnnouncementAnalyticsService
 {
     public async Task<Result<AnnouncementAnalyticsResponse>> GetAsync(
         Guid announcementId,
         CancellationToken cancellationToken = default)
     {
+        if (engagementStore is null || distributionStore is null)
+        {
+            return Result<AnnouncementAnalyticsResponse>.Failure("Announcement analytics persistence is unavailable.");
+        }
+
         var announcement = await announcements.GetAsync(announcementId, cancellationToken);
         if (announcement is null || announcement.DeletedAt.HasValue)
         {
@@ -148,6 +153,11 @@ public sealed class AnnouncementAnalyticsService(
         Guid announcementId,
         CancellationToken cancellationToken = default)
     {
+        if (engagementStore is null)
+        {
+            return Result.Failure("Announcement engagement persistence is unavailable.");
+        }
+
         var context = await GetRecipientContextAsync(announcementId, cancellationToken);
         if (!context.IsSuccess)
         {
@@ -184,6 +194,11 @@ public sealed class AnnouncementAnalyticsService(
         Guid announcementId,
         CancellationToken cancellationToken = default)
     {
+        if (engagementStore is null)
+        {
+            return Result.Failure("Announcement engagement persistence is unavailable.");
+        }
+
         var context = await GetRecipientContextAsync(announcementId, cancellationToken);
         if (!context.IsSuccess)
         {
@@ -252,6 +267,11 @@ public sealed class AnnouncementAnalyticsService(
         if (await IsSystemAdminAsync(userId, cancellationToken))
         {
             return true;
+        }
+
+        if (distributionStore is null)
+        {
+            return false;
         }
 
         var publishedTargets = await distributionStore.GetAnnouncementTargetsAsync(
