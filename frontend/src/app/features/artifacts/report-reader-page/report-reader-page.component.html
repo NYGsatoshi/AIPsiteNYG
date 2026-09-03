@@ -1,36 +1,36 @@
-@if (loading()) {
-  <div class="state" role="status">Loading report…</div>
-} @else if (error()) {
-  <div class="state" role="alert">
-    <h1>Report unavailable</h1>
-    <p>The report could not be loaded or is not available to you.</p>
-  </div>
-} @else if (report(); as r) {
+<div class="state" role="status" [hidden]="!loading" i18n>Loading report…</div>
+
+<div class="state" role="alert" [hidden]="!error">
+  <h1 i18n>Report unavailable</h1>
+  <p i18n>The report could not be loaded or is not available to you.</p>
+</div>
+
+<div [hidden]="loading || error">
   <header class="reader-header">
     <svg lucideFileText aria-hidden="true"></svg>
     <div>
-      <p>Report · Version {{ r.versionNumber }}</p>
-      <h1>{{ r.title }}</h1>
+      <p i18n>Report · Version {{ report.versionNumber }}</p>
+      <h1>{{ report.title }}</h1>
     </div>
   </header>
 
-  <div class="reader" [class.inspector-open]="selected()">
+  <div class="reader" [class.inspector-open]="inspectorOpen">
     <main class="document" id="report-body" tabindex="-1">
-      @for (section of r.sections; track section.id) {
+      @for (section of report.sections; track section.id) {
         <section>
           <div class="section-head">
             <h2>{{ section.heading }}</h2>
-            @if (r.taskId) {
-              <button
-                class="refine-action"
-                type="button"
-                [disabled]="refinementLoading() || refinementSubmitting()"
-                (click)="openSectionRefinement(section, $event)"
-              >
-                <svg lucideRefreshCw aria-hidden="true"></svg>
-                Refine section evidence
-              </button>
-            }
+            <button
+              class="refine-action"
+              type="button"
+              [disabled]="refinementLoading || refinementSubmitting"
+              [hidden]="!hasTaskContext"
+              (click)="openSectionRefinement(section.logicalSectionId, $event)"
+              i18n
+            >
+              <svg lucideRefreshCw aria-hidden="true"></svg>
+              Refine section evidence
+            </button>
           </div>
           <p>
             @for (run of section.runs; track $index) {
@@ -38,8 +38,7 @@
                 <button
                   class="citation"
                   type="button"
-                  [attr.aria-expanded]="selected()?.id === citation.id"
-                  aria-controls="evidence-inspector"
+                  [attr.aria-expanded]="selected.id === citation.id"
                   (click)="select(citation, $event)"
                 >{{ run.text }}<sup>[{{ citation.ordinal }}]</sup></button>
               } @else {
@@ -51,155 +50,150 @@
       }
     </main>
 
-    @if (selected(); as citation) {
-      <aside
-        #inspector
-        id="evidence-inspector"
-        class="inspector"
-        tabindex="-1"
-        aria-labelledby="inspector-title"
-      >
-        <div class="inspector-head">
-          <div>
-            <p>Citation {{ citation.ordinal }}</p>
-            <h2 id="inspector-title">Evidence inspector</h2>
-          </div>
-          <button
-            type="button"
-            class="close"
-            aria-label="Close evidence inspector and return to citation"
-            (click)="close()"
-          >
-            <svg lucideX aria-hidden="true"></svg>
-          </button>
+    <aside
+      id="evidence-inspector"
+      class="inspector"
+      tabindex="-1"
+      [hidden]="!inspectorOpen"
+      aria-label="Evidence inspector"
+      i18n-aria-label
+    >
+      <div class="inspector-head">
+        <div>
+          <p i18n>Citation {{ selected.ordinal }}</p>
+          <h2 i18n>Evidence inspector</h2>
         </div>
-        <p class="claim-id">Claim {{ citation.claimId }}</p>
-        @if (r.taskId) {
-          <button
-            class="claim-refine"
-            type="button"
-            [disabled]="refinementLoading() || refinementSubmitting()"
-            (click)="openClaimRefinement(citation, $event)"
-          >
-            <svg lucideRefreshCw aria-hidden="true"></svg>
-            Add evidence to this claim
-          </button>
-        }
-        @if (citation.evidence.length) {
-          @for (item of citation.evidence; track item.id) {
-            <article class="evidence">
-              <p class="kind">{{ item.sourceKind }}</p>
-              <h3>{{ item.sourceTitle || 'Source' }}</h3>
-              @if (item.location) {
-                <p class="location">{{ item.location }}</p>
-              }
-              <blockquote>{{ item.passage }}</blockquote>
-            </article>
-          }
-        } @else {
-          <p class="empty">No evidence is available in your current access scope.</p>
-        }
-      </aside>
-    }
+        <button
+          type="button"
+          class="close"
+          aria-label="Close evidence inspector and return to citation"
+          i18n-aria-label
+          (click)="close()"
+        >
+          <svg lucideX aria-hidden="true"></svg>
+        </button>
+      </div>
+      <p class="claim-id" i18n>Claim {{ selected.claimId }}</p>
+      <button
+        class="claim-refine"
+        type="button"
+        [disabled]="refinementLoading || refinementSubmitting"
+        [hidden]="!hasTaskContext"
+        (click)="openClaimRefinement(selected.logicalClaimId, $event)"
+        i18n
+      >
+        <svg lucideRefreshCw aria-hidden="true"></svg>
+        Add evidence to this claim
+      </button>
+
+      @for (item of selected.evidence; track item.id) {
+        <article class="evidence">
+          <p class="kind">{{ item.sourceKind }}</p>
+          <h3>{{ item.sourceTitle }}</h3>
+          <p class="location" [hidden]="item.location === null">{{ item.location }}</p>
+          <blockquote>{{ item.passage }}</blockquote>
+        </article>
+      } @empty {
+        <p class="empty" i18n>No evidence is available in your current access scope.</p>
+      }
+    </aside>
   </div>
 
-  @if (refinementError() && !refinement()) {
-    <div class="refinement-toast" role="alert">{{ refinementError() }}</div>
-  }
+  <div class="refinement-toast" role="alert" [hidden]="refinementError === ''">{{ refinementError }}</div>
 
-  @if (refinement(); as preflight) {
-    <div class="dialog-backdrop">
-      <section
-        #refinementDialog
-        class="refinement-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="refinement-title"
-        tabindex="-1"
-      >
-        <div class="dialog-head">
-          <div>
-            <p>{{ preflight.targetKind }} refinement · Base version {{ preflight.baseVersionNumber }}</p>
-            <h2 id="refinement-title">Confirm localized refinement</h2>
-          </div>
-          <button type="button" class="close" aria-label="Cancel report refinement" (click)="closeRefinement()">
-            <svg lucideX aria-hidden="true"></svg>
-          </button>
+  <div class="dialog-backdrop" [hidden]="!refinementDialogOpen">
+    <section
+      id="report-refinement-dialog"
+      class="refinement-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Confirm localized refinement"
+      i18n-aria-label
+      tabindex="-1"
+    >
+      <div class="dialog-head">
+        <div>
+          <p i18n>{{ refinement.targetKind }} refinement · Base version {{ refinement.baseVersionNumber }}</p>
+          <h2 i18n>Confirm localized refinement</h2>
         </div>
+        <button
+          type="button"
+          class="close"
+          aria-label="Cancel report refinement"
+          i18n-aria-label
+          (click)="closeRefinement()"
+        >
+          <svg lucideX aria-hidden="true"></svg>
+        </button>
+      </div>
 
-        <dl class="refinement-summary">
-          <div>
-            <dt>Target</dt>
-            <dd>{{ preflight.targetLabel }}</dd>
-          </div>
-          <div>
-            <dt>Project Files</dt>
-            <dd>{{ preflight.scope.projectFilesEnabled ? 'Included' : 'Excluded' }}</dd>
-          </div>
-          <div>
-            <dt>Web</dt>
-            <dd>{{ preflight.scope.webEnabled ? 'Included' : 'Excluded' }}</dd>
-          </div>
-          <div>
-            <dt>Research Plan</dt>
-            <dd>
-              @if (preflight.scope.researchPlanRevisionNo) {
-                Revision {{ preflight.scope.researchPlanRevisionNo }}
-              } @else {
-                No active revision
-              }
-            </dd>
-          </div>
-          <div>
-            <dt>Scope version</dt>
-            <dd>
-              Project {{ preflight.scope.projectScopeVersion }}
-              @if (preflight.scope.taskOverrideVersion) {
-                · Task override {{ preflight.scope.taskOverrideVersion }}
-              }
-            </dd>
-          </div>
-          <div>
-            <dt>Provider</dt>
-            <dd>{{ preflight.scope.provider }}</dd>
-          </div>
-        </dl>
-
-        <p class="impact">{{ preflight.changesApplyTo }}</p>
-
-        @if (!preflight.canRefine) {
-          <p class="restriction" role="alert">{{ restrictionMessage(preflight.restrictionCode) }}</p>
-        }
-
-        <label for="refinement-feedback">Direction or evidence request <span>(optional)</span></label>
-        <textarea
-          id="refinement-feedback"
-          rows="4"
-          maxlength="1000"
-          [value]="feedback()"
-          (input)="updateFeedback($any($event.target).value)"
-          placeholder="For example: find a more recent source for this claim."
-        ></textarea>
-
-        @if (refinementError()) {
-          <p class="dialog-error" role="alert">{{ refinementError() }}</p>
-        }
-
-        <div class="dialog-actions">
-          <button type="button" class="secondary" [disabled]="refinementSubmitting()" (click)="closeRefinement()">
-            Cancel
-          </button>
-          <button
-            type="button"
-            class="primary"
-            [disabled]="!preflight.canRefine || refinementSubmitting()"
-            (click)="confirmRefinement()"
-          >
-            <svg lucideRefreshCw aria-hidden="true"></svg>
-            {{ refinementSubmitting() ? 'Refining…' : 'Confirm and refine' }}
-          </button>
+      <dl class="refinement-summary">
+        <div>
+          <dt i18n>Target</dt>
+          <dd>{{ refinement.targetLabel }}</dd>
         </div>
-      </section>
-    </div>
-  }
-}
+        <div>
+          <dt i18n>Project Files</dt>
+          <dd>
+            <span [hidden]="!refinement.scope.projectFilesEnabled" i18n>Included</span>
+            <span [hidden]="refinement.scope.projectFilesEnabled" i18n>Excluded</span>
+          </dd>
+        </div>
+        <div>
+          <dt i18n>Web</dt>
+          <dd>
+            <span [hidden]="!refinement.scope.webEnabled" i18n>Included</span>
+            <span [hidden]="refinement.scope.webEnabled" i18n>Excluded</span>
+          </dd>
+        </div>
+        <div>
+          <dt i18n>Research Plan</dt>
+          <dd>{{ researchPlanLabel }}</dd>
+        </div>
+        <div>
+          <dt i18n>Scope version</dt>
+          <dd>{{ scopeVersionLabel }}</dd>
+        </div>
+        <div>
+          <dt i18n>Provider</dt>
+          <dd>{{ refinement.scope.provider }}</dd>
+        </div>
+      </dl>
+
+      <p class="impact">{{ refinement.changesApplyTo }}</p>
+      <p class="restriction" role="alert" [hidden]="refinement.canRefine">{{ restrictionText }}</p>
+
+      <label for="refinement-feedback" i18n>Direction or evidence request <span>(optional)</span></label>
+      <textarea
+        id="refinement-feedback"
+        rows="4"
+        maxlength="1000"
+        placeholder="For example: find a more recent source for this claim."
+        i18n-placeholder
+        [value]="feedback"
+        (input)="updateFeedback($event)"
+      ></textarea>
+
+      <p class="dialog-error" role="alert" [hidden]="refinementError === ''">{{ refinementError }}</p>
+
+      <div class="dialog-actions">
+        <button
+          type="button"
+          class="secondary"
+          [disabled]="refinementSubmitting"
+          (click)="closeRefinement()"
+          i18n
+        >Cancel</button>
+        <button
+          type="button"
+          class="primary"
+          [disabled]="!refinement.canRefine || refinementSubmitting"
+          (click)="confirmRefinement()"
+        >
+          <svg lucideRefreshCw aria-hidden="true"></svg>
+          {{ confirmButtonText }}
+        </button>
+      </div>
+    </section>
+  </div>
+</div>
