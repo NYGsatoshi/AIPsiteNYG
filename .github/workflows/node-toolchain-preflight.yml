@@ -32,16 +32,6 @@ jobs:
     timeout-minutes: 5
 
     steps:
-      - name: Repair previous Docker workspace ownership
-        shell: bash
-        run: |
-          uid="$(id -u)"
-          gid="$(id -g)"
-          docker run --rm \
-            -v "$GITHUB_WORKSPACE:/workspace" \
-            alpine:3.21 \
-            sh -c "chown -R ${uid}:${gid} /workspace"
-
       - name: Checkout
         uses: actions/checkout@v7
         with:
@@ -66,4 +56,5 @@ jobs:
             echo "- Docker production frontend base: Node 24"
             echo "- Docker frontend development base: Node 24-alpine"
             echo "- Workflow setup-node majors: Node 24"
+            echo "- Runner trust boundary: GitHub-hosted"
           } >> "$GITHUB_STEP_SUMMARY"
