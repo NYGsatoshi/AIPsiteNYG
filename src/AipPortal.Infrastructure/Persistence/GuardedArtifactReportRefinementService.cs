@@ -142,9 +142,12 @@ public sealed class ArtifactReportRefinementCommitGuardUnitOfWork(
             await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
             await ReauthorizeAsync(commit, artifactEntry.Entity.Id, cancellationToken);
 
-            // Do not let the ordinary EF update blindly overwrite CurrentVersionId.
-            // First persist the immutable snapshot inside this transaction, then
-            // advance the pointer with a predicate on the confirmed base version.
+            // Persist the immutable snapshot while the tracked Artifact still
+            // carries the confirmed base pointer. This prevents DetectChanges
+            // from reconstructing a blind CurrentVersionId update; the CAS below
+            // is the only statement allowed to advance the pointer.
+            currentVersion.CurrentValue = commit.BaseArtifactVersionId;
+            currentVersion.OriginalValue = commit.BaseArtifactVersionId;
             currentVersion.IsModified = false;
             var saved = await inner.SaveChangesAsync(cancellationToken);
 
@@ -169,6 +172,9 @@ public sealed class ArtifactReportRefinementCommitGuardUnitOfWork(
             }
 
             await transaction.CommitAsync(cancellationToken);
+            currentVersion.CurrentValue = desiredCurrentVersionId;
+            currentVersion.OriginalValue = desiredCurrentVersionId;
+            currentVersion.IsModified = false;
             return saved;
         }
 
