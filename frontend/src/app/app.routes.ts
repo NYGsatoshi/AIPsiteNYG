@@ -216,6 +216,13 @@ export const routes: Routes = [
           )
       },
       {
+        path: 'admin/audit/package-export',
+        loadComponent: () =>
+          import('./features/admin/audit-package-export-page/audit-package-export-page.component').then(
+            (m) => m.AuditPackageExportPageComponent
+          )
+      },
+      {
         path: 'admin/audit',
         loadComponent: () =>
           import('./features/admin/audit-log-page/audit-log-page.component').then((m) => m.AuditLogPageComponent)
@@ -223,7 +230,9 @@ export const routes: Routes = [
       {
         path: 'admin/invites',
         loadComponent: () =>
-          import('./features/admin/invite-admin-page/invite-admin-page.component').then((m) => m.InviteAdminPageComponent)
+          import('./features/admin/invite-admin-page/invite-admin-page.component').then(
+            (m) => m.InviteAdminPageComponent
+          )
       },
       {
         path: 'admin/export-diagnostics',
