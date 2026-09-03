@@ -31,6 +31,10 @@ FORBIDDEN_EXACT_NAMES = {
     "syncfusion_license.txt",
 }
 FORBIDDEN_SUFFIXES = (".p12", ".pfx")
+SECRET_CONTEXT_PATTERN = re.compile(r"\$\{\{\s*secrets\s*(?:\.|\[)")
+SELF_HOSTED_PATTERN = re.compile(
+    r"(^|[\s,\[\]{}'\"-])self-hosted(?=$|[\s,\[\]{}'\",])"
+)
 
 
 def _without_comment(line: str) -> str:
@@ -60,10 +64,16 @@ def _without_comment(line: str) -> str:
     return "".join(result)
 
 
+def _indent(line: str) -> int:
+    return len(line) - len(line.lstrip())
+
+
 def workflow_triggers(text: str, event: str) -> bool:
     """Return whether a simple GitHub Actions ``on`` declaration includes event."""
     lines = text.splitlines()
-    event_pattern = re.compile(rf"(^|[\s,\[]){re.escape(event)}([\s,\]:]|$)")
+    event_pattern = re.compile(
+        rf"(^|[\s,\[\{{])[\"']?{re.escape(event)}[\"']?([\s,\]:\}}]|$)"
+    )
 
     for index, raw_line in enumerate(lines):
         line = _without_comment(raw_line).rstrip()
@@ -78,14 +88,205 @@ def workflow_triggers(text: str, event: str) -> bool:
             nested = _without_comment(nested_raw).rstrip()
             if not nested.strip():
                 continue
-            indent = len(nested) - len(nested.lstrip())
+            indent = _indent(nested)
             if indent == 0:
                 break
             stripped = nested.strip()
-            if re.match(rf"^(?:-\s*)?{re.escape(event)}(?:\s*:|\s*$)", stripped):
+            if re.match(
+                rf"^(?:-\s*)?[\"']?{re.escape(event)}[\"']?(?:\s*:|\s*$)",
+                stripped,
+            ):
                 return True
         return False
     return False
+
+
+def _job_blocks(text: str) -> list[tuple[str, int, int, int]]:
+    """Return job id, line span, and indentation for ordinary ``jobs`` mappings."""
+    lines = [_without_comment(line).rstrip() for line in text.splitlines()]
+    jobs_index: int | None = None
+    jobs_indent = 0
+
+    for index, line in enumerate(lines):
+        if re.match(r"^jobs\s*:\s*$", line):
+            jobs_index = index
+            jobs_indent = _indent(line)
+            break
+
+    if jobs_index is None:
+        return []
+
+    job_indent: int | None = None
+    starts: list[tuple[int, str]] = []
+    for index in range(jobs_index + 1, len(lines)):
+        line = lines[index]
+        if not line.strip():
+            continue
+        indent = _indent(line)
+        if indent <= jobs_indent:
+            break
+        if re.match(r"^[A-Za-z0-9_.-]+\s*:\s*$", line.strip()):
+            if job_indent is None:
+                job_indent = indent
+            if indent == job_indent:
+                starts.append((index, line.strip()[:-1]))
+
+    if job_indent is None:
+        return []
+
+    blocks: list[tuple[str, int, int, int]] = []
+    for offset, (start, job_id) in enumerate(starts):
+        end = starts[offset + 1][0] if offset + 1 < len(starts) else len(lines)
+        for index in range(start + 1, end):
+            if lines[index].strip() and _indent(lines[index]) <= jobs_indent:
+                end = index
+                break
+        blocks.append((job_id, start, end, job_indent))
+    return blocks
+
+
+def _root_job_field(
+    lines: list[str],
+    start: int,
+    end: int,
+    job_indent: int,
+    key: str,
+) -> tuple[int, str, int] | None:
+    """Return a job-root field's line, scalar value, and indentation."""
+    clean = [_without_comment(line).rstrip() for line in lines]
+    child_indents = [
+        _indent(clean[index])
+        for index in range(start + 1, end)
+        if clean[index].strip() and _indent(clean[index]) > job_indent
+    ]
+    if not child_indents:
+        return None
+
+    child_indent = min(child_indents)
+    pattern = re.compile(rf"^{re.escape(key)}\s*:\s*(.*)$")
+    for index in range(start + 1, end):
+        line = clean[index]
+        if not line.strip() or _indent(line) != child_indent:
+            continue
+        match = pattern.match(line.strip())
+        if match:
+            return index, match.group(1), child_indent
+    return None
+
+
+def _field_block_text(
+    lines: list[str],
+    field_index: int,
+    field_value: str,
+    field_indent: int,
+    end: int,
+) -> str:
+    values = [field_value.strip()] if field_value.strip() else []
+    clean = [_without_comment(line).rstrip() for line in lines]
+    for index in range(field_index + 1, end):
+        line = clean[index]
+        if not line.strip():
+            continue
+        if _indent(line) <= field_indent:
+            break
+        values.append(line.strip())
+    return " ".join(values)
+
+
+def _static_environment_name(
+    lines: list[str],
+    start: int,
+    end: int,
+    job_indent: int,
+) -> str | None:
+    field = _root_job_field(lines, start, end, job_indent, "environment")
+    if field is None:
+        return None
+
+    field_index, value, environment_indent = field
+    value = value.strip()
+    if value:
+        if "${{" in value:
+            return None
+        return value.strip("'\"") or None
+
+    clean = [_without_comment(line).rstrip() for line in lines]
+    nested_indents = [
+        _indent(clean[index])
+        for index in range(field_index + 1, end)
+        if clean[index].strip() and _indent(clean[index]) > environment_indent
+    ]
+    if not nested_indents:
+        return None
+
+    nested_indent = min(nested_indents)
+    for index in range(field_index + 1, end):
+        line = clean[index]
+        if not line.strip():
+            continue
+        indent = _indent(line)
+        if indent <= environment_indent:
+            break
+        if indent != nested_indent:
+            continue
+        match = re.match(r"^name\s*:\s*(.+)$", line.strip())
+        if not match:
+            continue
+        value = match.group(1).strip()
+        if "${{" in value:
+            return None
+        return value.strip("'\"") or None
+    return None
+
+
+def _job_inherits_secrets(
+    lines: list[str],
+    start: int,
+    end: int,
+    job_indent: int,
+) -> bool:
+    field = _root_job_field(lines, start, end, job_indent, "secrets")
+    return field is not None and field[1].strip() == "inherit"
+
+
+def _permission_write_lines(text: str) -> list[int]:
+    """Return line numbers where workflow/job permissions request write access."""
+    lines = text.splitlines()
+    clean = [_without_comment(line).rstrip() for line in lines]
+    fields: list[tuple[int, str, int, int]] = []
+
+    for index, line in enumerate(clean):
+        match = re.match(r"^permissions\s*:\s*(.*)$", line)
+        if match:
+            fields.append((index, match.group(1), 0, len(lines)))
+            break
+
+    for _, start, end, job_indent in _job_blocks(text):
+        field = _root_job_field(lines, start, end, job_indent, "permissions")
+        if field is not None:
+            index, value, indent = field
+            fields.append((index, value, indent, end))
+
+    result: list[int] = []
+    for index, value, field_indent, end in fields:
+        value = value.strip()
+        if value:
+            if re.search(r"\bwrite-all\b", value) or re.search(r":\s*write\b", value):
+                result.append(index + 1)
+            continue
+
+        for nested_index in range(index + 1, end):
+            line = clean[nested_index]
+            if not line.strip():
+                continue
+            if _indent(line) <= field_indent:
+                break
+            if re.match(
+                r"^\s*[A-Za-z0-9_-]+\s*:\s*(?:write|write-all)\s*$",
+                line,
+            ):
+                result.append(nested_index + 1)
+    return result
 
 
 def tracked_files() -> list[str]:
@@ -103,33 +304,54 @@ def workflow_errors(path: Path, text: str) -> list[str]:
     relative = path.relative_to(ROOT).as_posix()
     triggers_pr = workflow_triggers(text, "pull_request")
     triggers_pr_target = workflow_triggers(text, "pull_request_target")
+    lines = text.splitlines()
+    job_blocks = _job_blocks(text)
 
     if triggers_pr_target:
         errors.append(f"{relative}: pull_request_target is forbidden")
 
-    if re.search(r"(?im)^\s*runs-on\s*:\s*.*self-hosted", text):
-        errors.append(f"{relative}: persistent self-hosted runner routing is forbidden")
+    covered_lines: set[int] = set()
+    for job_id, start, end, job_indent in job_blocks:
+        covered_lines.update(range(start, end))
 
-    if triggers_pr and "${{ secrets." in text:
-        errors.append(f"{relative}: pull-request workflow references a secret")
-
-    if triggers_pr:
-        for line_number, raw_line in enumerate(text.splitlines(), start=1):
-            line = _without_comment(raw_line)
-            if re.match(
-                r"^\s*[A-Za-z0-9_-]+\s*:\s*(?:write|write-all)\s*$",
-                line,
-            ):
+        runs_on = _root_job_field(lines, start, end, job_indent, "runs-on")
+        if runs_on is not None:
+            field_index, value, field_indent = runs_on
+            runner_text = _field_block_text(
+                lines, field_index, value, field_indent, end
+            )
+            if SELF_HOSTED_PATTERN.search(runner_text):
                 errors.append(
-                    f"{relative}:{line_number}: pull-request workflow requests write permission"
+                    f"{relative}:{field_index + 1}: persistent self-hosted runner routing is forbidden"
                 )
 
-    if "${{ secrets." in text and not re.search(
-        r"(?m)^\s+environment\s*:\s*[^\s#]+", text
-    ):
-        errors.append(
-            f"{relative}: secret-bearing workflow lacks a protected environment"
-        )
+        job_text = "\n".join(_without_comment(line) for line in lines[start:end])
+        uses_secret = bool(SECRET_CONTEXT_PATTERN.search(job_text))
+        inherits_secret = _job_inherits_secrets(lines, start, end, job_indent)
+        if triggers_pr and (uses_secret or inherits_secret):
+            errors.append(
+                f"{relative}: pull-request job '{job_id}' references or inherits a secret"
+            )
+        if (uses_secret or inherits_secret) and _static_environment_name(
+            lines, start, end, job_indent
+        ) is None:
+            errors.append(
+                f"{relative}: secret-bearing job '{job_id}' lacks a static protected environment"
+            )
+
+    for index, raw_line in enumerate(lines):
+        if index in covered_lines:
+            continue
+        if SECRET_CONTEXT_PATTERN.search(_without_comment(raw_line)):
+            errors.append(
+                f"{relative}:{index + 1}: secret reference outside a protected job is forbidden"
+            )
+
+    if triggers_pr:
+        for line_number in _permission_write_lines(text):
+            errors.append(
+                f"{relative}:{line_number}: pull-request workflow requests write permission"
+            )
 
     return errors
 
