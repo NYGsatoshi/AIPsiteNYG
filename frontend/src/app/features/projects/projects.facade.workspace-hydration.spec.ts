@@ -21,9 +21,9 @@ const cleanup = vi.fn<() => void>(),
           provide: RealtimeFacade,
           useValue: {
             durableEvents$: EMPTY,
-            registerCatchUp: registerCleanup,
-            registerProtectedStateClearer: registerCleanup,
-            registerSubscription: registerCleanup,
+            registerCatchUp: (): (() => void) => cleanup,
+            registerProtectedStateClearer: (): (() => void) => cleanup,
+            registerSubscription: (): (() => void) => cleanup,
           },
         },
         { provide: MyTasksFacade, useValue: { refreshIfLoaded: vi.fn() } },
@@ -75,16 +75,14 @@ const cleanup = vi.fn<() => void>(),
   flushReauthorizedRead = (): void => {
     TestBed.tick();
     http.expectOne('/api/tasks/task-1').flush(detail);
-    http.expectOne('/api/projects/project-1').flush(project);
-  },
-  project = {
-    id: 'project-1',
-    status: 1,
-    title: 'Hydration race project',
-    uiPermissions: { canCreateTask: true },
-    workspaceId: 'workspace-1',
-  },
-  registerCleanup = (): (() => void) => cleanup;
+    http.expectOne('/api/projects/project-1').flush({
+      id: 'project-1',
+      status: 1,
+      title: 'Hydration race project',
+      uiPermissions: { canCreateTask: true },
+      workspaceId: 'workspace-1',
+    });
+  };
 
 describe('ProjectsFacade direct-route Workspace hydration', () => {
   beforeEach(() => {
