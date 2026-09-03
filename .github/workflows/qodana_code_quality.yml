@@ -1,10 +1,13 @@
 name: Code Quality
 
-# TEMPORARY CONTEST MODE: keep Qodana available on demand, but do not spend
-# self-hosted runner capacity on every PR/push. Re-enable automatic triggers
-# after the contest window.
+# Restore automatic code-quality coverage after the temporary contest window.
+# Run for every PR update and every change that lands directly on main.
 on:
   workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - main
 
 concurrency:
   group: code-quality-v2-${{ github.ref }}
@@ -16,12 +19,10 @@ permissions:
 jobs:
   qodana-dotnet-community:
     name: Qodana Community / .NET
-    runs-on: [self-hosted, aipsite-ci, general]
+    runs-on: ubuntu-latest
     timeout-minutes: 120
     permissions:
       contents: read
-      pull-requests: write
-      checks: write
 
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: "1"
@@ -106,8 +107,8 @@ jobs:
           pr-mode: true
           results-dir: ${{ runner.temp }}/qodana/results-${{ github.run_id }}-${{ github.run_attempt }}
           use-caches: false
-          post-pr-comment: true
-          use-annotations: true
+          post-pr-comment: false
+          use-annotations: false
           upload-result: true
           push-fixes: none
 
@@ -151,7 +152,7 @@ jobs:
 
   frontend-quality:
     name: Angular / TypeScript / JavaScript / HTML / SCSS / CSS
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     needs: qodana-dotnet-community
     if: ${{ !cancelled() }}
     timeout-minutes: 90

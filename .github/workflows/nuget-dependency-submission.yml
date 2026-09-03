@@ -1,4 +1,4 @@
-name: NuGet Dependency Submission (Self-Hosted)
+name: NuGet Dependency Submission
 
 # TEMPORARY CONTEST MODE: dependency submission is metadata publication, not a
 # merge-safety gate. Keep it available manually while runner capacity is scarce.
@@ -10,13 +10,13 @@ permissions:
   id-token: write
 
 concurrency:
-  group: nuget-dependency-submission-self-hosted-${{ github.ref }}
+  group: nuget-dependency-submission-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   submit-nuget:
     name: submit-nuget
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 20
 
     steps:

@@ -13,7 +13,8 @@ permissions:
 jobs:
   refresh-mobile-baseline:
     if: github.repository == 'NYGsatoshi/AIPsiteNYG'
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
+    environment: syncfusion-licensed-build
     timeout-minutes: 45
 
     steps:

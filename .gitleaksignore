@@ -1,0 +1,6 @@
+# Exact historical false positives verified during the 2026-09-03 publication audit.
+# Each fingerprint refers to ordinary prose containing slash-separated UI/test
+# matrix terminology. Do not replace these with path-wide or commit-wide ignores.
+98731d440ad73d67133f3ca33c80f342ef7cbe61:docs/verification/mvp-a/mvp-a-implementation-verification-report.md:generic-api-key:17
+98731d440ad73d67133f3ca33c80f342ef7cbe61:docs/verification/mvp-a/mvp-a-evidence-log.md:generic-api-key:71
+98731d440ad73d67133f3ca33c80f342ef7cbe61:docs/verification/mvp-a/mvp-a-p0-blockers.md:generic-api-key:127
