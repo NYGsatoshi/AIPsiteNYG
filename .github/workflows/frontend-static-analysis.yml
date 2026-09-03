@@ -36,6 +36,12 @@ jobs:
         shell: bash
         run: bash scripts/ci/configure-persistent-caches.sh
 
+      - name: Install repository JavaScript dependencies
+        shell: bash
+        run: |
+          npm ci --prefer-offline --ignore-scripts --no-audit --no-fund
+          npm --prefix frontend ci --prefer-offline --ignore-scripts --no-audit --no-fund
+
       - name: Install frontend inspection toolchain
         shell: bash
         run: |
