@@ -71,7 +71,7 @@ export class FileBrowserSidebarComponent {
   }
 
   toggle(node: FileBrowserFolderNode): void {
-    if (node.children.length === 0) return;
+    if (node.children.length === 0) {return;}
     this.expandedIds.update((current) => {
       const next = new Set(current);
       next.has(node.id) ? next.delete(node.id) : next.add(node.id);
@@ -83,26 +83,26 @@ export class FileBrowserSidebarComponent {
     const visible = this.visibleFolders();
     const index = visible.findIndex((candidate) => candidate.id === node.id);
     let targetIndex: number | null = null;
-    if (event.key === 'ArrowDown') targetIndex = Math.min(visible.length - 1, index + 1);
-    if (event.key === 'ArrowUp') targetIndex = Math.max(0, index - 1);
-    if (event.key === 'Home') targetIndex = 0;
-    if (event.key === 'End') targetIndex = visible.length - 1;
+    if (event.key === 'ArrowDown') {targetIndex = Math.min(visible.length - 1, index + 1);}
+    if (event.key === 'ArrowUp') {targetIndex = Math.max(0, index - 1);}
+    if (event.key === 'Home') {targetIndex = 0;}
+    if (event.key === 'End') {targetIndex = visible.length - 1;}
     if (event.key === 'ArrowRight') {
-      if (node.children.length > 0 && !this.expandedIds().has(node.id)) this.toggle(node);
-      else if (node.children.length > 0) targetIndex = index + 1;
+      if (node.children.length > 0 && !this.expandedIds().has(node.id)) {this.toggle(node);}
+      else if (node.children.length > 0) {targetIndex = index + 1;}
     }
     if (event.key === 'ArrowLeft') {
-      if (this.expandedIds().has(node.id)) this.toggle(node);
+      if (this.expandedIds().has(node.id)) {this.toggle(node);}
       else {
         for (let candidate = index - 1; candidate >= 0; candidate -= 1) {
           if (visible[candidate].level < node.level) { targetIndex = candidate; break; }
         }
       }
     }
-    if (event.key === 'Enter' || event.key === ' ') this.chooseFolder(node);
+    if (event.key === 'Enter' || event.key === ' ') {this.chooseFolder(node);}
     if (targetIndex !== null || ['ArrowLeft', 'ArrowRight', 'Enter', ' '].includes(event.key)) {
       event.preventDefault();
-      if (targetIndex !== null) this.focusAt(targetIndex);
+      if (targetIndex !== null) {this.focusAt(targetIndex);}
     }
   }
 
@@ -112,7 +112,7 @@ export class FileBrowserSidebarComponent {
 
   private focusAt(index: number): void {
     const node = this.visibleFolders()[index];
-    if (!node) return;
+    if (!node) {return;}
     this.focusedId.set(node.id);
     queueMicrotask(() => this.treeItems?.get(index)?.nativeElement.focus());
   }

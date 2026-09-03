@@ -103,7 +103,7 @@ export class MyTasksFacade {
         }));
         return;
       }
-      if (identity === this.preferenceIdentity) return;
+      if (identity === this.preferenceIdentity) {return;}
       const identityChanged = this.preferenceIdentity !== null;
       if (identityChanged) {
         this.invalidateActiveRequest();
@@ -122,19 +122,19 @@ export class MyTasksFacade {
     });
     effect(() => {
       const digestWorkspaceId = this.notificationOpenContext.digestWorkspaceId();
-      if (!digestWorkspaceId) return;
+      if (!digestWorkspaceId) {return;}
 
       // The backend open response is the only source that can select this
       // Workspace. Consume it even when this root facade was already created
       // by another Project surface before the notification was opened.
       const selected = this.applyAuthorizedDigestWorkspace(digestWorkspaceId);
       this.notificationOpenContext.clear();
-      if (selected && this.hasRequested && !this.scenario) this.requestMyTasks();
+      if (selected && this.hasRequested && !this.scenario) {this.requestMyTasks();}
     });
     effect(() => {
       const workspaceId = this.activeWorkspace.activeWorkspace()?.id ?? null;
       const current = this.state();
-      if (this.scenario || current.scope !== 'currentWorkspace' || current.workspaceId === workspaceId) return;
+      if (this.scenario || current.scope !== 'currentWorkspace' || current.workspaceId === workspaceId) {return;}
 
       this.invalidateActiveRequest();
       this.state.set({
@@ -148,19 +148,19 @@ export class MyTasksFacade {
         message: workspaceId ? undefined : 'Waiting for an active Workspace selection.',
         error: undefined
       });
-      if (this.hasRequested && workspaceId) this.requestMyTasks();
+      if (this.hasRequested && workspaceId) {this.requestMyTasks();}
     });
   }
 
   load(): void {
-    if (this.scenario || this.hasRequested) return;
+    if (this.scenario || this.hasRequested) {return;}
     this.hasRequested = true;
     this.requestMyTasks();
   }
 
-  retry(): void { if (!this.scenario) this.requestMyTasks(); }
-  refresh(): void { if (!this.scenario) this.requestMyTasks(); }
-  refreshIfLoaded(): void { if (!this.scenario && this.hasRequested) this.requestMyTasks(); }
+  retry(): void { if (!this.scenario) {this.requestMyTasks();} }
+  refresh(): void { if (!this.scenario) {this.requestMyTasks();} }
+  refreshIfLoaded(): void { if (!this.scenario && this.hasRequested) {this.requestMyTasks();} }
 
   setTab(tab: MyTasksTab): void {
     this.cancelPendingSearch();
@@ -317,7 +317,7 @@ export class MyTasksFacade {
   deleteSavedFilter(filterId: string): boolean {
     const current = this.state();
     const filter = current.savedFilters.find((candidate) => candidate.id === filterId);
-    if (!filter) return false;
+    if (!filter) {return false;}
     const result = this.workViewPreferences.deleteMyTasksFilter(filterId);
     if (result.status !== 'ready') {
       this.state.update((state) => ({
@@ -353,7 +353,7 @@ export class MyTasksFacade {
 
   previousPage(): void {
     const current = this.state();
-    if (current.page <= 1) return;
+    if (current.page <= 1) {return;}
     this.state.set({ ...current, page: current.page - 1 });
     this.requestMyTasks();
   }
@@ -361,7 +361,7 @@ export class MyTasksFacade {
   nextPage(): void {
     const current = this.state();
     const lastPage = Math.max(1, Math.ceil(current.totalCount / current.pageSize));
-    if (current.page >= lastPage) return;
+    if (current.page >= lastPage) {return;}
     this.state.set({ ...current, page: current.page + 1 });
     this.requestMyTasks();
   }
@@ -405,7 +405,7 @@ export class MyTasksFacade {
   }
 
   private requestMyTasks(): void {
-    if (this.scenario) return;
+    if (this.scenario) {return;}
     const current = this.state();
     if (current.scope === 'currentWorkspace' && !current.workspaceId) {
       this.invalidateActiveRequest();
@@ -429,7 +429,7 @@ export class MyTasksFacade {
       page: this.http.get<MyTasksProjectionPageDto>('/api/me/tasks', { params, withCredentials: true }),
       counts: this.http.get<MyTasksCountsDto>('/api/me/tasks/counts', { params, withCredentials: true })
     }).pipe(catchError((error: unknown) => of({ error }))).subscribe((response) => {
-      if (generation !== this.requestGeneration) return;
+      if (generation !== this.requestGeneration) {return;}
       if ('error' in response) {
         this.state.update((latest) => this.toErrorState(response.error, latest));
         return;
@@ -460,18 +460,18 @@ export class MyTasksFacade {
       .set('scope', state.scope)
       .set('page', String(state.page))
       .set('pageSize', String(state.pageSize));
-    if (state.scope === 'currentWorkspace' && state.workspaceId) params = params.set('workspaceId', state.workspaceId);
-    if (state.filters.projectId) params = params.set('projectId', state.filters.projectId);
-    if (state.filters.stageCategory) params = params.set('stageCategory', state.filters.stageCategory);
-    if (state.filters.priority) params = params.set('priority', state.filters.priority);
-    if (state.filters.blocked) params = params.set('blocked', state.filters.blocked);
-    if (state.filters.timeGroup) params = params.set('timeGroup', state.filters.timeGroup);
-    if (state.filters.search.trim()) params = params.set('search', state.filters.search.trim());
+    if (state.scope === 'currentWorkspace' && state.workspaceId) {params = params.set('workspaceId', state.workspaceId);}
+    if (state.filters.projectId) {params = params.set('projectId', state.filters.projectId);}
+    if (state.filters.stageCategory) {params = params.set('stageCategory', state.filters.stageCategory);}
+    if (state.filters.priority) {params = params.set('priority', state.filters.priority);}
+    if (state.filters.blocked) {params = params.set('blocked', state.filters.blocked);}
+    if (state.filters.timeGroup) {params = params.set('timeGroup', state.filters.timeGroup);}
+    if (state.filters.search.trim()) {params = params.set('search', state.filters.search.trim());}
     return params;
   }
 
   private handleRealtimeEvent(event: DurableRealtimeEvent): void {
-    if (this.scenario || !this.hasRequested) return;
+    if (this.scenario || !this.hasRequested) {return;}
     if (event.eventType === 'Security.AuthorizationStateChanged.v1') {
       this.clearProtectedState();
       return;
@@ -483,8 +483,8 @@ export class MyTasksFacade {
       'Projects.TaskCommentChanged.v1',
       'Projects.ProjectChanged.v1',
       'Security.AuthorizationStateChanged.v1'
-    ].includes(event.eventType)) return;
-    if (this.refreshTimer !== null) return;
+    ].includes(event.eventType)) {return;}
+    if (this.refreshTimer !== null) {return;}
     this.refreshTimer = setTimeout(() => { this.refreshTimer = null; this.requestMyTasks(); }, 150);
   }
 
@@ -562,7 +562,7 @@ export class MyTasksFacade {
   }
 
   private cancelPendingSearch(): void {
-    if (this.searchTimer === null) return;
+    if (this.searchTimer === null) {return;}
     clearTimeout(this.searchTimer);
     this.searchTimer = null;
   }
@@ -624,12 +624,12 @@ function emptyFilters(): MyTasksFilters {
 
 function filterConditions(selectedTab: MyTasksTab, filters: MyTasksFilters): readonly MyTasksFilterCondition[] {
   const conditions: MyTasksFilterCondition[] = [{ id: 'relationship', label: `Relationship: ${relationshipLabel(selectedTab)}` }];
-  if (filters.projectId) conditions.push({ id: 'project', label: 'Project filter active' });
-  if (filters.stageCategory) conditions.push({ id: 'stage', label: `Stage: ${stageCategoryLabel(filters.stageCategory)}` });
-  if (filters.priority) conditions.push({ id: 'priority', label: `Priority: ${capitalize(filters.priority)}` });
-  if (filters.blocked) conditions.push({ id: 'blocked', label: filters.blocked === 'true' ? 'Blocked' : 'Not blocked' });
-  if (filters.timeGroup) conditions.push({ id: 'urgency', label: `Urgency: ${urgencyLabel(filters.timeGroup)}` });
-  if (filters.search.trim()) conditions.push({ id: 'search', label: `Search: ${filters.search.trim()}` });
+  if (filters.projectId) {conditions.push({ id: 'project', label: 'Project filter active' });}
+  if (filters.stageCategory) {conditions.push({ id: 'stage', label: `Stage: ${stageCategoryLabel(filters.stageCategory)}` });}
+  if (filters.priority) {conditions.push({ id: 'priority', label: `Priority: ${capitalize(filters.priority)}` });}
+  if (filters.blocked) {conditions.push({ id: 'blocked', label: filters.blocked === 'true' ? 'Blocked' : 'Not blocked' });}
+  if (filters.timeGroup) {conditions.push({ id: 'urgency', label: `Urgency: ${urgencyLabel(filters.timeGroup)}` });}
+  if (filters.search.trim()) {conditions.push({ id: 'search', label: `Search: ${filters.search.trim()}` });}
   return conditions;
 }
 
@@ -663,18 +663,18 @@ function urgencyLabel(group: MyTasksUrgencyGroup): string {
 function capitalize(value: string): string { return value[0].toUpperCase() + value.slice(1); }
 
 function savedFilterStatusAnnouncement(status: SavedFiltersStatus): string {
-  if (status === 'storageUnavailable') return 'Saved filters are unavailable in this browser. Current filters still work.';
-  if (status === 'discarded') return 'An invalid saved-filter record was discarded.';
+  if (status === 'storageUnavailable') {return 'Saved filters are unavailable in this browser. Current filters still work.';}
+  if (status === 'discarded') {return 'An invalid saved-filter record was discarded.';}
   return '';
 }
 
 function savedFilterMutationAnnouncement(status: SavedFiltersStatus, operation: 'save' | 'delete'): string {
-  if (status === 'storageUnavailable') return `Could not ${operation} the saved filter because browser storage is unavailable. Current filters still work.`;
-  if (status === 'identityUnavailable') return `Could not ${operation} the saved filter until the authenticated Tenant and user are resolved.`;
-  if (status === 'invalidInput') return operation === 'save'
+  if (status === 'storageUnavailable') {return `Could not ${operation} the saved filter because browser storage is unavailable. Current filters still work.`;}
+  if (status === 'identityUnavailable') {return `Could not ${operation} the saved filter until the authenticated Tenant and user are resolved.`;}
+  if (status === 'invalidInput') {return operation === 'save'
     ? 'Enter a unique saved-filter name of 80 characters or fewer and use valid filter values.'
-    : 'That saved filter is no longer available.';
-  if (status === 'discarded') return 'An invalid saved-filter record was discarded.';
+    : 'That saved filter is no longer available.';}
+  if (status === 'discarded') {return 'An invalid saved-filter record was discarded.';}
   return '';
 }
 

@@ -51,8 +51,8 @@ export class AuditViewPreferenceService {
 
   load(): AuditSavedViewsResult {
     const identity = this.identity();
-    if (!identity) return { status: 'identityUnavailable', views: [] };
-    if (!this.storage) return { status: 'storageUnavailable', views: [] };
+    if (!identity) {return { status: 'identityUnavailable', views: [] };}
+    if (!this.storage) {return { status: 'storageUnavailable', views: [] };}
 
     let raw: string | null;
     try {
@@ -60,10 +60,10 @@ export class AuditViewPreferenceService {
     } catch {
       return { status: 'storageUnavailable', views: [] };
     }
-    if (raw === null) return { status: 'ready', views: [] };
+    if (raw === null) {return { status: 'ready', views: [] };}
 
     const parsed = parseStoredViews(raw);
-    if (parsed) return { status: 'ready', views: parsed.views };
+    if (parsed) {return { status: 'ready', views: parsed.views };}
     try {
       this.storage.removeItem(this.key(identity));
     } catch {
@@ -74,7 +74,7 @@ export class AuditViewPreferenceService {
 
   save(name: string, snapshot: AuditFilterSnapshot): AuditSavedViewsResult {
     const identity = this.identity();
-    if (!identity) return { status: 'identityUnavailable', views: [] };
+    if (!identity) {return { status: 'identityUnavailable', views: [] };}
     const normalizedName = name.trim();
     const normalizedSnapshot = normalizeSnapshot(snapshot);
     if (!isValidName(normalizedName) || !normalizedSnapshot) {
@@ -82,7 +82,7 @@ export class AuditViewPreferenceService {
     }
 
     const current = this.load();
-    if (current.status !== 'ready' && current.status !== 'discarded') return current;
+    if (current.status !== 'ready' && current.status !== 'discarded') {return current;}
     const existing = current.views.find((view) => view.name.toLowerCase() === normalizedName.toLowerCase());
     if (!existing && current.views.length >= maximumViews) {
       return { status: 'invalidInput', views: current.views };
@@ -100,9 +100,9 @@ export class AuditViewPreferenceService {
 
   delete(viewId: string): AuditSavedViewsResult {
     const identity = this.identity();
-    if (!identity) return { status: 'identityUnavailable', views: [] };
+    if (!identity) {return { status: 'identityUnavailable', views: [] };}
     const current = this.load();
-    if (current.status !== 'ready') return current;
+    if (current.status !== 'ready') {return current;}
     if (!current.views.some((view) => view.id === viewId)) {
       return { status: 'invalidInput', views: current.views };
     }
@@ -114,7 +114,7 @@ export class AuditViewPreferenceService {
     views: readonly AuditSavedView[],
     fallback: readonly AuditSavedView[],
   ): AuditSavedViewsResult {
-    if (!this.storage) return { status: 'storageUnavailable', views: fallback };
+    if (!this.storage) {return { status: 'storageUnavailable', views: fallback };}
     try {
       this.storage.setItem(this.key(identity), JSON.stringify({ version: storageVersion, views }));
       return { status: 'ready', views };
@@ -127,8 +127,8 @@ export class AuditViewPreferenceService {
     const session = this.auth.session();
     const tenant = session.currentTenant;
     const user = session.currentUser;
-    if (session.status !== 'active' || !session.isAuthenticated || !user?.userId || !tenant) return null;
-    if (tenant.isPlatformScope) return { scope: 'platform', userId: user.userId };
+    if (session.status !== 'active' || !session.isAuthenticated || !user?.userId || !tenant) {return null;}
+    if (tenant.isPlatformScope) {return { scope: 'platform', userId: user.userId };}
     return tenant.isAvailable && tenant.tenantId
       ? { scope: tenant.tenantId, userId: user.userId }
       : null;
@@ -144,9 +144,9 @@ function parseStoredViews(raw: string): StoredAuditViews | null {
     const value: unknown = JSON.parse(raw);
     if (!isRecord(value) || !hasExactKeys(value, ['version', 'views']) ||
         value['version'] !== storageVersion || !Array.isArray(value['views']) ||
-        value['views'].length > maximumViews) return null;
+        value['views'].length > maximumViews) {return null;}
     const views = value['views'].map(parseView);
-    if (!views.every((view): view is AuditSavedView => view !== null)) return null;
+    if (!views.every((view): view is AuditSavedView => view !== null)) {return null;}
     const ids = new Set(views.map((view) => view.id));
     const names = new Set(views.map((view) => view.name.toLowerCase()));
     return ids.size === views.length && names.size === views.length
@@ -160,7 +160,7 @@ function parseStoredViews(raw: string): StoredAuditViews | null {
 function parseView(value: unknown): AuditSavedView | null {
   if (!isRecord(value) || !hasExactKeys(value, ['id', 'name', 'snapshot']) ||
       typeof value['id'] !== 'string' || !/^audit-[A-Za-z0-9-]{8,80}$/u.test(value['id']) ||
-      typeof value['name'] !== 'string' || !isValidName(value['name'])) return null;
+      typeof value['name'] !== 'string' || !isValidName(value['name'])) {return null;}
   const snapshot = normalizeSnapshot(value['snapshot']);
   return snapshot ? { id: value['id'], name: value['name'], snapshot } : null;
 }
@@ -170,7 +170,7 @@ export function normalizeAuditFilterSnapshot(value: AuditFilterSnapshot): AuditF
 }
 
 function normalizeSnapshot(value: unknown): AuditFilterSnapshot | null {
-  if (!isRecord(value) || !hasExactKeys(value, ['q', 'severity', 'type', 'actor', 'source', 'status', 'range'])) return null;
+  if (!isRecord(value) || !hasExactKeys(value, ['q', 'severity', 'type', 'actor', 'source', 'status', 'range'])) {return null;}
   const q = normalizeText(value['q'], 200);
   const type = normalizeText(value['type'], 160);
   const actor = normalizeText(value['actor'], 200);
@@ -178,7 +178,7 @@ function normalizeSnapshot(value: unknown): AuditFilterSnapshot | null {
   if (q === null || type === null || actor === null || source === null ||
       !severityValues.includes(value['severity'] as AuditFilterSnapshot['severity']) ||
       !statusValues.includes(value['status'] as AuditFilterSnapshot['status']) ||
-      !rangeValues.includes(value['range'] as AuditFilterSnapshot['range'])) return null;
+      !rangeValues.includes(value['range'] as AuditFilterSnapshot['range'])) {return null;}
   return {
     q,
     severity: value['severity'] as AuditFilterSnapshot['severity'],
@@ -191,7 +191,7 @@ function normalizeSnapshot(value: unknown): AuditFilterSnapshot | null {
 }
 
 function normalizeText(value: unknown, maximum: number): string | null {
-  if (typeof value !== 'string') return null;
+  if (typeof value !== 'string') {return null;}
   const normalized = value.trim();
   return normalized.length <= maximum ? normalized : null;
 }
@@ -215,7 +215,7 @@ function createId(): string {
 }
 
 function browserLocalStorage(): AuditViewStorage | null {
-  if (typeof window === 'undefined') return null;
+  if (typeof window === 'undefined') {return null;}
   try { return window.localStorage; } catch { return null; }
 }
 

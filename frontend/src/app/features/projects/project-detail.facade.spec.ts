@@ -70,7 +70,7 @@ describe('ProjectDetailFacade canonical Kanban', () => {
     // assert its exact coalescing and stale-response behavior.
     for (const request of http.match((candidate) =>
       candidate.method === 'GET' && candidate.url === '/api/projects/project-1/tasks'))
-      request.flush({ items: [] });
+      {request.flush({ items: [] });}
     facade.release();
     http.verify();
     TestBed.resetTestingModule();
@@ -1830,7 +1830,7 @@ describe('ProjectDetailFacade canonical Kanban', () => {
           }]
         : []
     });
-    if (includeKanban) http.expectOne('/api/projects/project-1/kanban').flush(snapshotDto());
+    if (includeKanban) {http.expectOne('/api/projects/project-1/kanban').flush(snapshotDto());}
     http.expectOne('/api/projects/project-1/gantt').flush(gantt);
     http.expectOne('/api/projects/project-1/workload').flush({
       members: includeProtectedRows

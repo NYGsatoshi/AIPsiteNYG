@@ -52,11 +52,11 @@ async function verifyPackageManager(filePath) {
 async function verifyWorkflowNodeVersions(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
   for (const entry of entries) {
-    if (!entry.isFile() || !/\.ya?ml$/i.test(entry.name)) continue;
+    if (!entry.isFile() || !/\.ya?ml$/i.test(entry.name)) {continue;}
 
     const filePath = path.join(directory, entry.name);
     const content = await readFile(filePath, 'utf8');
-    if (!/uses:\s*actions\/setup-node@/i.test(content)) continue;
+    if (!/uses:\s*actions\/setup-node@/i.test(content)) {continue;}
 
     const matches = [...content.matchAll(/node-version:\s*["']?([^\s"'#]+)["']?/g)];
     if (matches.length === 0) {
