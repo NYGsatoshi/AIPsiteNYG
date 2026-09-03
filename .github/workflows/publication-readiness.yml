@@ -3,24 +3,6 @@ name: Publication Readiness
 on:
   workflow_dispatch:
   pull_request:
-    paths:
-      - ".github/**"
-      - ".gitleaksignore"
-      - "scripts/ci/check-publication-readiness.py"
-      - "scripts/ci/test-publication-readiness.py"
-      - "scripts/ci/npm-audit-baseline.json"
-      - "README.md"
-      - "COPYRIGHT.md"
-      - "CONTRIBUTING.md"
-      - "THIRD_PARTY_NOTICES.md"
-      - "package.json"
-      - "package-lock.json"
-      - "frontend/package.json"
-      - "frontend/package-lock.json"
-      - "aipsite-frontend/package.json"
-      - "aipsite-frontend/package-lock.json"
-      - "docs/PUBLICATION_RUNBOOK.md"
-      - "docs/audit/publication-readiness-2026-09-03.md"
   push:
     branches: ["main"]
     paths:
