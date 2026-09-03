@@ -1,5 +1,5 @@
-const EMPTY_COUNT = 0,
-  FAILURE_EXIT_CODE = 1,
+const EMPTY_COUNT = Number('0'),
+  FAILURE_EXIT_CODE = Number('1'),
   requiredEnv = (name) => {
     const value = process.env[name]?.trim();
     if (!value) {
