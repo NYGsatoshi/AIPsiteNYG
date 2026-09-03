@@ -36,7 +36,9 @@
 }
 
 .findings-page__views,
-.finding-detail__trace-actions {
+.finding-detail__trace-actions,
+.finding-card__badges,
+.finding-detail__badges {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
@@ -130,21 +132,27 @@
 
 .findings-page__filters {
   display: grid;
-  grid-template-columns: repeat(2, minmax(10rem, 1fr)) minmax(12rem, auto) auto;
+  grid-template-columns: repeat(3, minmax(10rem, 1fr)) minmax(13rem, auto) auto;
   align-items: end;
   gap: 0.75rem;
 }
 
-.findings-page__filters label:not(.findings-page__check) {
+.findings-page__filters > label:not(.findings-page__check) {
   display: grid;
   gap: 0.35rem;
+}
+
+.findings-page__filter-checks {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.35rem 0.75rem;
 }
 
 .findings-page__check {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
-  min-height: 2.5rem;
+  min-height: 2rem;
 }
 
 .findings-page__check input {
@@ -193,6 +201,10 @@
   outline-offset: 2px;
 }
 
+.finding-card--overdue {
+  border-width: 2px;
+}
+
 .finding-card__headline,
 .finding-card__metrics {
   display: flex;
@@ -202,12 +214,19 @@
 }
 
 .finding-card__status,
-.finding-detail__status {
+.finding-detail__status,
+.finding-card__overdue,
+.finding-detail__overdue {
   border: 1px solid currentColor;
   border-radius: 999px;
   padding: 0.15rem 0.5rem;
   font-size: 0.8rem;
   white-space: nowrap;
+}
+
+.finding-card__overdue,
+.finding-detail__overdue {
+  font-weight: 700;
 }
 
 .finding-card__claim {
@@ -216,6 +235,7 @@
 
 .finding-card__metrics,
 .finding-card__owner,
+.finding-card__workflow,
 .finding-detail__help,
 .finding-detail__readonly {
   font-size: 0.9rem;
@@ -253,28 +273,38 @@
 
 .finding-detail__trace,
 .finding-detail__reason,
+.finding-detail__workflow,
 .finding-detail__actions,
+.finding-detail__workflow-history,
 .finding-detail__history {
   border-block-start: 1px solid color-mix(in srgb, currentColor 20%, transparent);
   padding-block-start: 1rem;
 }
 
+.finding-detail__workflow,
+.finding-detail__actions {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.finding-detail__workflow label,
 .finding-detail__actions label {
   display: grid;
   gap: 0.35rem;
+}
+
+.finding-detail__workflow-action {
+  width: 100%;
 }
 
 .finding-detail__action-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.5rem;
-  margin-block: 0.75rem;
+  margin-block: 0.25rem 0.75rem;
 }
 
-.finding-detail__owner-action {
-  width: 100%;
-}
-
+.finding-detail__workflow-history ol,
 .finding-detail__history ol {
   display: grid;
   gap: 0.75rem;
@@ -282,18 +312,31 @@
   padding-inline-start: 1.25rem;
 }
 
+.finding-detail__workflow-history li,
 .finding-detail__history li {
   padding-inline-start: 0.25rem;
 }
 
+.finding-detail__workflow-history time,
 .finding-detail__history time {
   display: block;
   margin-block-start: 0.2rem;
   font-size: 0.85rem;
 }
 
+.finding-detail__workflow-history p,
 .finding-detail__history p {
   margin-block: 0.35rem 0;
+}
+
+@media (max-width: 1100px) {
+  .findings-page__filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .findings-page__clear {
+    width: 100%;
+  }
 }
 
 @media (max-width: 900px) {
@@ -304,7 +347,6 @@
     display: grid;
   }
 
-  .findings-page__filters,
   .findings-page__workspace {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -316,6 +358,8 @@
   }
 
   .findings-page__loader-row,
+  .findings-page__filters,
+  .findings-page__filter-checks,
   .finding-detail__facts,
   .finding-detail__action-grid {
     grid-template-columns: minmax(0, 1fr);
