@@ -56,6 +56,11 @@ public static class DependencyInjection
         services.AddScoped<DbNotificationService>();
         services.Replace(ServiceDescriptor.Scoped<INotificationService, PreferenceAwareNotificationService>());
 
+        // Register the canonical API description without mapping a runtime
+        // documentation endpoint. SEC-01 emits this document at build time for
+        // security tooling while keeping production OpenAPI exposure disabled.
+        services.AddOpenApi();
+
         services.AddControllers(options =>
             options.Filters.Add<CanonicalProjectsResponseProjectionFilter>())
             .ConfigureApiBehaviorOptions(options =>
