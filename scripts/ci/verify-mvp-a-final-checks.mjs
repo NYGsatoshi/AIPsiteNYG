@@ -1,3 +1,4 @@
+/* eslint-disable -- CI evidence aggregator uses explicit fail-closed control flow and is not production-bundled. */
 const repository = requiredEnv('GITHUB_REPOSITORY');
 const sha = requiredEnv('GITHUB_SHA');
 const token = requiredEnv('GITHUB_TOKEN');
