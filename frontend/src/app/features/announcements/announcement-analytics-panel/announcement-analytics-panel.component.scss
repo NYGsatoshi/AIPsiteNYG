@@ -1,0 +1,86 @@
+:host {
+  display: block;
+}
+
+.announcement-analytics {
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--aip-border, #d7dde5);
+  border-radius: 0.75rem;
+  background: var(--aip-surface, #fff);
+}
+
+.announcement-analytics__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.announcement-analytics__header p,
+.announcement-analytics__header h3 {
+  margin: 0;
+}
+
+.announcement-analytics__header p,
+.announcement-analytics__header span,
+.announcement-analytics small,
+.announcement-analytics__definition dt {
+  font-size: 0.8rem;
+  color: var(--aip-text-muted, #5d6673);
+}
+
+.announcement-analytics__metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.announcement-analytics__metrics article {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.75rem;
+  border-radius: 0.6rem;
+  background: var(--aip-surface-subtle, #f6f8fa);
+}
+
+.announcement-analytics__metrics strong {
+  font-size: 1.5rem;
+}
+
+.announcement-analytics__metrics progress {
+  width: 100%;
+}
+
+.announcement-analytics__recognition {
+  margin: 1rem 0 0;
+}
+
+.announcement-analytics__definition {
+  display: grid;
+  gap: 0.65rem;
+  margin: 1rem 0 0;
+}
+
+.announcement-analytics__definition div {
+  display: grid;
+  grid-template-columns: minmax(5rem, 8rem) 1fr;
+  gap: 0.75rem;
+}
+
+.announcement-analytics__definition dt,
+.announcement-analytics__definition dd {
+  margin: 0;
+}
+
+@media (max-width: 560px) {
+  .announcement-analytics__header {
+    display: grid;
+  }
+
+  .announcement-analytics__definition div {
+    grid-template-columns: 1fr;
+    gap: 0.2rem;
+  }
+}
