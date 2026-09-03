@@ -26,7 +26,7 @@ GitHub rulesets, or make a legal or patent determination.
 | PUB-04 | High | No repository-owned source-availability notice or explicit contribution policy existed. | Added `COPYRIGHT.md`, `CONTRIBUTING.md`, README notice, `UNLICENSED` package metadata, and third-party notices. |
 | PUB-05 | High | No public security-reporting policy existed. | Added `.github/SECURITY.md` with private-reporting and authorized-testing boundaries. |
 | PUB-06 | Medium | No Code Owner declaration existed for public governance files. | Added `.github/CODEOWNERS` assigning the repository owner. |
-| PUB-07 | Medium | Publicization controls were not mechanically checked. | Added `scripts/ci/check-publication-readiness.py`, regression tests, and a required workflow. |
+| PUB-07 | Medium | Publicization controls were not mechanically checked. | Added `scripts/ci/check-publication-readiness.py`, expanded regression tests, and a required workflow. |
 | PUB-08 | Manual blocker | Historical commits, PRs, issues, logs, artifacts, releases, branches, tags, and external systems cannot be conclusively audited from a source-only pull request. | Documented mandatory manual inspection, deletion, and credential-rotation steps. |
 | PUB-09 | Manual blocker | GitHub pull-request creation policy, rulesets, security features, environment reviewers, and default token permissions are repository settings. | Documented exact cutover configuration. |
 | PUB-10 | Manual blocker | Patentability, ownership, school/contest obligations, and Syncfusion entitlement require owner confirmation. | Added a hard stop before visibility changes. |
@@ -34,10 +34,12 @@ GitHub rulesets, or make a legal or patent determination.
 | PUB-12 | Medium | Full-history Gitleaks initially reported three `generic-api-key` matches in one historical documentation commit. | Each location was inspected and confirmed to be ordinary slash-separated test-matrix prose. Only the three complete finding fingerprints are ignored in `.gitleaksignore`; path-wide, rule-wide, and commit-wide exclusions are prohibited by the policy guard. The full-history scan then completed with zero unignored findings. |
 | PUB-13 | High | npm audit reported High-severity transitive findings involving `fast-uri`, `undici`, and `nanoid`; the existing baseline retained those findings after remediation. | Both Angular dependency trees pin patched releases, lock files were regenerated, and the stale High-severity baseline was cleared after zero High/Critical findings were verified. |
 | PUB-14 | Medium | npm audit also reported Moderate `qs` findings through development tooling. | Both Angular dependency trees pin `qs` `6.16.0`; lock files were regenerated and both trees passed `npm audit --audit-level=low` with zero findings. |
+| PUB-15 | High | Required pull-request workflows used path filters that could leave required checks pending when a PR changed only ignored paths. | `CI` and `Publication Readiness` now trigger on every pull request; path filtering is retained only for non-required push runs. |
+| PUB-16 | High | The initial publication guard could miss multi-line `runs-on` labels, bracket-form secret references, `secrets: inherit`, cross-job environment protection, and inline write permissions. | The guard now evaluates job-local trust boundaries and regression coverage includes these bypass forms. |
 
 ## Automated validation completed
 
-- publication-policy parser tests: 6 passed;
+- publication-policy parser tests: 13 passed in the hardened regression suite;
 - generated active workflow set: 19 workflows checked before final cleanup;
 - active persistent self-hosted runner routing: 0;
 - pull-request workflows referencing Actions secrets: 0;
@@ -67,7 +69,10 @@ pull-request checks remain authoritative for merge readiness.
 - current README and governance-file inventory;
 - the three historical Gitleaks matches and their exact source context;
 - npm audit output and the regenerated `frontend` and `aipsite-frontend` lock
-  files; and
+  files;
+- publication-guard regression cases for multi-line runner labels, bracket-form
+  secret references, inherited secrets, job-local protected environments, and
+  write-permission encodings; and
 - sampled commit objects and workflow-run metadata, which confirmed the
   school-domain author-address exposure recorded as PUB-11.
 
