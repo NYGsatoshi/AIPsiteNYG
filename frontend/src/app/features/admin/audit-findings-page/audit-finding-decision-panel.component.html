@@ -4,7 +4,6 @@
   class="decision-panel"
   aria-labelledby="finding-decision-title"
   data-testid="audit-finding-decision-panel"
-  [attr.aria-busy]="saving() ? 'true' : null"
 >
   <header class="decision-panel__header">
     <div>
@@ -73,7 +72,12 @@
     }
 
     @if (panel.response.canReview) {
-      <form class="decision-panel__form" (submit)="$event.preventDefault(); save()">
+      <form
+        class="decision-panel__form"
+        data-testid="audit-finding-decision-form"
+        [attr.aria-busy]="saving() ? 'true' : null"
+        (submit)="$event.preventDefault(); save()"
+      >
         <label for="finding-review-decision">
           <span>Decision</span>
           <select
