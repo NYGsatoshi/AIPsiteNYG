@@ -1,0 +1,27 @@
+name: External PR review signal
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+  pull_request_review:
+    types: [submitted, edited, dismissed]
+
+permissions: {}
+
+jobs:
+  signal:
+    name: External PR review signal
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Emit PR state-change signal
+        shell: bash
+        run: |
+          set -euo pipefail
+          pr_number="$(jq -r '.pull_request.number // empty' "$GITHUB_EVENT_PATH")"
+          if [[ -z "$pr_number" ]]; then
+            echo "No pull request number was present in the event payload." >&2
+            exit 1
+          fi
+          echo "PR state changed for #$pr_number via $GITHUB_EVENT_NAME."
+          echo "The trusted default-branch evaluator will re-read the authoritative PR and review state."
