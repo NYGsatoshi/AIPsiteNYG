@@ -696,7 +696,7 @@ public sealed class ConversationService(
             fileObject.ProjectId.HasValue ||
             fileObject.DeletedAt.HasValue ||
             fileObject.Status != FileObjectStatus.Active ||
-            source.ScanStatus is FileScanStatus.Pending or FileScanStatus.Infected or FileScanStatus.Failed ||
+            source.ScanStatus != FileScanStatus.Clean ||
             !fileObject.Classification.HasValue ||
             fileObject.Classification == DataClassification.UnknownSensitive ||
             string.IsNullOrWhiteSpace(fileObject.OriginalFileName) ||

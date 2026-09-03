@@ -262,6 +262,43 @@ public sealed class MessageCanonicalAttachmentPostgreSqlTests
 
     [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
+    public async Task SkippedScanAttachmentIsDeniedToPreserveMessageAttachmentSearchContract()
+    {
+        var baseConnectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+        await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(baseConnectionString, async connectionString =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(connectionString);
+            var graph = await TaskV1MigrationRawSqlSeed.CreateGraphAsync(connectionString, $"issue528-skipped-{Guid.NewGuid():N}");
+            await using var fixture = CreateFixture(connectionString, graph);
+
+            var conversation = await fixture.SeedConversationAsync(graph.WorkspaceId, graph.UserId);
+            var sourceMessage = await fixture.SeedMessageAsync(conversation, graph.UserId, "skipped scan source");
+            var fileObject = await fixture.SeedFileObjectAsync(
+                graph.WorkspaceId,
+                graph.UserId,
+                FileObjectStatus.Active,
+                "skipped-scan-secret.txt",
+                "tenant/server/skipped-scan-secret.txt");
+            var source = await fixture.SeedMessageAttachmentAsync(
+                sourceMessage,
+                fileObject,
+                graph.UserId,
+                FileScanStatus.Skipped);
+            await fixture.Db.SaveChangesAsync();
+            fixture.Db.ChangeTracker.Clear();
+
+            await AssertDeniedAsync(
+                fixture,
+                conversation.Id,
+                source.Id,
+                Guid.NewGuid(),
+                fileObject.OriginalFileName,
+                fileObject.StorageKey);
+        });
+    }
+
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
     public async Task ProjectScopedFileObjectIsDeniedToPreserveMessageAttachmentSearchContract()
     {
         var baseConnectionString = PostgreSqlTestEnvironment.RequireConnectionString();
