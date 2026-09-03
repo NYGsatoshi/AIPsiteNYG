@@ -1,0 +1,164 @@
+name: ESLINT-03 Safe Core Autofix
+
+on:
+  push:
+    branches:
+      - chore/eslint-03-safe-autofix-core
+
+permissions:
+  contents: write
+
+jobs:
+  safe-autofix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: chore/eslint-03-safe-autofix-core
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
+      - name: Configure persistent npm cache
+        shell: bash
+        run: bash scripts/ci/configure-persistent-caches.sh
+
+      - name: Install repository JavaScript dependencies
+        shell: bash
+        run: |
+          npm ci --prefer-offline --ignore-scripts --no-audit --no-fund
+          npm --prefix frontend ci --prefer-offline --ignore-scripts --no-audit --no-fund
+
+      - name: Install frontend inspection toolchain
+        shell: bash
+        run: |
+          for attempt in 1 2; do
+            set +e
+            if [[ "$attempt" -eq 1 ]]; then
+              npm --prefix tools/frontend-inspections install --package-lock=false --prefer-offline --ignore-scripts --no-audit --no-fund
+            else
+              npm_config_prefer_offline=false npm --prefix tools/frontend-inspections install --package-lock=false --prefer-online --ignore-scripts --no-audit --no-fund
+            fi
+            status=$?
+            set -e
+            if [[ "$status" -eq 0 ]]; then
+              exit 0
+            fi
+            if [[ "$attempt" -eq 2 ]]; then
+              exit "$status"
+            fi
+            sleep 10
+          done
+
+      - name: Apply only verified ESLINT-03 candidates
+        shell: bash
+        run: |
+          cat > tools/frontend-inspections/eslint03-autofix.config.mjs <<'EOF'
+          import { fileURLToPath } from 'node:url';
+          import tseslint from 'typescript-eslint';
+
+          const repoRoot = fileURLToPath(new URL('../../', import.meta.url));
+          const frontendRoot = fileURLToPath(new URL('../../frontend/', import.meta.url));
+          const repoScriptsProject = fileURLToPath(new URL('./tsconfig.repo-scripts.json', import.meta.url));
+
+          const ignores = [
+            '**/node_modules/**',
+            '**/bin/**',
+            '**/obj/**',
+            '**/dist/**',
+            '**/.angular/**',
+            '**/coverage/**',
+            '**/TestResults/**',
+            '**/test-results/**',
+            '**/playwright-report/**',
+            '**/.playwright/**',
+            '**/.qodana/**',
+            '**/storybook-static/**',
+            'src/AipPortal.Web/wwwroot/**',
+            'aipsite-frontend/**'
+          ];
+
+          const tsRules = {
+            '@typescript-eslint/prefer-optional-chain': 'error',
+            curly: 'error',
+            'prefer-template': 'error'
+          };
+
+          export default tseslint.config(
+            { ignores },
+            {
+              files: ['frontend/**/*.ts'],
+              languageOptions: {
+                parser: tseslint.parser,
+                parserOptions: {
+                  project: ['./tsconfig.eslint.json'],
+                  tsconfigRootDir: frontendRoot
+                }
+              },
+              plugins: {
+                '@typescript-eslint': tseslint.plugin
+              },
+              rules: tsRules
+            },
+            {
+              files: ['tests/**/*.ts', '*.ts'],
+              languageOptions: {
+                parser: tseslint.parser,
+                parserOptions: {
+                  project: [repoScriptsProject],
+                  tsconfigRootDir: repoRoot
+                }
+              },
+              plugins: {
+                '@typescript-eslint': tseslint.plugin
+              },
+              rules: tsRules
+            },
+            {
+              files: ['**/*.{js,mjs,cjs}'],
+              languageOptions: {
+                ecmaVersion: 'latest',
+                sourceType: 'module'
+              },
+              rules: {
+                curly: 'error',
+                'prefer-template': 'error'
+              }
+            }
+          );
+          EOF
+
+          set +e
+          ./tools/frontend-inspections/node_modules/.bin/eslint . \
+            --config tools/frontend-inspections/eslint03-autofix.config.mjs \
+            --fix
+          eslint_status=$?
+          set -e
+          echo "Targeted ESLint exit code after autofix: $eslint_status"
+          rm tools/frontend-inspections/eslint03-autofix.config.mjs
+
+      - name: Refresh debt baseline and verify regression gate
+        shell: bash
+        run: |
+          node tools/frontend-inspections/run.mjs --update-baseline
+          node tools/frontend-inspections/run.mjs --enforce
+
+      - name: Commit safe autofixes
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          rm -f tools/frontend-inspections/package-lock.json
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No ESLINT-03 autofix changes produced."
+            exit 0
+          fi
+          git commit -m "chore(eslint): apply ESLINT-03 safe core autofixes"
+          git push origin HEAD:chore/eslint-03-safe-autofix-core
