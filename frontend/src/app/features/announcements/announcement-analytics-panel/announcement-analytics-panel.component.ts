@@ -1,4 +1,3 @@
-/* eslint-disable -- Issue #390 is isolated while ESLINT-01 reduces the repository-wide configs.all baseline. */
 import { Component, inject, Input, OnChanges, OnDestroy, SimpleChanges, signal } from '@angular/core';
 import { Subscription } from 'rxjs';
 
@@ -22,7 +21,7 @@ export class AnnouncementAnalyticsPanelComponent implements OnChanges, OnDestroy
   readonly analytics = signal<AnnouncementAnalyticsViewModel | null>(null);
 
   ngOnChanges(changes: SimpleChanges): void {
-    if (!changes['announcementId']) {
+    if (changes['announcementId'] === undefined) {
       return;
     }
 
@@ -30,7 +29,7 @@ export class AnnouncementAnalyticsPanelComponent implements OnChanges, OnDestroy
     this.request = null;
     this.analytics.set(null);
     const announcementId = this.announcementId;
-    if (!announcementId) {
+    if (announcementId === null || announcementId.length === 0) {
       return;
     }
 
