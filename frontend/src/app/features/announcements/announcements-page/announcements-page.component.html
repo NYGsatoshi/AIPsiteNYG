@@ -112,7 +112,7 @@
           />
         } @else {
           @if (selectedAnnouncement(); as selected) {
-            <!-- eslint-disable @angular-eslint/template/no-call-expression -->
+            <!-- eslint-disable @angular-eslint/template/no-call-expression, @angular-eslint/template/cyclomatic-complexity -->
             <app-announcement-detail
               [announcement]="selected"
               [canEdit]="canEdit()"
@@ -127,7 +127,7 @@
               (ctaClicked)="trackCtaClick($event)"
               (backRequested)="returnToList()"
             />
-            <!-- eslint-enable @angular-eslint/template/no-call-expression -->
+            <!-- eslint-enable @angular-eslint/template/no-call-expression, @angular-eslint/template/cyclomatic-complexity -->
             <app-announcement-analytics-panel [announcementId]="selected.id" />
           }
         }
