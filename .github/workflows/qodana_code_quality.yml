@@ -23,8 +23,6 @@ jobs:
     timeout-minutes: 120
     permissions:
       contents: read
-      pull-requests: write
-      checks: write
 
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: "1"
@@ -109,8 +107,8 @@ jobs:
           pr-mode: true
           results-dir: ${{ runner.temp }}/qodana/results-${{ github.run_id }}-${{ github.run_attempt }}
           use-caches: false
-          post-pr-comment: true
-          use-annotations: true
+          post-pr-comment: false
+          use-annotations: false
           upload-result: true
           push-fixes: none
 
