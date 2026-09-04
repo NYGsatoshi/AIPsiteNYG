@@ -1,0 +1,10 @@
+name: invalid privileged self hosted
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  mutate:
+    runs-on: [self-hosted, linux]
+    steps:
+      - run: echo unsafe
