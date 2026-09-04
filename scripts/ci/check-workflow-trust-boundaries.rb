@@ -36,6 +36,7 @@ class WorkflowTrustValidator
 
   INDEXED_STRING_PROPERTY = /\[\s*(['"])([A-Za-z_][A-Za-z0-9_-]*)\1\s*\]/
   SECRET_CONTEXT_REFERENCE = /(?:\A|[^A-Za-z0-9_])secrets(?:\.|\[|\z)/i
+  SECRET_OBJECT_DUMP_REFERENCE = /\btojson\(secrets\)/i
   WORKFLOW_RUN_HEAD_REFERENCE = /(?:\A|[^A-Za-z0-9_])github\.event\.workflow_run\.(?:head_sha|head_branch)\b/i
   WORKFLOW_RUN_DYNAMIC_FIELD_REFERENCE = /(?:\A|[^A-Za-z0-9_])github\.event\.workflow_run\[/i
 
@@ -326,7 +327,7 @@ class WorkflowTrustValidator
 
   def secret_reference?(value)
     normalized_action_expression_bodies(value).any? do |body|
-      body.match?(SECRET_CONTEXT_REFERENCE)
+      body.match?(SECRET_CONTEXT_REFERENCE) || body.match?(SECRET_OBJECT_DUMP_REFERENCE)
     end
   end
 
