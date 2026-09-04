@@ -204,24 +204,10 @@
       "scope": ["pr", "scheduled"],
       "enforcement": "blocking",
       "owner": "@NYGsatoshi",
-      "expected": {
-        "default": "read-only",
-        "persist_credentials": false,
-        "write_permissions_allowlist": [
-          {"workflow": ".github/workflows/external-pr-approval-evaluator.yml", "permissions": ["statuses:write"]},
-          {"workflow": ".github/workflows/codeql.yml", "permissions": ["security-events:write"]},
-          {"workflow": ".github/workflows/nuget-dependency-submission.yml", "permissions": ["contents:write"]},
-          {"workflow": ".github/workflows/refresh-pr445-mobile-baseline.yml", "permissions": ["contents:write"]}
-        ]
-      },
+      "expected": {"default": "read-only", "persist_credentials": false, "write_permissions_allowlist": [{"workflow": ".github/workflows/external-pr-approval-evaluator.yml", "permissions": ["statuses:write"]}]},
       "evidence": {"kind": "workflow-static", "source": "repository workflow permission inventory"},
       "exception": {"allowed": false},
-      "references": {
-        "paths": ["scripts/ci/check-publication-readiness.py", "scripts/ci/check-workflow-trust-boundaries.rb", "governance/workflow-trust-policy.json"],
-        "workflows": [".github/workflows/ci.yml", ".github/workflows/publication-readiness.yml", ".github/workflows/external-pr-review-signal.yml", ".github/workflows/external-pr-approval-evaluator.yml", ".github/workflows/codeql.yml", ".github/workflows/nuget-dependency-submission.yml", ".github/workflows/refresh-pr445-mobile-baseline.yml"],
-        "checks": [],
-        "rulesets": []
-      },
+      "references": {"paths": ["scripts/ci/check-publication-readiness.py"], "workflows": [".github/workflows/ci.yml", ".github/workflows/publication-readiness.yml", ".github/workflows/external-pr-review-signal.yml", ".github/workflows/external-pr-approval-evaluator.yml"], "checks": [], "rulesets": []},
       "failure_classification": "trust-boundary-violation"
     },
     {
@@ -249,7 +235,7 @@
       "expected": {"untrusted_pr": "forbidden", "persistent_privileged": "forbidden"},
       "evidence": {"kind": "workflow-static", "source": "repository runner routing inventory"},
       "exception": {"allowed": false},
-      "references": {"paths": ["scripts/ci/check-publication-readiness.py", "scripts/ci/check-workflow-trust-boundaries.rb"], "workflows": [], "checks": [], "rulesets": []},
+      "references": {"paths": ["scripts/ci/check-publication-readiness.py"], "workflows": [], "checks": [], "rulesets": []},
       "failure_classification": "trust-boundary-violation"
     },
     {
