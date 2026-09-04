@@ -8,25 +8,53 @@ test('redacts sensitive object keys recursively', () => {
     authorization: 'Bearer abc.def',
     nested: {
       password: 'secret-password',
+      clientSecret: 'oauth-secret',
       safe: 'visible'
     },
-    rows: [{ storageKey: 'bucket/object', name: 'document.txt' }]
+    rows: [{ storageKey: 'bucket/object', signature: 'signed-value', name: 'document.txt' }]
   });
 
   assert.deepEqual(redacted, {
     authorization: '[REDACTED]',
-    nested: { password: '[REDACTED]', safe: 'visible' },
-    rows: [{ storageKey: '[REDACTED]', name: 'document.txt' }]
+    nested: { password: '[REDACTED]', clientSecret: '[REDACTED]', safe: 'visible' },
+    rows: [{ storageKey: '[REDACTED]', signature: '[REDACTED]', name: 'document.txt' }]
   });
 });
 
-test('redacts bearer credentials and sensitive query material from free text', () => {
+test('redacts bearer credentials, cookie headers, OAuth tokens, and signed URL credentials from free text', () => {
   const value = redactText(
-    'Authorization: Bearer abc.def token=top-secret https://example.test/path?token=query-secret&x=1'
+    [
+      'Authorization: Bearer abc.def',
+      'Cookie: session=super-secret-cookie; csrftoken=csrf-value',
+      'access_token=oauth-access refresh_token=oauth-refresh id_token=oauth-id client_secret=client-secret',
+      'https://s3.example.test/object?X-Amz-Credential=AKIAEXAMPLE%2Fscope&X-Amz-Signature=abcdef&X-Amz-Security-Token=session-token',
+      'https://blob.example.test/object?sv=2026-01-01&sig=azure-signature',
+      'https://storage.example.test/object?X-Goog-Credential=service%40example.test%2Fscope&X-Goog-Signature=goog-signature',
+      'https://user:password@example.test/private'
+    ].join('\n')
   );
-  assert.equal(value.includes('abc.def'), false);
-  assert.equal(value.includes('top-secret'), false);
-  assert.equal(value.includes('query-secret'), false);
+
+  for (const secret of [
+    'abc.def',
+    'super-secret-cookie',
+    'csrf-value',
+    'oauth-access',
+    'oauth-refresh',
+    'oauth-id',
+    'client-secret',
+    'AKIAEXAMPLE',
+    'abcdef',
+    'session-token',
+    'azure-signature',
+    'service%40example.test',
+    'goog-signature',
+    'user:password'
+  ]) {
+    assert.equal(value.includes(secret), false, `expected ${secret} to be redacted`);
+  }
+
+  assert.equal(value.includes('sv=2026-01-01'), true);
+  assert.equal(value.includes('[REDACTED]'), true);
 });
 
 test('bounds artifact JSON output', () => {
