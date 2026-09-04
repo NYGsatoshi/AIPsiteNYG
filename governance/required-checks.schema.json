@@ -10,11 +10,7 @@
     "version": {"const": 1},
     "policy_control_id": {"const": "GOV-CHECKS-001"},
     "ruleset": {"$ref": "#/$defs/ruleset"},
-    "checks": {
-      "type": "array",
-      "minItems": 1,
-      "items": {"$ref": "#/$defs/check"}
-    }
+    "checks": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/check"}}
   },
   "$defs": {
     "ruleset": {
@@ -39,10 +35,16 @@
     "trustedStatusTrigger": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["mode", "event", "source_workflow"],
+      "required": ["mode", "events", "source_workflow"],
       "properties": {
-        "mode": {"const": "trusted-workflow-run"},
-        "event": {"const": "workflow_run"},
+        "mode": {"const": "trusted-default-branch"},
+        "events": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"enum": ["workflow_run", "workflow_dispatch"]},
+          "contains": {"const": "workflow_run"}
+        },
         "source_workflow": {"type": "string", "minLength": 1}
       }
     },
@@ -69,13 +71,7 @@
     "rename": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "state",
-        "previous_context",
-        "previous_workflow",
-        "previous_job",
-        "migration_issue"
-      ],
+      "required": ["state", "previous_context", "previous_workflow", "previous_job", "migration_issue"],
       "properties": {
         "state": {"enum": ["stable", "dual-publish"]},
         "previous_context": {"type": ["string", "null"]},
@@ -88,19 +84,9 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "gate_id",
-        "kind",
-        "workflow",
-        "job",
-        "context",
-        "scope",
-        "trigger",
-        "producer",
-        "ruleset_integration_id",
-        "allowed_conclusions",
-        "timeout_minutes",
-        "staleness_policy",
-        "rename"
+        "gate_id", "kind", "workflow", "job", "context", "scope", "trigger",
+        "producer", "ruleset_integration_id", "allowed_conclusions", "timeout_minutes",
+        "staleness_policy", "rename"
       ],
       "properties": {
         "gate_id": {"type": "string", "pattern": "^GOV-GATE-[A-Z0-9-]+-[0-9]{3}$"},
@@ -128,10 +114,7 @@
       "allOf": [
         {"$ref": "#/$defs/baseCheck"},
         {
-          "if": {
-            "properties": {"kind": {"const": "workflow-job"}},
-            "required": ["kind"]
-          },
+          "if": {"properties": {"kind": {"const": "workflow-job"}}, "required": ["kind"]},
           "then": {
             "properties": {
               "trigger": {"$ref": "#/$defs/workflowJobTrigger"},
