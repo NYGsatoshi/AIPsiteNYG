@@ -354,5 +354,6 @@ jobs:
             dotnet-vulnerable-packages.txt
             trivy-filesystem-report.txt
             gitleaks-report.json
+            artifacts/security/schemathesis/
           if-no-files-found: warn
           retention-days: 7
