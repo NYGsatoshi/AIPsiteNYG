@@ -4,7 +4,58 @@
 require_relative 'workflow-trust-boundaries-lib'
 
 class WorkflowTrustValidator
+  EVENT_TRUST_CLASSES = {
+    'untrusted_pr' => Set[
+      'pull_request',
+      'pull_request_review',
+      'pull_request_review_comment'
+    ],
+    'privileged_trusted' => Set[
+      'workflow_run',
+      'workflow_dispatch',
+      'push',
+      'repository_dispatch',
+      'merge_group'
+    ],
+    'scheduled_read_only' => Set['schedule'],
+    'release_deploy' => Set[
+      'release',
+      'deployment',
+      'deployment_status',
+      'page_build'
+    ],
+    'reusable' => Set['workflow_call']
+  }.freeze
+
   private
+
+  alias validate_workflow_without_event_classification validate_workflow
+
+  def validate_workflow(path, doc)
+    validate_workflow_without_event_classification(path, doc)
+    validate_event_trust_classification(path, doc)
+  end
+
+  def validate_event_trust_classification(path, doc)
+    on_node = doc['on']
+    return if on_node.nil?
+
+    events = event_names(on_node)
+    if events.empty?
+      add(CONTROL_TRUST, path, on_node.line, 'workflow trigger set is empty; trust class cannot be established')
+      return
+    end
+
+    classified = EVENT_TRUST_CLASSES.values.reduce(Set.new, &:|)
+    (events - classified).sort.each do |event|
+      add(
+        CONTROL_TRUST,
+        path,
+        on_node.line,
+        "event #{event.inspect} has no GOV-04 trust classification; fail-closed until explicitly classified"
+      )
+    end
+  end
 
   # `pull_request` is already an untrusted, read-only execution lane. Checking
   # out its explicit head SHA is valid when credentials are not persisted.
@@ -63,7 +114,7 @@ if $PROGRAM_NAME == __FILE__
   validator = WorkflowTrustValidator.new(ARGV[0] ? Pathname.new(ARGV[0]) : ROOT)
   findings = validator.validate
   if findings.empty?
-    puts 'Workflow trust-boundary validation passed: explicit permissions, write allowlist, untrusted PR, checkout, secret/environment, runner, workflow_run, and reusable-workflow boundaries verified.'
+    puts 'Workflow trust-boundary validation passed: event trust classes, explicit permissions, write allowlist, untrusted PR, checkout, secret/environment, runner, workflow_run, and reusable-workflow boundaries verified.'
     exit 0
   end
 
