@@ -449,7 +449,7 @@ app.MapGet("/health/ready", async (
         : Results.Json(new { status = "Unhealthy" }, statusCode: StatusCodes.Status503ServiceUnavailable);
 });
 
-app.MapFallback(context => AngularSpaFallback.HandleAsync(context, webRootPath));
+AngularSpaFallback.MapEndpointFallback(app, webRootPath);
 
 app.Run();
 

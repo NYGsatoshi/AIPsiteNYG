@@ -1,6 +1,12 @@
 using System.Net;
 using AipPortal.Web;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Hosting.Server;
+using Microsoft.AspNetCore.Hosting.Server.Features;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
 namespace AipPortal.Tests.Web;
 
@@ -106,6 +112,41 @@ public sealed class AngularSpaFallbackTests : IDisposable
         Assert.Equal("no-cache, no-store, must-revalidate", context.Response.Headers.CacheControl.ToString());
         Assert.Equal("no-cache", context.Response.Headers.Pragma.ToString());
         Assert.Equal("0", context.Response.Headers.Expires.ToString());
+    }
+
+    [Fact]
+    public async Task EndpointFallbackPreservesMethodNotAllowedForKnownApiRoutes()
+    {
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+        {
+            EnvironmentName = Environments.Development
+        });
+        builder.WebHost.UseKestrel().UseUrls("http://127.0.0.1:0");
+
+        await using var app = builder.Build();
+        app.MapGet("/api/example", () => Results.NoContent());
+        AngularSpaFallback.MapEndpointFallback(app, webRootPath);
+
+        await app.StartAsync();
+        try
+        {
+            var addresses = app.Services
+                .GetRequiredService<IServer>()
+                .Features
+                .Get<IServerAddressesFeature>()!
+                .Addresses;
+            using var client = new HttpClient { BaseAddress = new Uri(addresses.Single()) };
+            using var request = new HttpRequestMessage(new HttpMethod("TRACE"), "/api/example");
+
+            using var response = await client.SendAsync(request);
+
+            Assert.Equal(HttpStatusCode.MethodNotAllowed, response.StatusCode);
+            Assert.Contains("GET", response.Content.Headers.Allow);
+        }
+        finally
+        {
+            await app.StopAsync();
+        }
     }
 
     [Theory]

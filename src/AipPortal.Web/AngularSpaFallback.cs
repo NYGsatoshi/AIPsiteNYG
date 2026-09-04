@@ -1,4 +1,5 @@
 using AipPortal.Web.Models;
+using Microsoft.AspNetCore.Routing;
 
 namespace AipPortal.Web;
 
@@ -36,6 +37,20 @@ public static class AngularSpaFallback
     public static bool HasAngularBuild(string webRootPath) =>
         File.Exists(Path.Combine(webRootPath, "index.html")) &&
         File.Exists(Path.Combine(webRootPath, BuildMarkerFileName));
+
+    public static void MapEndpointFallback(IEndpointRouteBuilder endpoints, string webRootPath)
+    {
+        // Keep the SPA fallback out of unsafe and otherwise unsupported HTTP
+        // methods. A method mismatch on an existing API route must remain an
+        // ASP.NET Core 405 response instead of being consumed as an API 404 by
+        // the catch-all endpoint.
+        endpoints
+            .MapMethods(
+                "/{*path:nonfile}",
+                [HttpMethods.Get, HttpMethods.Head],
+                context => HandleAsync(context, webRootPath))
+            .WithOrder(int.MaxValue);
+    }
 
     public static bool CanServeAngularFallback(HttpRequest request, string webRootPath) =>
         (HttpMethods.IsGet(request.Method) || HttpMethods.IsHead(request.Method)) &&
