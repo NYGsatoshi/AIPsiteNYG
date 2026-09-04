@@ -22,7 +22,8 @@ class WorkflowTrustValidator
       'workflow_dispatch',
       'push',
       'repository_dispatch',
-      'merge_group'
+      'merge_group',
+      'branch_protection_rule'
     ],
     'scheduled_read_only' => Set['schedule'],
     'release_deploy' => Set[
