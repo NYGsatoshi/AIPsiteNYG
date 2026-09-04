@@ -67,7 +67,12 @@
       "evidence": {"kind": "status-context", "source": "authoritative exact-head commit status/check-runs"},
       "exception": {"allowed": false},
       "references": {
-        "paths": ["scripts/ci/check-required-pr-checks.py"],
+        "paths": [
+          "scripts/ci/check-required-pr-checks.py",
+          "governance/required-checks.json",
+          "governance/required-checks.schema.json",
+          "docs/verification/governance-required-checks.md"
+        ],
         "workflows": [".github/workflows/external-pr-approval-evaluator.yml", ".github/workflows/ci.yml", ".github/workflows/publication-readiness.yml"],
         "checks": [
           {"kind": "commit-status", "workflow": ".github/workflows/external-pr-approval-evaluator.yml", "job": "evaluate", "context": "External PR approval policy"},
