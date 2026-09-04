@@ -3,11 +3,18 @@ name: Real Backend P0 Preflight
 on:
   pull_request:
     paths:
+      - ".github/workflows/licensed-real-backend-acceptance.yml"
       - ".github/workflows/real-backend-p0-preflight.yml"
+      - "docker-compose.real-backend-smoke.yml"
+      - "package.json"
       - "scripts/ci/build-playwright-grep.mjs"
+      - "scripts/ci/functional-compose-harness.mjs"
       - "scripts/ci/real-backend-pr-p0-required-tests.txt"
+      - "scripts/ci/verify-functional-trust-boundary.mjs"
       - "scripts/ci/verify-playwright-required-tests.mjs"
       - "tests/ui/build-playwright-grep.node-test.mjs"
+      - "tests/ui/functional-compose-harness.node-test.mjs"
+      - "tests/ui/verify-functional-trust-boundary.node-test.mjs"
       - "tests/ui/verify-playwright-required-tests.node-test.mjs"
       - "tests/ui/real-backend-smoke-compose-helpers.mjs"
       - "tests/ui/real-backend-smoke-compose-helpers.node-test.mjs"
@@ -19,11 +26,18 @@ on:
   push:
     branches: ["main"]
     paths:
+      - ".github/workflows/licensed-real-backend-acceptance.yml"
       - ".github/workflows/real-backend-p0-preflight.yml"
+      - "docker-compose.real-backend-smoke.yml"
+      - "package.json"
       - "scripts/ci/build-playwright-grep.mjs"
+      - "scripts/ci/functional-compose-harness.mjs"
       - "scripts/ci/real-backend-pr-p0-required-tests.txt"
+      - "scripts/ci/verify-functional-trust-boundary.mjs"
       - "scripts/ci/verify-playwright-required-tests.mjs"
       - "tests/ui/build-playwright-grep.node-test.mjs"
+      - "tests/ui/functional-compose-harness.node-test.mjs"
+      - "tests/ui/verify-functional-trust-boundary.node-test.mjs"
       - "tests/ui/verify-playwright-required-tests.node-test.mjs"
       - "tests/ui/real-backend-smoke-compose-helpers.mjs"
       - "tests/ui/real-backend-smoke-compose-helpers.node-test.mjs"
@@ -56,21 +70,28 @@ jobs:
         with:
           node-version: "24"
 
-      - name: Test P0 manifest and runner helpers
+      - name: Test P0 manifest and Functional harness helpers
         run: >-
           node --test
           tests/ui/build-playwright-grep.node-test.mjs
-          tests/ui/verify-playwright-required-tests.node-test.mjs
+          tests/ui/functional-compose-harness.node-test.mjs
           tests/ui/real-backend-smoke-compose-helpers.node-test.mjs
+          tests/ui/verify-functional-trust-boundary.node-test.mjs
+          tests/ui/verify-playwright-required-tests.node-test.mjs
 
-      - name: Check P0 runner syntax
+      - name: Check P0 and Functional runner syntax
         shell: bash
         run: |
+          node --check scripts/ci/functional-compose-harness.mjs
+          node --check scripts/ci/verify-functional-trust-boundary.mjs
           node --check tests/ui/prepare-real-backend-p0-state.mjs
           node --check tests/ui/real-backend-smoke-compose-helpers.mjs
           node --check tests/ui/run-real-backend-p0.mjs
           node --check tests/ui/run-real-backend-playwright.mjs
           node --check tests/ui/run-real-backend-smoke-compose.mjs
+
+      - name: Verify protected Functional license trust boundary
+        run: node scripts/ci/verify-functional-trust-boundary.mjs .github/workflows/licensed-real-backend-acceptance.yml
 
       - name: Verify required P0 test titles still exist
         shell: bash
@@ -86,6 +107,7 @@ jobs:
             echo "- Manifest titles verified against the real-backend Playwright spec"
             echo "- Focused grep generated successfully"
             echo "- Required JUnit result verifier unit-tested"
-            echo "- Compose helper selection/redaction/URL/exit-code behavior unit-tested"
-            echo "- P0 setup and runner JavaScript syntax checked"
+            echo "- Shared Functional Compose lifecycle, isolation, fixture-profile, failure classification, and redaction behavior unit-tested"
+            echo "- Protected Syncfusion license lane verified as push/dispatch-only with exact-SHA checkout"
+            echo "- P0 setup and Functional runner JavaScript syntax checked"
           } >> "$GITHUB_STEP_SUMMARY"
