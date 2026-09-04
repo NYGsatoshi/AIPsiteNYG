@@ -1,10 +1,16 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "source_controls": [
     "GOV-WORKFLOW-PERM-001",
     "GOV-TRUST-001",
     "GOV-RUNNER-001"
   ],
+  "constraints": {
+    "persist_credentials": false,
+    "pull_request_target": "forbidden",
+    "untrusted_pr_self_hosted": "forbidden",
+    "persistent_privileged_self_hosted": "forbidden"
+  },
   "runner_routing": {
     "github_hosted_labels": [
       "ubuntu-latest",
@@ -16,20 +22,6 @@
     ]
   },
   "write_permissions": [
-    {
-      "workflow": ".github/workflows/external-pr-approval-evaluator.yml",
-      "jobs": [
-        "evaluate"
-      ],
-      "events": [
-        "workflow_run",
-        "workflow_dispatch"
-      ],
-      "permissions": [
-        "statuses:write"
-      ],
-      "reason": "Publish the policy-derived external-PR approval commit status after authoritative default-branch/API re-resolution."
-    },
     {
       "workflow": ".github/workflows/codeql.yml",
       "jobs": [
