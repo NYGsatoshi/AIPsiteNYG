@@ -76,6 +76,7 @@ jobs:
             echo "Docker returned a non-content-addressed image identity: $image_digest" >&2
             exit 1
           }
+          docker image inspect "$image_digest" >/dev/null
           printf 'IMAGE_DIGEST=%s\n' "$image_digest" >> "$GITHUB_ENV"
           mkdir -p artifacts/sbom/image
           printf '%s\n' "$image_digest" > artifacts/sbom/image/image.digest
@@ -83,7 +84,7 @@ jobs:
       - name: Verify runtime image hygiene and application payload
         shell: bash
         run: |
-          docker run --rm --entrypoint sh "$IMAGE_NAME" -c '
+          docker run --rm --entrypoint sh "$IMAGE_DIGEST" -c '
             test -s /app/AipPortal.Web.dll &&
             test -s /app/AipPortal.Web.deps.json &&
             test ! -e /run/secrets &&
@@ -101,7 +102,7 @@ jobs:
           final_out="artifacts/sbom/image"
           rm -rf "$first" "$second"
 
-          bash scripts/ci/generate-sbom.sh docker "$IMAGE_NAME" "$first"
+          bash scripts/ci/generate-sbom.sh docker "$IMAGE_DIGEST" "$first"
           cp "$first/sbom.cyclonedx.json" "$first/sbom.spdx.json" "$final_out/"
 
           python3 scripts/ci/verify_sbom.py validate \
@@ -121,7 +122,7 @@ jobs:
           python3 scripts/ci/verify_sbom.py verify-hashes \
             --metadata "$final_out/metadata.json"
 
-          bash scripts/ci/generate-sbom.sh docker "$IMAGE_NAME" "$second"
+          bash scripts/ci/generate-sbom.sh docker "$IMAGE_DIGEST" "$second"
           python3 scripts/ci/verify_sbom.py validate \
             --cyclonedx "$second/sbom.cyclonedx.json" \
             --spdx "$second/sbom.spdx.json" \
