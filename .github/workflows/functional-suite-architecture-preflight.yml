@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - ".github/workflows/functional-suite-architecture-preflight.yml"
+      - "package.json"
+      - "package-lock.json"
       - "playwright.functional.config.ts"
       - "scripts/ci/build-functional-grep.mjs"
       - "scripts/ci/functional-tags.mjs"
@@ -13,6 +15,8 @@ on:
     branches: ["main"]
     paths:
       - ".github/workflows/functional-suite-architecture-preflight.yml"
+      - "package.json"
+      - "package-lock.json"
       - "playwright.functional.config.ts"
       - "scripts/ci/build-functional-grep.mjs"
       - "scripts/ci/functional-tags.mjs"
@@ -29,7 +33,7 @@ permissions:
 jobs:
   functional-suite-architecture-preflight:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
 
     steps:
       - name: Checkout
@@ -42,6 +46,9 @@ jobs:
         with:
           node-version: "24"
 
+      - name: Install repository Playwright dependencies
+        run: npm ci --prefer-offline --ignore-scripts --no-audit --no-fund
+
       - name: Self-test Functional metadata and selection contracts
         run: node --test tests/functional/*.node-test.mjs
 
@@ -52,15 +59,41 @@ jobs:
           node --check scripts/ci/build-functional-grep.mjs
           node --check scripts/ci/run-functional-playwright.mjs
 
+      - name: Load Functional Playwright config and discover an actual spec
+        shell: bash
+        run: |
+          discovery="$(npx playwright test --config playwright.functional.config.ts --list)"
+          printf '%s\n' "$discovery"
+          grep -Fq \
+            "FCI-03 discovers FUNC-AUTH-001 metadata without claiming real-backend coverage" \
+            <<< "$discovery"
+
+      - name: Verify metadata to tags to grep selection end-to-end
+        shell: bash
+        run: |
+          selected="$(node scripts/ci/run-functional-playwright.mjs \
+            --gate functional-fast \
+            --domain auth \
+            --priority p0 \
+            --backend mock \
+            --journey FUNC-AUTH-001 \
+            -- --list)"
+          printf '%s\n' "$selected"
+          grep -Fq \
+            "FCI-03 discovers FUNC-AUTH-001 metadata without claiming real-backend coverage" \
+            <<< "$selected"
+
       - name: Summarize FCI-03 architecture contract
         shell: bash
         run: |
           {
             echo "### Functional Suite Architecture Preflight"
             echo
-            echo "- Metadata/tag contract self-tested"
-            echo "- Gate/domain/Journey grep selection self-tested"
+            echo "- Repository Playwright dependency graph installed with npm ci"
+            echo "- Functional Playwright config loaded successfully"
+            echo "- Actual tests/functional/**/*.spec.ts discovery verified"
+            echo "- Metadata -> Playwright tags -> grep selection verified end-to-end"
+            echo "- Gate/domain/Journey selection contracts self-tested"
             echo "- Real-backend default classification self-tested"
             echo "- Artifact redaction self-tested"
-            echo "- Functional runner JavaScript syntax checked"
           } >> "$GITHUB_STEP_SUMMARY"
