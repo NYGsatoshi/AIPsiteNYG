@@ -27,7 +27,7 @@ jobs:
           echo "runner.os=${RUNNER_OS}"
           echo "runner.arch=${RUNNER_ARCH}"
           echo "runner.environment=${RUNNER_ENVIRONMENT}"
-          if [[ "${RUNNER_ENVIRONMENT}" != "self-hosted" ]]; then
+          if [[ "${RUNNER_ENVIRONMENT}" != "github-hosted" ]]; then
             echo "Unexpected runner environment: ${RUNNER_ENVIRONMENT}" >&2
             exit 1
           fi
@@ -42,4 +42,4 @@ jobs:
         with:
           filePath: '.'
           detectorsCategories: NuGet
-          correlator: nuget-self-hosted
+          correlator: nuget-github-hosted
