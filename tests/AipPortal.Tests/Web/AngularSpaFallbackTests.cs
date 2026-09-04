@@ -1,5 +1,7 @@
 using System.Net;
 using AipPortal.Web;
+using AipPortal.Web.Configuration;
+using AipPortal.Web.Middleware;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -142,6 +144,46 @@ public sealed class AngularSpaFallbackTests : IDisposable
 
             Assert.Equal(HttpStatusCode.MethodNotAllowed, response.StatusCode);
             Assert.Contains("GET", response.Content.Headers.Allow);
+        }
+        finally
+        {
+            await app.StopAsync();
+        }
+    }
+
+    [Fact]
+    public async Task CsrfProtectionPreservesMethodNotAllowedWithoutBypassingSupportedCommands()
+    {
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+        {
+            EnvironmentName = Environments.Development
+        });
+        builder.WebHost.UseKestrel().UseUrls("http://127.0.0.1:0");
+        builder.Services.AddAntiforgery();
+        builder.Services.Configure<SecurityOptions>(options => options.EnableCsrfProtection = true);
+
+        await using var app = builder.Build();
+        app.UseMiddleware<CsrfProtectionMiddleware>();
+        app.MapPost("/api/example", () => Results.NoContent());
+        AngularSpaFallback.MapEndpointFallback(app, webRootPath);
+
+        await app.StartAsync();
+        try
+        {
+            var addresses = app.Services
+                .GetRequiredService<IServer>()
+                .Features
+                .Get<IServerAddressesFeature>()!
+                .Addresses;
+            using var client = new HttpClient { BaseAddress = new Uri(addresses.Single()) };
+            using var unsupportedRequest = new HttpRequestMessage(new HttpMethod("QUERY"), "/api/example");
+
+            using var unsupportedResponse = await client.SendAsync(unsupportedRequest);
+            using var supportedResponse = await client.PostAsync("/api/example", content: null);
+
+            Assert.Equal(HttpStatusCode.MethodNotAllowed, unsupportedResponse.StatusCode);
+            Assert.Contains("POST", unsupportedResponse.Content.Headers.Allow);
+            Assert.Equal(HttpStatusCode.Forbidden, supportedResponse.StatusCode);
         }
         finally
         {

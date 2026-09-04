@@ -11,9 +11,13 @@ public sealed class CsrfProtectionMiddleware(
     IOptions<SecurityOptions> securityOptions,
     ILogger<CsrfProtectionMiddleware> logger)
 {
+    private const string MethodNotAllowedEndpointDisplayName = "405 HTTP Method Not Supported";
+
     public async Task InvokeAsync(HttpContext context)
     {
-        if (!securityOptions.Value.EnableCsrfProtection || IsSafeMethod(context.Request.Method))
+        if (!securityOptions.Value.EnableCsrfProtection ||
+            IsSafeMethod(context.Request.Method) ||
+            IsMethodNotAllowedEndpoint(context))
         {
             await next(context);
             return;
@@ -81,6 +85,20 @@ public sealed class CsrfProtectionMiddleware(
                HttpMethods.IsHead(method) ||
                HttpMethods.IsOptions(method) ||
                HttpMethods.IsTrace(method);
+    }
+
+    // Endpoint routing selects this framework-owned terminal endpoint only when
+    // the path is known but the request method is unsupported. Let it produce
+    // the protocol-level 405 + Allow response instead of replacing it with a
+    // CSRF 403. Supported unsafe endpoints still require antiforgery validation.
+    private static bool IsMethodNotAllowedEndpoint(HttpContext context)
+    {
+        var endpoint = context.GetEndpoint();
+        return endpoint?.Metadata.Count == 0 &&
+               string.Equals(
+                   endpoint.DisplayName,
+                   MethodNotAllowedEndpointDisplayName,
+                   StringComparison.Ordinal);
     }
 
     private static bool IsPr06CommandPath(string? path) =>
