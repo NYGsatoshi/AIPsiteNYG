@@ -15,6 +15,7 @@ permissions:
 
 env:
   SYFT_VERSION: "1.51.0"
+  EVIDENCE_REPOSITORY_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
 
 jobs:
   source-sbom:
@@ -38,7 +39,7 @@ jobs:
         run: python3 scripts/ci/test_verify_sbom.py
 
       - name: Install pinned Syft
-        run: scripts/ci/install-syft.sh
+        run: bash scripts/ci/install-syft.sh
 
       - name: Restore NuGet dependency graph
         run: dotnet restore AipPortal.slnx --disable-parallel --verbosity normal
@@ -56,7 +57,7 @@ jobs:
           temp_out="${RUNNER_TEMP}/aipsite-sbom-source"
           final_out="artifacts/sbom/source"
           rm -rf "$temp_out" "$final_out"
-          scripts/ci/generate-sbom.sh dir "$GITHUB_WORKSPACE" "$temp_out"
+          bash scripts/ci/generate-sbom.sh dir "$GITHUB_WORKSPACE" "$temp_out"
           mkdir -p "$final_out"
           cp "$temp_out/sbom.cyclonedx.json" "$temp_out/sbom.spdx.json" "$final_out/"
 
@@ -64,7 +65,7 @@ jobs:
             --cyclonedx "$final_out/sbom.cyclonedx.json" \
             --spdx "$final_out/sbom.spdx.json" \
             --kind source \
-            --repository-sha "$GITHUB_SHA" \
+            --repository-sha "$EVIDENCE_REPOSITORY_SHA" \
             --run-identity "${GITHUB_RUN_ID}/${GITHUB_RUN_ATTEMPT}/${GITHUB_JOB}" \
             --syft-version "$SYFT_VERSION" \
             --metadata-out "$final_out/metadata.json" \
@@ -80,7 +81,7 @@ jobs:
       - name: Upload source SBOM evidence
         uses: actions/upload-artifact@v7
         with:
-          name: sbom-source-${{ github.sha }}
+          name: sbom-source-${{ env.EVIDENCE_REPOSITORY_SHA }}
           path: artifacts/sbom/source
           if-no-files-found: error
           retention-days: 30
@@ -108,7 +109,7 @@ jobs:
           persist-credentials: false
 
       - name: Install pinned Syft
-        run: scripts/ci/install-syft.sh
+        run: bash scripts/ci/install-syft.sh
 
       - name: Prepare leak-detection marker
         shell: bash
@@ -169,14 +170,14 @@ jobs:
           final_out="artifacts/sbom/image"
           rm -rf "$first" "$second"
 
-          scripts/ci/generate-sbom.sh docker "$IMAGE_NAME" "$first"
+          bash scripts/ci/generate-sbom.sh docker "$IMAGE_NAME" "$first"
           cp "$first/sbom.cyclonedx.json" "$first/sbom.spdx.json" "$final_out/"
 
           python3 scripts/ci/verify_sbom.py validate \
             --cyclonedx "$final_out/sbom.cyclonedx.json" \
             --spdx "$final_out/sbom.spdx.json" \
             --kind image \
-            --repository-sha "$GITHUB_SHA" \
+            --repository-sha "$EVIDENCE_REPOSITORY_SHA" \
             --run-identity "${GITHUB_RUN_ID}/${GITHUB_RUN_ATTEMPT}/${GITHUB_JOB}" \
             --syft-version "$SYFT_VERSION" \
             --identity-digest "$IMAGE_DIGEST" \
@@ -189,12 +190,12 @@ jobs:
           python3 scripts/ci/verify_sbom.py verify-hashes \
             --metadata "$final_out/metadata.json"
 
-          scripts/ci/generate-sbom.sh docker "$IMAGE_NAME" "$second"
+          bash scripts/ci/generate-sbom.sh docker "$IMAGE_NAME" "$second"
           python3 scripts/ci/verify_sbom.py validate \
             --cyclonedx "$second/sbom.cyclonedx.json" \
             --spdx "$second/sbom.spdx.json" \
             --kind image \
-            --repository-sha "$GITHUB_SHA" \
+            --repository-sha "$EVIDENCE_REPOSITORY_SHA" \
             --run-identity "${GITHUB_RUN_ID}/${GITHUB_RUN_ATTEMPT}/${GITHUB_JOB}/repeat" \
             --syft-version "$SYFT_VERSION" \
             --identity-digest "$IMAGE_DIGEST" \
@@ -213,7 +214,7 @@ jobs:
       - name: Upload final image SBOM evidence
         uses: actions/upload-artifact@v7
         with:
-          name: sbom-image-${{ github.sha }}
+          name: sbom-image-${{ env.EVIDENCE_REPOSITORY_SHA }}
           path: artifacts/sbom/image
           if-no-files-found: error
           retention-days: 30
