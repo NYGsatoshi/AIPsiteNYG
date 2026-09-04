@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
 import test from 'node:test';
 import {
   buildCanonicalFunctionalFixtureEnvironment,
@@ -6,6 +8,7 @@ import {
   composeProjectName,
   composeV2Invocation,
   formatFailureClassification,
+  FunctionalComposeHarness,
   FunctionalFailureClassification,
   FunctionalHarnessError,
   getComposeProjectName,
@@ -118,4 +121,34 @@ test('formats failure classification without exposing details beyond the supplie
   );
   assert.equal(normalizeExitCode(37), 37);
   assert.equal(normalizeExitCode(null), 1);
+});
+
+test('cleanup is project-scoped, removes volumes/orphans, and runs only once', async () => {
+  const calls = [];
+  const spawnImpl = (command, args) => {
+    calls.push([command, args]);
+    const child = new EventEmitter();
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    queueMicrotask(() => child.emit('close', 0));
+    return child;
+  };
+  const harness = new FunctionalComposeHarness({
+    composeFiles: ['docker-compose.real-backend-smoke.yml'],
+    projectName: 'fci-test-project',
+    spawnImpl
+  });
+  harness.composeInvocation = composeV2Invocation;
+
+  await Promise.all([harness.cleanup(), harness.cleanup()]);
+
+  assert.deepEqual(calls, [[
+    'docker',
+    [
+      'compose',
+      '-p', 'fci-test-project',
+      '-f', 'docker-compose.real-backend-smoke.yml',
+      'down', '--volumes', '--remove-orphans'
+    ]
+  ]]);
 });
