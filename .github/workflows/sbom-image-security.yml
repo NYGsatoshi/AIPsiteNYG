@@ -162,6 +162,9 @@ jobs:
           grype db status -o json > "$final_out/grype-db-status.json"
           grype "sbom:$final_out/sbom.cyclonedx.json" \
             -o json > "$final_out/grype-vulnerabilities.json"
+          python3 scripts/ci/verify_grype_sbom_source.py \
+            --report "$final_out/grype-vulnerabilities.json" \
+            --sbom "$final_out/sbom.cyclonedx.json"
 
           docker run --rm \
             -v "$trivy_cache:/root/.cache/trivy" \
