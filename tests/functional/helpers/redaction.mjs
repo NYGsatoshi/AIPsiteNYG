@@ -1,11 +1,15 @@
 const SENSITIVE_KEY_PATTERN =
-  /authorization|cookie|set-cookie|password|passwd|secret|token|csrf|license|connection.?string|storage.?key|api.?key/i;
+  /authorization|proxy.?authorization|cookie|set-cookie|password|passwd|secret|token|csrf|license|credential|signature|access.?key|private.?key|connection.?string|storage.?key|api.?key/i;
+
+const SENSITIVE_ASSIGNMENT_NAME =
+  '(?:password|passwd|pwd|token|access[_-]?token|refresh[_-]?token|id[_-]?token|secret|client[_-]?secret|api[_-]?key|storage[_-]?key|sig|signature|credential|awsaccesskeyid|googleaccessid|x-amz-credential|x-amz-signature|x-amz-security-token|x-goog-credential|x-goog-signature)';
 
 const STRING_REDACTIONS = [
   [/\bBearer\s+[A-Za-z0-9._~+/=-]+/giu, 'Bearer [REDACTED]'],
-  [/\b(password|passwd|pwd)\s*=\s*[^;\s]+/giu, '$1=[REDACTED]'],
-  [/\b(token|secret|api[_-]?key|storage[_-]?key)\s*=\s*[^&;\s]+/giu, '$1=[REDACTED]'],
-  [/([?&](?:token|secret|api[_-]?key|storage[_-]?key)=)[^&#\s]+/giu, '$1[REDACTED]']
+  [/\b(Authorization|Proxy-Authorization|Cookie|Set-Cookie)\s*:\s*[^\r\n]*/giu, '$1: [REDACTED]'],
+  [/\/\/[^/\s:@]+:[^@\s/]+@/gu, '//[REDACTED]@'],
+  [new RegExp(`\\b(${SENSITIVE_ASSIGNMENT_NAME})\\s*[:=]\\s*[^&;\\s]+`, 'giu'), '$1=[REDACTED]'],
+  [new RegExp(`([?&#](?:${SENSITIVE_ASSIGNMENT_NAME})=)[^&#\\s]+`, 'giu'), '$1[REDACTED]']
 ];
 
 export function redactForArtifact(value) {
