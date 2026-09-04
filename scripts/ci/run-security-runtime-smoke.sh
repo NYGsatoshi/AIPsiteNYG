@@ -23,11 +23,11 @@ cleanup() {
   status=$?
   trap - EXIT
   if (( status != 0 )); then
-    echo "SEC-03 runtime smoke failed; dumping Compose state." >&2
-    "${compose[@]}" ps >&2 || true
-    # Application/DB logs are server-side only. Scanner request material is kept
-    # in the ephemeral state directory below and is never uploaded as an artifact.
-    "${compose[@]}" logs --no-color postgres migrate app >&2 || true
+    echo "SEC-03 runtime smoke failed; dumping redacted Compose state." >&2
+    "${compose[@]}" ps 2>&1 | security_scan_redact_stream >&2 || true
+    # Scanner request material stays in the ephemeral state directory. Server
+    # logs are additionally redacted before they can enter the CI log stream.
+    "${compose[@]}" logs --no-color postgres migrate app 2>&1 | security_scan_redact_stream >&2 || true
   fi
   "${compose[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || true
   rm -rf "$state_dir"
