@@ -1,0 +1,464 @@
+{
+  "schemaVersion": 1,
+  "inventoryBaseline": {
+    "repository": "NYGsatoshi/AIPsiteNYG",
+    "sha": "79efe27722e3b9c2ddc2d6d5eed5010299e4df32",
+    "capturedOn": "2026-09-04"
+  },
+  "scenarios": [
+    {
+      "id": "auth.session-bootstrap",
+      "ownerSurface": "Authentication / application shell",
+      "relatedIssues": [],
+      "datasetProfiles": ["small", "medium", "large"],
+      "surfaces": [
+        {"kind": "api", "method": "GET", "path": "/api/auth/me", "evidence": "src/AipPortal.Web/Controllers/AuthController.cs"},
+        {"kind": "browser", "route": "/workspaces", "evidence": "frontend/src/app/app.routes.ts"}
+      ],
+      "metrics": [
+        {"name": "api.latency.p50_ms", "gate": "trend-only"},
+        {"name": "api.latency.p95_ms", "gate": "trend-only"},
+        {"name": "api.latency.p99_ms", "gate": "trend-only"},
+        {"name": "api.error_rate", "gate": "trend-only"},
+        {"name": "api.throughput_rps", "gate": "trend-only"},
+        {"name": "browser.navigation_ms", "gate": "trend-only"},
+        {"name": "browser.load_ms", "gate": "trend-only"},
+        {"name": "browser.interaction_ms", "gate": "trend-only"},
+        {"name": "build.initial_bundle_size", "gate": "hard-ceiling"},
+        {"name": "build.chunk_size", "gate": "trend-only"}
+      ]
+    },
+    {
+      "id": "workspace.list",
+      "ownerSurface": "Workspace read model",
+      "relatedIssues": [74, 78],
+      "datasetProfiles": ["small", "medium", "large"],
+      "surfaces": [
+        {"kind": "api", "method": "GET", "path": "/api/workspaces", "evidence": "src/AipPortal.Web/Controllers/WorkspacesController.cs"},
+        {"kind": "browser", "route": "/workspaces", "evidence": "frontend/src/app/app.routes.ts"}
+      ],
+      "metrics": [
+        {"name": "api.latency.p50_ms", "gate": "trend-only"},
+        {"name": "api.latency.p95_ms", "gate": "trend-only"},
+        {"name": "api.latency.p99_ms", "gate": "trend-only"},
+        {"name": "api.error_rate", "gate": "trend-only"},
+        {"name": "api.throughput_rps", "gate": "trend-only"},
+        {"name": "db.query_count", "gate": "trend-only"},
+        {"name": "db.total_time_ms", "gate": "trend-only"},
+        {"name": "db.slow_query_evidence", "gate": "extended-only"},
+        {"name": "browser.navigation_ms", "gate": "trend-only"},
+        {"name": "browser.load_ms", "gate": "trend-only"},
+        {"name": "browser.interaction_ms", "gate": "trend-only"}
+      ]
+    },
+    {
+      "id": "workspace.detail",
+      "ownerSurface": "Workspace read model",
+      "relatedIssues": [78],
+      "datasetProfiles": ["small", "medium", "large"],
+      "surfaces": [
+        {"kind": "api", "method": "GET", "path": "/api/workspaces/{workspaceId}", "evidence": "src/AipPortal.Web/Controllers/WorkspacesController.cs"},
+        {"kind": "browser", "route": "/workspaces/:workspaceId/projects", "evidence": "frontend/src/app/app.routes.ts"}
+      ],
+      "metrics": [
+        {"name": "api.latency.p50_ms", "gate": "trend-only"},
+        {"name": "api.latency.p95_ms", "gate": "trend-only"},
+        {"name": "api.latency.p99_ms", "gate": "trend-only"},
+        {"name": "api.error_rate", "gate": "trend-only"},
+        {"name": "api.throughput_rps", "gate": "trend-only"},
+        {"name": "db.query_count", "gate": "trend-only"},
+        {"name": "db.total_time_ms", "gate": "trend-only"},
+        {"name": "browser.navigation_ms", "gate": "trend-only"},
+        {"name": "browser.load_ms", "gate": "trend-only"},
+        {"name": "browser.interaction_ms", "gate": "trend-only"}
+      ]
+    },
+    {
+      "id": "project.list",
+      "ownerSurface": "Project list/read model",
+      "relatedIssues": [74, 78],
+      "datasetProfiles": ["small", "medium", "large"],
+      "surfaces": [
+        {"kind": "api", "method": "GET", "path": "/api/projects", "evidence": "src/AipPortal.Web/Controllers/ProjectsController.cs"},
+        {"kind": "browser", "route": "/projects", "evidence": "frontend/src/app/app.routes.ts"},
+        {"kind": "browser", "route": "/workspaces/:workspaceId/projects", "evidence": "frontend/src/app/app.routes.ts"}
+      ],
+      "metrics": [
+        {"name": "api.latency.p50_ms", "gate": "trend-only"},
+        {"name": "api.latency.p95_ms", "gate": "trend-only"},
+        {"name": "api.latency.p99_ms", "gate": "trend-only"},
+        {"name": "api.error_rate", "gate": "trend-only"},
+        {"name": "api.throughput_rps", "gate": "trend-only"},
+        {"name": "db.query_count", "gate": "trend-only"},
+        {"name": "db.total_time_ms", "gate": "trend-only"},
+        {"name": "db.slow_query_evidence", "gate": "extended-only"},
+        {"name": "browser.navigation_ms", "gate": "trend-only"},
+        {"name": "browser.load_ms", "gate": "trend-only"},
+        {"name": "browser.interaction_ms", "gate": "trend-only"}
+      ]
+    },
+    {
+      "id": "project.detail",
+      "ownerSurface": "Project detail/read model",
+      "relatedIssues": [78],
+      "datasetProfiles": ["small", "medium", "large"],
+      "surfaces": [
+        {"kind": "api", "method": "GET", "path": "/api/projects/{projectId}", "evidence": "src/AipPortal.Web/Controllers/ProjectsController.cs"},
+        {"kind": "browser", "route": "/projects/:projectId", "evidence": "frontend/src/app/app.routes.ts"}
+      ],
+      "metrics": [
+        {"name": "api.latency.p50_ms", "gate": "trend-only"},
+        {"name": "api.latency.p95_ms", "gate": "trend-only"},
+        {"name": "api.latency.p99_ms", "gate": "trend-only"},
+        {"name": "api.error_rate", "gate": "trend-only"},
+        {"name": "api.throughput_rps", "gate": "trend-only"},
+        {"name": "db.query_count", "gate": "trend-only"},
+        {"name": "db.total_time_ms", "gate": "trend-only"},
+        {"name": "browser.navigation_ms", "gate": "trend-only"},
+        {"name": "browser.load_ms", "gate": "trend-only"},
+        {"name": "browser.interaction_ms", "gate": "trend-only"}
+      ]
+    },
+    {
+      "id": "task.list",
+      "ownerSurface": "Project Task list/read model",
+      "relatedIssues": [74, 78],
+      "datasetProfiles": ["small", "medium", "large"],
+      "surfaces": [
+        {"kind": "api", "method": "GET", "path": "/api/projects/{projectId}/tasks", "evidence": "src/AipPortal.Web/Controllers/ProjectsController.cs"},
+        {"kind": "browser", "route": "/projects/:projectId", "evidence": "frontend/src/app/app.routes.ts"}
+      ],
+      "metrics": [
+        {"name": "api.latency.p50_ms", "gate": "trend-only"},
+        {"name": "api.latency.p95_ms", "gate": "trend-only"},
+        {"name": "api.latency.p99_ms", "gate": "trend-only"},
+        {"name": "api.error_rate", "gate": "trend-only"},
+        {"name": "api.throughput_rps", "gate": "trend-only"},
+        {"name": "db.query_count", "gate": "trend-only"},
+        {"name": "db.total_time_ms", "gate": "trend-only"},
+        {"name": "db.slow_query_evidence", "gate": "extended-only"},
+        {"name": "browser.navigation_ms", "gate": "trend-only"},
+        {"name": "browser.load_ms", "gate": "trend-only"},
+        {"name": "browser.interaction_ms", "gate": "trend-only"}
+      ]
+    },
+    {
+      "id": "task.detail",
+      "ownerSurface": "Canonical Task detail",
+      "relatedIssues": [78],
+      "datasetProfiles": ["small", "medium", "large"],
+      "surfaces": [
+        {"kind": "api", "method": "GET", "path": "/api/tasks/{taskItemId}", "evidence": "src/AipPortal.Web/Controllers/ProjectsController.cs"},
+        {"kind": "browser", "route": "/projects/:projectId/tasks/:taskId", "evidence": "frontend/src/app/app.routes.ts"}
+      ],
+      "metrics": [
+        {"name": "api.latency.p50_ms", "gate": "trend-only"},
+        {"name": "api.latency.p95_ms", "gate": "trend-only"},
+        {"name": "api.latency.p99_ms", "gate": "trend-only"},
+        {"name": "api.error_rate", "gate": "trend-only"},
+        {"name": "api.throughput_rps", "gate": "trend-only"},
+        {"name": "db.query_count", "gate": "trend-only"},
+        {"name": "db.total_time_ms", "gate": "trend-only"},
+        {"name": "browser.navigation_ms", "gate": "trend-only"},
+        {"name": "browser.load_ms", "gate": "trend-only"},
+        {"name": "browser.interaction_ms", "gate": "trend-only"}
+      ]
+    },
+    {
+      "id": "task.my-tasks",
+      "ownerSurface": "My Tasks projection",
+      "relatedIssues": [74, 78],
+      "datasetProfiles": ["small", "medium", "large"],
+      "surfaces": [
+        {"kind": "api", "method": "GET", "path": "/api/me/tasks", "evidence": "src/AipPortal.Web/Controllers/PlanningController.cs"},
+        {"kind": "browser", "route": "/tasks", "evidence": "frontend/src/app/app.routes.ts"}
+      ],
+      "metrics": [
+        {"name": "api.latency.p50_ms", "gate": "trend-only"},
+        {"name": "api.latency.p95_ms", "gate": "trend-only"},
+        {"name": "api.latency.p99_ms", "gate": "trend-only"},
+        {"name": "api.error_rate", "gate": "trend-only"},
+        {"name": "api.throughput_rps", "gate": "trend-only"},
+        {"name": "db.query_count", "gate": "trend-only"},
+        {"name": "db.total_time_ms", "gate": "trend-only"},
+        {"name": "db.slow_query_evidence", "gate": "extended-only"},
+        {"name": "browser.navigation_ms", "gate": "trend-only"},
+        {"name": "browser.load_ms", "gate": "trend-only"},
+        {"name": "browser.interaction_ms", "gate": "trend-only"}
+      ]
+    },
+    {
+      "id": "project.kanban-load",
+      "ownerSurface": "Project Kanban",
+      "relatedIssues": [74, 78],
+      "datasetProfiles": ["small", "medium", "large"],
+      "surfaces": [
+        {"kind": "api", "method": "GET", "path": "/api/projects/{projectId}/kanban", "evidence": "src/AipPortal.Web/Controllers/ProjectKanbanController.cs"},
+        {"kind": "browser", "route": "/projects/:projectId", "evidence": "frontend/src/app/app.routes.ts"}
+      ],
+      "productContract": {"defaultMaxCards": 300, "maximumMaxCards": 500, "evidence": "src/AipPortal.Application/Projects/ProjectKanbanDtos.cs"},
+      "metrics": [
+        {"name": "api.latency.p50_ms", "gate": "trend-only"},
+        {"name": "api.latency.p95_ms", "gate": "trend-only"},
+        {"name": "api.latency.p99_ms", "gate": "trend-only"},
+        {"name": "api.error_rate", "gate": "trend-only"},
+        {"name": "api.throughput_rps", "gate": "trend-only"},
+        {"name": "db.query_count", "gate": "trend-only"},
+        {"name": "db.total_time_ms", "gate": "trend-only"},
+        {"name": "db.slow_query_evidence", "gate": "extended-only"},
+        {"name": "browser.navigation_ms", "gate": "trend-only"},
+        {"name": "browser.load_ms", "gate": "trend-only"},
+        {"name": "browser.interaction_ms", "gate": "trend-only"},
+        {"name": "runtime.rss_bytes", "gate": "extended-only"},
+        {"name": "runtime.heap_bytes", "gate": "extended-only"},
+        {"name": "runtime.gc_pause_ms", "gate": "extended-only"},
+        {"name": "runtime.cpu_percent", "gate": "extended-only"},
+        {"name": "runtime.db_connections", "gate": "extended-only"}
+      ]
+    },
+    {
+      "id": "project.gantt-load",
+      "ownerSurface": "Project Gantt / large-project delivery",
+      "relatedIssues": [74, 78, 270],
+      "datasetProfiles": ["small", "medium", "large"],
+      "surfaces": [
+        {"kind": "api", "method": "GET", "path": "/api/projects/{projectId}/gantt", "evidence": "src/AipPortal.Web/Controllers/PlanningController.cs"},
+        {"kind": "browser", "route": "/projects/:projectId", "evidence": "frontend/src/app/app.routes.ts"}
+      ],
+      "ganttContract": {
+        "canonicalIssue": 270,
+        "cursorPagination": true,
+        "defaultPageSize": 100,
+        "maximumPageSize": 200,
+        "virtualScrolling": true,
+        "boundedClientCache": true,
+        "projectWideHardLimit": null,
+        "projectWideHardLimitPolicy": "No Project-wide hard limit was approved by #270; any future limit must be deployment-configurable and load-tested.",
+        "observedMain": {
+          "sha": "79efe27722e3b9c2ddc2d6d5eed5010299e4df32",
+          "status": "implementation-mismatch",
+          "requestPaginationParameters": [],
+          "temporaryFullSnapshotLimitsObserved": {"combinedItems": 500, "dependencies": 2000},
+          "limitsAreCanonicalDatasetLimits": false,
+          "evidence": [
+            "src/AipPortal.Web/Controllers/PlanningController.cs",
+            "src/AipPortal.Application/Planning/PlanningService.cs",
+            "src/AipPortal.Infrastructure/Persistence/PlanningRepository.cs",
+            "docs/verification/task-v1-pr06-gantt.md"
+          ]
+        }
+      },
+      "metrics": [
+        {"name": "api.latency.p50_ms", "gate": "trend-only"},
+        {"name": "api.latency.p95_ms", "gate": "trend-only"},
+        {"name": "api.latency.p99_ms", "gate": "trend-only"},
+        {"name": "api.error_rate", "gate": "trend-only"},
+        {"name": "api.throughput_rps", "gate": "trend-only"},
+        {"name": "db.query_count", "gate": "trend-only"},
+        {"name": "db.total_time_ms", "gate": "trend-only"},
+        {"name": "db.slow_query_evidence", "gate": "extended-only"},
+        {"name": "browser.navigation_ms", "gate": "trend-only"},
+        {"name": "browser.load_ms", "gate": "trend-only"},
+        {"name": "browser.interaction_ms", "gate": "trend-only"},
+        {"name": "runtime.rss_bytes", "gate": "extended-only"},
+        {"name": "runtime.heap_bytes", "gate": "extended-only"},
+        {"name": "runtime.gc_pause_ms", "gate": "extended-only"},
+        {"name": "runtime.cpu_percent", "gate": "extended-only"},
+        {"name": "runtime.db_connections", "gate": "extended-only"}
+      ]
+    },
+    {
+      "id": "file.list",
+      "ownerSurface": "File metadata list",
+      "relatedIssues": [74, 78],
+      "datasetProfiles": ["small", "medium", "large"],
+      "surfaces": [
+        {"kind": "api", "method": "GET", "path": "/api/files", "evidence": "src/AipPortal.Web/Controllers/FilesController.cs"},
+        {"kind": "browser", "route": "/files", "evidence": "frontend/src/app/app.routes.ts"},
+        {"kind": "browser", "route": "/workspaces/:workspaceId/files", "evidence": "frontend/src/app/app.routes.ts"}
+      ],
+      "metrics": [
+        {"name": "api.latency.p50_ms", "gate": "trend-only"},
+        {"name": "api.latency.p95_ms", "gate": "trend-only"},
+        {"name": "api.latency.p99_ms", "gate": "trend-only"},
+        {"name": "api.error_rate", "gate": "trend-only"},
+        {"name": "api.throughput_rps", "gate": "trend-only"},
+        {"name": "db.query_count", "gate": "trend-only"},
+        {"name": "db.total_time_ms", "gate": "trend-only"},
+        {"name": "db.slow_query_evidence", "gate": "extended-only"},
+        {"name": "browser.navigation_ms", "gate": "trend-only"},
+        {"name": "browser.load_ms", "gate": "trend-only"},
+        {"name": "browser.interaction_ms", "gate": "trend-only"}
+      ]
+    },
+    {
+      "id": "file.metadata",
+      "ownerSurface": "File metadata detail",
+      "relatedIssues": [78],
+      "datasetProfiles": ["small", "medium", "large"],
+      "surfaces": [
+        {"kind": "api", "method": "GET", "path": "/api/files/{fileObjectId}", "evidence": "src/AipPortal.Web/Controllers/FilesController.cs"}
+      ],
+      "metrics": [
+        {"name": "api.latency.p50_ms", "gate": "trend-only"},
+        {"name": "api.latency.p95_ms", "gate": "trend-only"},
+        {"name": "api.latency.p99_ms", "gate": "trend-only"},
+        {"name": "api.error_rate", "gate": "trend-only"},
+        {"name": "api.throughput_rps", "gate": "trend-only"},
+        {"name": "db.query_count", "gate": "trend-only"},
+        {"name": "db.total_time_ms", "gate": "trend-only"}
+      ]
+    },
+    {
+      "id": "file.download-preflight",
+      "ownerSurface": "File download authorization/preflight",
+      "relatedIssues": [78],
+      "datasetProfiles": ["small", "medium", "large"],
+      "surfaces": [
+        {"kind": "api", "method": "POST", "path": "/api/files/{fileObjectId}/download-grants", "evidence": "src/AipPortal.Web/Controllers/FilesController.cs"}
+      ],
+      "metrics": [
+        {"name": "api.latency.p50_ms", "gate": "trend-only"},
+        {"name": "api.latency.p95_ms", "gate": "trend-only"},
+        {"name": "api.latency.p99_ms", "gate": "trend-only"},
+        {"name": "api.error_rate", "gate": "trend-only"},
+        {"name": "api.throughput_rps", "gate": "trend-only"},
+        {"name": "db.query_count", "gate": "trend-only"},
+        {"name": "db.total_time_ms", "gate": "trend-only"}
+      ]
+    },
+    {
+      "id": "conversation.list",
+      "ownerSurface": "Conversation inbox",
+      "relatedIssues": [74, 78],
+      "datasetProfiles": ["small", "medium", "large"],
+      "surfaces": [
+        {"kind": "api", "method": "GET", "path": "/api/conversations", "evidence": "src/AipPortal.Web/Controllers/ConversationsController.cs"},
+        {"kind": "browser", "route": "/messages", "evidence": "frontend/src/app/app.routes.ts"}
+      ],
+      "metrics": [
+        {"name": "api.latency.p50_ms", "gate": "trend-only"},
+        {"name": "api.latency.p95_ms", "gate": "trend-only"},
+        {"name": "api.latency.p99_ms", "gate": "trend-only"},
+        {"name": "api.error_rate", "gate": "trend-only"},
+        {"name": "api.throughput_rps", "gate": "trend-only"},
+        {"name": "db.query_count", "gate": "trend-only"},
+        {"name": "db.total_time_ms", "gate": "trend-only"},
+        {"name": "db.slow_query_evidence", "gate": "extended-only"},
+        {"name": "browser.navigation_ms", "gate": "trend-only"},
+        {"name": "browser.load_ms", "gate": "trend-only"},
+        {"name": "browser.interaction_ms", "gate": "trend-only"}
+      ]
+    },
+    {
+      "id": "conversation.messages",
+      "ownerSurface": "Conversation message timeline",
+      "relatedIssues": [74, 78],
+      "datasetProfiles": ["small", "medium", "large"],
+      "surfaces": [
+        {"kind": "api", "method": "GET", "path": "/api/conversations/{conversationId}/messages", "evidence": "src/AipPortal.Web/Controllers/ConversationsController.cs"},
+        {"kind": "browser", "route": "/conversations/:conversationId", "evidence": "frontend/src/app/app.routes.ts"},
+        {"kind": "browser", "route": "/dm/:conversationId", "evidence": "frontend/src/app/app.routes.ts"}
+      ],
+      "metrics": [
+        {"name": "api.latency.p50_ms", "gate": "trend-only"},
+        {"name": "api.latency.p95_ms", "gate": "trend-only"},
+        {"name": "api.latency.p99_ms", "gate": "trend-only"},
+        {"name": "api.error_rate", "gate": "trend-only"},
+        {"name": "api.throughput_rps", "gate": "trend-only"},
+        {"name": "db.query_count", "gate": "trend-only"},
+        {"name": "db.total_time_ms", "gate": "trend-only"},
+        {"name": "db.slow_query_evidence", "gate": "extended-only"},
+        {"name": "browser.navigation_ms", "gate": "trend-only"},
+        {"name": "browser.load_ms", "gate": "trend-only"},
+        {"name": "browser.interaction_ms", "gate": "trend-only"}
+      ]
+    },
+    {
+      "id": "notification.list",
+      "ownerSurface": "Notification center",
+      "relatedIssues": [74, 78],
+      "datasetProfiles": ["small", "medium", "large"],
+      "surfaces": [
+        {"kind": "api", "method": "GET", "path": "/api/notifications", "evidence": "src/AipPortal.Web/Controllers/NotificationsController.cs"}
+      ],
+      "metrics": [
+        {"name": "api.latency.p50_ms", "gate": "trend-only"},
+        {"name": "api.latency.p95_ms", "gate": "trend-only"},
+        {"name": "api.latency.p99_ms", "gate": "trend-only"},
+        {"name": "api.error_rate", "gate": "trend-only"},
+        {"name": "api.throughput_rps", "gate": "trend-only"},
+        {"name": "db.query_count", "gate": "trend-only"},
+        {"name": "db.total_time_ms", "gate": "trend-only"},
+        {"name": "db.slow_query_evidence", "gate": "extended-only"}
+      ]
+    },
+    {
+      "id": "announcement.list",
+      "ownerSurface": "Announcement list",
+      "relatedIssues": [74, 78],
+      "datasetProfiles": ["small", "medium", "large"],
+      "surfaces": [
+        {"kind": "api", "method": "GET", "path": "/api/announcements", "evidence": "src/AipPortal.Web/Controllers/AnnouncementsController.cs"},
+        {"kind": "browser", "route": "/announcements", "evidence": "frontend/src/app/app.routes.ts"}
+      ],
+      "metrics": [
+        {"name": "api.latency.p50_ms", "gate": "trend-only"},
+        {"name": "api.latency.p95_ms", "gate": "trend-only"},
+        {"name": "api.latency.p99_ms", "gate": "trend-only"},
+        {"name": "api.error_rate", "gate": "trend-only"},
+        {"name": "api.throughput_rps", "gate": "trend-only"},
+        {"name": "db.query_count", "gate": "trend-only"},
+        {"name": "db.total_time_ms", "gate": "trend-only"},
+        {"name": "db.slow_query_evidence", "gate": "extended-only"},
+        {"name": "browser.navigation_ms", "gate": "trend-only"},
+        {"name": "browser.load_ms", "gate": "trend-only"},
+        {"name": "browser.interaction_ms", "gate": "trend-only"}
+      ]
+    },
+    {
+      "id": "mutation.kanban-move",
+      "ownerSurface": "Project Kanban mutation",
+      "relatedIssues": [78],
+      "datasetProfiles": ["small", "medium", "large"],
+      "surfaces": [
+        {"kind": "api", "method": "POST", "path": "/api/tasks/{taskId}/kanban-move", "evidence": "src/AipPortal.Web/Controllers/ProjectKanbanController.cs"}
+      ],
+      "mutationReset": {
+        "mode": "reseed-profile",
+        "scope": "Recreate the selected deterministic performance fixture before each mutation sample group.",
+        "failIfUnavailable": true
+      },
+      "metrics": [
+        {"name": "api.latency.p50_ms", "gate": "trend-only"},
+        {"name": "api.latency.p95_ms", "gate": "trend-only"},
+        {"name": "api.latency.p99_ms", "gate": "trend-only"},
+        {"name": "api.error_rate", "gate": "trend-only"},
+        {"name": "api.throughput_rps", "gate": "trend-only"},
+        {"name": "db.query_count", "gate": "trend-only"},
+        {"name": "db.total_time_ms", "gate": "trend-only"}
+      ]
+    },
+    {
+      "id": "realtime.app-hub",
+      "ownerSurface": "SignalR application hub",
+      "relatedIssues": [],
+      "datasetProfiles": ["small", "medium", "large"],
+      "surfaces": [
+        {"kind": "realtime", "path": "/hubs/app", "evidence": "src/AipPortal.Web/Program.cs"}
+      ],
+      "metrics": [
+        {"name": "realtime.connect_ms", "gate": "extended-only"},
+        {"name": "realtime.delivery.p95_ms", "gate": "extended-only"},
+        {"name": "realtime.reconnect.p95_ms", "gate": "extended-only"},
+        {"name": "realtime.error_rate", "gate": "extended-only"},
+        {"name": "realtime.messages_per_second", "gate": "extended-only"},
+        {"name": "runtime.rss_bytes", "gate": "extended-only"},
+        {"name": "runtime.heap_bytes", "gate": "extended-only"},
+        {"name": "runtime.gc_pause_ms", "gate": "extended-only"},
+        {"name": "runtime.cpu_percent", "gate": "extended-only"},
+        {"name": "runtime.db_connections", "gate": "extended-only"}
+      ]
+    }
+  ]
+}
