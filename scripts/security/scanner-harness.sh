@@ -171,8 +171,8 @@ secret = os.environ.get("AIP_SECURITY_CI_PASSWORD", "")
 if secret:
     text = text.replace(secret, "[REDACTED]")
 patterns = (
-    r"(?im)^(cookie|set-cookie|x-csrf-token)\s*:\s*.*$",
-    r"(?i)(\"(?:password|token|csrfToken|cookie)\"\s*:\s*\")[^\"]*(\")",
+    r"(?im)^(cookie|set-cookie|x-csrf-token|authorization|proxy-authorization)\s*:\s*.*$",
+    r"(?i)(\"(?:password|token|accessToken|refreshToken|csrfToken|csrf|cookie)\"\s*:\s*\")[^\"]*(\")",
 )
 text = re.sub(patterns[0], lambda m: f"{m.group(1)}: [REDACTED]", text)
 text = re.sub(patterns[1], r"\1[REDACTED]\2", text)
