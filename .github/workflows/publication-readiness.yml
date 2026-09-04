@@ -28,10 +28,15 @@ jobs:
 
       - name: Test publication and governance policy parsers
         run: |
+          python3 -m py_compile \
+            scripts/ci/required_check_contract.py \
+            scripts/ci/required_check_parent.py \
+            scripts/ci/check-required-pr-checks.py
           python3 scripts/ci/test-governance-policy.py
           python3 scripts/ci/test-governance-review-status-invariants.py
           python3 scripts/ci/test-publication-readiness.py
           python3 scripts/ci/test-required-pr-checks.py
+          PYTHONPATH=scripts/ci python3 scripts/ci/test-required-check-parent.py
 
       - name: Enforce publication and governance policies
         run: |
