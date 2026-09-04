@@ -1,0 +1,17 @@
+name: valid trusted evaluator
+on:
+  workflow_run:
+    workflows: [signal]
+    types: [completed]
+permissions:
+  contents: read
+  statuses: write
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          pr_number=1
+          pr_json="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$pr_number")"
+          head_sha="$(jq -r '.head.sha' <<<"$pr_json")"
+          echo "$head_sha" >/dev/null

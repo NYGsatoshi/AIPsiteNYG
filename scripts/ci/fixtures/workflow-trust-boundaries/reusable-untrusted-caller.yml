@@ -1,0 +1,7 @@
+name: reusable caller
+on:
+  pull_request:
+permissions: {}
+jobs:
+  call:
+    uses: ./.github/workflows/reusable-secret-callee.yml

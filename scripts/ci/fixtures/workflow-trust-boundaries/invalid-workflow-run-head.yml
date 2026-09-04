@@ -1,0 +1,18 @@
+name: invalid workflow run head
+on:
+  workflow_run:
+    workflows: [source]
+    types: [completed]
+permissions:
+  statuses: write
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@0123456789012345678901234567890123456789
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+      - run: |
+          gh api "repos/$GITHUB_REPOSITORY/pulls/1"
+          echo '.head.sha'
