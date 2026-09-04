@@ -1,0 +1,35 @@
+name: Performance contract
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+  pull_request:
+
+concurrency:
+  group: performance-contract-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: performance-contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Validate helper syntax
+        run: python3 -m py_compile scripts/ci/verify-performance-contract.py tests/ci/test_performance_contract.py
+
+      - name: Test performance contract validator
+        run: python3 -m unittest discover -s tests/ci -p 'test_performance_contract.py'
+
+      - name: Validate versioned performance contract
+        run: python3 scripts/ci/verify-performance-contract.py
