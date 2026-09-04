@@ -38,6 +38,23 @@ public sealed class NotificationApplicationServiceTests
         Assert.Equal(1, result.Value!.UnreadCount);
     }
 
+    [Fact]
+    public async Task OpenFailsClosedWhenOwnedTargetIsNoLongerAuthorized()
+    {
+        var fixture = NotificationFixture.Create();
+        var user = Guid.NewGuid();
+        fixture.Current.UserIdValue = user;
+        fixture.OpenService.Resolution = new NotificationTargetResolution(
+            IsOwned: true,
+            IsAvailable: false,
+            Route: null,
+            StateVersion: 7);
+
+        var result = await fixture.Service.OpenAsync(Guid.NewGuid());
+
+        Assert.False(result.IsSuccess);
+    }
+
     private sealed class NotificationFixture
     {
         private NotificationFixture()
@@ -121,8 +138,10 @@ public sealed class NotificationApplicationServiceTests
 
     private sealed class FakeNotificationOpenService : INotificationOpenService
     {
+        public NotificationTargetResolution Resolution { get; set; } = new(false, false, null, 0);
+
         public Task<NotificationTargetResolution> OpenAsync(Guid tenantId, Guid userId, Guid notificationId, CancellationToken cancellationToken = default) =>
-            Task.FromResult(new NotificationTargetResolution(false, false, null, 0));
+            Task.FromResult(Resolution);
     }
 
     private sealed class FakeClock : IClock

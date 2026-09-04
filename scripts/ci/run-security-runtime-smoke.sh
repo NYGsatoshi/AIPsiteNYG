@@ -18,12 +18,14 @@ base_url="http://app:8080"
 
 # shellcheck source=scripts/security/scanner-harness.sh
 source scripts/security/scanner-harness.sh
+# shellcheck source=scripts/security/authorization-negative-matrix.sh
+source scripts/security/authorization-negative-matrix.sh
 
 cleanup() {
   status=$?
   trap - EXIT
   if (( status != 0 )); then
-    echo "SEC-03 runtime smoke failed; dumping redacted Compose state." >&2
+    echo "SEC-03/SEC-05 runtime smoke failed; dumping redacted Compose state." >&2
     "${compose[@]}" ps 2>&1 | security_scan_redact_stream >&2 || true
     # Scanner request material stays in the ephemeral state directory. Server
     # logs are additionally redacted before they can enter the CI log stream.
@@ -37,7 +39,7 @@ cleanup() {
 trap cleanup EXIT
 
 fail() {
-  echo "SEC-03 runtime smoke failed: $*" >&2
+  echo "SEC-03/SEC-05 runtime smoke failed: $*" >&2
   return 1
 }
 
@@ -147,11 +149,34 @@ export SECURITY_SCAN_STATE_PARENT="$state_dir"
 export SECURITY_SCAN_HTTP_STATE_PARENT="/state"
 security_scan_init "$base_url"
 security_scan_preflight
-# No active scanner is invoked in SEC-03. Later SEC phases run their tool between
-# these two calls and reuse the ephemeral sessions from this harness.
+
+# SEC-05 runs inside the same isolated Test-only boundary and reuses the already
+# authenticated SEC-03 sessions. security_scan_preflight explicitly re-bootstraps
+# alpha-owner after the wrong-password probe, so no second login is needed here.
+# Its durable artifact contains metadata only; protected response bodies stay in
+# SECURITY_SCAN_STATE_DIR and are destroyed.
+security_authorization_negative_matrix_run
+
+# Claims/Evidence and Finding are implemented admin surfaces too. Both authorize
+# AuditView before protected artifact/finding lookup, so an ordinary Alpha member
+# must be rejected at the BFLA boundary even when supplied a syntactically valid
+# identifier. Re-render the same metadata-only evidence after appending the cases.
+sec05_case member-audit-claims-evidence audit-claims-evidence bfla-role-downgrade alpha-member \
+  'security-alpha/member' 'security-alpha/admin-audit/claims-evidence' GET 'GET /api/admin/audit/claims-evidence' \
+  "/api/admin/audit/claims-evidence?artifactVersionId=$SEC05_ALPHA_TASK_ID" \
+  forbidden none __NO_BODY__ '' none
+sec05_case member-audit-findings audit-finding bfla-role-downgrade alpha-member \
+  'security-alpha/member' 'security-alpha/admin-audit/findings' GET 'GET /api/admin/audit/findings' \
+  "/api/admin/audit/findings?artifactVersionId=$SEC05_ALPHA_TASK_ID" \
+  forbidden none __NO_BODY__ '' none
+sec05_write_evidence
+if (( SEC05_FAILURES != 0 )); then
+  fail "$SEC05_FAILURES SEC-05 blocker case(s) failed after Audit Claim/Evidence/Finding coverage"
+fi
+
 security_scan_teardown
 
-# A process restart forces the Test-only hosted service to seed the same real
+# A process restart forces both Test-only seed layers to seed the same real
 # PostgreSQL database a second time. Successful readiness plus exact canary row
 # counts proves the fixture remains idempotent under relational constraints.
 "${compose[@]}" restart app
@@ -169,5 +194,14 @@ assert_db_count 2 \
 assert_db_count 2 \
   "SELECT COUNT(*) FROM projects WHERE \"Slug\" IN ('sec02-alpha-project','sec02-beta-project');" \
   "project canaries"
+assert_db_count 1 \
+  "SELECT COUNT(*) FROM conversations WHERE \"Title\"='SEC05 ALPHA SHADOW CONVERSATION CANARY';" \
+  "SEC-05 same-tenant shadow conversation"
+assert_db_count 2 \
+  "SELECT COUNT(*) FROM notifications WHERE \"LogicalKey\" IN ('sec05-alpha-task-open-canary','sec05-beta-task-open-canary') AND \"DeletedAt\" IS NULL;" \
+  "SEC-05 notification canaries"
+assert_db_count 2 \
+  "SELECT COUNT(*) FROM announcements WHERE \"Title\" IN ('SEC05 ALPHA ANNOUNCEMENT CANARY','SEC05 BETA ANNOUNCEMENT CANARY') AND \"DeletedAt\" IS NULL;" \
+  "SEC-05 announcement canaries"
 
-echo "SEC-03 scanner target guard, compose transport binding, synthetic sessions, tenant isolation, logout invalidation, and disposable PostgreSQL lifecycle verified."
+echo "SEC-03 scanner boundary and SEC-05 authorization negative matrix verified on disposable PostgreSQL."
