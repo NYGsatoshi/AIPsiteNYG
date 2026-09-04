@@ -74,6 +74,15 @@ def require_security_contract(document: dict[str, object]) -> None:
     ):
         fail("protected operations must require CookieAuth")
 
+    request_content = export_operation.get("requestBody")
+    request_content = request_content.get("content") if isinstance(request_content, dict) else None
+    if not isinstance(request_content, dict):
+        fail("audit package export POST request content must be present")
+    if "application/json" not in request_content or "application/*+json" not in request_content:
+        fail("JSON request bodies must retain ordinary and structured-suffix media types")
+    if "text/json" in request_content:
+        fail("security contract must not advertise runtime-rejected text/json request bodies")
+
 
 def main() -> None:
     if len(sys.argv) != 2:

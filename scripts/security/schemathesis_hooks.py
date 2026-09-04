@@ -17,6 +17,8 @@ from schemathesis_policy import disclosure_reason  # noqa: E402
 _AUTH_FILE_ENV = "AIP_SECURITY_SCHEMATHESIS_AUTH_FILE"
 _EVIDENCE_FILE_ENV = "AIP_SECURITY_SCHEMATHESIS_EVIDENCE_FILE"
 _ROLE_ENV = "AIP_SECURITY_SCHEMATHESIS_ROLE"
+_STRUCTURED_JSON_MEDIA_RANGE = "application/*+json"
+_STRUCTURED_JSON_EXAMPLE = "application/vnd.aipportal+json"
 
 
 def _load_auth() -> dict[str, Any]:
@@ -49,6 +51,11 @@ def _append_evidence(event: dict[str, Any]) -> None:
 @schemathesis.hook
 def before_call(ctx, case, kwargs):
     auth = _load_auth()
+    # OpenAPI media ranges describe a family, but Schemathesis 4.25.2 sends the
+    # wildcard literally as Content-Type. Exercise the same family with a
+    # concrete vendor subtype that ASP.NET Core can negotiate.
+    if case.media_type == _STRUCTURED_JSON_MEDIA_RANGE:
+        case.media_type = _STRUCTURED_JSON_EXAMPLE
     headers = dict(case.headers or {})
     headers.update(auth["headers"])
     case.headers = headers

@@ -50,6 +50,10 @@ public sealed class SecurityOpenApiOperationTransformer : IOpenApiOperationTrans
 
         if (operation.RequestBody is not null)
         {
+            // ApiExplorer includes the legacy text/json formatter media type,
+            // but the production request pipeline rejects it with 415. Keep
+            // the authoritative security contract aligned with runtime input.
+            operation.RequestBody.Content?.Remove("text/json");
             AddResponse(operation, "415", "The request content type is not supported.");
         }
 

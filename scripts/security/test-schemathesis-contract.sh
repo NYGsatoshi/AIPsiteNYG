@@ -43,6 +43,8 @@ grep -Fq 'negative_data_rejection.expected-statuses' "$config" || fail "negative
 grep -Eq '^[[:space:]]*415,' "$config" || fail "unsupported media type must count as a rejected invalid request"
 grep -Fq 'security_scan_fetch_csrf' "$runner" || fail "SEC-03 CSRF harness is not reused"
 grep -Fq 'no_sensitive_internal_error_disclosure' "$runner" || fail "custom disclosure check is not selected"
+grep -Fq '_STRUCTURED_JSON_MEDIA_RANGE = "application/*+json"' scripts/security/schemathesis_hooks.py || fail "structured JSON media range is not normalized"
+grep -Fq '_STRUCTURED_JSON_EXAMPLE = "application/vnd.aipportal+json"' scripts/security/schemathesis_hooks.py || fail "structured JSON media range lacks a concrete test subtype"
 grep -Fq 'not_a_server_error' "$runner" || fail "unexpected 5xx check is not selected"
 grep -Fq 'status_code_conformance' "$runner" || fail "status conformance check is not selected"
 grep -Fq 'response_schema_conformance' "$runner" || fail "response schema conformance check is not selected"
