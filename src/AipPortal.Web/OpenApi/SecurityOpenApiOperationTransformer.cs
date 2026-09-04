@@ -70,6 +70,14 @@ public sealed class SecurityOpenApiOperationTransformer : IOpenApiOperationTrans
             AddResponse(operation, "415", "The request content type is not supported.");
         }
 
+        foreach (var status in new[] { "400", "401", "403", "404", "415" })
+        {
+            if (operation.Responses?.ContainsKey(status) == true)
+            {
+                AddProblemDetailsContent(operation, status);
+            }
+        }
+
         return Task.CompletedTask;
     }
 
@@ -97,6 +105,24 @@ public sealed class SecurityOpenApiOperationTransformer : IOpenApiOperationTrans
         if (!operation.Responses.ContainsKey(status))
         {
             operation.Responses.Add(status, new OpenApiResponse { Description = description });
+        }
+
+        AddProblemDetailsContent(operation, status);
+    }
+
+    private static void AddProblemDetailsContent(OpenApiOperation operation, string status)
+    {
+        // Framework model validation, status-code handling, authorization, and
+        // CSRF rejection can all emit RFC 9457 Problem Details. Preserve any
+        // action-specific media types while documenting this cross-cutting one.
+        if (operation.Responses?.TryGetValue(status, out var describedResponse) == true &&
+            describedResponse is OpenApiResponse response)
+        {
+            response.Content ??= new Dictionary<string, IOpenApiMediaType>();
+            if (!response.Content.ContainsKey("application/problem+json"))
+            {
+                response.Content.Add("application/problem+json", new OpenApiMediaType());
+            }
         }
     }
 

@@ -74,6 +74,11 @@ def require_security_contract(document: dict[str, object]) -> None:
     required_responses = {"400", "401", "403", "404", "415"}
     if not isinstance(responses, dict) or not required_responses.issubset(responses):
         fail("protected request-body operations must document 400/401/403/404/415 responses")
+    for status in required_responses:
+        response = responses.get(status)
+        content = response.get("content") if isinstance(response, dict) else None
+        if not isinstance(content, dict) or "application/problem+json" not in content:
+            fail(f"cross-cutting {status} responses must document application/problem+json")
 
     security = export_operation.get("security")
     if not isinstance(security, list) or not any(
@@ -116,6 +121,11 @@ def require_security_contract(document: dict[str, object]) -> None:
     invite_responses = invite_operation.get("responses") if isinstance(invite_operation, dict) else None
     if not isinstance(invite_responses, dict) or "404" not in invite_responses:
         fail("well-formed unknown invite tokens must be documented as 404")
+    for status in ("400", "404"):
+        response = invite_responses.get(status) if isinstance(invite_responses, dict) else None
+        content = response.get("content") if isinstance(response, dict) else None
+        if not isinstance(content, dict) or "application/problem+json" not in content:
+            fail(f"invite validation {status} must document application/problem+json")
 
     for schema_name, token_property in (
         ("AcceptInviteRequest", "token"),
@@ -133,6 +143,10 @@ def require_security_contract(document: dict[str, object]) -> None:
         post_responses = post_operation.get("responses") if isinstance(post_operation, dict) else None
         if not isinstance(post_responses, dict) or "404" not in post_responses:
             fail(f"well-formed unknown invite tokens must be documented as 404 for {path_name}")
+        not_found = post_responses.get("404")
+        content = not_found.get("content") if isinstance(not_found, dict) else None
+        if not isinstance(content, dict) or "application/problem+json" not in content:
+            fail(f"invite 404 responses must document application/problem+json for {path_name}")
 
 
 def main() -> None:

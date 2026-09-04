@@ -47,7 +47,10 @@ public sealed class AuthController(IAuthService authService) : ControllerBase
         var result = await authService.RegisterByInviteAsync(request, cancellationToken);
         if (!result.IsSuccess || result.Value is null)
         {
-            return NotFound(new { error = result.Error });
+            return Problem(
+                title: "Invite registration failed.",
+                detail: string.IsNullOrWhiteSpace(result.Error) ? "Invite is invalid." : result.Error,
+                statusCode: StatusCodes.Status404NotFound);
         }
 
         await SignInAsync(result.Value);
