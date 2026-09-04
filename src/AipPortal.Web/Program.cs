@@ -351,9 +351,11 @@ app.MapGet("/api/ui/runtime-config.js", async (
 });
 app.MapHub<AppHub>("/hubs/app");
 
-app.MapGet("/", () => Results.Redirect($"{AngularSpaFallback.AppRequestPath}/", permanent: false));
+app.MapGet("/", () => Results.Redirect($"{AngularSpaFallback.AppRequestPath}/", permanent: false))
+    .ExcludeFromDescription();
 
-app.MapGet("/health", () => Results.Redirect("/health/ready", permanent: false));
+app.MapGet("/health", () => Results.Redirect("/health/ready", permanent: false))
+    .ExcludeFromDescription();
 
 app.MapGet("/health/live", () => Results.Ok(new { status = "OK" }));
 

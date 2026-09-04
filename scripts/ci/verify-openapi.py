@@ -57,6 +57,14 @@ def require_security_contract(document: dict[str, object]) -> None:
         fail("CookieAuth must describe the production authentication cookie")
 
     paths = document.get("paths")
+    if isinstance(paths, dict):
+        redirect_paths = {"/", "/health"}.intersection(paths)
+        if redirect_paths:
+            fail(
+                "redirect-only navigation aliases must not be advertised as API operations: "
+                f"{sorted(redirect_paths)!r}"
+            )
+
     export_path = paths.get("/api/admin/audit/package-exports") if isinstance(paths, dict) else None
     export_operation = export_path.get("post") if isinstance(export_path, dict) else None
     if not isinstance(export_operation, dict):
