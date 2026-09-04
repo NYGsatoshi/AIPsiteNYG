@@ -1,0 +1,223 @@
+name: SBOM Security
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+  pull_request:
+
+concurrency:
+  group: sbom-security-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  SYFT_VERSION: "1.51.0"
+
+jobs:
+  source-sbom:
+    name: sbom-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout reviewed source
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Exercise SBOM verifier failure modes
+        run: python3 scripts/ci/test_verify_sbom.py
+
+      - name: Install pinned Syft
+        run: scripts/ci/install-syft.sh
+
+      - name: Restore NuGet dependency graph
+        run: dotnet restore AipPortal.slnx --disable-parallel --verbosity normal
+
+      - name: Prepare leak-detection marker
+        shell: bash
+        run: |
+          marker="SEC09_FAKE_SECRET_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}_${GITHUB_JOB}"
+          printf 'AIP_SBOM_FAKE_SECRET=%s\n' "$marker" >> "$GITHUB_ENV"
+
+      - name: Generate source CycloneDX and SPDX SBOMs
+        shell: bash
+        run: |
+          set -euo pipefail
+          temp_out="${RUNNER_TEMP}/aipsite-sbom-source"
+          final_out="artifacts/sbom/source"
+          rm -rf "$temp_out" "$final_out"
+          scripts/ci/generate-sbom.sh dir "$GITHUB_WORKSPACE" "$temp_out"
+          mkdir -p "$final_out"
+          cp "$temp_out/sbom.cyclonedx.json" "$temp_out/sbom.spdx.json" "$final_out/"
+
+          python3 scripts/ci/verify_sbom.py validate \
+            --cyclonedx "$final_out/sbom.cyclonedx.json" \
+            --spdx "$final_out/sbom.spdx.json" \
+            --kind source \
+            --repository-sha "$GITHUB_SHA" \
+            --run-identity "${GITHUB_RUN_ID}/${GITHUB_RUN_ATTEMPT}/${GITHUB_JOB}" \
+            --syft-version "$SYFT_VERSION" \
+            --metadata-out "$final_out/metadata.json" \
+            --normalized-out "$final_out/components.normalized.json" \
+            --require-package "@playwright/test" \
+            --require-package "@angular/core" \
+            --require-package "Microsoft.EntityFrameworkCore" \
+            --forbid-value "$AIP_SBOM_FAKE_SECRET"
+
+          python3 scripts/ci/verify_sbom.py verify-hashes \
+            --metadata "$final_out/metadata.json"
+
+      - name: Upload source SBOM evidence
+        uses: actions/upload-artifact@v7
+        with:
+          name: sbom-source-${{ github.sha }}
+          path: artifacts/sbom/source
+          if-no-files-found: error
+          retention-days: 30
+
+  image-sbom:
+    name: sbom-image-trusted
+    if: github.event_name != 'pull_request'
+    needs: source-sbom
+    runs-on: ubuntu-latest
+    environment: syncfusion-licensed-build
+    timeout-minutes: 90
+
+    env:
+      SYNCFUSION_LICENSE: ${{ secrets.SYNCFUSION_LICENSE }}
+      IMAGE_NAME: aipsite-nyg-sbom:${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+      DOCKER_BUILDKIT: "1"
+      BUILDKIT_PROGRESS: plain
+
+    steps:
+      - name: Checkout reviewed commit
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install pinned Syft
+        run: scripts/ci/install-syft.sh
+
+      - name: Prepare leak-detection marker
+        shell: bash
+        run: |
+          marker="SEC09_FAKE_SECRET_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}_${GITHUB_JOB}"
+          printf 'AIP_SBOM_FAKE_SECRET=%s\n' "$marker" >> "$GITHUB_ENV"
+
+      - name: Build licensed production image
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SYNCFUSION_LICENSE:-}" || {
+            echo "SYNCFUSION_LICENSE is not configured in the protected environment." >&2
+            exit 1
+          }
+          license_file="$(mktemp)"
+          trap 'rm -f "$license_file"' EXIT
+          chmod 600 "$license_file"
+          printf '%s' "$SYNCFUSION_LICENSE" > "$license_file"
+          docker build \
+            --pull \
+            --progress=plain \
+            --secret id=syncfusion_license,src="$license_file" \
+            --tag "$IMAGE_NAME" \
+            .
+
+      - name: Bind evidence to immutable image digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          image_digest="$(docker image inspect --format '{{.Id}}' "$IMAGE_NAME")"
+          [[ "$image_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+            echo "Docker returned a non-content-addressed image identity: $image_digest" >&2
+            exit 1
+          }
+          printf 'IMAGE_DIGEST=%s\n' "$image_digest" >> "$GITHUB_ENV"
+          mkdir -p artifacts/sbom/image
+          printf '%s\n' "$image_digest" > artifacts/sbom/image/image.digest
+
+      - name: Verify runtime image hygiene and application payload
+        shell: bash
+        run: |
+          docker run --rm --entrypoint sh "$IMAGE_NAME" -c '
+            test -s /app/AipPortal.Web.dll &&
+            test -s /app/AipPortal.Web.deps.json &&
+            test ! -e /run/secrets &&
+            test ! -e /app/.env &&
+            ! env | grep -q "^SYNCFUSION_LICENSE=" &&
+            ! find /app -type f \( -name ".env" -o -name ".env.*" -o -name "syncfusion-license.txt" \) -print -quit | grep -q .
+          '
+
+      - name: Generate and validate final image SBOM
+        shell: bash
+        run: |
+          set -euo pipefail
+          first="${RUNNER_TEMP}/aipsite-sbom-image-first"
+          second="${RUNNER_TEMP}/aipsite-sbom-image-second"
+          final_out="artifacts/sbom/image"
+          rm -rf "$first" "$second"
+
+          scripts/ci/generate-sbom.sh docker "$IMAGE_NAME" "$first"
+          cp "$first/sbom.cyclonedx.json" "$first/sbom.spdx.json" "$final_out/"
+
+          python3 scripts/ci/verify_sbom.py validate \
+            --cyclonedx "$final_out/sbom.cyclonedx.json" \
+            --spdx "$final_out/sbom.spdx.json" \
+            --kind image \
+            --repository-sha "$GITHUB_SHA" \
+            --run-identity "${GITHUB_RUN_ID}/${GITHUB_RUN_ATTEMPT}/${GITHUB_JOB}" \
+            --syft-version "$SYFT_VERSION" \
+            --identity-digest "$IMAGE_DIGEST" \
+            --metadata-out "$final_out/metadata.json" \
+            --normalized-out "$final_out/components.normalized.json" \
+            --require-package "curl" \
+            --forbid-value "$AIP_SBOM_FAKE_SECRET" \
+            --forbid-value "$SYNCFUSION_LICENSE"
+
+          python3 scripts/ci/verify_sbom.py verify-hashes \
+            --metadata "$final_out/metadata.json"
+
+          scripts/ci/generate-sbom.sh docker "$IMAGE_NAME" "$second"
+          python3 scripts/ci/verify_sbom.py validate \
+            --cyclonedx "$second/sbom.cyclonedx.json" \
+            --spdx "$second/sbom.spdx.json" \
+            --kind image \
+            --repository-sha "$GITHUB_SHA" \
+            --run-identity "${GITHUB_RUN_ID}/${GITHUB_RUN_ATTEMPT}/${GITHUB_JOB}/repeat" \
+            --syft-version "$SYFT_VERSION" \
+            --identity-digest "$IMAGE_DIGEST" \
+            --metadata-out "$second/metadata.json" \
+            --normalized-out "$second/components.normalized.json" \
+            --require-package "curl" \
+            --forbid-value "$AIP_SBOM_FAKE_SECRET" \
+            --forbid-value "$SYNCFUSION_LICENSE"
+
+          cmp --silent "$final_out/components.normalized.json" "$second/components.normalized.json" || {
+            echo "Same immutable image digest produced a different normalized component projection." >&2
+            diff -u "$final_out/components.normalized.json" "$second/components.normalized.json" || true
+            exit 1
+          }
+
+      - name: Upload final image SBOM evidence
+        uses: actions/upload-artifact@v7
+        with:
+          name: sbom-image-${{ github.sha }}
+          path: artifacts/sbom/image
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Remove per-run image
+        if: always()
+        run: docker image rm --force "$IMAGE_NAME" || true
