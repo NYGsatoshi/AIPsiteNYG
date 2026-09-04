@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "fixtureVersion": 1,
+  "composeProjectPrefix": "aipsite-performance-",
+  "databaseName": "aip_portal_performance",
+  "target": {
+    "scheme": "http",
+    "allowedHosts": [
+      "127.0.0.1",
+      "localhost",
+      "::1",
+      "performance-app",
+      "aip-performance"
+    ],
+    "requireExplicitPort": true
+  },
+  "warmup": {
+    "iterations": 2,
+    "measured": false,
+    "routes": [
+      "/api/auth/me",
+      "/api/workspaces",
+      "/api/workspaces/{workspaceId}",
+      "/api/projects",
+      "/api/projects/{taskListProjectId}",
+      "/api/projects/{taskListProjectId}/tasks",
+      "/api/me/tasks"
+    ],
+    "browserAssetCachePolicy": {
+      "cold": "fresh browser context and empty HTTP cache before measured navigation",
+      "warm": "reuse one browser context only within the same scenario; never reuse cache across scenario IDs"
+    }
+  },
+  "measurement": {
+    "minimumSamples": 5,
+    "warmupSamplesExcluded": true
+  },
+  "failurePolicy": {
+    "unhealthyApp": "fail",
+    "incompleteFixture": "fail",
+    "benchmarkExitOrTimeout": "fail",
+    "insufficientSamples": "fail",
+    "targetMismatch": "fail",
+    "missingFingerprint": "fail",
+    "unstableEnvironment": "fail"
+  }
+}
