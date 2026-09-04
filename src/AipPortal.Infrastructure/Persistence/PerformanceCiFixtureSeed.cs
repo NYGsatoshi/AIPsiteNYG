@@ -352,7 +352,7 @@ public static class PerformanceCiFixtureSeed
                     Title = $"PERF task {projectIndex:D4}-{localIndex:D6}",
                     Description = "Synthetic PERF-02 task.",
                     Status = stageIndex >= 2 ? TaskItemStatus.InProgress : TaskItemStatus.NotStarted,
-                    Priority = localIndex % 3 switch
+                    Priority = (localIndex % 3) switch
                     {
                         0 => TaskPriority.Low,
                         1 => TaskPriority.Medium,
