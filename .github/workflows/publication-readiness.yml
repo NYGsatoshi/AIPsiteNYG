@@ -63,5 +63,5 @@ jobs:
         with:
           name: publication-readiness-gitleaks-report
           path: gitleaks-publication-report.json
-          if-no-files-found: error
+          if-no-files-found: ignore
           retention-days: 7
