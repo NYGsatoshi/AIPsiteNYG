@@ -17,7 +17,44 @@ REQUIRED_AREAS = (
     "Audit",
     "Announcement",
 )
-MOBILE_PATTERN = re.compile(r"width\s*:\s*320|chromium-mobile")
+MOBILE_PATTERN = re.compile(r"width\s*:\s*320|\bchromium-mobile\b")
+TEST_START_PATTERN = re.compile(
+    r"(?m)^(?P<indent>[ \t]*)test(?:\.(?:only|skip|fixme|fail))?\s*\("
+)
+
+
+def extract_required_test_block(source: str, title_fragment: str) -> tuple[str | None, str | None]:
+    """Return the concrete Playwright test containing a unique required title."""
+
+    title_occurrences = [match.start() for match in re.finditer(re.escape(title_fragment), source)]
+    if len(title_occurrences) != 1:
+        return None, f"required title fragment must occur exactly once, found {len(title_occurrences)}"
+
+    title_index = title_occurrences[0]
+    test_starts = [match for match in TEST_START_PATTERN.finditer(source, 0, title_index)]
+    if not test_starts:
+        return None, "required title is not inside a concrete Playwright test() call"
+
+    test_start = test_starts[-1]
+    indent = test_start.group("indent")
+    test_end_pattern = re.compile(rf"(?m)^{re.escape(indent)}\}}\);\s*$")
+    test_end = test_end_pattern.search(source, title_index)
+    if test_end is None:
+        return None, "required Playwright test() call has no matching same-indent closing line"
+
+    block = source[test_start.start() : test_end.end()]
+    if title_fragment not in block:
+        return None, "required title could not be bound to its Playwright test() body"
+    return block, None
+
+
+def runner_registers(runner_source: str, relative_path: str) -> bool:
+    """Require an executable-looking static-suite entry, not a comment/token hit."""
+
+    return re.search(
+        rf"(?m)^\s*['\"]{re.escape(relative_path)}['\"],?\s*$",
+        runner_source,
+    ) is not None
 
 
 def main() -> int:
@@ -57,19 +94,22 @@ def main() -> int:
             continue
 
         source = spec_path.read_text(encoding="utf-8")
-        if title_fragment not in source:
+        test_block, extraction_error = extract_required_test_block(source, title_fragment)
+        if extraction_error is not None or test_block is None:
             errors.append(
-                f"{relative_path}: required {area} test title fragment is missing: {title_fragment!r}"
+                f"{relative_path}: required {area} test is not structurally bound: {extraction_error}"
             )
-        if "expectNoAccessibilityViolations" not in source:
-            errors.append(
-                f"{relative_path}: required {area} spec no longer contains axe accessibility coverage"
-            )
-        if not MOBILE_PATTERN.search(source):
-            errors.append(
-                f"{relative_path}: required {area} spec no longer contains a 320px/mobile execution path"
-            )
-        if f"'{relative_path}'" not in runner_source and f'"{relative_path}"' not in runner_source:
+        else:
+            if "expectNoAccessibilityViolations" not in test_block:
+                errors.append(
+                    f"{relative_path}: required {area} test body no longer contains axe accessibility coverage"
+                )
+            if not MOBILE_PATTERN.search(test_block):
+                errors.append(
+                    f"{relative_path}: required {area} test body no longer contains a 320px/mobile execution path"
+                )
+
+        if not runner_registers(runner_source, relative_path):
             errors.append(
                 f"{RUNNER}: required {area} spec is not registered in the canonical Angular Playwright suite: {relative_path}"
             )
@@ -89,8 +129,8 @@ def main() -> int:
 
     print(
         "MVP-A accessibility required-test policy passed: "
-        f"{required_count} required tests cover {len(REQUIRED_AREAS)} MVP-A areas "
-        "and are registered in the canonical Playwright suite."
+        f"{required_count} required test bodies cover {len(REQUIRED_AREAS)} MVP-A areas, "
+        "contain local accessibility/mobile evidence, and are registered in the canonical Playwright suite."
     )
     return 0
 
