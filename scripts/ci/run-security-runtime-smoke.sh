@@ -169,8 +169,12 @@ cross_tenant_probe() {
     -b "/state/$jar" \
     -H "X-Tenant-Slug: $tenant" \
     "$base_url/api/workspaces")"
+  # The cookie validator is allowed to reject the principal with 401 before the
+  # Workspace boundary runs, or the downstream authorization layer may return an
+  # empty 200 / concealment 403/404. None of those outcomes may disclose either
+  # tenant's canary.
   case "$status" in
-    200|403|404) ;;
+    200|401|403|404) ;;
     *) fail "cross-tenant workspace probe returned HTTP $status" ;;
   esac
 }
@@ -220,23 +224,29 @@ if str(environment.get("ASPNETCORE_ENVIRONMENT", "")).lower() != "test":
 "${compose[@]}" up -d postgres migrate app
 wait_ready
 
+# The dashboard list DTO intentionally exposes the Workspace display name rather
+# than its slug, so HTTP isolation assertions use the synthetic display-name
+# canaries. Slug uniqueness is checked separately against PostgreSQL below.
+alpha_workspace_canary="SEC-02 Alpha Workspace Canary"
+beta_workspace_canary="SEC-02 Beta Workspace Canary"
+
 login security-alpha security-alpha-owner@example.test alpha.cookies alpha
 get_workspaces security-alpha alpha.cookies alpha-workspaces.json
-assert_contains "$state_dir/alpha-workspaces.json" "sec02-alpha-workspace"
-assert_not_contains "$state_dir/alpha-workspaces.json" "sec02-beta-workspace"
+assert_contains "$state_dir/alpha-workspaces.json" "$alpha_workspace_canary"
+assert_not_contains "$state_dir/alpha-workspaces.json" "$beta_workspace_canary"
 
 cross_tenant_probe security-beta alpha.cookies alpha-as-beta.json
-assert_not_contains "$state_dir/alpha-as-beta.json" "sec02-alpha-workspace"
-assert_not_contains "$state_dir/alpha-as-beta.json" "sec02-beta-workspace"
+assert_not_contains "$state_dir/alpha-as-beta.json" "$alpha_workspace_canary"
+assert_not_contains "$state_dir/alpha-as-beta.json" "$beta_workspace_canary"
 
 login security-beta security-beta-owner@example.test beta.cookies beta
 get_workspaces security-beta beta.cookies beta-workspaces.json
-assert_contains "$state_dir/beta-workspaces.json" "sec02-beta-workspace"
-assert_not_contains "$state_dir/beta-workspaces.json" "sec02-alpha-workspace"
+assert_contains "$state_dir/beta-workspaces.json" "$beta_workspace_canary"
+assert_not_contains "$state_dir/beta-workspaces.json" "$alpha_workspace_canary"
 
 cross_tenant_probe security-alpha beta.cookies beta-as-alpha.json
-assert_not_contains "$state_dir/beta-as-alpha.json" "sec02-alpha-workspace"
-assert_not_contains "$state_dir/beta-as-alpha.json" "sec02-beta-workspace"
+assert_not_contains "$state_dir/beta-as-alpha.json" "$alpha_workspace_canary"
+assert_not_contains "$state_dir/beta-as-alpha.json" "$beta_workspace_canary"
 
 # A process restart forces the Test-only hosted service to seed the same real
 # PostgreSQL database a second time. Successful readiness plus exact canary row
