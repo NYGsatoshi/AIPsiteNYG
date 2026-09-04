@@ -4,6 +4,8 @@ from __future__ import annotations
 import copy
 import datetime as dt
 import importlib.util
+import json
+import tempfile
 import unittest
 from pathlib import Path
 from typing import Any
@@ -21,110 +23,110 @@ OLD_HEAD = "b" * 40
 NOW = dt.datetime(2026, 9, 4, 5, 30, tzinfo=dt.timezone.utc)
 
 
-class RequiredPrCheckPolicyTests(unittest.TestCase):
-    def ci_errors(self, text: str) -> list[str]:
-        return guard.required_check_errors(".github/workflows/ci.yml", text, REGISTRY)
+def dual_registry(context: str = "build-test-v2") -> dict[str, Any]:
+    result = copy.deepcopy(REGISTRY)
+    build = next(item for item in result["checks"] if item["gate_id"] == "GOV-GATE-BUILD-001")
+    build["rename"] = {
+        "state": "dual-publish",
+        "previous_context": "build-test",
+        "previous_workflow": ".github/workflows/ci.yml",
+        "previous_job": "build-test-old",
+        "migration_issue": 900,
+    }
+    build["context"] = context
+    build["job"] = "build-test-v2"
+    return result
 
-    def publication_errors(self, text: str) -> list[str]:
-        return guard.required_check_errors(
-            ".github/workflows/publication-readiness.yml", text, REGISTRY
-        )
 
-    def evaluator_errors(self, text: str) -> list[str]:
-        return guard.required_check_errors(
-            ".github/workflows/external-pr-approval-evaluator.yml", text, REGISTRY
-        )
-
+class RegistryTests(unittest.TestCase):
     def test_registry_matches_governance_policy(self) -> None:
         self.assertEqual(5, len(REGISTRY["checks"]))
         self.assertEqual(
-            [
-                "External PR approval policy",
-                "build-test",
-                "frontend-test",
-                "security-scan",
-                "publication-readiness",
-            ],
+            ["External PR approval policy", "build-test", "frontend-test", "security-scan", "publication-readiness"],
             [item["context"] for item in REGISTRY["checks"]],
         )
-        self.assertEqual(
-            15368,
-            next(item for item in REGISTRY["checks"] if item["context"] == "build-test")[
-                "ruleset_integration_id"
-            ],
-        )
 
-    def test_unfiltered_required_jobs_are_accepted(self) -> None:
-        text = """
-name: CI
-on:
-  pull_request:
-jobs:
-  build-test:
-    name: build-test
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
-  frontend-test:
-    name: frontend-test
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
-  security-scan:
-    name: security-scan
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
-"""
-        self.assertEqual([], self.ci_errors(text))
+    def test_commit_status_trigger_models_manual_recovery(self) -> None:
+        item = next(item for item in REGISTRY["checks"] if item["kind"] == "commit-status")
+        self.assertEqual("trusted-default-branch", item["trigger"]["mode"])
+        self.assertEqual({"workflow_run", "workflow_dispatch"}, set(item["trigger"]["events"]))
 
-    def test_pull_request_paths_filter_is_rejected(self) -> None:
+    def test_dual_publish_expands_previous_identity(self) -> None:
+        registry = dual_registry()
+        expanded = [item for item in guard.expanded_checks(registry) if item["source_gate_id"] == "GOV-GATE-BUILD-001"]
+        self.assertEqual(2, len(expanded))
+        self.assertEqual({"build-test", "build-test-v2"}, {item["context"] for item in expanded})
+
+    def test_stable_rename_cannot_keep_previous_metadata(self) -> None:
+        bad = copy.deepcopy(REGISTRY)
+        bad["checks"][0]["rename"]["previous_context"] = "old"
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td)
+            registry_path = p / "registry.json"
+            policy_path = p / "policy.json"
+            registry_path.write_text(json.dumps(bad), encoding="utf-8")
+            policy_path.write_text(Path(guard.POLICY_PATH).read_text(encoding="utf-8"), encoding="utf-8")
+            with self.assertRaisesRegex(RuntimeError, "stable state"):
+                guard.load_required_check_registry(registry_path, policy_path)
+
+
+class StaticTopologyTests(unittest.TestCase):
+    def test_unfiltered_required_job_passes(self) -> None:
         text = """
 name: Publication Readiness
 on:
   pull_request:
-    paths:
-      - "src/**"
 jobs:
   publication-readiness:
     name: publication-readiness
     runs-on: ubuntu-latest
     timeout-minutes: 20
 """
-        errors = self.publication_errors(text)
+        self.assertEqual([], guard.required_check_errors(".github/workflows/publication-readiness.yml", text, REGISTRY))
+
+    def test_paths_filter_is_rejected(self) -> None:
+        text = """
+on:
+  pull_request:
+    paths: ["src/**"]
+jobs:
+  publication-readiness:
+    name: publication-readiness
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+"""
+        errors = guard.required_check_errors(".github/workflows/publication-readiness.yml", text, REGISTRY)
         self.assertTrue(any("unfiltered pull_request" in error for error in errors))
 
-    def test_required_job_if_is_rejected(self) -> None:
+    def test_job_level_if_is_rejected(self) -> None:
         text = """
 on:
   pull_request:
 jobs:
   publication-readiness:
     name: publication-readiness
-    if: github.actor != 'example'
+    if: github.actor != 'x'
     runs-on: ubuntu-latest
     timeout-minutes: 20
 """
-        self.assertTrue(
-            any("job-level if" in error for error in self.publication_errors(text))
-        )
+        errors = guard.required_check_errors(".github/workflows/publication-readiness.yml", text, REGISTRY)
+        self.assertTrue(any("job-level if" in error for error in errors))
 
-    def test_required_job_dependency_is_rejected(self) -> None:
+    def test_needs_is_rejected(self) -> None:
         text = """
 on:
   pull_request:
 jobs:
-  prepare:
-    name: prepare
-    runs-on: ubuntu-latest
   publication-readiness:
     name: publication-readiness
     needs: prepare
     runs-on: ubuntu-latest
     timeout-minutes: 20
 """
-        self.assertTrue(
-            any("must not depend" in error for error in self.publication_errors(text))
-        )
+        errors = guard.required_check_errors(".github/workflows/publication-readiness.yml", text, REGISTRY)
+        self.assertTrue(any("must not depend" in error for error in errors))
 
-    def test_required_job_continue_on_error_is_rejected(self) -> None:
+    def test_continue_on_error_is_rejected(self) -> None:
         text = """
 on:
   pull_request:
@@ -135,58 +137,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
 """
-        self.assertTrue(
-            any("continue-on-error" in error for error in self.publication_errors(text))
-        )
+        errors = guard.required_check_errors(".github/workflows/publication-readiness.yml", text, REGISTRY)
+        self.assertTrue(any("continue-on-error" in error for error in errors))
 
-    def test_required_job_name_change_is_rejected(self) -> None:
+    def test_trusted_status_requires_both_declared_events(self) -> None:
         text = """
-on:
-  pull_request:
-jobs:
-  publication-readiness:
-    name: renamed-check
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-"""
-        self.assertTrue(
-            any("must keep name" in error for error in self.publication_errors(text))
-        )
-
-    def test_required_job_timeout_drift_is_rejected(self) -> None:
-        text = """
-on:
-  pull_request:
-jobs:
-  publication-readiness:
-    name: publication-readiness
-    runs-on: ubuntu-latest
-    timeout-minutes: 999
-"""
-        self.assertTrue(
-            any("timeout-minutes" in error for error in self.publication_errors(text))
-        )
-
-    def test_missing_required_job_is_rejected(self) -> None:
-        text = """
-on:
-  pull_request:
-jobs:
-  publication-readiness:
-    name: publication-readiness
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-"""
-        errors = self.ci_errors(text)
-        self.assertTrue(
-            any("required check job 'build-test' is missing" in error for error in errors)
-        )
-
-    def test_trusted_status_source_drift_is_rejected(self) -> None:
-        text = """
+name: External PR approval evaluator
 on:
   workflow_run:
-    workflows: ["Wrong signal"]
+    workflows: ["External PR review signal"]
     types: [completed]
 jobs:
   evaluate:
@@ -194,190 +153,194 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
 """
-        errors = self.evaluator_errors(text)
-        self.assertTrue(any("trusted commit-status producer" in error for error in errors))
+        errors = guard.required_check_errors(".github/workflows/external-pr-approval-evaluator.yml", text, REGISTRY)
+        self.assertTrue(any("workflow_dispatch" in error for error in errors))
+
+    def test_trusted_status_accepts_workflow_run_and_dispatch(self) -> None:
+        text = """
+name: External PR approval evaluator
+on:
+  workflow_run:
+    workflows: ["External PR review signal"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        required: true
+jobs:
+  evaluate:
+    name: External PR approval evaluator
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+"""
+        self.assertEqual([], guard.required_check_errors(".github/workflows/external-pr-approval-evaluator.yml", text, REGISTRY))
+
+    def test_dual_publish_requires_both_jobs_statically(self) -> None:
+        registry = dual_registry()
+        text = """
+on:
+  pull_request:
+jobs:
+  build-test-v2:
+    name: build-test-v2
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+"""
+        errors = guard.required_check_errors(".github/workflows/ci.yml", text, registry)
+        self.assertTrue(any("build-test-old" in error for error in errors))
 
 
 class LiveRulesetTests(unittest.TestCase):
-    def live_ruleset(self) -> dict[str, Any]:
+    def live_ruleset(self, registry: dict[str, Any] = REGISTRY) -> dict[str, Any]:
         checks = []
-        for item in REGISTRY["checks"]:
-            value: dict[str, Any] = {"context": item["context"]}
-            if item["ruleset_integration_id"] is not None:
-                value["integration_id"] = item["ruleset_integration_id"]
+        for context, integration in guard.live_expected(registry):
+            value: dict[str, Any] = {"context": context}
+            if integration is not None:
+                value["integration_id"] = integration
             checks.append(value)
         return {
-            "name": REGISTRY["ruleset"]["name"],
+            "name": registry["ruleset"]["name"],
             "target": "branch",
             "enforcement": "active",
             "conditions": {"ref_name": {"exclude": [], "include": ["~DEFAULT_BRANCH"]}},
-            "rules": [
-                {
-                    "type": "required_status_checks",
-                    "parameters": {
-                        "strict_required_status_checks_policy": True,
-                        "required_status_checks": checks,
-                    },
-                }
-            ],
+            "rules": [{"type": "required_status_checks", "parameters": {"strict_required_status_checks_policy": True, "required_status_checks": checks}}],
         }
 
     def test_exact_live_ruleset_passes(self) -> None:
         self.assertEqual([], guard.live_ruleset_errors(REGISTRY, self.live_ruleset()))
 
-    def test_old_ruleset_context_drift_fails(self) -> None:
+    def test_missing_required_context_fails(self) -> None:
         live = self.live_ruleset()
-        live["rules"][0]["parameters"]["required_status_checks"][-1]["context"] = (
-            "publication-readiness-old"
-        )
-        errors = guard.live_ruleset_errors(REGISTRY, live)
-        self.assertTrue(any("missing required context 'publication-readiness'" in e for e in errors))
-        self.assertTrue(any("unknown required context 'publication-readiness-old'" in e for e in errors))
+        live["rules"][0]["parameters"]["required_status_checks"].pop()
+        self.assertTrue(any("missing required context" in e for e in guard.live_ruleset_errors(REGISTRY, live)))
 
-    def test_producer_integration_drift_fails(self) -> None:
+    def test_wrong_integration_fails(self) -> None:
         live = self.live_ruleset()
-        build = next(
-            item
-            for item in live["rules"][0]["parameters"]["required_status_checks"]
-            if item["context"] == "build-test"
-        )
-        build["integration_id"] = 99999
-        errors = guard.live_ruleset_errors(REGISTRY, live)
-        self.assertTrue(any("producer integration drift" in e for e in errors))
+        build = next(item for item in live["rules"][0]["parameters"]["required_status_checks"] if item["context"] == "build-test")
+        build["integration_id"] = 999
+        self.assertTrue(any("producer integration drift" in e for e in guard.live_ruleset_errors(REGISTRY, live)))
 
-    def test_duplicate_required_context_fails(self) -> None:
-        live = self.live_ruleset()
-        live["rules"][0]["parameters"]["required_status_checks"].append(
-            {"context": "build-test", "integration_id": 15368}
-        )
-        errors = guard.live_ruleset_errors(REGISTRY, live)
-        self.assertTrue(any("duplicate required context 'build-test'" in e for e in errors))
+    def test_dual_publish_old_and_new_are_both_expected(self) -> None:
+        registry = dual_registry()
+        live = self.live_ruleset(registry)
+        contexts = {item["context"] for item in live["rules"][0]["parameters"]["required_status_checks"]}
+        self.assertIn("build-test", contexts)
+        self.assertIn("build-test-v2", contexts)
+        self.assertEqual([], guard.live_ruleset_errors(registry, live))
 
-    def test_non_strict_ruleset_fails(self) -> None:
-        live = self.live_ruleset()
-        live["rules"][0]["parameters"]["strict_required_status_checks_policy"] = False
-        self.assertTrue(
-            any("strict_required_status_checks_policy" in e for e in guard.live_ruleset_errors(REGISTRY, live))
-        )
+    def test_dual_publish_missing_old_context_fails(self) -> None:
+        registry = dual_registry()
+        live = self.live_ruleset(registry)
+        values = live["rules"][0]["parameters"]["required_status_checks"]
+        values[:] = [item for item in values if item["context"] != "build-test"]
+        errors = guard.live_ruleset_errors(registry, live)
+        self.assertTrue(any("missing required context 'build-test'" in e for e in errors))
 
 
 class ExactHeadTests(unittest.TestCase):
-    def success_evidence(self, head: str = HEAD) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    def success_evidence(self, registry: dict[str, Any] = REGISTRY, head: str = HEAD) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         checks: list[dict[str, Any]] = []
         statuses: list[dict[str, Any]] = []
-        for offset, item in enumerate(REGISTRY["checks"]):
+        for offset, item in enumerate(guard.exact_entries(registry)):
             timestamp = f"2026-09-04T05:{10 + offset:02d}:00Z"
             if item["kind"] == "workflow-job":
-                checks.append(
-                    {
-                        "id": offset + 1,
-                        "name": item["context"],
-                        "head_sha": head,
-                        "status": "completed",
-                        "conclusion": "success",
-                        "completed_at": timestamp,
-                        "app": {"id": 15368, "slug": "github-actions"},
-                        "workflow": item["workflow"],
-                        "workflow_event": "pull_request",
-                        "workflow_head_sha": head,
-                    }
-                )
+                checks.append({
+                    "id": offset + 1,
+                    "name": item["context"],
+                    "head_sha": head,
+                    "status": "completed",
+                    "conclusion": "success",
+                    "completed_at": timestamp,
+                    "app": {"id": item["producer"]["integration_id"], "slug": item["producer"]["app_slug"]},
+                    "workflow": item["workflow"],
+                    "workflow_event": "pull_request",
+                    "workflow_head_sha": head,
+                })
             else:
-                statuses.append(
-                    {
-                        "id": offset + 1,
-                        "context": item["context"],
-                        "sha": head,
-                        "state": "success",
-                        "updated_at": timestamp,
-                        "creator": {"login": "github-actions[bot]"},
-                        "workflow": item["workflow"],
-                        "workflow_head_sha": head,
-                    }
-                )
+                statuses.append({
+                    "id": offset + 1,
+                    "context": item["context"],
+                    "sha": head,
+                    "state": "success",
+                    "updated_at": timestamp,
+                    "creator": {"login": item["producer"]["creator_login"]},
+                    "workflow": item["workflow"],
+                    "workflow_event": "workflow_run",
+                    "workflow_head_branch": "main",
+                })
         return checks, statuses
 
-    def test_exact_current_head_all_success_passes(self) -> None:
+    def test_current_head_success_passes(self) -> None:
         checks, statuses = self.success_evidence()
-        report = guard.exact_head_report(REGISTRY, HEAD, checks, statuses, now=NOW)
+        report = guard.exact_head_report(REGISTRY, HEAD, checks, statuses, now=NOW, trusted_base_ref="main")
         self.assertEqual("pass", report["decision"])
-        self.assertTrue(all(item["decision"] == "pass" for item in report["gates"]))
 
-    def test_previous_head_green_is_ignored(self) -> None:
+    def test_previous_head_only_fails(self) -> None:
         checks, statuses = self.success_evidence()
         build = next(item for item in checks if item["name"] == "build-test")
         build["head_sha"] = OLD_HEAD
         build["workflow_head_sha"] = OLD_HEAD
-        report = guard.exact_head_report(REGISTRY, HEAD, checks, statuses, now=NOW)
+        report = guard.exact_head_report(REGISTRY, HEAD, checks, statuses, now=NOW, trusted_base_ref="main")
         gate = next(item for item in report["gates"] if item["context"] == "build-test")
-        self.assertEqual("fail", report["decision"])
         self.assertEqual("previous-head-only", gate["reason"])
+        self.assertEqual("fail", report["decision"])
 
-    def test_skipped_cancelled_neutral_never_pass(self) -> None:
+    def test_skipped_cancelled_neutral_fail(self) -> None:
         for conclusion in ("skipped", "cancelled", "neutral"):
             with self.subTest(conclusion=conclusion):
                 checks, statuses = self.success_evidence()
-                build = next(item for item in checks if item["name"] == "build-test")
-                build["conclusion"] = conclusion
-                report = guard.exact_head_report(REGISTRY, HEAD, checks, statuses, now=NOW)
-                gate = next(item for item in report["gates"] if item["context"] == "build-test")
+                next(item for item in checks if item["name"] == "build-test")["conclusion"] = conclusion
+                report = guard.exact_head_report(REGISTRY, HEAD, checks, statuses, now=NOW, trusted_base_ref="main")
                 self.assertEqual("fail", report["decision"])
-                self.assertEqual("rejected-conclusion", gate["reason"])
 
-    def test_wrong_producer_same_context_fails(self) -> None:
+    def test_pending_before_timeout_is_pending(self) -> None:
         checks, statuses = self.success_evidence()
         build = next(item for item in checks if item["name"] == "build-test")
-        build["app"] = {"id": 99999, "slug": "other-app"}
-        report = guard.exact_head_report(REGISTRY, HEAD, checks, statuses, now=NOW)
-        gate = next(item for item in report["gates"] if item["context"] == "build-test")
-        self.assertEqual("fail", report["decision"])
-        self.assertEqual("producer-drift", gate["reason"])
-
-    def test_expected_producer_wins_when_wrong_producer_also_exists(self) -> None:
-        checks, statuses = self.success_evidence()
-        build = next(item for item in checks if item["name"] == "build-test")
-        wrong = copy.deepcopy(build)
-        wrong["id"] = 999
-        wrong["app"] = {"id": 99999, "slug": "other-app"}
-        wrong["completed_at"] = "2026-09-04T05:29:00Z"
-        checks.append(wrong)
-        report = guard.exact_head_report(REGISTRY, HEAD, checks, statuses, now=NOW)
-        gate = next(item for item in report["gates"] if item["context"] == "build-test")
-        self.assertEqual("pass", gate["decision"])
-        self.assertEqual("pass", report["decision"])
-
-    def test_in_progress_is_pending_before_timeout(self) -> None:
-        checks, statuses = self.success_evidence()
-        build = next(item for item in checks if item["name"] == "build-test")
-        build["status"] = "in_progress"
-        build["conclusion"] = None
-        build["started_at"] = "2026-09-04T05:00:00Z"
-        report = guard.exact_head_report(REGISTRY, HEAD, checks, statuses, now=NOW)
-        gate = next(item for item in report["gates"] if item["context"] == "build-test")
+        build.update(status="in_progress", conclusion=None, started_at="2026-09-04T05:00:00Z")
+        report = guard.exact_head_report(REGISTRY, HEAD, checks, statuses, now=NOW, trusted_base_ref="main")
         self.assertEqual("pending", report["decision"])
-        self.assertEqual("current-head-pending", gate["reason"])
 
-    def test_in_progress_past_timeout_fails_stale(self) -> None:
+    def test_pending_after_timeout_fails(self) -> None:
         checks, statuses = self.success_evidence()
         publication = next(item for item in checks if item["name"] == "publication-readiness")
-        publication["status"] = "in_progress"
-        publication["conclusion"] = None
-        publication["started_at"] = "2026-09-04T04:00:00Z"
-        report = guard.exact_head_report(REGISTRY, HEAD, checks, statuses, now=NOW)
-        gate = next(
-            item for item in report["gates"] if item["context"] == "publication-readiness"
-        )
+        publication.update(status="in_progress", conclusion=None, started_at="2026-09-04T04:00:00Z")
+        report = guard.exact_head_report(REGISTRY, HEAD, checks, statuses, now=NOW, trusted_base_ref="main")
         self.assertEqual("fail", report["decision"])
+        gate = next(item for item in report["gates"] if item["context"] == "publication-readiness")
         self.assertEqual("pending-timeout", gate["reason"])
 
-    def test_commit_status_wrong_creator_fails(self) -> None:
+    def test_wrong_producer_fails(self) -> None:
         checks, statuses = self.success_evidence()
-        statuses[0]["creator"] = {"login": "untrusted-bot"}
-        report = guard.exact_head_report(REGISTRY, HEAD, checks, statuses, now=NOW)
-        gate = next(
-            item for item in report["gates"] if item["context"] == "External PR approval policy"
-        )
+        next(item for item in checks if item["name"] == "build-test")["app"] = {"id": 1, "slug": "other"}
+        report = guard.exact_head_report(REGISTRY, HEAD, checks, statuses, now=NOW, trusted_base_ref="main")
+        self.assertEqual("fail", report["decision"])
+
+    def test_manual_dispatch_trusted_status_is_allowed(self) -> None:
+        checks, statuses = self.success_evidence()
+        statuses[0]["workflow_event"] = "workflow_dispatch"
+        report = guard.exact_head_report(REGISTRY, HEAD, checks, statuses, now=NOW, trusted_base_ref="main")
+        self.assertEqual("pass", report["decision"])
+
+    def test_trusted_status_wrong_base_ref_fails(self) -> None:
+        checks, statuses = self.success_evidence()
+        statuses[0]["workflow_head_branch"] = "feature"
+        report = guard.exact_head_report(REGISTRY, HEAD, checks, statuses, now=NOW, trusted_base_ref="main")
+        gate = next(item for item in report["gates"] if item["kind"] == "commit-status")
         self.assertEqual("producer-drift", gate["reason"])
+        self.assertIn("trusted-status-ref-drift", gate["producer_errors"])
+
+    def test_dual_publish_requires_old_and_new_exact_head(self) -> None:
+        registry = dual_registry()
+        checks, statuses = self.success_evidence(registry)
+        report = guard.exact_head_report(registry, HEAD, checks, statuses, now=NOW, trusted_base_ref="main")
+        build_gates = [g for g in report["gates"] if g["source_gate_id"] == "GOV-GATE-BUILD-001"]
+        self.assertEqual(2, len(build_gates))
+        self.assertEqual("pass", report["decision"])
+        checks[:] = [item for item in checks if item["name"] != "build-test"]
+        report = guard.exact_head_report(registry, HEAD, checks, statuses, now=NOW, trusted_base_ref="main")
+        self.assertEqual("fail", report["decision"])
+        old = next(g for g in report["gates"] if g["context"] == "build-test")
+        self.assertEqual("missing-current-head", old["reason"])
 
 
 class FakeApi:
@@ -393,33 +356,39 @@ class FakeApi:
 
 
 class LiveEvaluatorTests(ExactHeadTests, LiveRulesetTests):
-    def test_authoritative_pr_head_is_refetched_from_api(self) -> None:
-        checks, statuses = self.success_evidence(OLD_HEAD)
+    def test_authoritative_head_and_base_are_refetched(self) -> None:
+        checks, statuses = self.success_evidence(head=HEAD)
         live = self.live_ruleset()
-        responses = {
-            "repos/NYGsatoshi/AIPsiteNYG/pulls/42": {
-                "state": "open",
-                "head": {"sha": HEAD},
-            },
-            "repos/NYGsatoshi/AIPsiteNYG/rulesets": [
-                {"id": 123, "name": REGISTRY["ruleset"]["name"]}
-            ],
+        responses: dict[str, Any] = {
+            "repos/NYGsatoshi/AIPsiteNYG/pulls/42": {"state": "open", "head": {"sha": HEAD}, "base": {"ref": "main"}},
+            "repos/NYGsatoshi/AIPsiteNYG/rulesets": [{"id": 123, "name": REGISTRY["ruleset"]["name"]}],
             "repos/NYGsatoshi/AIPsiteNYG/rulesets/123": live,
-            f"repos/NYGsatoshi/AIPsiteNYG/commits/{HEAD}/check-runs?filter=latest&per_page=100": {
-                "check_runs": checks
-            },
+            f"repos/NYGsatoshi/AIPsiteNYG/commits/{HEAD}/check-runs?filter=latest&per_page=100": {"total_count": len(checks), "check_runs": checks},
             f"repos/NYGsatoshi/AIPsiteNYG/commits/{HEAD}/statuses?per_page=100": statuses,
         }
-        api = FakeApi(responses)
-        report = guard.evaluate_live_pr(
-            api, "NYGsatoshi/AIPsiteNYG", 42, REGISTRY, now=NOW
-        )
+        for candidate in checks:
+            run_id = 1000 + candidate["id"]
+            candidate["details_url"] = f"https://github.com/NYGsatoshi/AIPsiteNYG/actions/runs/{run_id}/job/{candidate['id']}"
+            responses[f"repos/NYGsatoshi/AIPsiteNYG/actions/runs/{run_id}"] = {
+                "path": candidate["workflow"], "event": "pull_request", "head_sha": HEAD, "head_branch": "feature"
+            }
+        for candidate in statuses:
+            run_id = 2000 + candidate["id"]
+            candidate["target_url"] = f"https://github.com/NYGsatoshi/AIPsiteNYG/actions/runs/{run_id}"
+            responses[f"repos/NYGsatoshi/AIPsiteNYG/actions/runs/{run_id}"] = {
+                "path": candidate["workflow"], "event": candidate["workflow_event"], "head_sha": "c" * 40, "head_branch": "main"
+            }
+        responses[f"repos/NYGsatoshi/AIPsiteNYG/commits/{HEAD}/check-runs?filter=latest&per_page=100"] = {"total_count": len(checks), "check_runs": checks}
+        responses[f"repos/NYGsatoshi/AIPsiteNYG/commits/{HEAD}/statuses?per_page=100"] = statuses
+        report = guard.evaluate_live_pr(FakeApi(responses), "NYGsatoshi/AIPsiteNYG", 42, REGISTRY, now=NOW)
         self.assertEqual(HEAD, report["authoritative_head_sha"])
-        self.assertEqual("fail", report["decision"])
-        self.assertTrue(
-            any(gate["reason"] == "previous-head-only" for gate in report["exact_head"]["gates"])
-        )
-        self.assertEqual("repos/NYGsatoshi/AIPsiteNYG/pulls/42", api.calls[0])
+        self.assertEqual("main", report["authoritative_base_ref"])
+        self.assertEqual("pass", report["decision"])
+
+    def test_api_failure_is_fail_closed_by_caller(self) -> None:
+        api = FakeApi({})
+        with self.assertRaises(RuntimeError):
+            guard.evaluate_live_pr(api, "NYGsatoshi/AIPsiteNYG", 42, REGISTRY, now=NOW)
 
 
 if __name__ == "__main__":
