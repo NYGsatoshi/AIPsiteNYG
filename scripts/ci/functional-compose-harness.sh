@@ -67,6 +67,7 @@ patterns = (
     (r"(?i)(POSTGRES_PASSWORD\s*[:=]\s*)[^\r\n]+", r"\1[redacted]"),
     (r"(?i)(SYNCFUSION_LICENSE\s*[:=]\s*)[^\r\n]+", r"\1[redacted]"),
     (r"(?i)(AIP_[A-Z0-9_]*(?:PASSWORD|TOKEN|SECRET|LICENSE)\s*[:=]\s*)[^\r\n]+", r"\1[redacted]"),
+    (r"(?i)(\b[A-Z0-9_-]*(?:TOKEN|SECRET|LICENSE)\s*[:=]\s*)[^\r\n]+", r"\1[redacted]"),
     (r"(?i)((?:Password|Pwd)=)[^;\s\r\n]+", r"\1[redacted]"),
     (r"(?i)(Authorization\s*:\s*)[^\r\n]+", r"\1[redacted]"),
     (r"(?i)((?:Cookie|Set-Cookie)\s*:\s*)[^\r\n]+", r"\1[redacted]"),
@@ -270,7 +271,7 @@ run_harness() {
 }
 
 self_test() {
-  local name temporary_input temporary_output
+  local name temporary_input temporary_output secret
   name="$(sanitize_project_name 'FCI / Lane #1')"
   [[ "$name" == "fci-lane-1" ]]
   [[ "$name" =~ ^[a-z0-9][a-z0-9_-]*$ ]]
@@ -284,11 +285,38 @@ self_test() {
 
   temporary_input="$(mktemp)"
   temporary_output="$(mktemp)"
-  printf '%s\n' 'SYNCFUSION_LICENSE=license-secret' 'Password=database-secret;Host=postgres' 'Cookie: session-secret' >"$temporary_input"
-  SYNCFUSION_LICENSE="license-secret" AIP_BROWSER_SMOKE_PASSWORD="synthetic" sanitize_file "$temporary_input" "$temporary_output"
-  ! grep -Fq 'license-secret' "$temporary_output"
-  ! grep -Fq 'database-secret' "$temporary_output"
-  ! grep -Fq 'session-secret' "$temporary_output"
+  printf '%s\n' \
+    'SYNCFUSION_LICENSE=syncfusion-license-secret' \
+    'Password=database-password-secret;Host=postgres' \
+    'Cookie: session-cookie-secret' \
+    'TOKEN=generic-token-secret' \
+    'ACCESS_TOKEN: access-token-secret' \
+    'REFRESH_TOKEN=refresh-token-secret' \
+    'SECRET = generic-secret-value' \
+    'LICENSE: generic-license-value' \
+    'export SERVICE_TOKEN=service-token-secret' \
+    'client-secret=hyphen-secret-value' \
+    'SAFE_VALUE=visible-value' >"$temporary_input"
+  SYNCFUSION_LICENSE="syncfusion-license-secret" AIP_BROWSER_SMOKE_PASSWORD="synthetic" sanitize_file "$temporary_input" "$temporary_output"
+  for secret in \
+    'syncfusion-license-secret' \
+    'database-password-secret' \
+    'session-cookie-secret' \
+    'generic-token-secret' \
+    'access-token-secret' \
+    'refresh-token-secret' \
+    'generic-secret-value' \
+    'generic-license-value' \
+    'service-token-secret' \
+    'hyphen-secret-value'; do
+    ! grep -Fq "$secret" "$temporary_output"
+  done
+  grep -Fq 'TOKEN=[redacted]' "$temporary_output"
+  grep -Fq 'ACCESS_TOKEN: [redacted]' "$temporary_output"
+  grep -Fq 'REFRESH_TOKEN=[redacted]' "$temporary_output"
+  grep -Fq 'SECRET = [redacted]' "$temporary_output"
+  grep -Fq 'LICENSE: [redacted]' "$temporary_output"
+  grep -Fq 'SAFE_VALUE=visible-value' "$temporary_output"
   grep -Fq 'down --volumes --remove-orphans' "${BASH_SOURCE[0]}"
   grep -Fq '[INFRA/SETUP FAILURE]' "${BASH_SOURCE[0]}"
   grep -Fq '[PRODUCT TEST FAILURE]' "${BASH_SOURCE[0]}"
