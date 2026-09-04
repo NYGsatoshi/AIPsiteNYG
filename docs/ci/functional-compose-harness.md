@@ -86,7 +86,7 @@ On failure, bounded diagnostics are written under `test-results/`:
 - log tails for PostgreSQL, migration, app, and test services
 - Playwright traces/screenshots/reports produced by the test runner
 
-Before persistence, the harness redacts password, connection-password, authorization, cookie, CSRF, invite-token, generic token/secret/license patterns and known runtime values including `SYNCFUSION_LICENSE` and the synthetic browser password. Raw protected response bodies and credential material must not be added to diagnostics.
+Before persistence, the harness redacts password, connection-password, authorization, cookie, CSRF, invite-token, generic token/secret/license patterns and known runtime values including `SYNCFUSION_LICENSE` and the synthetic browser password. Generic non-JSON environment/config key-value forms are part of the contract: `TOKEN=...`, `ACCESS_TOKEN: ...`, `REFRESH_TOKEN=...`, `*_SECRET=...`, `*_LICENSE: ...`, and equivalent case/hyphen variants are redacted. Unrelated values such as `SAFE_VALUE=...` are preserved so diagnostics remain useful. Raw protected response bodies and credential material must not be added to diagnostics.
 
 ## Syncfusion license trust boundary
 
@@ -111,7 +111,7 @@ bash scripts/ci/functional-compose-harness.sh --self-test
 bash scripts/ci/verify-functional-trust-boundary.sh .github/workflows/licensed-real-backend-acceptance.yml
 ```
 
-The self-test covers project-name sanitization, synthetic fixture identity enforcement, diagnostic redaction, the destructive-cleanup command contract, and both failure-classification markers without starting Docker or consuming a license.
+The self-test covers project-name sanitization, synthetic fixture identity enforcement, generic token/secret/license key-value redaction (including the forms above), preservation of non-secret key-values, the destructive-cleanup command contract, and both failure-classification markers without starting Docker or consuming a license.
 
 ## Migration guide for existing runners
 
