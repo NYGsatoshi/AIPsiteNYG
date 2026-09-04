@@ -46,4 +46,8 @@ Raw SBOM metadata can contain timestamps, document namespaces, UUIDs, and orderi
 
 The trusted image lane scans the same per-run production image twice and fails if the normalized projections differ. The image digest is recorded alongside the first evidence set so a later consumer can prove which immutable image instance was scanned.
 
-SBOM generation, JSON validation, structural schema validation, required-package checks, leak checks, hash verification, and image reproducibility checks are blocking steps. Signing and attestations are deliberately outside SEC-09 and belong to SEC-11.
+## Trusted final-candidate gate
+
+`scripts/ci/verify-mvp-a-final-checks.py`, used by the main-only `MVP-A Final Gate`, requires successful GitHub Actions checks named `sbom-source` and `sbom-image-trusted` on the exact candidate SHA. A missing, pending, failed, or untrusted SBOM check therefore makes the final-candidate gate fail. This connects SEC-09 evidence to the trusted release-candidate path rather than leaving the image workflow as advisory evidence.
+
+SBOM generation, JSON validation, structural schema validation, required-package checks, leak checks, hash verification, image reproducibility checks, and the final-candidate SBOM requirements are blocking. Signing and attestations are deliberately outside SEC-09 and belong to SEC-11.
