@@ -42,6 +42,7 @@ jobs:
         run: |
           python3 scripts/ci/test_verify_sbom.py
           python3 scripts/ci/test_verify_sbom_vulnerability_gate.py
+          python3 scripts/ci/test_verify_grype_sbom_source.py
 
       - name: Install pinned Syft
         run: bash scripts/ci/install-syft.sh
