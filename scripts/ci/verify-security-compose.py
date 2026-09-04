@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 import sys
 from typing import Any
 
@@ -37,6 +39,20 @@ def require_env(environment: dict[str, Any], key: str, expected: str) -> None:
     actual = environment.get(key)
     if str(actual).lower() != expected.lower():
         fail(f"{key} expected {expected!r}, got {actual!r}")
+
+
+def should_run_runtime_smoke() -> bool:
+    # The public security-scan job intentionally provides only a synthetic
+    # fixture credential. Requiring both GitHub Actions and that credential keeps
+    # ordinary local `docker compose config | verify-security-compose.py` calls
+    # side-effect free while making the required CI security gate exercise the
+    # real PostgreSQL/runtime path.
+    return (
+        os.environ.get("GITHUB_ACTIONS", "").lower() == "true"
+        and bool(os.environ.get("AIP_SECURITY_CI_PASSWORD", "").strip())
+        and os.environ.get("AIP_SECURITY_CI_SKIP_RUNTIME_SMOKE", "").lower()
+        not in {"1", "true", "yes"}
+    )
 
 
 def main() -> None:
@@ -99,6 +115,13 @@ def main() -> None:
         fail("real-backend-playwright must be inactive in the default SEC-02 profile")
 
     print("SEC-02 resolved Compose invariants verified.")
+
+    if should_run_runtime_smoke():
+        print("Running SEC-02 PostgreSQL runtime smoke inside the required security gate.")
+        subprocess.run(
+            ["bash", "scripts/ci/run-security-runtime-smoke.sh"],
+            check=True,
+        )
 
 
 if __name__ == "__main__":
