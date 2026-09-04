@@ -45,6 +45,113 @@ def require_wire_schema(
         )
 
 
+def require_security_contract(document: dict[str, object]) -> None:
+    components = document.get("components")
+    security_schemes = components.get("securitySchemes") if isinstance(components, dict) else None
+    cookie_auth = security_schemes.get("CookieAuth") if isinstance(security_schemes, dict) else None
+    if not isinstance(cookie_auth, dict):
+        fail("CookieAuth security scheme must be present")
+    if cookie_auth.get("type") != "apiKey" or cookie_auth.get("in") != "cookie":
+        fail("CookieAuth must be an apiKey cookie security scheme")
+    if cookie_auth.get("name") != ".AipPortal.Auth":
+        fail("CookieAuth must describe the production authentication cookie")
+
+    paths = document.get("paths")
+    if isinstance(paths, dict):
+        non_api_paths = {"/", "/health", "/favicon.ico"}.intersection(paths)
+        if non_api_paths:
+            fail(
+                "navigation and static aliases must not be advertised as API operations: "
+                f"{sorted(non_api_paths)!r}"
+            )
+
+    export_path = paths.get("/api/admin/audit/package-exports") if isinstance(paths, dict) else None
+    export_operation = export_path.get("post") if isinstance(export_path, dict) else None
+    if not isinstance(export_operation, dict):
+        fail("audit package export POST operation must be present")
+
+    responses = export_operation.get("responses")
+    required_responses = {"400", "401", "403", "404", "415"}
+    if not isinstance(responses, dict) or not required_responses.issubset(responses):
+        fail("protected request-body operations must document 400/401/403/404/415 responses")
+    for status in required_responses:
+        response = responses.get(status)
+        content = response.get("content") if isinstance(response, dict) else None
+        required_error_media_types = {"application/json", "application/problem+json"}
+        if not isinstance(content, dict) or not required_error_media_types.issubset(content):
+            fail(
+                f"cross-cutting {status} responses must document JSON and Problem Details"
+            )
+
+    security = export_operation.get("security")
+    if not isinstance(security, list) or not any(
+        isinstance(requirement, dict) and "CookieAuth" in requirement
+        for requirement in security
+    ):
+        fail("protected operations must require CookieAuth")
+
+    request_content = export_operation.get("requestBody")
+    request_content = request_content.get("content") if isinstance(request_content, dict) else None
+    if not isinstance(request_content, dict):
+        fail("audit package export POST request content must be present")
+    if "application/json" not in request_content or "application/*+json" not in request_content:
+        fail("JSON request bodies must retain ordinary and structured-suffix media types")
+    if "text/json" in request_content:
+        fail("security contract must not advertise runtime-rejected text/json request bodies")
+
+    dependency_path = paths.get("/api/tasks/{taskItemId}/dependencies") if isinstance(paths, dict) else None
+    dependency_operation = dependency_path.get("post") if isinstance(dependency_path, dict) else None
+    dependency_responses = dependency_operation.get("responses") if isinstance(dependency_operation, dict) else None
+    if not isinstance(dependency_responses, dict) or not {"401", "403", "404"}.issubset(dependency_responses):
+        fail("application-authorized path operations must document 401/403/404 responses")
+
+    invite_path = paths.get("/api/invites/validate") if isinstance(paths, dict) else None
+    invite_operation = invite_path.get("get") if isinstance(invite_path, dict) else None
+    invite_parameters = invite_operation.get("parameters") if isinstance(invite_operation, dict) else None
+    invite_token = next(
+        (
+            parameter
+            for parameter in invite_parameters or []
+            if isinstance(parameter, dict) and parameter.get("name") == "token"
+        ),
+        None,
+    )
+    invite_schema = invite_token.get("schema") if isinstance(invite_token, dict) else None
+    if not isinstance(invite_token, dict) or invite_token.get("required") is not True:
+        fail("invite validation token must be a required query parameter")
+    if not isinstance(invite_schema, dict) or invite_schema.get("pattern") != "^[a-f0-9]{64}$":
+        fail("invite validation token must document the generated 64-character hex format")
+    invite_responses = invite_operation.get("responses") if isinstance(invite_operation, dict) else None
+    if not isinstance(invite_responses, dict) or "404" not in invite_responses:
+        fail("well-formed unknown invite tokens must be documented as 404")
+    for status in ("400", "404"):
+        response = invite_responses.get(status) if isinstance(invite_responses, dict) else None
+        content = response.get("content") if isinstance(response, dict) else None
+        if not isinstance(content, dict) or "application/problem+json" not in content:
+            fail(f"invite validation {status} must document application/problem+json")
+
+    for schema_name, token_property in (
+        ("AcceptInviteRequest", "token"),
+        ("RegisterByInviteRequest", "inviteToken"),
+    ):
+        request_schema = components.get("schemas", {}).get(schema_name) if isinstance(components, dict) else None
+        properties = request_schema.get("properties") if isinstance(request_schema, dict) else None
+        token_schema = properties.get(token_property) if isinstance(properties, dict) else None
+        if not isinstance(token_schema, dict) or token_schema.get("pattern") != "^[a-f0-9]{64}$":
+            fail(f"{schema_name}.{token_property} must document the generated invite-token format")
+
+    for path_name in ("/api/invites/accept", "/api/auth/register-by-invite"):
+        path_item = paths.get(path_name) if isinstance(paths, dict) else None
+        post_operation = path_item.get("post") if isinstance(path_item, dict) else None
+        post_responses = post_operation.get("responses") if isinstance(post_operation, dict) else None
+        if not isinstance(post_responses, dict) or "404" not in post_responses:
+            fail(f"well-formed unknown invite tokens must be documented as 404 for {path_name}")
+        not_found = post_responses.get("404")
+        content = not_found.get("content") if isinstance(not_found, dict) else None
+        if not isinstance(content, dict) or "application/problem+json" not in content:
+            fail(f"invite 404 responses must document application/problem+json for {path_name}")
+
+
 def main() -> None:
     if len(sys.argv) != 2:
         fail("usage: verify-openapi.py <openapi.json>")
@@ -83,6 +190,7 @@ def main() -> None:
         "date-time",
     )
     require_wire_schema(schemas, "OptionalString", {"null", "string"})
+    require_security_contract(document)
 
     print(
         "SEC-01 OpenAPI verification passed: "

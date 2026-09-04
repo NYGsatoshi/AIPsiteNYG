@@ -1,0 +1,19 @@
+name: invalid indexed workflow run head
+on:
+  workflow_run:
+    workflows: [signal]
+    types: [completed]
+permissions:
+  contents: read
+  statuses: write
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: consume triggering head through index syntax
+        run: |
+          triggering_sha="${{ github['event']['workflow_run']['head_sha'] }}"
+          pr_number=1
+          pr_json="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$pr_number")"
+          head_sha="$(jq -r '.head.sha' <<<"$pr_json")"
+          echo "$triggering_sha $head_sha" >/dev/null

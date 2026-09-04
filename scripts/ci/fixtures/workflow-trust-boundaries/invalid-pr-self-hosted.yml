@@ -1,0 +1,9 @@
+name: invalid self hosted
+on:
+  pull_request:
+permissions: {}
+jobs:
+  test:
+    runs-on: [self-hosted, linux]
+    steps:
+      - run: echo unsafe

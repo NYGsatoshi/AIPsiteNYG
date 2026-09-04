@@ -61,7 +61,10 @@ public static class DependencyInjection
         // documentation endpoint. SEC-01 emits this document at build time for
         // security tooling while keeping production OpenAPI exposure disabled.
         services.AddOpenApi(options =>
-            options.AddSchemaTransformer<SecurityOpenApiSchemaTransformer>());
+        {
+            options.AddSchemaTransformer<SecurityOpenApiSchemaTransformer>();
+            options.AddOperationTransformer<SecurityOpenApiOperationTransformer>();
+        });
 
         services.AddControllers(options =>
             options.Filters.Add<CanonicalProjectsResponseProjectionFilter>())

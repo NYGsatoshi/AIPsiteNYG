@@ -1,0 +1,66 @@
+{
+  "schema_version": 2,
+  "source_controls": [
+    "GOV-WORKFLOW-PERM-001",
+    "GOV-TRUST-001",
+    "GOV-RUNNER-001"
+  ],
+  "constraints": {
+    "persist_credentials": false,
+    "pull_request_target": "forbidden",
+    "untrusted_pr_self_hosted": "forbidden",
+    "persistent_privileged_self_hosted": "forbidden"
+  },
+  "runner_routing": {
+    "github_hosted_labels": [
+      "ubuntu-latest",
+      "macos-latest"
+    ],
+    "github_hosted_groups": [],
+    "approved_dynamic_expressions": [
+      "${{ (matrix.language == 'swift' && 'macos-latest') || 'ubuntu-latest' }}"
+    ]
+  },
+  "write_permissions": [
+    {
+      "workflow": ".github/workflows/codeql.yml",
+      "jobs": [
+        "analyze"
+      ],
+      "events": [
+        "push",
+        "schedule"
+      ],
+      "permissions": [
+        "security-events:write"
+      ],
+      "reason": "Upload CodeQL SARIF only from trusted main pushes and the scheduled trusted scan."
+    },
+    {
+      "workflow": ".github/workflows/nuget-dependency-submission.yml",
+      "jobs": [
+        "submit-nuget"
+      ],
+      "events": [
+        "workflow_dispatch"
+      ],
+      "permissions": [
+        "contents:write"
+      ],
+      "reason": "Submit the NuGet dependency snapshot from an explicitly dispatched trusted metadata-publication lane."
+    },
+    {
+      "workflow": ".github/workflows/refresh-pr445-mobile-baseline.yml",
+      "jobs": [
+        "refresh-mobile-baseline"
+      ],
+      "events": [
+        "push"
+      ],
+      "permissions": [
+        "contents:write"
+      ],
+      "reason": "Commit the single scope-checked PR445 mobile screenshot baseline back to its fixed repository branch."
+    }
+  ]
+}

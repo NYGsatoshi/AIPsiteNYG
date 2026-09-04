@@ -7,7 +7,6 @@ on:
 
 permissions:
   contents: write
-  id-token: write
 
 concurrency:
   group: nuget-dependency-submission-${{ github.ref }}
@@ -28,17 +27,19 @@ jobs:
           echo "runner.os=${RUNNER_OS}"
           echo "runner.arch=${RUNNER_ARCH}"
           echo "runner.environment=${RUNNER_ENVIRONMENT}"
-          if [[ "${RUNNER_ENVIRONMENT}" != "self-hosted" ]]; then
+          if [[ "${RUNNER_ENVIRONMENT}" != "github-hosted" ]]; then
             echo "Unexpected runner environment: ${RUNNER_ENVIRONMENT}" >&2
             exit 1
           fi
 
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Submit NuGet dependency snapshot
         uses: advanced-security/component-detection-dependency-submission-action@v0.1.4
         with:
           filePath: '.'
           detectorsCategories: NuGet
-          correlator: nuget-self-hosted
+          correlator: nuget-github-hosted

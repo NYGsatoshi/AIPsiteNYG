@@ -1,0 +1,10 @@
+name: invalid untrusted runner group
+on:
+  pull_request:
+permissions: {}
+jobs:
+  unsafe:
+    runs-on:
+      group: persistent-runners
+    steps:
+      - run: echo unsafe

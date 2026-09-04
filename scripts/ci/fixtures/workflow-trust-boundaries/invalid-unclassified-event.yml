@@ -1,0 +1,10 @@
+name: invalid unclassified event
+on:
+  issues:
+    types: [opened]
+permissions: {}
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo unsafe-unclassified-trigger

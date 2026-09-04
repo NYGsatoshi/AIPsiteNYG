@@ -1,6 +1,14 @@
 using System.Net;
 using AipPortal.Web;
+using AipPortal.Web.Configuration;
+using AipPortal.Web.Middleware;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Hosting.Server;
+using Microsoft.AspNetCore.Hosting.Server.Features;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
 namespace AipPortal.Tests.Web;
 
@@ -106,6 +114,90 @@ public sealed class AngularSpaFallbackTests : IDisposable
         Assert.Equal("no-cache, no-store, must-revalidate", context.Response.Headers.CacheControl.ToString());
         Assert.Equal("no-cache", context.Response.Headers.Pragma.ToString());
         Assert.Equal("0", context.Response.Headers.Expires.ToString());
+    }
+
+    [Fact]
+    public async Task EndpointFallbackPreservesMethodNotAllowedForKnownApiRoutes()
+    {
+        WriteAngularBuild();
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+        {
+            EnvironmentName = Environments.Development
+        });
+        builder.WebHost.UseKestrel().UseUrls("http://127.0.0.1:0");
+
+        await using var app = builder.Build();
+        app.MapGet("/api/example", () => Results.NoContent());
+        AngularSpaFallback.MapEndpointFallback(app, webRootPath);
+
+        await app.StartAsync();
+        try
+        {
+            var addresses = app.Services
+                .GetRequiredService<IServer>()
+                .Features
+                .Get<IServerAddressesFeature>()!
+                .Addresses;
+            using var client = new HttpClient { BaseAddress = new Uri(addresses.Single()) };
+            using var request = new HttpRequestMessage(new HttpMethod("TRACE"), "/api/example");
+
+            using var response = await client.SendAsync(request);
+            using var angularResponse = await client.GetAsync("/app/login");
+            using var missingApiResponse = await client.GetAsync("/api/not-found");
+            var angularBody = await angularResponse.Content.ReadAsStringAsync();
+            var missingApiBody = await missingApiResponse.Content.ReadAsStringAsync();
+
+            Assert.Equal(HttpStatusCode.MethodNotAllowed, response.StatusCode);
+            Assert.Contains("GET", response.Content.Headers.Allow);
+            Assert.Equal(HttpStatusCode.OK, angularResponse.StatusCode);
+            Assert.Contains("Angular", angularBody);
+            Assert.Equal(HttpStatusCode.NotFound, missingApiResponse.StatusCode);
+            Assert.Contains("\"code\":\"NotFound\"", missingApiBody);
+        }
+        finally
+        {
+            await app.StopAsync();
+        }
+    }
+
+    [Fact]
+    public async Task CsrfProtectionPreservesMethodNotAllowedWithoutBypassingSupportedCommands()
+    {
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+        {
+            EnvironmentName = Environments.Development
+        });
+        builder.WebHost.UseKestrel().UseUrls("http://127.0.0.1:0");
+        builder.Services.AddAntiforgery();
+        builder.Services.Configure<SecurityOptions>(options => options.EnableCsrfProtection = true);
+
+        await using var app = builder.Build();
+        app.UseMiddleware<CsrfProtectionMiddleware>();
+        app.MapPost("/api/example", () => Results.NoContent());
+        AngularSpaFallback.MapEndpointFallback(app, webRootPath);
+
+        await app.StartAsync();
+        try
+        {
+            var addresses = app.Services
+                .GetRequiredService<IServer>()
+                .Features
+                .Get<IServerAddressesFeature>()!
+                .Addresses;
+            using var client = new HttpClient { BaseAddress = new Uri(addresses.Single()) };
+            using var unsupportedRequest = new HttpRequestMessage(new HttpMethod("QUERY"), "/api/example");
+
+            using var unsupportedResponse = await client.SendAsync(unsupportedRequest);
+            using var supportedResponse = await client.PostAsync("/api/example", content: null);
+
+            Assert.Equal(HttpStatusCode.MethodNotAllowed, unsupportedResponse.StatusCode);
+            Assert.Contains("POST", unsupportedResponse.Content.Headers.Allow);
+            Assert.Equal(HttpStatusCode.Forbidden, supportedResponse.StatusCode);
+        }
+        finally
+        {
+            await app.StopAsync();
+        }
     }
 
     [Theory]
