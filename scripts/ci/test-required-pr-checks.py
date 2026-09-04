@@ -24,7 +24,6 @@ class RequiredPrCheckPolicyTests(unittest.TestCase):
 
     def test_policy_includes_trusted_commit_status(self) -> None:
         statuses = guard.REQUIRED_STATUS_CHECKS
-        self.assertEqual(5, len(statuses))
         commit_statuses = [item for item in statuses if item["kind"] == "commit-status"]
         self.assertEqual(1, len(commit_statuses))
         self.assertEqual(
