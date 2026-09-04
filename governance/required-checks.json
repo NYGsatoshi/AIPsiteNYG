@@ -1,0 +1,153 @@
+{
+  "$schema": "./required-checks.schema.json",
+  "version": 1,
+  "policy_control_id": "GOV-CHECKS-001",
+  "ruleset": {
+    "name": "Public Main Protection - Strict External Review",
+    "enforcement": "active",
+    "strict_required_status_checks_policy": true
+  },
+  "checks": [
+    {
+      "gate_id": "GOV-GATE-EXT-APPROVAL-001",
+      "kind": "commit-status",
+      "workflow": ".github/workflows/external-pr-approval-evaluator.yml",
+      "job": "evaluate",
+      "context": "External PR approval policy",
+      "scope": "all-pr",
+      "trigger": {
+        "mode": "trusted-workflow-run",
+        "event": "workflow_run",
+        "source_workflow": "External PR review signal"
+      },
+      "producer": {
+        "type": "github-actions-status",
+        "creator_login": "github-actions[bot]",
+        "workflow_path_required": true
+      },
+      "ruleset_integration_id": null,
+      "allowed_conclusions": ["success"],
+      "timeout_minutes": 5,
+      "staleness_policy": "exact-head-and-timeout",
+      "rename": {
+        "state": "stable",
+        "previous_context": null,
+        "previous_workflow": null,
+        "previous_job": null,
+        "migration_issue": null
+      }
+    },
+    {
+      "gate_id": "GOV-GATE-BUILD-001",
+      "kind": "workflow-job",
+      "workflow": ".github/workflows/ci.yml",
+      "job": "build-test",
+      "context": "build-test",
+      "scope": "all-pr",
+      "trigger": {
+        "mode": "unfiltered-pull-request",
+        "event": "pull_request"
+      },
+      "producer": {
+        "type": "github-actions-check",
+        "integration_id": 15368,
+        "app_slug": "github-actions"
+      },
+      "ruleset_integration_id": 15368,
+      "allowed_conclusions": ["success"],
+      "timeout_minutes": 120,
+      "staleness_policy": "exact-head-and-timeout",
+      "rename": {
+        "state": "stable",
+        "previous_context": null,
+        "previous_workflow": null,
+        "previous_job": null,
+        "migration_issue": null
+      }
+    },
+    {
+      "gate_id": "GOV-GATE-FRONTEND-001",
+      "kind": "workflow-job",
+      "workflow": ".github/workflows/ci.yml",
+      "job": "frontend-test",
+      "context": "frontend-test",
+      "scope": "all-pr",
+      "trigger": {
+        "mode": "unfiltered-pull-request",
+        "event": "pull_request"
+      },
+      "producer": {
+        "type": "github-actions-check",
+        "integration_id": 15368,
+        "app_slug": "github-actions"
+      },
+      "ruleset_integration_id": 15368,
+      "allowed_conclusions": ["success"],
+      "timeout_minutes": 120,
+      "staleness_policy": "exact-head-and-timeout",
+      "rename": {
+        "state": "stable",
+        "previous_context": null,
+        "previous_workflow": null,
+        "previous_job": null,
+        "migration_issue": null
+      }
+    },
+    {
+      "gate_id": "GOV-GATE-SECURITY-001",
+      "kind": "workflow-job",
+      "workflow": ".github/workflows/ci.yml",
+      "job": "security-scan",
+      "context": "security-scan",
+      "scope": "all-pr",
+      "trigger": {
+        "mode": "unfiltered-pull-request",
+        "event": "pull_request"
+      },
+      "producer": {
+        "type": "github-actions-check",
+        "integration_id": 15368,
+        "app_slug": "github-actions"
+      },
+      "ruleset_integration_id": 15368,
+      "allowed_conclusions": ["success"],
+      "timeout_minutes": 90,
+      "staleness_policy": "exact-head-and-timeout",
+      "rename": {
+        "state": "stable",
+        "previous_context": null,
+        "previous_workflow": null,
+        "previous_job": null,
+        "migration_issue": null
+      }
+    },
+    {
+      "gate_id": "GOV-GATE-PUBLICATION-001",
+      "kind": "workflow-job",
+      "workflow": ".github/workflows/publication-readiness.yml",
+      "job": "publication-readiness",
+      "context": "publication-readiness",
+      "scope": "all-pr",
+      "trigger": {
+        "mode": "unfiltered-pull-request",
+        "event": "pull_request"
+      },
+      "producer": {
+        "type": "github-actions-check",
+        "integration_id": 15368,
+        "app_slug": "github-actions"
+      },
+      "ruleset_integration_id": 15368,
+      "allowed_conclusions": ["success"],
+      "timeout_minutes": 20,
+      "staleness_policy": "exact-head-and-timeout",
+      "rename": {
+        "state": "stable",
+        "previous_context": null,
+        "previous_workflow": null,
+        "previous_job": null,
+        "migration_issue": null
+      }
+    }
+  ]
+}
