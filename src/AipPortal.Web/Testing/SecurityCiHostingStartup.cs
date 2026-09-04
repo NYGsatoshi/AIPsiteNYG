@@ -88,12 +88,14 @@ internal sealed class SecurityCiFixtureHostedService(
         var currentTenant = scope.ServiceProvider.GetRequiredService<ICurrentTenantAccessor>();
         currentTenant.SetPlatformScope();
 
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         await SecurityCiFixtureSeed.SeedAsync(
-            scope.ServiceProvider.GetRequiredService<AppDbContext>(),
+            dbContext,
             scope.ServiceProvider.GetRequiredService<IPasswordHasher>(),
             scope.ServiceProvider.GetRequiredService<IFileStorageService>(),
             password,
             cancellationToken);
+        await SecurityCiAuthorizationMatrixSeed.SeedAsync(dbContext, cancellationToken);
 
         _seeded = true;
     }
