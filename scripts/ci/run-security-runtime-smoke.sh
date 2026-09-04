@@ -154,6 +154,24 @@ security_scan_preflight
 # authenticated SEC-03 sessions. Its durable artifact contains metadata only;
 # protected response bodies stay in SECURITY_SCAN_STATE_DIR and are destroyed.
 security_authorization_negative_matrix_run
+
+# Claims/Evidence and Finding are implemented admin surfaces too. Both authorize
+# AuditView before protected artifact/finding lookup, so an ordinary Alpha member
+# must be rejected at the BFLA boundary even when supplied a syntactically valid
+# identifier. Re-render the same metadata-only evidence after appending the cases.
+sec05_case member-audit-claims-evidence audit-claims-evidence bfla-role-downgrade alpha-member \
+  'security-alpha/member' 'security-alpha/admin-audit/claims-evidence' GET 'GET /api/admin/audit/claims-evidence' \
+  "/api/admin/audit/claims-evidence?artifactVersionId=$SEC05_ALPHA_TASK_ID" \
+  forbidden none __NO_BODY__ '' none
+sec05_case member-audit-findings audit-finding bfla-role-downgrade alpha-member \
+  'security-alpha/member' 'security-alpha/admin-audit/findings' GET 'GET /api/admin/audit/findings' \
+  "/api/admin/audit/findings?artifactVersionId=$SEC05_ALPHA_TASK_ID" \
+  forbidden none __NO_BODY__ '' none
+sec05_write_evidence
+if (( SEC05_FAILURES != 0 )); then
+  fail "$SEC05_FAILURES SEC-05 blocker case(s) failed after Audit Claim/Evidence/Finding coverage"
+fi
+
 security_scan_teardown
 
 # A process restart forces both Test-only seed layers to seed the same real
