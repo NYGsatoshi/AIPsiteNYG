@@ -29,12 +29,14 @@ jobs:
       - name: Test publication and governance policy parsers
         run: |
           python3 scripts/ci/test-governance-policy.py
+          python3 scripts/ci/test-governance-review-status-invariants.py
           python3 scripts/ci/test-publication-readiness.py
           python3 scripts/ci/test-required-pr-checks.py
 
       - name: Enforce publication and governance policies
         run: |
           python3 scripts/ci/validate-governance-policy.py
+          python3 scripts/ci/check-governance-review-status-invariants.py
           python3 scripts/ci/check-publication-readiness.py
           python3 scripts/ci/check-required-pr-checks.py
 
