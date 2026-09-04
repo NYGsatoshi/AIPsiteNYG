@@ -36,11 +36,37 @@ class WorkflowTrustValidator
 
   private
 
+  alias load_allowlist_without_exact_policy_match load_allowlist
   alias validate_workflow_without_event_classification validate_workflow
+
+  def load_allowlist(policy)
+    load_allowlist_without_exact_policy_match(policy)
+
+    permission = control(policy, CONTROL_PERMISSION)
+    runner = control(policy, CONTROL_RUNNER)
+    expected_runner = runner['expected']
+    unless expected_runner.is_a?(Hash) && expected_runner['persistent_privileged'] == 'forbidden'
+      raise JSON::ParserError, "#{CONTROL_RUNNER} must forbid persistent privileged self-hosted routing"
+    end
+
+    canonical = permission.dig('expected', 'write_permissions_allowlist')
+    canonical_normalized = canonical.map do |entry|
+      [entry['workflow'], Array(entry['permissions']).sort]
+    end.sort
+    registry_normalized = @allowlist.map do |entry|
+      [entry['workflow'], Array(entry['permissions']).sort]
+    end.sort
+
+    unless canonical_normalized == registry_normalized
+      raise JSON::ParserError,
+            "#{TRUST_REGISTRY_PATH} write scopes must exactly match #{CONTROL_PERMISSION} canonical write_permissions_allowlist"
+    end
+  end
 
   def validate_workflow(path, doc)
     validate_workflow_without_event_classification(path, doc)
     validate_event_trust_classification(path, doc)
+    validate_privileged_runner_routing(path, doc)
   end
 
   def validate_event_trust_classification(path, doc)
@@ -61,6 +87,46 @@ class WorkflowTrustValidator
         on_node.line,
         "event #{event.inspect} has no GOV-04 trust classification; fail-closed until explicitly classified"
       )
+    end
+  end
+
+  def validate_privileged_runner_routing(path, doc)
+    jobs = doc['jobs']
+    return unless jobs&.map?
+
+    jobs.value.each do |job_id, job|
+      next unless job.map?
+
+      permissions = job['permissions'] || doc['permissions']
+      privileged = !write_permissions(permissions).empty? || !secret_nodes(job).empty? || !job['environment'].nil?
+      next unless privileged
+
+      runs_on = job['runs-on']
+      next if runs_on.nil? # reusable-workflow callers are checked at the callee definition.
+
+      labels = scalar_values(runs_on)
+      if labels.any? { |value| value.to_s.casecmp('self-hosted').zero? }
+        add(
+          CONTROL_RUNNER,
+          path,
+          runs_on.line,
+          "privileged job #{job_id} must not use a self-hosted runner; persistent privileged routing is forbidden"
+        )
+      end
+
+      labels.grep(DYNAMIC_EXPR).each do |value|
+        # matrix.* is repository-owned workflow data and can safely choose among
+        # hard-coded hosted labels. Event/input/vars/needs/env contexts can be
+        # influenced outside this static trust proof and therefore fail closed.
+        next unless value.match?(/\b(?:inputs|vars|github\.event|needs|env)\./i) || value.match?(/self-hosted/i)
+
+        add(
+          CONTROL_RUNNER,
+          path,
+          runs_on.line,
+          "privileged job #{job_id} has dynamic runner routing that can cross the hosted/self-hosted trust boundary"
+        )
+      end
     end
   end
 
