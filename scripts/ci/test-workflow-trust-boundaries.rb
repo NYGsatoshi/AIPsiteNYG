@@ -31,7 +31,8 @@ class WorkflowTrustBoundaryTests < Minitest::Test
         {
           'id' => CONTROL_RUNNER,
           'expected' => {
-            'untrusted_pr' => 'forbidden'
+            'untrusted_pr' => 'forbidden',
+            'persistent_privileged' => 'forbidden'
           }
         }
       ]
