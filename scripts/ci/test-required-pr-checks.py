@@ -22,6 +22,17 @@ class RequiredPrCheckPolicyTests(unittest.TestCase):
             ".github/workflows/publication-readiness.yml", text
         )
 
+    def test_policy_includes_trusted_commit_status(self) -> None:
+        statuses = guard.REQUIRED_STATUS_CHECKS
+        self.assertEqual(5, len(statuses))
+        commit_statuses = [item for item in statuses if item["kind"] == "commit-status"]
+        self.assertEqual(1, len(commit_statuses))
+        self.assertEqual(
+            ".github/workflows/external-pr-approval-evaluator.yml",
+            commit_statuses[0]["workflow"],
+        )
+        self.assertEqual("evaluate", commit_statuses[0]["job"])
+
     def test_unfiltered_required_jobs_are_accepted(self) -> None:
         text = """
 name: CI
