@@ -1,5 +1,11 @@
 # MVP-A P0 Frontend CI Stages
 
+> Functional CI taxonomy, stable journey ownership, and PR/main/nightly/release
+> gate semantics are canonicalized under
+> `docs/verification/functional-ci/`. This file describes frontend-specific CI
+> stages and screenshot handling; when classification or Functional gate
+> ownership is in question, the FCI-01 documents are the source of truth.
+
 Angular under `frontend/` is the only supported MVP-A P0 frontend implementation.
 The repository root `package.json` is retained for repo-level Playwright/E2E
 infrastructure only.
@@ -20,11 +26,22 @@ infrastructure only.
 
 ## Staged Playwright Plan
 
-- Stage 1, current: Angular build smoke against static built output.
-- Stage 2, next: Angular plus mocked API coverage once FE-07 provides the
-  AppShell skeleton and stable mock data seams.
-- Stage 3, later: ASP.NET Core host plus built Angular and real or seeded API
-  data after the backend-hosted frontend path is ready for deterministic CI.
+- Stage 1: Angular build/static shell smoke in the normal frontend CI path.
+- Stage 2: focused Angular mock/intercept coverage for responsive, accessibility,
+  focus, error-state, and UI regression. Under the Functional CI policy this is
+  focused regression, not real-functional journey ownership when core APIs are
+  intercepted.
+- Stage 3: ASP.NET Core + production Angular + migrated PostgreSQL real-backend
+  acceptance. This now exists in the Compose-backed real-backend/MBJ/authz
+  suites and is currently executed on `main`/manual protected acceptance. FCI-08
+  and FCI-09 own promoting the stable journey subsets into the canonical
+  `functional-fast` and `functional-full` topology.
+
+See:
+
+- `docs/verification/functional-ci/functional-test-policy.md`
+- `docs/verification/functional-ci/functional-journey-matrix.md`
+- `docs/verification/functional-ci/functional-gate-topology.md`
 
 ## Screenshot Regression Status
 
@@ -42,6 +59,10 @@ Screenshot failures are blocking for hidden action exposure, hidden route
 exposure, unusable primary navigation, permission/session screen breakage,
 messaging composer/file upload/admin grid unusability, or major shell layout
 collapse.
+
+Screenshot/visual regression remains a separate classification from real
+Functional coverage. A screenshot pass must not be used to satisfy a real
+journey owner slot in the Functional CI matrix.
 
 ## Legacy Static SPA Handling
 
