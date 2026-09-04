@@ -74,7 +74,7 @@ public sealed class SecurityOpenApiOperationTransformer : IOpenApiOperationTrans
         {
             if (operation.Responses?.ContainsKey(status) == true)
             {
-                AddProblemDetailsContent(operation, status);
+                AddErrorResponseContent(operation, status);
             }
         }
 
@@ -107,18 +107,24 @@ public sealed class SecurityOpenApiOperationTransformer : IOpenApiOperationTrans
             operation.Responses.Add(status, new OpenApiResponse { Description = description });
         }
 
-        AddProblemDetailsContent(operation, status);
+        AddErrorResponseContent(operation, status);
     }
 
-    private static void AddProblemDetailsContent(OpenApiOperation operation, string status)
+    private static void AddErrorResponseContent(OpenApiOperation operation, string status)
     {
-        // Framework model validation, status-code handling, authorization, and
-        // CSRF rejection can all emit RFC 9457 Problem Details. Preserve any
-        // action-specific media types while documenting this cross-cutting one.
+        // Framework model validation and status-code handling emit RFC 9457
+        // Problem Details, while authorization and CSRF middleware emit the
+        // existing JSON error envelope. Preserve action-specific media types
+        // and document both cross-cutting wire formats.
         if (operation.Responses?.TryGetValue(status, out var describedResponse) == true &&
             describedResponse is OpenApiResponse response)
         {
             response.Content ??= new Dictionary<string, OpenApiMediaType>();
+            if (!response.Content.ContainsKey("application/json"))
+            {
+                response.Content.Add("application/json", new OpenApiMediaType());
+            }
+
             if (!response.Content.ContainsKey("application/problem+json"))
             {
                 response.Content.Add("application/problem+json", new OpenApiMediaType());

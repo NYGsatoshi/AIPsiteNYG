@@ -77,8 +77,11 @@ def require_security_contract(document: dict[str, object]) -> None:
     for status in required_responses:
         response = responses.get(status)
         content = response.get("content") if isinstance(response, dict) else None
-        if not isinstance(content, dict) or "application/problem+json" not in content:
-            fail(f"cross-cutting {status} responses must document application/problem+json")
+        required_error_media_types = {"application/json", "application/problem+json"}
+        if not isinstance(content, dict) or not required_error_media_types.issubset(content):
+            fail(
+                f"cross-cutting {status} responses must document JSON and Problem Details"
+            )
 
     security = export_operation.get("security")
     if not isinstance(security, list) or not any(
