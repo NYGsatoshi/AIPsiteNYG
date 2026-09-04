@@ -1,0 +1,497 @@
+{
+  "$schema": "./policy.schema.json",
+  "version": 1,
+  "policy_id": "AIPSITE-GOVERNANCE",
+  "repository": "NYGsatoshi/AIPsiteNYG",
+  "default_branch": "main",
+  "owners": [
+    "@NYGsatoshi"
+  ],
+  "semantics": {
+    "live_state_is_baseline": false,
+    "unknown_control_behavior": "reject",
+    "unknown_field_behavior": "reject",
+    "invalid_policy_behavior": "block",
+    "implicit_critical_defaults": "forbidden",
+    "downgrade_requires_explicit_diff": true
+  },
+  "waiver_rules": {
+    "bounded": {
+      "owner_required": true,
+      "reason_required": true,
+      "expiry_required": true,
+      "tracking_issue_required": true,
+      "max_duration_days": 30
+    }
+  },
+  "controls": [
+    {
+      "id": "GOV-RULESET-001",
+      "family": "ruleset",
+      "title": "Default branch protection and ruleset contract",
+      "purpose": "Keep the protected default-branch rulesets explicit and reviewable instead of learning policy from live GitHub state.",
+      "scope": [
+        "default-branch",
+        "scheduled"
+      ],
+      "enforcement": "blocking",
+      "owner": "@NYGsatoshi",
+      "expected": {
+        "target": "default-branch",
+        "ruleset_names": [
+          "Public Main Protection - Strict External Review",
+          "PRreview"
+        ],
+        "strict_required_status_checks": true,
+        "branch_deletion_allowed": false,
+        "non_fast_forward_allowed": false
+      },
+      "evidence": {
+        "kind": "github-live-settings",
+        "source": "trusted default-branch ruleset snapshot"
+      },
+      "exception": {
+        "allowed": false
+      },
+      "references": {
+        "paths": [],
+        "workflows": [],
+        "checks": [],
+        "rulesets": [
+          "Public Main Protection - Strict External Review",
+          "PRreview"
+        ]
+      },
+      "failure_classification": "configuration-drift"
+    },
+    {
+      "id": "GOV-CHECKS-001",
+      "family": "required-status-checks",
+      "title": "Required pull-request status checks",
+      "purpose": "Pin the required check contexts and their repository-owned workflow jobs so rename, skip, missing, or stale states fail closed.",
+      "scope": [
+        "pr",
+        "default-branch"
+      ],
+      "enforcement": "blocking",
+      "owner": "@NYGsatoshi",
+      "expected": {
+        "strict": true,
+        "missing_or_stale": "fail",
+        "required": [
+          {
+            "workflow": ".github/workflows/ci.yml",
+            "job": "build-test",
+            "context": "build-test"
+          },
+          {
+            "workflow": ".github/workflows/ci.yml",
+            "job": "frontend-test",
+            "context": "frontend-test"
+          },
+          {
+            "workflow": ".github/workflows/ci.yml",
+            "job": "security-scan",
+            "context": "security-scan"
+          },
+          {
+            "workflow": ".github/workflows/publication-readiness.yml",
+            "job": "publication-readiness",
+            "context": "publication-readiness"
+          }
+        ]
+      },
+      "evidence": {
+        "kind": "status-context",
+        "source": "authoritative exact-head commit status/check-runs"
+      },
+      "exception": {
+        "allowed": false
+      },
+      "references": {
+        "paths": [
+          "scripts/ci/check-required-pr-checks.py"
+        ],
+        "workflows": [
+          ".github/workflows/ci.yml",
+          ".github/workflows/publication-readiness.yml"
+        ],
+        "checks": [
+          {
+            "workflow": ".github/workflows/ci.yml",
+            "job": "build-test",
+            "context": "build-test"
+          },
+          {
+            "workflow": ".github/workflows/ci.yml",
+            "job": "frontend-test",
+            "context": "frontend-test"
+          },
+          {
+            "workflow": ".github/workflows/ci.yml",
+            "job": "security-scan",
+            "context": "security-scan"
+          },
+          {
+            "workflow": ".github/workflows/publication-readiness.yml",
+            "job": "publication-readiness",
+            "context": "publication-readiness"
+          }
+        ],
+        "rulesets": [
+          "Public Main Protection - Strict External Review"
+        ]
+      },
+      "failure_classification": "configuration-drift"
+    },
+    {
+      "id": "GOV-SIGNATURE-001",
+      "family": "required-signatures",
+      "title": "Required commit signatures",
+      "purpose": "Require signed commits on the protected default branch.",
+      "scope": [
+        "default-branch"
+      ],
+      "enforcement": "blocking",
+      "owner": "@NYGsatoshi",
+      "expected": {
+        "required": true
+      },
+      "evidence": {
+        "kind": "github-live-settings",
+        "source": "trusted default-branch ruleset snapshot"
+      },
+      "exception": {
+        "allowed": false
+      },
+      "references": {
+        "paths": [],
+        "workflows": [],
+        "checks": [],
+        "rulesets": [
+          "Public Main Protection - Strict External Review"
+        ]
+      },
+      "failure_classification": "configuration-drift"
+    },
+    {
+      "id": "GOV-REVIEW-001",
+      "family": "pr-review-codeowners",
+      "title": "Pull request review and CODEOWNERS contract",
+      "purpose": "Require PR review, CODEOWNERS participation, and additional approval for unattributed changes.",
+      "scope": [
+        "pr",
+        "default-branch"
+      ],
+      "enforcement": "blocking",
+      "owner": "@NYGsatoshi",
+      "expected": {
+        "pull_request_required": true,
+        "approvals_required": 1,
+        "codeowners_review_required": true,
+        "unattributed_changes_require_additional_approval": true
+      },
+      "evidence": {
+        "kind": "github-live-settings",
+        "source": "trusted review/ruleset evaluator"
+      },
+      "exception": {
+        "allowed": false
+      },
+      "references": {
+        "paths": [
+          ".github/CODEOWNERS"
+        ],
+        "workflows": [
+          ".github/workflows/external-pr-review-signal.yml",
+          ".github/workflows/external-pr-approval-evaluator.yml"
+        ],
+        "checks": [],
+        "rulesets": [
+          "PRreview"
+        ]
+      },
+      "failure_classification": "review-policy-drift"
+    },
+    {
+      "id": "GOV-BYPASS-001",
+      "family": "bypass-actors",
+      "title": "Bypass actor policy",
+      "purpose": "Treat bypass as an exceptional administrative capability, never as the normal development path.",
+      "scope": [
+        "default-branch",
+        "scheduled"
+      ],
+      "enforcement": "blocking",
+      "owner": "@NYGsatoshi",
+      "expected": {
+        "allowed_actors": [],
+        "normal_development_bypass_forbidden": true
+      },
+      "evidence": {
+        "kind": "github-live-settings",
+        "source": "trusted ruleset bypass actor snapshot"
+      },
+      "exception": {
+        "allowed": false
+      },
+      "references": {
+        "paths": [],
+        "workflows": [],
+        "checks": [],
+        "rulesets": [
+          "Public Main Protection - Strict External Review",
+          "PRreview"
+        ]
+      },
+      "failure_classification": "configuration-drift"
+    },
+    {
+      "id": "GOV-WORKFLOW-PERM-001",
+      "family": "workflow-permissions",
+      "title": "Workflow token permission floor",
+      "purpose": "Default workflows to read-only and make every write-capable workflow an explicit allowlisted exception.",
+      "scope": [
+        "pr",
+        "scheduled"
+      ],
+      "enforcement": "blocking",
+      "owner": "@NYGsatoshi",
+      "expected": {
+        "default": "read-only",
+        "persist_credentials": false,
+        "write_permissions_allowlist": [
+          {
+            "workflow": ".github/workflows/external-pr-approval-evaluator.yml",
+            "permissions": [
+              "statuses:write"
+            ]
+          }
+        ]
+      },
+      "evidence": {
+        "kind": "workflow-static",
+        "source": "repository workflow permission inventory"
+      },
+      "exception": {
+        "allowed": false
+      },
+      "references": {
+        "paths": [
+          "scripts/ci/check-publication-readiness.py"
+        ],
+        "workflows": [
+          ".github/workflows/ci.yml",
+          ".github/workflows/publication-readiness.yml",
+          ".github/workflows/external-pr-review-signal.yml",
+          ".github/workflows/external-pr-approval-evaluator.yml"
+        ],
+        "checks": [],
+        "rulesets": []
+      },
+      "failure_classification": "trust-boundary-violation"
+    },
+    {
+      "id": "GOV-TRUST-001",
+      "family": "workflow-trust-boundary",
+      "title": "Untrusted pull-request workflow boundary",
+      "purpose": "Prevent untrusted PR code from acquiring write tokens, repository secrets, or trusted workflow_run execution.",
+      "scope": [
+        "pr"
+      ],
+      "enforcement": "blocking",
+      "owner": "@NYGsatoshi",
+      "expected": {
+        "pull_request_target": "forbidden",
+        "workflow_run_untrusted_head_execution": "forbidden",
+        "untrusted_pr_write_token": "forbidden",
+        "untrusted_pr_secrets": "forbidden"
+      },
+      "evidence": {
+        "kind": "workflow-static",
+        "source": "repository workflow trust-boundary inventory"
+      },
+      "exception": {
+        "allowed": false
+      },
+      "references": {
+        "paths": [
+          "scripts/ci/check-publication-readiness.py"
+        ],
+        "workflows": [
+          ".github/workflows/external-pr-review-signal.yml",
+          ".github/workflows/external-pr-approval-evaluator.yml"
+        ],
+        "checks": [],
+        "rulesets": []
+      },
+      "failure_classification": "trust-boundary-violation"
+    },
+    {
+      "id": "GOV-RUNNER-001",
+      "family": "self-hosted-runner",
+      "title": "Self-hosted runner eligibility",
+      "purpose": "Keep untrusted PR workloads away from persistent privileged self-hosted runners.",
+      "scope": [
+        "pr"
+      ],
+      "enforcement": "blocking",
+      "owner": "@NYGsatoshi",
+      "expected": {
+        "untrusted_pr": "forbidden",
+        "persistent_privileged": "forbidden"
+      },
+      "evidence": {
+        "kind": "workflow-static",
+        "source": "repository runner routing inventory"
+      },
+      "exception": {
+        "allowed": false
+      },
+      "references": {
+        "paths": [
+          "scripts/ci/check-publication-readiness.py"
+        ],
+        "workflows": [],
+        "checks": [],
+        "rulesets": []
+      },
+      "failure_classification": "trust-boundary-violation"
+    },
+    {
+      "id": "GOV-ACTION-REF-001",
+      "family": "action-refs",
+      "title": "GitHub Action and reusable workflow reference policy",
+      "purpose": "Require immutable third-party references on governance-sensitive execution paths.",
+      "scope": [
+        "pr",
+        "scheduled"
+      ],
+      "enforcement": "required-on-sensitive-change",
+      "owner": "@NYGsatoshi",
+      "expected": {
+        "third_party": "immutable-sha",
+        "reusable_workflow": "immutable-sha-or-local",
+        "mutable_tag": "forbidden"
+      },
+      "evidence": {
+        "kind": "workflow-static",
+        "source": "repository uses/reference inventory"
+      },
+      "exception": {
+        "allowed": true,
+        "waiver_rule": "bounded"
+      },
+      "references": {
+        "paths": [],
+        "workflows": [
+          ".github/workflows/ci.yml"
+        ],
+        "checks": [],
+        "rulesets": []
+      },
+      "failure_classification": "supply-chain-policy-drift"
+    },
+    {
+      "id": "GOV-SENSITIVE-PATH-001",
+      "family": "governance-sensitive-paths",
+      "title": "Governance-sensitive path classification",
+      "purpose": "Classify governance controls as sensitive so selective CI routing cannot silently skip stronger review and validation.",
+      "scope": [
+        "pr"
+      ],
+      "enforcement": "blocking",
+      "owner": "@NYGsatoshi",
+      "expected": {
+        "patterns": [
+          ".github/**",
+          "scripts/ci/**",
+          "governance/**"
+        ],
+        "require_nonempty_match": true,
+        "catch_all": "forbidden"
+      },
+      "evidence": {
+        "kind": "repository-file",
+        "source": "changed-file classifier input"
+      },
+      "exception": {
+        "allowed": false
+      },
+      "references": {
+        "paths": [
+          ".github/CODEOWNERS",
+          "scripts/ci/check-publication-readiness.py"
+        ],
+        "workflows": [
+          ".github/workflows/ci.yml"
+        ],
+        "checks": [],
+        "rulesets": []
+      },
+      "failure_classification": "routing-policy-drift"
+    },
+    {
+      "id": "GOV-WAIVER-001",
+      "family": "waiver-expiry",
+      "title": "Bounded governance waiver contract",
+      "purpose": "Make every temporary governance exception owned, justified, tracked, and automatically expiring.",
+      "scope": [
+        "pr",
+        "scheduled"
+      ],
+      "enforcement": "blocking",
+      "owner": "@NYGsatoshi",
+      "expected": {
+        "rule_name": "bounded"
+      },
+      "evidence": {
+        "kind": "repository-file",
+        "source": "governance waiver records validated against policy"
+      },
+      "exception": {
+        "allowed": false
+      },
+      "references": {
+        "paths": [],
+        "workflows": [],
+        "checks": [],
+        "rulesets": []
+      },
+      "failure_classification": "waiver-invalid"
+    },
+    {
+      "id": "GOV-EVIDENCE-001",
+      "family": "governance-evidence",
+      "title": "Exact-SHA governance evidence and aggregate gate",
+      "purpose": "Bind governance evidence and the final ci/governance decision to the exact commit being merged or released.",
+      "scope": [
+        "pr",
+        "release",
+        "scheduled"
+      ],
+      "enforcement": "blocking",
+      "owner": "@NYGsatoshi",
+      "expected": {
+        "aggregate_context": "ci/governance",
+        "bind_to": "exact-head-sha",
+        "missing_stale_skipped_cancelled": "fail",
+        "live_evaluator": "trusted-default-branch"
+      },
+      "evidence": {
+        "kind": "governance-manifest",
+        "source": "trusted exact-SHA aggregate evaluator"
+      },
+      "exception": {
+        "allowed": false
+      },
+      "references": {
+        "paths": [],
+        "workflows": [],
+        "checks": [],
+        "rulesets": []
+      },
+      "failure_classification": "evidence-invalid"
+    }
+  ]
+}
