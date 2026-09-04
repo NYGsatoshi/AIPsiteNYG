@@ -226,6 +226,7 @@ security_schemathesis_run_role() {
     -v "$PWD:/work:ro" \
     -v "$mount_root:/state" \
     "$SCHEMATHESIS_IMAGE" \
+      --config-file /work/scripts/security/schemathesis.toml \
       run "/work/$SCHEMATHESIS_CONTRACT" \
       --url "$SECURITY_SCAN_TARGET" \
       --phases "$phases" \

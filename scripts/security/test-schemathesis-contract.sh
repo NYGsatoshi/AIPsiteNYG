@@ -30,6 +30,7 @@ assert disclosure_reason(b'{"echo":"csrf-canary-123456"}', ["csrf-canary-123456"
 PY
 
 runner="scripts/security/schemathesis-runner.sh"
+config="scripts/security/schemathesis.toml"
 generator="scripts/ci/generate-security-openapi-contract.sh"
 grep -Fq 'schemathesis/schemathesis:4.25.2@sha256:' "$runner" || fail "Schemathesis image is not tag+digest pinned"
 ! grep -Eq 'schemathesis/schemathesis:(latest|stable)([^A-Za-z0-9_.-]|$)' "$runner" || fail "moving Schemathesis tag is forbidden"
@@ -37,6 +38,9 @@ grep -Fq -- '--request-retries 0' "$runner" || fail "network retries must remain
 grep -Fq -- '--max-redirects 0' "$runner" || fail "redirect escape guard is missing"
 grep -Fq -- '--output-sanitize true' "$runner" || fail "Schemathesis output sanitization must remain enabled"
 grep -Fq -- '--workdir /tmp' "$runner" || fail "Schemathesis runtime metadata must stay inside the writable tmpfs"
+grep -Fq -- '--config-file /work/scripts/security/schemathesis.toml' "$runner" || fail "Schemathesis policy config is not wired into the container"
+grep -Fq 'negative_data_rejection.expected-statuses' "$config" || fail "negative-data rejection policy is missing"
+grep -Eq '^[[:space:]]*415,' "$config" || fail "unsupported media type must count as a rejected invalid request"
 grep -Fq 'security_scan_fetch_csrf' "$runner" || fail "SEC-03 CSRF harness is not reused"
 grep -Fq 'no_sensitive_internal_error_disclosure' "$runner" || fail "custom disclosure check is not selected"
 grep -Fq 'not_a_server_error' "$runner" || fail "unexpected 5xx check is not selected"
