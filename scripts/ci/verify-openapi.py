@@ -45,6 +45,36 @@ def require_wire_schema(
         )
 
 
+def require_security_contract(document: dict[str, object]) -> None:
+    components = document.get("components")
+    security_schemes = components.get("securitySchemes") if isinstance(components, dict) else None
+    cookie_auth = security_schemes.get("CookieAuth") if isinstance(security_schemes, dict) else None
+    if not isinstance(cookie_auth, dict):
+        fail("CookieAuth security scheme must be present")
+    if cookie_auth.get("type") != "apiKey" or cookie_auth.get("in") != "cookie":
+        fail("CookieAuth must be an apiKey cookie security scheme")
+    if cookie_auth.get("name") != ".AipPortal.Auth":
+        fail("CookieAuth must describe the production authentication cookie")
+
+    paths = document.get("paths")
+    export_path = paths.get("/api/admin/audit/package-exports") if isinstance(paths, dict) else None
+    export_operation = export_path.get("post") if isinstance(export_path, dict) else None
+    if not isinstance(export_operation, dict):
+        fail("audit package export POST operation must be present")
+
+    responses = export_operation.get("responses")
+    required_responses = {"400", "401", "403", "404", "415"}
+    if not isinstance(responses, dict) or not required_responses.issubset(responses):
+        fail("protected request-body operations must document 400/401/403/404/415 responses")
+
+    security = export_operation.get("security")
+    if not isinstance(security, list) or not any(
+        isinstance(requirement, dict) and "CookieAuth" in requirement
+        for requirement in security
+    ):
+        fail("protected operations must require CookieAuth")
+
+
 def main() -> None:
     if len(sys.argv) != 2:
         fail("usage: verify-openapi.py <openapi.json>")
@@ -83,6 +113,7 @@ def main() -> None:
         "date-time",
     )
     require_wire_schema(schemas, "OptionalString", {"null", "string"})
+    require_security_contract(document)
 
     print(
         "SEC-01 OpenAPI verification passed: "
