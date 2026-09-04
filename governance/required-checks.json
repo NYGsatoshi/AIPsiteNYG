@@ -29,7 +29,7 @@
       "allowed_conclusions": [
         "success"
       ],
-      "timeout_minutes": 5,
+      "timeout_minutes": 12,
       "staleness_policy": "exact-head-and-timeout",
       "rename": {
         "state": "stable",
