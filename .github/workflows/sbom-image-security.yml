@@ -127,6 +127,10 @@ jobs:
           python3 scripts/ci/verify_sbom.py verify-hashes \
             --metadata "$final_out/metadata.json"
 
+          python3 scripts/ci/audit_sbom_component_inventory.py \
+            --sbom "$final_out/sbom.cyclonedx.json" \
+            --out "$final_out/component-inventory-warnings.json"
+
           bash scripts/ci/generate-sbom.sh docker "$IMAGE_DIGEST" "$second"
           python3 scripts/ci/verify_sbom.py validate \
             --cyclonedx "$second/sbom.cyclonedx.json" \
@@ -216,6 +220,7 @@ jobs:
             artifacts/sbom/image/trivy-vulnerabilities.json
             artifacts/sbom/image/vulnerabilities.normalized.json
             artifacts/sbom/image/vulnerability-gate-summary.json
+            artifacts/sbom/image/component-inventory-warnings.json
             artifacts/sbom/image/metadata.json
             artifacts/sbom/image/sbom.cyclonedx.json
             artifacts/sbom/image/image.digest
