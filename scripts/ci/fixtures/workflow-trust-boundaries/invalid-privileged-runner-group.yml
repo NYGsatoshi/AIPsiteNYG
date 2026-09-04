@@ -1,0 +1,11 @@
+name: invalid privileged runner group
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  mutate:
+    runs-on:
+      group: persistent-runners
+    steps:
+      - run: echo unsafe
