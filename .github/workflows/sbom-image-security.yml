@@ -16,6 +16,8 @@ permissions:
 
 env:
   SYFT_VERSION: "1.51.0"
+  GRYPE_VERSION: "0.118.0"
+  TRIVY_VERSION: "0.65.0"
   EVIDENCE_REPOSITORY_SHA: ${{ github.sha }}
 
 jobs:
@@ -41,6 +43,9 @@ jobs:
 
       - name: Install pinned Syft
         run: bash scripts/ci/install-syft.sh
+
+      - name: Install pinned Grype
+        run: bash scripts/ci/install-grype.sh
 
       - name: Prepare leak-detection marker
         shell: bash
@@ -142,6 +147,77 @@ jobs:
             diff -u "$final_out/components.normalized.json" "$second/components.normalized.json" || true
             exit 1
           }
+
+      - name: Gate digest-bound SBOM vulnerabilities
+        shell: bash
+        run: |
+          set -euo pipefail
+          final_out="artifacts/sbom/image"
+          trivy_cache="${RUNNER_TEMP}/aipsite-trivy-cache"
+          rm -rf "$trivy_cache"
+          mkdir -p "$trivy_cache"
+
+          grype version -o json > "$final_out/grype-version.json"
+          grype db update
+          grype db status -o json > "$final_out/grype-db-status.json"
+          grype "sbom:$final_out/sbom.cyclonedx.json" \
+            -o json > "$final_out/grype-vulnerabilities.json"
+
+          docker run --rm \
+            -v "$trivy_cache:/root/.cache/trivy" \
+            "aquasec/trivy:${TRIVY_VERSION}" \
+            image --download-db-only
+
+          docker run --rm \
+            -v "$trivy_cache:/root/.cache/trivy" \
+            "aquasec/trivy:${TRIVY_VERSION}" \
+            version --format json > "$final_out/trivy-version.json"
+
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$trivy_cache:/root/.cache/trivy" \
+            -v "$PWD:/repo" \
+            "aquasec/trivy:${TRIVY_VERSION}" \
+            image --skip-db-update --scanners vuln --vuln-type os,library \
+            --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL \
+            --format json \
+            --output "/repo/$final_out/trivy-vulnerabilities.json" \
+            "$IMAGE_DIGEST"
+
+          python3 scripts/ci/verify_sbom_vulnerability_gate.py \
+            --sbom "$final_out/sbom.cyclonedx.json" \
+            --sbom-metadata "$final_out/metadata.json" \
+            --image-digest "$IMAGE_DIGEST" \
+            --grype-report "$final_out/grype-vulnerabilities.json" \
+            --grype-version-json "$final_out/grype-version.json" \
+            --grype-db-status "$final_out/grype-db-status.json" \
+            --grype-version "$GRYPE_VERSION" \
+            --trivy-report "$final_out/trivy-vulnerabilities.json" \
+            --trivy-version-json "$final_out/trivy-version.json" \
+            --trivy-version "$TRIVY_VERSION" \
+            --policy security/sbom-vulnerability-policy.json \
+            --normalized-out "$final_out/vulnerabilities.normalized.json" \
+            --summary-out "$final_out/vulnerability-gate-summary.json"
+
+      - name: Upload SEC-10 vulnerability evidence on failure
+        if: failure()
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: sbom-vulnerability-failure-${{ env.EVIDENCE_REPOSITORY_SHA }}
+          path: |
+            artifacts/sbom/image/grype-version.json
+            artifacts/sbom/image/grype-db-status.json
+            artifacts/sbom/image/grype-vulnerabilities.json
+            artifacts/sbom/image/trivy-version.json
+            artifacts/sbom/image/trivy-vulnerabilities.json
+            artifacts/sbom/image/vulnerabilities.normalized.json
+            artifacts/sbom/image/vulnerability-gate-summary.json
+            artifacts/sbom/image/metadata.json
+            artifacts/sbom/image/sbom.cyclonedx.json
+            artifacts/sbom/image/image.digest
+          if-no-files-found: ignore
+          retention-days: 30
 
       - name: Upload final image SBOM evidence
         uses: actions/upload-artifact@v7
