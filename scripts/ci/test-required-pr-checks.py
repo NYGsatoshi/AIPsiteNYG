@@ -151,7 +151,7 @@ jobs:
   evaluate:
     name: External PR approval evaluator
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 12
 """
         errors = guard.required_check_errors(".github/workflows/external-pr-approval-evaluator.yml", text, REGISTRY)
         self.assertTrue(any("workflow_dispatch" in error for error in errors))
@@ -171,7 +171,7 @@ jobs:
   evaluate:
     name: External PR approval evaluator
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 12
 """
         self.assertEqual([], guard.required_check_errors(".github/workflows/external-pr-approval-evaluator.yml", text, REGISTRY))
 

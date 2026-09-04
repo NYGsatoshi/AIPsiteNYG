@@ -34,6 +34,14 @@ jobs:
             scripts/ci/check-required-pr-checks.py
           python3 scripts/ci/test-governance-policy.py
           python3 scripts/ci/test-governance-review-status-invariants.py
+          python3 scripts/ci/test-governance-live-policy.py
+          python3 scripts/ci/test-governance-live-policy-ext.py
+          python3 scripts/ci/test-governance-review-gov06-wiring.py
+          python3 -m py_compile \
+            scripts/ci/evaluate-governance-live-policy.py \
+            scripts/ci/evaluate-governance-live-policy-ext.py \
+            scripts/ci/evaluate-governance-pr-review.py
+          bash -n scripts/ci/fetch-governance-live-state.sh
           python3 scripts/ci/test-publication-readiness.py
           python3 scripts/ci/test-required-pr-checks.py
           PYTHONPATH=scripts/ci python3 scripts/ci/test-required-check-parent.py
