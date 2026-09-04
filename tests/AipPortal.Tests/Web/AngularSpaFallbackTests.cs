@@ -119,6 +119,7 @@ public sealed class AngularSpaFallbackTests : IDisposable
     [Fact]
     public async Task EndpointFallbackPreservesMethodNotAllowedForKnownApiRoutes()
     {
+        WriteAngularBuild();
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions
         {
             EnvironmentName = Environments.Development
@@ -141,9 +142,17 @@ public sealed class AngularSpaFallbackTests : IDisposable
             using var request = new HttpRequestMessage(new HttpMethod("TRACE"), "/api/example");
 
             using var response = await client.SendAsync(request);
+            using var angularResponse = await client.GetAsync("/app/login");
+            using var missingApiResponse = await client.GetAsync("/api/not-found");
+            var angularBody = await angularResponse.Content.ReadAsStringAsync();
+            var missingApiBody = await missingApiResponse.Content.ReadAsStringAsync();
 
             Assert.Equal(HttpStatusCode.MethodNotAllowed, response.StatusCode);
             Assert.Contains("GET", response.Content.Headers.Allow);
+            Assert.Equal(HttpStatusCode.OK, angularResponse.StatusCode);
+            Assert.Contains("Angular", angularBody);
+            Assert.Equal(HttpStatusCode.NotFound, missingApiResponse.StatusCode);
+            Assert.Contains("\"code\":\"NotFound\"", missingApiBody);
         }
         finally
         {
