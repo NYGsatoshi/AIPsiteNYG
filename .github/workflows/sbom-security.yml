@@ -22,6 +22,8 @@ jobs:
     name: sbom-source
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      SYFT_JAVASCRIPT_INCLUDE_DEV_DEPENDENCIES: "true"
 
     steps:
       - name: Checkout reviewed source
@@ -41,8 +43,19 @@ jobs:
       - name: Install pinned Syft
         run: bash scripts/ci/install-syft.sh
 
-      - name: Restore NuGet dependency graph
-        run: dotnet restore AipPortal.slnx --disable-parallel --verbosity normal
+      - name: Materialize resolved NuGet lock graphs
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet restore AipPortal.slnx \
+            --disable-parallel \
+            --verbosity normal \
+            --use-lock-file \
+            --force-evaluate
+          test "$(find src tests -name packages.lock.json -type f | wc -l)" -ge 4 || {
+            echo "Expected generated packages.lock.json files for the .NET source graph." >&2
+            exit 1
+          }
 
       - name: Prepare leak-detection marker
         shell: bash
