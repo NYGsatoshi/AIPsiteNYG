@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail closed when the resolved SEC-02 Compose profile drifts from its contract."""
+"""Fail closed when the resolved SEC-02/SEC-03 security profile drifts."""
 
 from __future__ import annotations
 
@@ -52,6 +52,17 @@ def should_run_runtime_smoke() -> bool:
         and bool(os.environ.get("AIP_SECURITY_CI_PASSWORD", "").strip())
         and os.environ.get("AIP_SECURITY_CI_SKIP_RUNTIME_SMOKE", "").lower()
         not in {"1", "true", "yes"}
+    )
+
+
+def run_scanner_harness_contract_tests() -> None:
+    # This test is intentionally side-effect free: target validation happens
+    # before network access and the redaction/identity contracts use synthetic
+    # values only. Keeping it inside the required security gate prevents an
+    # ordinary configuration edit from silently weakening the target boundary.
+    subprocess.run(
+        ["bash", "scripts/security/test-scanner-harness.sh"],
+        check=True,
     )
 
 
@@ -115,9 +126,11 @@ def main() -> None:
         fail("real-backend-playwright must be inactive in the default SEC-02 profile")
 
     print("SEC-02 resolved Compose invariants verified.")
+    print("Running SEC-03 scanner harness contract tests inside the required security gate.")
+    run_scanner_harness_contract_tests()
 
     if should_run_runtime_smoke():
-        print("Running SEC-02 PostgreSQL runtime smoke inside the required security gate.")
+        print("Running SEC-03 PostgreSQL/session runtime smoke inside the required security gate.")
         subprocess.run(
             ["bash", "scripts/ci/run-security-runtime-smoke.sh"],
             check=True,
