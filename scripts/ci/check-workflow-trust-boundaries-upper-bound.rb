@@ -1,16 +1,72 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-# Single-maintainer compatibility layer for the GOV-04 workflow trust validator.
+# Single-maintainer security layer for the workflow trust validator.
 #
-# Write-permission allowlists are maximum permitted scopes, not requirements that
-# a workflow must continue to exercise. Removing a previously allowed write is a
-# security tightening and must not fail CI. Any newly added/unallowlisted write
-# remains a blocking violation.
+# The trust registry is intentionally self-contained and does not depend on the
+# retired live Governance merge-gate policy. Write-permission allowlists are
+# maximum permitted scopes: removing a write permission is a security tightening;
+# adding or expanding a write permission remains blocking.
 require_relative 'check-workflow-trust-boundaries'
 
 class WorkflowTrustValidator
   private
+
+  def load_policy
+    registry = JSON.parse(root.join(TRUST_REGISTRY_PATH).read(encoding: 'UTF-8'))
+    unless registry['schema_version'] == 2
+      raise JSON::ParserError, "#{TRUST_REGISTRY_PATH} schema_version must be 2"
+    end
+
+    constraints = registry['constraints']
+    unless constraints.is_a?(Hash) &&
+           constraints['persist_credentials'] == false &&
+           constraints['pull_request_target'] == 'forbidden' &&
+           constraints['untrusted_pr_self_hosted'] == 'forbidden' &&
+           constraints['persistent_privileged_self_hosted'] == 'forbidden'
+      raise JSON::ParserError, "#{TRUST_REGISTRY_PATH} security constraints are incomplete or weakened"
+    end
+
+    writes = registry['write_permissions']
+    unless writes.is_a?(Array)
+      raise JSON::ParserError, "#{TRUST_REGISTRY_PATH} write_permissions must be an array"
+    end
+
+    canonical_writes = writes.map do |entry|
+      unless entry.is_a?(Hash) && entry['workflow'].is_a?(String) && entry['permissions'].is_a?(Array)
+        raise JSON::ParserError, "#{TRUST_REGISTRY_PATH} write_permissions entries are malformed"
+      end
+      {
+        'workflow' => entry['workflow'],
+        'permissions' => entry['permissions']
+      }
+    end
+
+    {
+      'controls' => [
+        {
+          'id' => CONTROL_PERMISSION,
+          'expected' => {
+            'persist_credentials' => constraints['persist_credentials'],
+            'write_permissions_allowlist' => canonical_writes
+          }
+        },
+        {
+          'id' => CONTROL_TRUST,
+          'expected' => {
+            'pull_request_target' => constraints['pull_request_target']
+          }
+        },
+        {
+          'id' => CONTROL_RUNNER,
+          'expected' => {
+            'untrusted_pr' => constraints['untrusted_pr_self_hosted'],
+            'persistent_privileged' => constraints['persistent_privileged_self_hosted']
+          }
+        }
+      ]
+    }
+  end
 
   def validate_write_allowlist(path, job_id, writes, events, node)
     return if writes.empty?
@@ -85,8 +141,7 @@ class WorkflowTrustValidator
           )
         end
         # Missing/removed writes are intentionally accepted: the allowlist is an
-        # upper bound. This covers retired privileged lanes without weakening the
-        # check for write-scope expansion.
+        # upper bound and write-scope reduction is security tightening.
       end
     end
   end
@@ -96,7 +151,7 @@ if $PROGRAM_NAME == __FILE__
   validator = WorkflowTrustValidator.new(ARGV[0] ? Pathname.new(ARGV[0]) : ROOT)
   findings = validator.validate
   if findings.empty?
-    puts 'Workflow trust-boundary validation passed: write permissions remain within allowlisted upper bounds and untrusted workflow boundaries are intact.'
+    puts 'Workflow trust-boundary validation passed: self-contained security constraints and write-permission upper bounds are intact.'
     exit 0
   end
 
