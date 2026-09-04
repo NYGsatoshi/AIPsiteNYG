@@ -150,6 +150,16 @@ export SECURITY_SCAN_HTTP_STATE_PARENT="/state"
 security_scan_init "$base_url"
 security_scan_preflight
 
+# The SEC-03 wrong-password probe clears the alpha-owner cookie jar after it has
+# validated the four role sessions. Re-establish the baseline once here. SEC-05
+# stale-authorization cases mutate authorization state after this point and do
+# not log in again, so they still exercise the same established session.
+security_scan_bootstrap_user \
+  "alpha-owner" \
+  "$SECURITY_SCAN_ALPHA_OWNER_EMAIL" \
+  "$SECURITY_SCAN_ALPHA_TENANT_SLUG" \
+  "$SECURITY_SCAN_ALPHA_OWNER_EXPECTED_ROLE"
+
 # SEC-05 runs inside the same isolated Test-only boundary and reuses the already
 # authenticated SEC-03 sessions. Its durable artifact contains metadata only;
 # protected response bodies stay in SECURITY_SCAN_STATE_DIR and are destroyed.
