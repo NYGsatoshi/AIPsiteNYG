@@ -3,22 +3,86 @@
 
 from __future__ import annotations
 
+import json
 import re
 import sys
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
+POLICY_PATH = ROOT / "governance" / "policy.json"
+REQUIRED_CHECKS_CONTROL_ID = "GOV-CHECKS-001"
 
-REQUIRED_PR_CHECKS: dict[str, tuple[str, ...]] = {
-    ".github/workflows/ci.yml": (
-        "build-test",
-        "frontend-test",
-        "security-scan",
-    ),
-    ".github/workflows/publication-readiness.yml": (
-        "publication-readiness",
-    ),
-}
+
+def load_required_pr_checks(
+    policy_path: Path = POLICY_PATH,
+) -> dict[str, tuple[str, ...]]:
+    """Load required PR workflow jobs from the Governance policy source of truth."""
+    try:
+        policy: Any = json.loads(policy_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"unable to load governance policy: {exc}") from exc
+
+    controls = policy.get("controls") if isinstance(policy, dict) else None
+    if not isinstance(controls, list):
+        raise RuntimeError("governance policy controls must be an array")
+
+    matches = [
+        control
+        for control in controls
+        if isinstance(control, dict)
+        and control.get("id") == REQUIRED_CHECKS_CONTROL_ID
+    ]
+    if len(matches) != 1:
+        raise RuntimeError(
+            f"governance policy must define exactly one {REQUIRED_CHECKS_CONTROL_ID} control"
+        )
+
+    control = matches[0]
+    if control.get("family") != "required-status-checks":
+        raise RuntimeError(
+            f"{REQUIRED_CHECKS_CONTROL_ID} must use family 'required-status-checks'"
+        )
+
+    expected = control.get("expected")
+    required = expected.get("required") if isinstance(expected, dict) else None
+    if not isinstance(required, list) or not required:
+        raise RuntimeError(
+            f"{REQUIRED_CHECKS_CONTROL_ID}.expected.required must be a non-empty array"
+        )
+
+    result: dict[str, list[str]] = {}
+    for index, item in enumerate(required):
+        if not isinstance(item, dict):
+            raise RuntimeError(
+                f"{REQUIRED_CHECKS_CONTROL_ID}.expected.required[{index}] must be an object"
+            )
+        workflow = item.get("workflow")
+        job = item.get("job")
+        context = item.get("context")
+        if (
+            not isinstance(workflow, str)
+            or not workflow
+            or not isinstance(job, str)
+            or not job
+            or not isinstance(context, str)
+            or not context
+        ):
+            raise RuntimeError(
+                f"{REQUIRED_CHECKS_CONTROL_ID}.expected.required[{index}] "
+                "must define non-empty workflow/job/context"
+            )
+        if context != job:
+            raise RuntimeError(
+                f"{REQUIRED_CHECKS_CONTROL_ID}.expected.required[{index}] "
+                f"context {context!r} must equal repository job name {job!r}"
+            )
+        result.setdefault(workflow, []).append(job)
+
+    return {workflow: tuple(jobs) for workflow, jobs in result.items()}
+
+
+REQUIRED_PR_CHECKS = load_required_pr_checks()
 
 
 def _without_comment(line: str) -> str:
