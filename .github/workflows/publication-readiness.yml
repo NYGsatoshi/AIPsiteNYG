@@ -30,7 +30,7 @@ jobs:
         run: |
           python3 scripts/ci/test-governance-policy.py
           python3 scripts/ci/test-governance-review-status-invariants.py
-          ruby scripts/ci/test-workflow-trust-boundaries.rb
+          ruby scripts/ci/test-workflow-trust-boundaries-all.rb
           python3 scripts/ci/test-publication-readiness.py
           python3 scripts/ci/test-required-pr-checks.py
 
