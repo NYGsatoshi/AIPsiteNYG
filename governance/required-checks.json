@@ -16,8 +16,11 @@
       "context": "External PR approval policy",
       "scope": "all-pr",
       "trigger": {
-        "mode": "trusted-workflow-run",
-        "event": "workflow_run",
+        "mode": "trusted-default-branch",
+        "events": [
+          "workflow_run",
+          "workflow_dispatch"
+        ],
         "source_workflow": "External PR review signal"
       },
       "producer": {
