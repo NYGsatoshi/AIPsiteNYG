@@ -29,6 +29,7 @@ jobs:
       - name: Checkout reviewed source
         uses: actions/checkout@v7
         with:
+          ref: ${{ env.EVIDENCE_REPOSITORY_SHA }}
           fetch-depth: 0
           persist-credentials: false
 
