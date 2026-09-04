@@ -430,7 +430,8 @@ app.MapGet("/health/task-deadline-digests", async (
     });
 });
 
-app.MapGet("/favicon.ico", () => Results.NoContent());
+app.MapGet("/favicon.ico", () => Results.NoContent())
+    .ExcludeFromDescription();
 
 app.MapGet("/health/ready", async (
     AppDbContext dbContext,

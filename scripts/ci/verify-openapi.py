@@ -58,11 +58,11 @@ def require_security_contract(document: dict[str, object]) -> None:
 
     paths = document.get("paths")
     if isinstance(paths, dict):
-        redirect_paths = {"/", "/health"}.intersection(paths)
-        if redirect_paths:
+        non_api_paths = {"/", "/health", "/favicon.ico"}.intersection(paths)
+        if non_api_paths:
             fail(
-                "redirect-only navigation aliases must not be advertised as API operations: "
-                f"{sorted(redirect_paths)!r}"
+                "navigation and static aliases must not be advertised as API operations: "
+                f"{sorted(non_api_paths)!r}"
             )
 
     export_path = paths.get("/api/admin/audit/package-exports") if isinstance(paths, dict) else None
