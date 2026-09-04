@@ -217,6 +217,7 @@ security_schemathesis_run_role() {
     --cap-drop ALL \
     --security-opt no-new-privileges \
     --tmpfs /tmp:rw,nosuid,nodev,noexec,size=64m \
+    --workdir /tmp \
     -e HOME=/tmp \
     -e SCHEMATHESIS_HOOKS=/work/scripts/security/schemathesis_hooks.py \
     -e AIP_SECURITY_SCHEMATHESIS_AUTH_FILE="$auth_http" \

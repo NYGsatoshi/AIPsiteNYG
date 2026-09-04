@@ -36,6 +36,7 @@ grep -Fq 'schemathesis/schemathesis:4.25.2@sha256:' "$runner" || fail "Schemathe
 grep -Fq -- '--request-retries 0' "$runner" || fail "network retries must remain disabled"
 grep -Fq -- '--max-redirects 0' "$runner" || fail "redirect escape guard is missing"
 grep -Fq -- '--output-sanitize true' "$runner" || fail "Schemathesis output sanitization must remain enabled"
+grep -Fq -- '--workdir /tmp' "$runner" || fail "Schemathesis runtime metadata must stay inside the writable tmpfs"
 grep -Fq 'security_scan_fetch_csrf' "$runner" || fail "SEC-03 CSRF harness is not reused"
 grep -Fq 'no_sensitive_internal_error_disclosure' "$runner" || fail "custom disclosure check is not selected"
 grep -Fq 'not_a_server_error' "$runner" || fail "unexpected 5xx check is not selected"
