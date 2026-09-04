@@ -118,7 +118,7 @@ public sealed class SecurityOpenApiOperationTransformer : IOpenApiOperationTrans
         if (operation.Responses?.TryGetValue(status, out var describedResponse) == true &&
             describedResponse is OpenApiResponse response)
         {
-            response.Content ??= new Dictionary<string, IOpenApiMediaType>();
+            response.Content ??= new Dictionary<string, OpenApiMediaType>();
             if (!response.Content.ContainsKey("application/problem+json"))
             {
                 response.Content.Add("application/problem+json", new OpenApiMediaType());
