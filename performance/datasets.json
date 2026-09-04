@@ -1,0 +1,153 @@
+{
+  "schemaVersion": 1,
+  "seedManifestVersion": 1,
+  "contract": {
+    "gantt": {
+      "canonicalIssue": 270,
+      "cursorPagination": true,
+      "defaultPageSize": 100,
+      "maximumPageSize": 200,
+      "projectWideHardLimit": null,
+      "temporaryFullSnapshotLimitsAreDatasetLimits": false
+    },
+    "currentListDefaults": {
+      "projectList": 50,
+      "taskList": 50,
+      "myTasks": 50,
+      "files": 20,
+      "conversations": 20,
+      "messages": 50,
+      "notifications": 20,
+      "announcements": 20,
+      "kanbanMaxCards": 300
+    }
+  },
+  "profiles": {
+    "small": {
+      "seed": 592001,
+      "counts": {
+        "tenants": 1,
+        "workspaces": 1,
+        "projects": 4,
+        "tasks": 120,
+        "workItems": 120,
+        "milestones": 12,
+        "dependencies": 120,
+        "members": 12,
+        "messages": 400,
+        "notifications": 80,
+        "announcements": 24,
+        "files": 80
+      },
+      "focus": {
+        "workspaceProjects": 4,
+        "projectTasks": 60,
+        "projectMilestones": 8,
+        "projectDependencies": 70,
+        "userMyTasks": 30,
+        "kanbanAuthorizedCards": 60,
+        "workspaceFiles": 40,
+        "conversations": 8,
+        "conversationMessages": 40,
+        "userNotifications": 20,
+        "visibleAnnouncements": 12
+      },
+      "expectedPagination": {
+        "projectList": {"pageSize": 50, "cardinality": 4, "pages": 1},
+        "taskList": {"pageSize": 50, "cardinality": 60, "pages": 2},
+        "myTasks": {"pageSize": 50, "cardinality": 30, "pages": 1},
+        "files": {"pageSize": 20, "cardinality": 40, "pages": 2},
+        "conversations": {"pageSize": 20, "cardinality": 8, "pages": 1},
+        "messages": {"pageSize": 50, "cardinality": 40, "pages": 1},
+        "notifications": {"pageSize": 20, "cardinality": 20, "pages": 1},
+        "announcements": {"pageSize": 20, "cardinality": 12, "pages": 1}
+      },
+      "kanban": {"requestedMaxCards": 300, "expectedAuthorizedCards": 60, "maximumSupportedMaxCards": 500},
+      "gantt": {"requestedPageSize": 100, "maximumPageSize": 200, "totalItems": 68, "dependencies": 70, "expectedPages": 1}
+    },
+    "medium": {
+      "seed": 592002,
+      "counts": {
+        "tenants": 1,
+        "workspaces": 3,
+        "projects": 30,
+        "tasks": 3000,
+        "workItems": 3000,
+        "milestones": 150,
+        "dependencies": 3600,
+        "members": 90,
+        "messages": 20000,
+        "notifications": 4000,
+        "announcements": 800,
+        "files": 3000
+      },
+      "focus": {
+        "workspaceProjects": 20,
+        "projectTasks": 260,
+        "projectMilestones": 40,
+        "projectDependencies": 450,
+        "userMyTasks": 250,
+        "kanbanAuthorizedCards": 300,
+        "workspaceFiles": 500,
+        "conversations": 120,
+        "conversationMessages": 500,
+        "userNotifications": 500,
+        "visibleAnnouncements": 100
+      },
+      "expectedPagination": {
+        "projectList": {"pageSize": 50, "cardinality": 20, "pages": 1},
+        "taskList": {"pageSize": 50, "cardinality": 260, "pages": 6},
+        "myTasks": {"pageSize": 50, "cardinality": 250, "pages": 5},
+        "files": {"pageSize": 20, "cardinality": 500, "pages": 25},
+        "conversations": {"pageSize": 20, "cardinality": 120, "pages": 6},
+        "messages": {"pageSize": 50, "cardinality": 500, "pages": 10},
+        "notifications": {"pageSize": 20, "cardinality": 500, "pages": 25},
+        "announcements": {"pageSize": 20, "cardinality": 100, "pages": 5}
+      },
+      "kanban": {"requestedMaxCards": 300, "expectedAuthorizedCards": 300, "maximumSupportedMaxCards": 500},
+      "gantt": {"requestedPageSize": 100, "maximumPageSize": 200, "totalItems": 300, "dependencies": 450, "expectedPages": 3}
+    },
+    "large": {
+      "seed": 592003,
+      "counts": {
+        "tenants": 1,
+        "workspaces": 10,
+        "projects": 200,
+        "tasks": 25000,
+        "workItems": 25000,
+        "milestones": 2000,
+        "dependencies": 40000,
+        "members": 1000,
+        "messages": 250000,
+        "notifications": 50000,
+        "announcements": 10000,
+        "files": 50000
+      },
+      "focus": {
+        "workspaceProjects": 100,
+        "projectTasks": 1000,
+        "projectMilestones": 200,
+        "projectDependencies": 3000,
+        "userMyTasks": 1000,
+        "kanbanAuthorizedCards": 500,
+        "workspaceFiles": 5000,
+        "conversations": 1000,
+        "conversationMessages": 5000,
+        "userNotifications": 5000,
+        "visibleAnnouncements": 1000
+      },
+      "expectedPagination": {
+        "projectList": {"pageSize": 50, "cardinality": 100, "pages": 2},
+        "taskList": {"pageSize": 50, "cardinality": 1000, "pages": 20},
+        "myTasks": {"pageSize": 50, "cardinality": 1000, "pages": 20},
+        "files": {"pageSize": 20, "cardinality": 5000, "pages": 250},
+        "conversations": {"pageSize": 20, "cardinality": 1000, "pages": 50},
+        "messages": {"pageSize": 50, "cardinality": 5000, "pages": 100},
+        "notifications": {"pageSize": 20, "cardinality": 5000, "pages": 250},
+        "announcements": {"pageSize": 20, "cardinality": 1000, "pages": 50}
+      },
+      "kanban": {"requestedMaxCards": 500, "expectedAuthorizedCards": 500, "maximumSupportedMaxCards": 500},
+      "gantt": {"requestedPageSize": 200, "maximumPageSize": 200, "totalItems": 1200, "dependencies": 3000, "expectedPages": 6}
+    }
+  }
+}
