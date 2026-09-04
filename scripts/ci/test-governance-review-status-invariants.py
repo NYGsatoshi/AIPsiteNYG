@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import copy
 import importlib.util
 import json
 import tempfile
@@ -53,7 +54,11 @@ class GovernanceInvariantTests(unittest.TestCase):
                     encoding="utf-8",
                 )
             elif relative.startswith(".github/workflows/"):
-                path.write_text("name: fixture\non:\n  pull_request:\njobs:\n  fixture:\n    name: fixture\n    runs-on: ubuntu-latest\n", encoding="utf-8")
+                path.write_text(
+                    "name: fixture\non:\n  pull_request:\njobs:\n  fixture:\n"
+                    "    name: fixture\n    runs-on: ubuntu-latest\n",
+                    encoding="utf-8",
+                )
             else:
                 path.write_text("fixture\n", encoding="utf-8")
 
@@ -62,22 +67,42 @@ class GovernanceInvariantTests(unittest.TestCase):
             path = root / item["workflow"]
             path.parent.mkdir(parents=True, exist_ok=True)
             if item["kind"] == "workflow-job":
-                existing = path.read_text(encoding="utf-8") if path.exists() else "name: fixture\non:\n  pull_request:\njobs:\n"
+                existing = (
+                    path.read_text(encoding="utf-8")
+                    if path.exists()
+                    else "name: fixture\non:\n  pull_request:\njobs:\n"
+                )
                 if item["job"] not in check._workflow_job_ids(existing):
                     if "jobs:\n" not in existing:
                         existing += "jobs:\n"
-                    existing += f"  {item['job']}:\n    name: {item['job']}\n    runs-on: ubuntu-latest\n"
+                    existing += (
+                        f"  {item['job']}:\n"
+                        f"    name: {item['job']}\n"
+                        "    runs-on: ubuntu-latest\n"
+                    )
                     path.write_text(existing, encoding="utf-8")
         return temp
 
     def test_good_fixture_passes(self) -> None:
         with self.fixture() as root_name:
-            self.assertEqual([], check.repository_errors(Path(root_name)))
+            root = Path(root_name)
+            self.assertEqual([], check.repository_errors(root))
+            self.assertEqual([], check.repository_findings(root))
 
-    def test_singleton_codeowner_fails(self) -> None:
+    def test_singleton_codeowner_is_gov03_finding_not_gov01_failure(self) -> None:
         with self.fixture("@alpha") as root_name:
-            errors = check.repository_errors(Path(root_name))
-        self.assertTrue(any("at least 2 distinct owners" in error for error in errors))
+            root = Path(root_name)
+            errors = check.repository_errors(root)
+            findings = check.repository_findings(root)
+        self.assertEqual([], errors)
+        self.assertTrue(any("policy expects at least 2" in finding for finding in findings))
+
+    def test_review_contract_downgrade_fails(self) -> None:
+        policy = copy.deepcopy(POLICY)
+        review = next(c for c in policy["controls"] if c["id"] == "GOV-REVIEW-001")
+        review["expected"]["independent_approval_required"] = False
+        errors = check._review_contract_errors(policy)
+        self.assertTrue(any("independent approval must be required" in error for error in errors))
 
     def test_hardcoded_status_context_fails(self) -> None:
         status = next(
@@ -88,7 +113,10 @@ class GovernanceInvariantTests(unittest.TestCase):
         with self.fixture() as root_name:
             root = Path(root_name)
             path = root / status["workflow"]
-            path.write_text(path.read_text(encoding="utf-8") + status["context"] + "\n", encoding="utf-8")
+            path.write_text(
+                path.read_text(encoding="utf-8") + status["context"] + "\n",
+                encoding="utf-8",
+            )
             errors = check.repository_errors(root)
         self.assertTrue(any("hard-coded" in error for error in errors))
 
@@ -101,7 +129,9 @@ class GovernanceInvariantTests(unittest.TestCase):
         with self.fixture() as root_name:
             root = Path(root_name)
             path = root / status["workflow"]
-            text = path.read_text(encoding="utf-8").replace("status_context", "renamed_context")
+            text = path.read_text(encoding="utf-8").replace(
+                "status_context", "renamed_context"
+            )
             path.write_text(text, encoding="utf-8")
             errors = check.repository_errors(root)
         self.assertTrue(any("status_context" in error and "missing" in error for error in errors))
