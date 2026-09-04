@@ -8,13 +8,11 @@ on:
       - "docker-compose.real-backend-smoke.yml"
       - "package.json"
       - "scripts/ci/build-playwright-grep.mjs"
-      - "scripts/ci/functional-compose-harness.mjs"
+      - "scripts/ci/functional-compose-harness.sh"
       - "scripts/ci/real-backend-pr-p0-required-tests.txt"
-      - "scripts/ci/verify-functional-trust-boundary.mjs"
+      - "scripts/ci/verify-functional-trust-boundary.sh"
       - "scripts/ci/verify-playwright-required-tests.mjs"
       - "tests/ui/build-playwright-grep.node-test.mjs"
-      - "tests/ui/functional-compose-harness.node-test.mjs"
-      - "tests/ui/verify-functional-trust-boundary.node-test.mjs"
       - "tests/ui/verify-playwright-required-tests.node-test.mjs"
       - "tests/ui/real-backend-smoke-compose-helpers.mjs"
       - "tests/ui/real-backend-smoke-compose-helpers.node-test.mjs"
@@ -31,13 +29,11 @@ on:
       - "docker-compose.real-backend-smoke.yml"
       - "package.json"
       - "scripts/ci/build-playwright-grep.mjs"
-      - "scripts/ci/functional-compose-harness.mjs"
+      - "scripts/ci/functional-compose-harness.sh"
       - "scripts/ci/real-backend-pr-p0-required-tests.txt"
-      - "scripts/ci/verify-functional-trust-boundary.mjs"
+      - "scripts/ci/verify-functional-trust-boundary.sh"
       - "scripts/ci/verify-playwright-required-tests.mjs"
       - "tests/ui/build-playwright-grep.node-test.mjs"
-      - "tests/ui/functional-compose-harness.node-test.mjs"
-      - "tests/ui/verify-functional-trust-boundary.node-test.mjs"
       - "tests/ui/verify-playwright-required-tests.node-test.mjs"
       - "tests/ui/real-backend-smoke-compose-helpers.mjs"
       - "tests/ui/real-backend-smoke-compose-helpers.node-test.mjs"
@@ -70,28 +66,29 @@ jobs:
         with:
           node-version: "24"
 
-      - name: Test P0 manifest and Functional harness helpers
+      - name: Test P0 manifest and existing real-backend helpers
         run: >-
           node --test
           tests/ui/build-playwright-grep.node-test.mjs
-          tests/ui/functional-compose-harness.node-test.mjs
           tests/ui/real-backend-smoke-compose-helpers.node-test.mjs
-          tests/ui/verify-functional-trust-boundary.node-test.mjs
           tests/ui/verify-playwright-required-tests.node-test.mjs
 
-      - name: Check P0 and Functional runner syntax
+      - name: Check P0 and Functional harness syntax
         shell: bash
         run: |
-          node --check scripts/ci/functional-compose-harness.mjs
-          node --check scripts/ci/verify-functional-trust-boundary.mjs
+          bash -n scripts/ci/functional-compose-harness.sh
+          bash -n scripts/ci/verify-functional-trust-boundary.sh
           node --check tests/ui/prepare-real-backend-p0-state.mjs
           node --check tests/ui/real-backend-smoke-compose-helpers.mjs
           node --check tests/ui/run-real-backend-p0.mjs
           node --check tests/ui/run-real-backend-playwright.mjs
           node --check tests/ui/run-real-backend-smoke-compose.mjs
 
+      - name: Test deterministic Functional harness contract
+        run: bash scripts/ci/functional-compose-harness.sh --self-test
+
       - name: Verify protected Functional license trust boundary
-        run: node scripts/ci/verify-functional-trust-boundary.mjs .github/workflows/licensed-real-backend-acceptance.yml
+        run: bash scripts/ci/verify-functional-trust-boundary.sh .github/workflows/licensed-real-backend-acceptance.yml
 
       - name: Verify required P0 test titles still exist
         shell: bash
@@ -107,7 +104,7 @@ jobs:
             echo "- Manifest titles verified against the real-backend Playwright spec"
             echo "- Focused grep generated successfully"
             echo "- Required JUnit result verifier unit-tested"
-            echo "- Shared Functional Compose lifecycle, isolation, fixture-profile, failure classification, and redaction behavior unit-tested"
+            echo "- Functional Compose isolation, fixture-profile, redaction, cleanup-command, and failure-classification invariants self-tested"
             echo "- Protected Syncfusion license lane verified as push/dispatch-only with exact-SHA checkout"
-            echo "- P0 setup and Functional runner JavaScript syntax checked"
+            echo "- Existing P0 JavaScript and Functional shell syntax checked"
           } >> "$GITHUB_STEP_SUMMARY"

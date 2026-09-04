@@ -4,26 +4,27 @@ Issue: #581 (FCI-02)
 
 ## Canonical command
 
-Run the current deterministic real-backend Functional stack with:
+Run the deterministic real-backend Functional stack with:
 
 ```bash
 npm run test:functional
 ```
 
-The command is an alias of the existing real-backend acceptance entry point, but orchestration now lives in `scripts/ci/functional-compose-harness.mjs` so additional Functional suites can reuse the same lifecycle instead of duplicating Compose setup/cleanup logic.
+The reusable orchestration lives in `scripts/ci/functional-compose-harness.sh`. Existing real-backend Node runners remain unchanged for compatibility and can migrate incrementally rather than through a flag-day rewrite.
 
 ## Lifecycle contract
 
-`FunctionalComposeHarness.provisionBaseStack()` owns the common setup order:
+The shell harness owns this common sequence:
 
 ```text
 validate Docker/Compose host
 -> validate Compose config
 -> build application + Playwright images
--> start isolated PostgreSQL
+-> create/use an isolated Compose project
+-> start PostgreSQL
 -> wait for PostgreSQL readiness
 -> apply EF Core migration head
--> wait for migration success
+-> require migration exit 0
 -> start production-like ASP.NET Core host + built Angular assets
 -> Test-only deterministic fixture seed completes during host startup
 -> wait for /health/ready
@@ -32,68 +33,60 @@ validate Docker/Compose host
 -> docker compose down --volumes --remove-orphans
 ```
 
-A Compose project name is unique per CI run/attempt/process by default. `FUNCTIONAL_COMPOSE_PROJECT_NAME` is available only as an explicit override. The older `REAL_BACKEND_SMOKE_COMPOSE_PROJECT_NAME` override remains supported during migration.
+The default Compose project name includes the CI run, attempt, and Bash process id. `FUNCTIONAL_COMPOSE_PROJECT_NAME` is an explicit override; the older `REAL_BACKEND_SMOKE_COMPOSE_PROJECT_NAME` remains accepted during migration. `FUNCTIONAL_COMPOSE_FILES` may provide a comma-separated base/overlay list for future domain lanes.
 
-The base Compose file does not publish fixed application/database host ports. Network and named-volume resources are therefore namespaced by the isolated Compose project.
+The base stack does not publish fixed application/database host ports, so network and named-volume resources remain namespaced by the Compose project.
 
 ## Canonical deterministic fixture
 
-The current common fixture builder remains the Test-only application seeder `AppDbContextSeed.SeedBrowserSmokeAsync`. The Functional harness supplies its opt-in through `buildCanonicalFunctionalFixtureEnvironment()` rather than allowing each suite to invent its own base credentials/profile.
+The common prerequisite fixture remains the Test-only application seeder `AppDbContextSeed.SeedBrowserSmokeAsync`. The harness explicitly enables that boundary and defaults to the established synthetic actor:
 
-Stable aliases exposed by `canonicalFunctionalFixtureAliases` include:
-
-- synthetic actor: `e2e-user@example.test`
-- secondary/restricted-role actor: `browser-smoke-recipient@example.test`
+- actor: `e2e-user@example.test`
+- secondary/restricted actor already present in the fixture: `browser-smoke-recipient@example.test`
 - Workspace: `browser-smoke-workspace` / `Browser Smoke Workspace`
 - Project: `browser-smoke-project` / `Browser Smoke Project`
 - Task: `Browser smoke task`
 - eligible Task FileObject: `browser-smoke-task.txt`
 - Announcement: `Browser smoke announcement`
 
-The seeder is idempotent and the normal harness starts from a clean PostgreSQL volume. Journeys that are intended to validate resource creation continue to create those resources through the application/UI path; the shared seed is prerequisite data, not a general-purpose direct-DB test backdoor. The existing real-backend smoke, for example, creates its Direct Message through the public application flow instead of seeding that journey result.
-
-Domain-specific fixtures that are not prerequisites for a suite should remain in that suite's controlled overlay/provisioner. MBJ scripts may be migrated incrementally to `FunctionalComposeHarness`; this issue does not require a flag-day rewrite of every acceptance script.
+The harness rejects a primary actor email outside the reserved `@example.test` domain. The seed is prerequisite data, not a general-purpose direct-DB backdoor: journeys intended to validate creation must continue through the public/application path.
 
 ## Reset and retry policy
 
-The default reset boundary is the entire Compose project:
+The default reset boundary is the whole Compose project:
 
 ```text
-unique project -> clean DB/volumes -> run -> down --volumes
+unique project -> clean DB/volumes -> run -> down --volumes --remove-orphans
 ```
 
-Do not reuse another lane's PostgreSQL volume, network, upload storage, data-protection keys, or Node modules. If a future suite deliberately reuses one stack for multiple phases, it must define its reset scope explicitly and keep fixture operations idempotent.
-
-Stable logical aliases are preferred over timestamp-derived fixture identities. Tests that assert time-dependent behavior must use tolerance or an explicit test-clock policy rather than depending on exact wall-clock values.
+PostgreSQL, network, upload storage, data-protection keys, and other named volumes are not shared with another project. Fixture provisioning is idempotent so retried setup does not create duplicate logical membership/resources.
 
 ## Failure classification
 
-Common setup failures are emitted as:
+Setup failures use:
 
 ```text
 [INFRA/SETUP FAILURE] phase=<phase>: <message>
 ```
 
-A suite process that starts after setup and exits non-zero is emitted as:
+A non-zero suite after readiness uses:
 
 ```text
 [PRODUCT TEST FAILURE] phase=execute-suite: <message>
 ```
 
-This separates Docker/Compose/image/migration/readiness failures from product-level Functional regressions.
+This keeps Docker/image/migration/readiness failures distinct from product Functional regressions.
 
 ## Sanitized diagnostics
 
-On failure the harness writes bounded diagnostics under `test-results/`:
+On failure, bounded diagnostics are written under `test-results/`:
 
 - Compose container status
 - migration container status
-- bounded log tails for PostgreSQL, migration, app, and test services
-- existing Playwright traces/screenshots/reports produced after the test suite starts
+- log tails for PostgreSQL, migration, app, and test services
+- Playwright traces/screenshots/reports produced by the test runner
 
-The shared redactor removes known password, authorization, cookie, CSRF, invite-token, generic token/secret/license, connection-string password, and `SYNCFUSION_LICENSE` patterns. Runtime secret values supplied to the harness are also replaced before diagnostic files are written.
-
-Do not add raw protected response bodies, cookies, bearer tokens, passwords, connection credentials, or license material to Functional diagnostics.
+Before persistence, the harness redacts password, connection-password, authorization, cookie, CSRF, invite-token, generic token/secret/license patterns and known runtime values including `SYNCFUSION_LICENSE` and the synthetic browser password. Raw protected response bodies and credential material must not be added to diagnostics.
 
 ## Syncfusion license trust boundary
 
@@ -106,21 +99,20 @@ The protected full real-backend lane remains `.github/workflows/licensed-real-ba
 - credentials persistence: disabled
 - no `pull_request` or `pull_request_target` execution
 
-`scripts/ci/verify-functional-trust-boundary.mjs` locks these invariants into the PR-safe `Real Backend P0 Preflight`. An untrusted PR therefore validates the harness and trust-boundary contract without receiving the protected license.
+`scripts/ci/verify-functional-trust-boundary.sh` verifies these invariants from the PR-safe `Real Backend P0 Preflight`. An untrusted PR can therefore validate the contract without receiving the protected license.
 
-A future PR Functional-fast lane that needs licensed Syncfusion assets must use a reviewed/trusted same-repository commit or another explicitly approved safe design. It must not execute untrusted code through a secret-bearing `pull_request_target` job.
+## PR-safe self-test
+
+The preflight runs:
+
+```bash
+bash -n scripts/ci/functional-compose-harness.sh
+bash scripts/ci/functional-compose-harness.sh --self-test
+bash scripts/ci/verify-functional-trust-boundary.sh .github/workflows/licensed-real-backend-acceptance.yml
+```
+
+The self-test covers project-name sanitization, synthetic fixture identity enforcement, diagnostic redaction, the destructive-cleanup command contract, and both failure-classification markers without starting Docker or consuming a license.
 
 ## Migration guide for existing runners
 
-New Functional runners should import `FunctionalComposeHarness` directly. Existing real-backend helper imports remain available through `tests/ui/real-backend-smoke-compose-helpers.mjs` as a compatibility shim.
-
-When migrating an MBJ or domain runner, move only the common responsibilities into the harness:
-
-- Compose command selection
-- project isolation
-- base stack build/start
-- PostgreSQL/migration/app readiness
-- common diagnostics/redaction
-- cleanup
-
-Keep domain-specific probes, controlled fixture overlays, restart phases, and persistence assertions in the domain runner. This preserves test intent while eliminating duplicated infrastructure orchestration.
+Existing `run-real-backend-*.mjs` and MBJ scripts remain valid. When a lane migrates, move only generic infrastructure responsibilities into the shared shell harness: project isolation, base build/start, PostgreSQL/migration/app readiness, diagnostics/redaction, and cleanup. Keep domain-specific probes, overlays, restart phases, and persistence assertions in the domain runner.

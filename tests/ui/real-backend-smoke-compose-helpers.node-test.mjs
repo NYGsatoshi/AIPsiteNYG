@@ -11,7 +11,7 @@ import {
   selectComposeInvocation
 } from './real-backend-smoke-compose-helpers.mjs';
 
-test('keeps the legacy real-backend helper shim compatible with shared project naming', () => {
+test('sanitizes Compose project names and keeps them within the Compose limit', () => {
   const name = composeProjectName(['AIP site!', 'RUN/42', 'pid:123', 'x'.repeat(80)]);
 
   assert.match(name, /^[a-z0-9][a-z0-9_-]*$/);
@@ -44,18 +44,17 @@ test('falls back to legacy docker-compose when Compose v2 is unavailable', async
   ]);
 });
 
-test('reports a classified setup error when neither Compose command is available', async () => {
+test('reports a clear error when neither Compose command is available', async () => {
   await assert.rejects(
     () => selectComposeInvocation(async () => false),
-    /Docker Compose is required for Functional CI/
+    /Docker Compose is required for the real-backend browser smoke/
   );
 });
 
-test('redacts connection, browser, license, cookie, CSRF, authorization, and invite secrets', () => {
+test('redacts connection, browser, cookie, CSRF, authorization, and invite secrets', () => {
   const redacted = redactSecrets([
     'Password=database-secret;Host=postgres',
     'AIP_BROWSER_SMOKE_PASSWORD: browser-secret',
-    'SYNCFUSION_LICENSE: licensed-secret',
     'Authorization: Bearer api-secret',
     'Cookie: session=secret',
     'X-CSRF-Token: csrf-secret',
@@ -63,7 +62,7 @@ test('redacts connection, browser, license, cookie, CSRF, authorization, and inv
     '{"token":"json-secret","password":"json-password"}'
   ].join('\n'));
 
-  for (const secret of ['database-secret', 'browser-secret', 'licensed-secret', 'api-secret', 'session=secret', 'csrf-secret', 'invite-secret', 'json-secret', 'json-password']) {
+  for (const secret of ['database-secret', 'browser-secret', 'api-secret', 'session=secret', 'csrf-secret', 'invite-secret', 'json-secret', 'json-password']) {
     assert.doesNotMatch(redacted, new RegExp(secret.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   }
 });
