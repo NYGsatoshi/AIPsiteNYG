@@ -2,14 +2,14 @@ name: External PR approval evaluator
 
 on:
   workflow_run:
-    workflows: ["External PR review signal"]
+    workflows: ["External PR review signal", "Governance live policy audit"]
     types: [completed]
   workflow_dispatch:
     inputs:
       pr_number:
-        description: Pull request number to re-evaluate
-        required: true
-        type: number
+        description: Optional pull request number; leave blank to sweep all open PRs
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -24,9 +24,9 @@ jobs:
   evaluate:
     name: External PR approval evaluator
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 12
     steps:
-      - name: Evaluate authoritative PR review state
+      - name: Evaluate authoritative review and live Governance state
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -36,16 +36,30 @@ jobs:
         run: |
           set -euo pipefail
 
-          # This workflow is trusted default-branch code. Resolve governance values
-          # from the canonical default-branch policy, never from an untrusted PR head.
+          # This workflow is trusted default-branch code. GOV-CHECKS-001 is a
+          # required-status-checks contract whose commit-status producer remains
+          # this job. GOV-REVIEW-001 and external_pr_approval_reviewer are consumed
+          # by the trusted Python review evaluator. Never execute PR-head code here.
           default_branch="$(gh api "repos/$REPOSITORY" --jq '.default_branch')"
-          policy_json="$(
-            gh api \
-              --method GET \
-              -H 'Accept: application/vnd.github.raw+json' \
-              "repos/$REPOSITORY/contents/governance/policy.json" \
-              -f "ref=$default_branch"
-          )"
+          policy_file="$RUNNER_TEMP/governance-policy.json"
+          review_evaluator="$RUNNER_TEMP/evaluate-governance-pr-review.py"
+          live_base_evaluator="$RUNNER_TEMP/evaluate-governance-live-policy.py"
+          live_evaluator="$RUNNER_TEMP/evaluate-governance-live-policy-ext.py"
+          live_fetcher="$RUNNER_TEMP/fetch-governance-live-state.sh"
+          live_state_file="$RUNNER_TEMP/governance-live-state.json"
+          live_report_file="$RUNNER_TEMP/governance-live-policy-report.json"
+
+          gh api --method GET -H 'Accept: application/vnd.github.raw+json' \
+            "repos/$REPOSITORY/contents/governance/policy.json" -f "ref=$default_branch" > "$policy_file"
+          gh api --method GET -H 'Accept: application/vnd.github.raw+json' \
+            "repos/$REPOSITORY/contents/scripts/ci/evaluate-governance-pr-review.py" -f "ref=$default_branch" > "$review_evaluator"
+          gh api --method GET -H 'Accept: application/vnd.github.raw+json' \
+            "repos/$REPOSITORY/contents/scripts/ci/evaluate-governance-live-policy.py" -f "ref=$default_branch" > "$live_base_evaluator"
+          gh api --method GET -H 'Accept: application/vnd.github.raw+json' \
+            "repos/$REPOSITORY/contents/scripts/ci/evaluate-governance-live-policy-ext.py" -f "ref=$default_branch" > "$live_evaluator"
+          gh api --method GET -H 'Accept: application/vnd.github.raw+json' \
+            "repos/$REPOSITORY/contents/scripts/ci/fetch-governance-live-state.sh" -f "ref=$default_branch" > "$live_fetcher"
+          chmod 700 "$live_fetcher"
 
           status_selector='[
             .controls[]
@@ -57,12 +71,12 @@ jobs:
                 and .job == "evaluate"
               )
           ]'
-          status_count="$(jq -r "$status_selector | length" <<<"$policy_json")"
+          status_count="$(jq -r "$status_selector | length" "$policy_file")"
           if [[ "$status_count" != "1" ]]; then
-            echo "Governance policy must define exactly one commit-status for this evaluator; found $status_count." >&2
+            echo "Governance policy must define exactly one trusted commit-status producer; found $status_count." >&2
             exit 1
           fi
-          status_context="$(jq -r "$status_selector | .[0].context" <<<"$policy_json")"
+          status_context="$(jq -r "$status_selector | .[0].context" "$policy_file")"
           if [[ -z "$status_context" || "$status_context" == "null" ]]; then
             echo "Governance policy returned an empty status context." >&2
             exit 1
@@ -73,106 +87,223 @@ jobs:
             | select(.id == "GOV-REVIEW-001" and .family == "pr-review-codeowners")
             | .expected.external_pr_approval_reviewer
           ]'
-          reviewer_count="$(jq -r "$reviewer_selector | length" <<<"$policy_json")"
+          reviewer_count="$(jq -r "$reviewer_selector | length" "$policy_file")"
           if [[ "$reviewer_count" != "1" ]]; then
             echo "Governance policy must define exactly one external PR approval reviewer; found $reviewer_count." >&2
             exit 1
           fi
-          reviewer="$(jq -r "$reviewer_selector | .[0]" <<<"$policy_json")"
-          if [[ ! "$reviewer" =~ ^@[A-Za-z0-9-]+$ ]]; then
-            echo "Governance policy external reviewer is invalid: $reviewer" >&2
+
+          target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          live_context="GOV-RULESET-001"
+          status_write_failures=0
+
+          post_status_with_retry() {
+            local sha="$1"
+            local context="$2"
+            local state="$3"
+            local description="$4"
+            local attempt
+            for attempt in 1 2 3; do
+              if gh api --method POST "repos/$REPOSITORY/statuses/$sha" \
+                -f state="$state" \
+                -f context="$context" \
+                -f description="$description" \
+                -f target_url="$target_url" \
+                >/dev/null; then
+                return 0
+              fi
+              sleep $((attempt * 2))
+            done
+            echo "Failed to publish status context=$context state=$state sha=$sha after retries." >&2
+            return 1
+          }
+
+          targets_file="$RUNNER_TEMP/governance-target-prs.txt"
+          : > "$targets_file"
+          source_workflow=""
+          if [[ "$EVENT_NAME" == "workflow_run" ]]; then
+            source_workflow="$(jq -r '.workflow_run.name // empty' "$GITHUB_EVENT_PATH")"
+            case "$source_workflow" in
+              "External PR review signal")
+                pr_number="$(jq -r '.workflow_run.pull_requests[0].number // empty' "$GITHUB_EVENT_PATH")"
+                if [[ -z "$pr_number" ]]; then
+                  signal_sha="$(jq -r '.workflow_run.head_sha // empty' "$GITHUB_EVENT_PATH")"
+                  if [[ -n "$signal_sha" ]]; then
+                    pr_number="$(gh api "repos/$REPOSITORY/commits/$signal_sha/pulls?per_page=100" --jq '.[0].number // empty')"
+                  fi
+                fi
+                [[ -n "$pr_number" ]] && printf '%s\n' "$pr_number" > "$targets_file"
+                ;;
+              "Governance live policy audit")
+                gh api --paginate --slurp "repos/$REPOSITORY/pulls?state=open&per_page=100" \
+                  --jq 'flatten | .[].number' > "$targets_file"
+                ;;
+              *)
+                echo "Unsupported workflow_run source: $source_workflow" >&2
+                exit 1
+                ;;
+            esac
+          elif [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            if [[ -n "$MANUAL_PR_NUMBER" ]]; then
+              [[ "$MANUAL_PR_NUMBER" =~ ^[0-9]+$ ]] || {
+                echo "pr_number must be numeric" >&2
+                exit 1
+              }
+              printf '%s\n' "$MANUAL_PR_NUMBER" > "$targets_file"
+            else
+              gh api --paginate --slurp "repos/$REPOSITORY/pulls?state=open&per_page=100" \
+                --jq 'flatten | .[].number' > "$targets_file"
+            fi
+          else
+            echo "Unsupported event: $EVENT_NAME" >&2
             exit 1
           fi
-          owner_login="${reviewer#@}"
 
-          pr_number=""
-          case "$EVENT_NAME" in
-            workflow_run)
-              pr_number="$(jq -r '.workflow_run.pull_requests[0].number // empty' "$GITHUB_EVENT_PATH")"
-              if [[ -z "$pr_number" ]]; then
-                signal_sha="$(jq -r '.workflow_run.head_sha // empty' "$GITHUB_EVENT_PATH")"
-                if [[ -n "$signal_sha" ]]; then
-                  pr_number="$(
-                    gh api "repos/$REPOSITORY/commits/$signal_sha/pulls?per_page=100" \
-                      --jq '.[0].number // empty'
-                  )"
-                fi
-              fi
-              ;;
-            workflow_dispatch)
-              pr_number="$MANUAL_PR_NUMBER"
-              ;;
-            *)
-              echo "Unsupported event: $EVENT_NAME"
-              exit 1
-              ;;
-          esac
+          sort -nu "$targets_file" -o "$targets_file"
 
-          if [[ -z "$pr_number" ]]; then
-            echo "No pull request could be resolved from this event; nothing to evaluate."
-            exit 0
-          fi
+          # Best-effort stale-status invalidation. This is not atomic: if GitHub
+          # rejects every status POST, an older same-SHA success can remain visible.
+          # The evaluator run fails in that case and the next audit/sweep retries;
+          # do not describe this pre-write as a guarantee.
+          while IFS= read -r pr_number; do
+            [[ -n "$pr_number" ]] || continue
+            pr_json="$(gh api "repos/$REPOSITORY/pulls/$pr_number")"
+            [[ "$(jq -r '.state' <<<"$pr_json")" == "open" ]] || continue
+            head_sha="$(jq -r '.head.sha' <<<"$pr_json")"
+            if ! post_status_with_retry "$head_sha" "$status_context" failure \
+              "Governance evaluation in progress; prior PASS is not authoritative."; then
+              status_write_failures=$((status_write_failures + 1))
+            fi
+          done < "$targets_file"
 
-          pr_json="$(gh api "repos/$REPOSITORY/pulls/$pr_number")"
-          pr_state="$(jq -r '.state' <<<"$pr_json")"
-          if [[ "$pr_state" != "open" ]]; then
-            echo "PR #$pr_number is not open; nothing to evaluate."
-            exit 0
-          fi
-
-          head_sha="$(jq -r '.head.sha' <<<"$pr_json")"
-          author="$(jq -r '.user.login' <<<"$pr_json")"
-          target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-
-          status_state="failure"
-          description="External PR requires current-head approval by $owner_login."
-
-          if [[ "$author" == "$owner_login" ]]; then
-            status_state="success"
-            description="Owner-authored PR; additional external-author approval is not required."
+          live_rc=0
+          set +e
+          "$live_fetcher" "$REPOSITORY" "$live_state_file"
+          fetch_rc=$?
+          if [[ "$fetch_rc" -eq 0 ]]; then
+            python3 "$live_evaluator" \
+              --policy "$policy_file" \
+              --live-state "$live_state_file" \
+              --target-sha "$(gh api "repos/$REPOSITORY/branches/$default_branch" --jq '.commit.sha')" \
+              --output "$live_report_file"
+            live_rc=$?
           else
-            reviews_file="$RUNNER_TEMP/pr-reviews.json"
-            gh api --paginate --slurp \
-              "repos/$REPOSITORY/pulls/$pr_number/reviews?per_page=100" \
-              > "$reviews_file"
+            live_rc="$fetch_rc"
+          fi
+          set -e
 
-            latest_state="$(
-              jq -r \
-                --arg reviewer "$owner_login" \
-                --arg head "$head_sha" '
-                  [
-                    flatten[]
-                    | select(
-                        .user.login == $reviewer
-                        and .commit_id == $head
-                        and (
-                          .state == "APPROVED"
-                          or .state == "CHANGES_REQUESTED"
-                          or .state == "DISMISSED"
-                        )
-                      )
-                  ]
-                  | sort_by(.submitted_at // "")
-                  | last
-                  | .state // "NONE"
-                ' "$reviews_file"
-            )"
-
-            if [[ "$latest_state" == "APPROVED" ]]; then
-              status_state="success"
-              description="Current head approved by $owner_login."
+          live_status="failure"
+          live_description="GOV-02 failed closed before a valid live-policy report was produced."
+          snapshot_hash="unavailable"
+          finding_count="unknown"
+          if [[ -f "$live_report_file" ]] && jq -e '.status == "PASS" or .status == "FAIL"' "$live_report_file" >/dev/null 2>&1; then
+            report_status="$(jq -r '.status' "$live_report_file")"
+            snapshot_hash="$(jq -r '.snapshot_sha256 // "unavailable"' "$live_report_file")"
+            finding_count="$(jq -r '.findings | length' "$live_report_file")"
+            if [[ "$live_rc" -eq 0 && "$report_status" == "PASS" ]]; then
+              live_status="success"
+              live_description="GOV-02 live policy matches expected state; snapshot ${snapshot_hash:0:12}."
             else
-              description="External PR needs current-head approval by $owner_login (state: $latest_state)."
+              live_description="GOV-02 drift/unknown; findings=$finding_count snapshot=${snapshot_hash:0:12}."
             fi
           fi
 
-          gh api \
-            --method POST \
-            "repos/$REPOSITORY/statuses/$head_sha" \
-            -f state="$status_state" \
-            -f context="$status_context" \
-            -f description="$description" \
-            -f target_url="$target_url" \
-            >/dev/null
+          processed=0
+          review_failures=0
+          while IFS= read -r pr_number; do
+            [[ -n "$pr_number" ]] || continue
+            pr_json="$(gh api "repos/$REPOSITORY/pulls/$pr_number")"
+            [[ "$(jq -r '.state' <<<"$pr_json")" == "open" ]] || continue
+            processed=$((processed + 1))
+            head_sha="$(jq -r '.head.sha' <<<"$pr_json")"
 
-          echo "PR #$pr_number author=$author head=$head_sha context=$status_context result=$status_state"
+            if ! post_status_with_retry "$head_sha" "$live_context" "$live_status" "$live_description"; then
+              status_write_failures=$((status_write_failures + 1))
+            fi
+
+            if [[ "$live_status" != "success" ]]; then
+              if ! post_status_with_retry "$head_sha" "$status_context" failure \
+                "GOV-02 live drift/unknown blocks merge; see trusted evaluator."; then
+                status_write_failures=$((status_write_failures + 1))
+              fi
+              continue
+            fi
+
+            reviews_file="$RUNNER_TEMP/pr-${pr_number}-reviews.json"
+            if ! gh api --paginate --slurp \
+              "repos/$REPOSITORY/pulls/$pr_number/reviews?per_page=100" > "$reviews_file"; then
+              review_failures=$((review_failures + 1))
+              if ! post_status_with_retry "$head_sha" "$status_context" failure \
+                "Authoritative review API failed; approval policy fails closed."; then
+                status_write_failures=$((status_write_failures + 1))
+              fi
+              continue
+            fi
+
+            state_file="$RUNNER_TEMP/pr-${pr_number}-review-state.json"
+            jq -n \
+              --argjson pr "$pr_json" \
+              --slurpfile review_pages "$reviews_file" \
+              '{
+                state: $pr.state,
+                draft: $pr.draft,
+                head_sha: $pr.head.sha,
+                author: $pr.user.login,
+                reviews: ($review_pages[0] | flatten)
+              }' > "$state_file"
+
+            set +e
+            decision_json="$(python3 "$review_evaluator" --policy "$policy_file" --state "$state_file")"
+            decision_rc=$?
+            set -e
+            if [[ "$decision_rc" -ne 0 ]]; then
+              review_failures=$((review_failures + 1))
+              if ! post_status_with_retry "$head_sha" "$status_context" failure \
+                "Trusted review evaluator failed; approval policy fails closed."; then
+                status_write_failures=$((status_write_failures + 1))
+              fi
+              continue
+            fi
+
+            review_state="$(jq -r '.state' <<<"$decision_json")"
+            review_reason="$(jq -r '.reason' <<<"$decision_json")"
+            if [[ "$review_state" != "success" && "$review_state" != "failure" ]]; then
+              review_failures=$((review_failures + 1))
+              review_state="failure"
+              review_reason="Trusted review evaluator returned an invalid state."
+            fi
+            if ! post_status_with_retry "$head_sha" "$status_context" "$review_state" "$review_reason"; then
+              status_write_failures=$((status_write_failures + 1))
+            fi
+          done < "$targets_file"
+
+          {
+            echo "### Trusted Governance PR evaluation"
+            echo
+            echo "- source workflow: \`${source_workflow:-manual}\`"
+            echo "- targeted open PRs: \`$processed\`"
+            echo "- GOV-02 result: \`$live_status\`"
+            echo "- normalized snapshot SHA-256: \`$snapshot_hash\`"
+            echo "- GOV-02 findings: \`$finding_count\`"
+            echo "- review/API evaluation failures: \`$review_failures\`"
+            echo "- status POST failures after retry: \`$status_write_failures\`"
+            if [[ -f "$live_report_file" ]]; then
+              echo
+              echo '```json'
+              jq '{status, controls, findings, observations}' "$live_report_file"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [[ "$status_write_failures" -ne 0 ]]; then
+            echo "One or more status writes failed. A stale same-SHA status may remain; no atomic invalidation guarantee is claimed." >&2
+            exit 1
+          fi
+          if [[ "$live_status" != "success" ]]; then
+            echo "Governance live-policy drift or unknown state detected; open PRs were invalidated where status writes succeeded." >&2
+            exit 1
+          fi
+          if [[ "$review_failures" -ne 0 ]]; then
+            echo "One or more PR review states could not be authoritatively evaluated." >&2
+            exit 1
+          fi
