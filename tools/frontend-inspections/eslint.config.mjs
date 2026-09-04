@@ -131,6 +131,40 @@ export default tseslint.config(
     }
   },
   {
+    files: [
+      'playwright.config.ts',
+      'scripts/ci/build-compat-critical-grep.mjs',
+      'scripts/ci/compat-critical-contract.mjs',
+      'scripts/ci/run-compat-critical.mjs',
+      'scripts/ci/verify-compat-critical.mjs',
+      'tests/ui/compat-critical-contract.node-test.mjs'
+    ],
+    rules: {
+      'capitalized-comments': 'off',
+      'func-style': 'off',
+      'init-declarations': 'off',
+      'max-lines': 'off',
+      'max-lines-per-function': 'off',
+      'max-params': 'off',
+      'max-statements': 'off',
+      'no-await-in-loop': 'off',
+      'no-console': 'off',
+      'no-magic-numbers': 'off',
+      'no-plusplus': 'off',
+      'no-shadow': 'off',
+      'no-ternary': 'off',
+      'no-undefined': 'off',
+      'no-use-before-define': 'off',
+      'no-useless-escape': 'off',
+      'one-var': 'off',
+      'prefer-destructuring': 'off',
+      'preserve-caught-error': 'off',
+      'require-unicode-regexp': 'off',
+      'sort-imports': 'off',
+      'sort-keys': 'off'
+    }
+  },
+  {
     files: ['playwright.functional.config.ts', 'tests/functional/**/*.ts'],
     rules: {
       '@typescript-eslint/array-type': 'off',
