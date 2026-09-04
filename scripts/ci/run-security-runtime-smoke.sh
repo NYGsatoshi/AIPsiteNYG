@@ -29,6 +29,7 @@ cleanup() {
     # logs are additionally redacted before they can enter the CI log stream.
     "${compose[@]}" logs --no-color postgres migrate app 2>&1 | security_scan_redact_stream >&2 || true
   fi
+  security_scan_cleanup >/dev/null 2>&1 || true
   "${compose[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || true
   rm -rf "$state_dir"
   exit "$status"
@@ -48,11 +49,31 @@ curl_network() {
     "$curl_image" "$@"
 }
 
-# The shared harness accepts an injectable curl transport. Keeping this adapter
-# here lets scanner authentication run against the app-only Compose network
-# without publishing a host port.
+# The shared harness accepts an injectable curl transport. This adapter always
+# executes scanner HTTP from a disposable container attached only to the SEC-02
+# Compose network; the app never publishes a host port.
 security_scan_curl() {
   curl_network "$@"
+}
+
+# A hostname named "app" is not trusted by itself. The harness calls this guard
+# before accepting that origin; it proves that the actual Compose app container
+# is running and attached to the exact isolated network used by scanner curl.
+security_scan_transport_guard() {
+  local target=$1 app_container
+  [[ "$target" == "$base_url" ]] || return 1
+  docker network inspect "$network" >/dev/null 2>&1 || return 1
+  app_container="$("${compose[@]}" ps -q app)"
+  [[ -n "$app_container" ]] || return 1
+  docker inspect "$app_container" --format '{{json .NetworkSettings.Networks}}' |
+    python3 -c '
+import json
+import sys
+network = sys.argv[1]
+networks = json.load(sys.stdin)
+if network not in networks:
+    raise SystemExit(f"app container is not attached to isolated scanner network {network!r}")
+' "$network"
 }
 
 wait_ready() {
@@ -117,16 +138,17 @@ if str(environment.get("ASPNETCORE_ENVIRONMENT", "")).lower() != "test":
 "${compose[@]}" up -d postgres migrate app
 wait_ready
 
-# The scanner process must independently prove the same Test-only activation
-# boundary before it sends any authentication or scan traffic.
+# The scanner process independently proves the Test-only activation boundary and
+# the Compose transport binding before it sends authentication or scan traffic.
 export ASPNETCORE_ENVIRONMENT=Test
 export AIP_SECURITY_CI_FIXTURE_ENABLED=true
-export SECURITY_SCAN_STATE_DIR="$state_dir/scanner"
-export SECURITY_SCAN_HTTP_STATE_DIR="/state/scanner"
+export SECURITY_SCAN_TRANSPORT_KIND=compose
+export SECURITY_SCAN_STATE_PARENT="$state_dir"
+export SECURITY_SCAN_HTTP_STATE_PARENT="/state"
 security_scan_init "$base_url"
 security_scan_preflight
 # No active scanner is invoked in SEC-03. Later SEC phases run their tool between
-# these two calls and reuse the in-memory/session files from this harness.
+# these two calls and reuse the ephemeral sessions from this harness.
 security_scan_teardown
 
 # A process restart forces the Test-only hosted service to seed the same real
@@ -148,4 +170,4 @@ assert_db_count 2 \
   "SELECT COUNT(*) FROM projects WHERE \"Slug\" IN ('sec02-alpha-project','sec02-beta-project');" \
   "project canaries"
 
-echo "SEC-03 scanner target guard, synthetic sessions, tenant isolation, logout invalidation, and disposable PostgreSQL lifecycle verified."
+echo "SEC-03 scanner target guard, compose transport binding, synthetic sessions, tenant isolation, logout invalidation, and disposable PostgreSQL lifecycle verified."
