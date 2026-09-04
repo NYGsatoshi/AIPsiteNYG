@@ -5,21 +5,26 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 COMPOSE_FILE="$ROOT/docker-compose.performance.yml"
 PROFILE="${AIP_PERFORMANCE_PROFILE:-small}"
 PORT="${AIP_PERFORMANCE_PORT:-18080}"
-RUN_TOKEN="${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-0}"
+RUN_TOKEN="${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-0}-${BASHPID}"
 PROJECT="${AIP_PERFORMANCE_COMPOSE_PROJECT:-aipsite-performance-${RUN_TOKEN}}"
 EVIDENCE_DIR="${AIP_PERFORMANCE_EVIDENCE_DIR:-$ROOT/artifacts/performance/${PROFILE}}"
 BASE_URL="http://127.0.0.1:${PORT}"
-STARTUP_TIMEOUT="${AIP_PERFORMANCE_STARTUP_TIMEOUT_SECONDS:-420}"
+STARTUP_TIMEOUT="${AIP_PERFORMANCE_STARTUP_TIMEOUT_SECONDS:-900}"
 COMMAND_TIMEOUT="${AIP_PERFORMANCE_COMMAND_TIMEOUT_SECONDS:-900}"
+cleanup_done=0
 
 case "$PROFILE" in
   small|medium|large) ;;
   *) echo "PERF-02: AIP_PERFORMANCE_PROFILE must be small, medium, or large" >&2; exit 2 ;;
 esac
-case "$PROJECT" in
-  aipsite-performance-*) ;;
-  *) echo "PERF-02: Compose project must start with aipsite-performance-" >&2; exit 2 ;;
-esac
+if [[ ! "$PROJECT" =~ ^aipsite-performance-[a-z0-9_-]+$ ]]; then
+  echo "PERF-02: Compose project must use the dedicated aipsite-performance-* namespace" >&2
+  exit 2
+fi
+if [[ ! "$PORT" =~ ^[0-9]+$ ]] || (( PORT < 1024 || PORT > 65535 )); then
+  echo "PERF-02: AIP_PERFORMANCE_PORT must be an unprivileged TCP port" >&2
+  exit 2
+fi
 if [[ -z "${SYNCFUSION_LICENSE:-}" ]]; then
   echo "PERF-02: SYNCFUSION_LICENSE is required to build the production Angular image" >&2
   exit 2
@@ -28,19 +33,22 @@ if [[ -z "${AIP_PERFORMANCE_PASSWORD:-}" ]]; then
   echo "PERF-02: AIP_PERFORMANCE_PASSWORD is required" >&2
   exit 2
 fi
-if ! command -v docker >/dev/null || ! docker compose version >/dev/null 2>&1; then
-  echo "PERF-02: Docker Compose is required" >&2
-  exit 2
-fi
-if ! command -v python3 >/dev/null; then
-  echo "PERF-02: python3 is required" >&2
+for command in docker python3 curl timeout; do
+  if ! command -v "$command" >/dev/null; then
+    echo "PERF-02: required command is missing: $command" >&2
+    exit 2
+  fi
+done
+if ! docker compose version >/dev/null 2>&1; then
+  echo "PERF-02: Docker Compose v2 is required" >&2
   exit 2
 fi
 
+mkdir -p "$EVIDENCE_DIR"
+EVIDENCE_DIR="$(cd "$EVIDENCE_DIR" && pwd)"
 export AIP_PERFORMANCE_PROFILE="$PROFILE"
 export AIP_PERFORMANCE_PORT="$PORT"
 export AIP_PERFORMANCE_EVIDENCE_DIR="$EVIDENCE_DIR"
-mkdir -p "$EVIDENCE_DIR"
 rm -f \
   "$EVIDENCE_DIR/fixture.json" \
   "$EVIDENCE_DIR/preflight.json" \
@@ -52,16 +60,29 @@ compose() {
 }
 
 cleanup() {
-  local exit_code=$?
+  if (( cleanup_done != 0 )); then
+    return 0
+  fi
+  cleanup_done=1
   set +e
   compose down --volumes --remove-orphans >/dev/null 2>&1
   set -e
-  exit "$exit_code"
 }
-trap cleanup EXIT INT TERM
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'status=$?; trap - EXIT INT TERM; cleanup; exit "$status"' EXIT
 
-# Repeated local runs cannot inherit database/container state.
+app_has_failed() {
+  local container_id state exit_code
+  container_id="$(compose ps -a -q app 2>/dev/null | head -n 1)"
+  [[ -n "$container_id" ]] || return 1
+  read -r state exit_code <<< "$(docker inspect --format '{{.State.Status}} {{.State.ExitCode}}' "$container_id" 2>/dev/null || true)"
+  [[ "$state" == "exited" || "$state" == "dead" || ( "$exit_code" =~ ^[0-9]+$ && "$exit_code" != "0" ) ]]
+}
+
+# Repeated local/CI runs cannot inherit benchmark containers, volumes, or DB rows.
 compose down --volumes --remove-orphans >/dev/null 2>&1 || true
+docker info >/dev/null
 compose config >/dev/null
 
 # Build the browser image now so its immutable identity/version is fingerprinted.
@@ -74,7 +95,7 @@ while (( SECONDS < deadline )); do
      curl --fail --silent --show-error --max-time 5 "$BASE_URL/health/ready" >/dev/null 2>&1; then
     break
   fi
-  if [[ "$(compose ps -a --status exited -q app | wc -l | tr -d ' ')" != "0" ]]; then
+  if app_has_failed; then
     echo "PERF-02: application exited before becoming healthy" >&2
     compose logs --no-color app >&2 || true
     exit 2
@@ -119,7 +140,7 @@ export AIP_PERFORMANCE_ENVIRONMENT_EVIDENCE="$EVIDENCE_DIR/environment.json"
 
 if (( $# > 0 )); then
   set +e
-  timeout --preserve-status "$COMMAND_TIMEOUT" "$@"
+  timeout "$COMMAND_TIMEOUT" "$@"
   command_status=$?
   set -e
   if (( command_status != 0 )); then
