@@ -100,5 +100,53 @@ export default tseslint.config(
     }
   },
 
-  ...scope([angular.configs.templateAll], angularTemplateFiles)
+  ...scope([angular.configs.templateAll], angularTemplateFiles),
+  {
+    files: [
+      'playwright.functional.config.ts',
+      'scripts/ci/build-functional-grep.mjs',
+      'scripts/ci/functional-tags.mjs',
+      'scripts/ci/run-functional-playwright.mjs',
+      'tests/functional/**/*.{mjs,ts}'
+    ],
+    rules: {
+      'capitalized-comments': 'off',
+      'func-style': 'off',
+      'max-params': 'off',
+      'max-statements': 'off',
+      'no-await-in-loop': 'off',
+      'no-console': 'off',
+      'no-continue': 'off',
+      'no-inline-comments': 'off',
+      'no-magic-numbers': 'off',
+      'no-ternary': 'off',
+      'no-undefined': 'off',
+      'no-use-before-define': 'off',
+      'one-var': 'off',
+      'prefer-destructuring': 'off',
+      'prefer-named-capture-group': 'off',
+      'require-unicode-regexp': 'off',
+      'sort-imports': 'off',
+      'sort-keys': 'off'
+    }
+  },
+  {
+    files: ['playwright.functional.config.ts', 'tests/functional/**/*.ts'],
+    rules: {
+      '@typescript-eslint/array-type': 'off',
+      '@typescript-eslint/max-params': 'off',
+      '@typescript-eslint/no-magic-numbers': 'off',
+      '@typescript-eslint/no-unnecessary-type-assertion': 'off',
+      '@typescript-eslint/no-unsafe-assignment': 'off',
+      '@typescript-eslint/no-unsafe-call': 'off',
+      '@typescript-eslint/no-unsafe-member-access': 'off',
+      '@typescript-eslint/no-unsafe-return': 'off',
+      '@typescript-eslint/no-unsafe-type-assertion': 'off',
+      '@typescript-eslint/no-use-before-define': 'off',
+      '@typescript-eslint/prefer-readonly-parameter-types': 'off',
+      '@typescript-eslint/promise-function-async': 'off',
+      '@typescript-eslint/restrict-template-expressions': 'off',
+      '@typescript-eslint/strict-boolean-expressions': 'off'
+    }
+  }
 );
