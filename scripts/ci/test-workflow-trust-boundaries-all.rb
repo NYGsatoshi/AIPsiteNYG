@@ -29,4 +29,23 @@ class WorkflowTrustBoundaryTests
     assert_includes messages(result), 'unallowlisted write permissions: issues:write'
     assert_includes messages(result), CONTROL_PERMISSION
   end
+
+  def test_privileged_self_hosted_runner_fails
+    allow = [{
+      'workflow' => '.github/workflows/invalid-privileged-self-hosted.yml',
+      'permissions' => ['contents:write'],
+      'events' => ['workflow_dispatch'],
+      'jobs' => ['mutate'],
+      'reason' => 'negative fixture isolates privileged runner routing policy'
+    }]
+    result = validate('invalid-privileged-self-hosted.yml', allowlist: allow)
+    assert_includes messages(result), 'must not use a self-hosted runner'
+    assert_includes messages(result), CONTROL_RUNNER
+  end
+
+  def test_unknown_event_fails_closed
+    result = validate('invalid-unclassified-event.yml')
+    assert_includes messages(result), 'has no GOV-04 trust classification'
+    assert_includes messages(result), CONTROL_TRUST
+  end
 end
