@@ -91,11 +91,17 @@ export function normalizeFunctionalMetadata(input) {
 }
 
 /**
- * @param {ReturnType<typeof normalizeFunctionalMetadata> | Record<string, unknown>} input
+ * Build Playwright tags from repository-owned Functional metadata.
+ *
+ * Always normalize here even when a caller believes the object is already
+ * normalized. This is a CI taxonomy boundary: exported helpers must fail
+ * closed when required ownership/classification fields are missing or invalid.
+ *
+ * @param {unknown} input
  * @returns {string[]}
  */
 export function buildFunctionalTags(input) {
-  const metadata = isNormalizedMetadata(input) ? input : normalizeFunctionalMetadata(input);
+  const metadata = normalizeFunctionalMetadata(input);
   const tags = new Set(['@functional']);
 
   for (const gate of metadata.gates) {
@@ -159,14 +165,4 @@ function requiredChoice(label, value, allowed) {
     );
   }
   return value;
-}
-
-function isNormalizedMetadata(value) {
-  return Boolean(
-    value &&
-      typeof value === 'object' &&
-      Array.isArray(value.gates) &&
-      Array.isArray(value.domains) &&
-      typeof value.journeyId === 'string'
-  );
 }
