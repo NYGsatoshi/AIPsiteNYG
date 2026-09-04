@@ -60,13 +60,14 @@ redacted="$(
 Cookie: auth=secret-cookie
 Set-Cookie: auth=secret-cookie
 X-CSRF-Token: csrf-secret
-{"password":"scanner-password-value","token":"token-secret","safe":"kept"}
+Authorization: Bearer authorization-secret
+Proxy-Authorization: Basic proxy-secret
+{"password":"scanner-password-value","token":"token-secret","accessToken":"access-secret","refreshToken":"refresh-secret","csrfToken":"csrf-json-secret","safe":"kept"}
 LOG
 )"
-[[ "$redacted" != *'scanner-password-value'* ]] || fail "password leaked through redactor"
-[[ "$redacted" != *'secret-cookie'* ]] || fail "cookie leaked through redactor"
-[[ "$redacted" != *'csrf-secret'* ]] || fail "CSRF token leaked through redactor"
-[[ "$redacted" != *'token-secret'* ]] || fail "JSON token leaked through redactor"
+for secret in scanner-password-value secret-cookie csrf-secret authorization-secret proxy-secret token-secret access-secret refresh-secret csrf-json-secret; do
+  [[ "$redacted" != *"$secret"* ]] || fail "secret '$secret' leaked through redactor"
+done
 [[ "$redacted" == *'"safe":"kept"'* ]] || fail "redactor removed unrelated log content"
 
 for role in alpha-owner alpha-member alpha-restricted beta-owner; do
