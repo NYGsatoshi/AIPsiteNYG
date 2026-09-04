@@ -98,4 +98,12 @@ class WorkflowTrustBoundaryTests
     assert_includes text, 'references triggering head ref/SHA'
     assert_includes text, CONTROL_TRUST
   end
+
+  def test_secret_object_dump_remains_detected
+    result = validate('invalid-pr-secret-object-dump.yml')
+    text = messages(result)
+    assert_includes text, 'references repository/environment secrets'
+    assert_includes text, 'attempts to print/dump secret context'
+    assert_includes text, CONTROL_TRUST
+  end
 end
