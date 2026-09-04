@@ -4,12 +4,19 @@
 require_relative 'workflow-trust-boundaries-lib'
 
 class WorkflowTrustValidator
+  # Keep the event classifier and the effective untrusted checks on the exact
+  # same trigger set. Replacing the library constant here ensures review-comment
+  # workflows cannot be classified as untrusted without receiving the same
+  # token/secret/runner restrictions as pull_request workflows.
+  remove_const(:UNTRUSTED_EVENTS) if const_defined?(:UNTRUSTED_EVENTS, false)
+  UNTRUSTED_EVENTS = Set[
+    'pull_request',
+    'pull_request_review',
+    'pull_request_review_comment'
+  ].freeze
+
   EVENT_TRUST_CLASSES = {
-    'untrusted_pr' => Set[
-      'pull_request',
-      'pull_request_review',
-      'pull_request_review_comment'
-    ],
+    'untrusted_pr' => UNTRUSTED_EVENTS,
     'privileged_trusted' => Set[
       'workflow_run',
       'workflow_dispatch',
