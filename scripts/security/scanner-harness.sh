@@ -48,7 +48,6 @@ security_scan_validate_target() {
 from __future__ import annotations
 
 import ipaddress
-import re
 import sys
 from urllib.parse import urlsplit, urlunsplit
 
@@ -85,38 +84,32 @@ def parse_origin(value: str):
     return parsed.scheme.lower(), host, port, urlunsplit((parsed.scheme.lower(), netloc, "", "", ""))
 
 
-def is_non_public_literal(host: str) -> bool:
+def is_loopback_literal(host: str) -> bool:
     try:
         address = ipaddress.ip_address(host)
     except ValueError:
         return False
-    return address.is_loopback or address.is_private or address.is_link_local
+    return address.is_loopback
 
-
-def is_compose_name(host: str) -> bool:
-    return "." not in host and re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", host) is not None
 
 scheme, host, _port, normalized = parse_origin(raw)
+# SEC-03 intentionally keeps the default set tiny: the known Compose service
+# name plus loopback origins. RFC1918/private addresses are *not* implicitly
+# trusted because an internal production deployment could live there.
 local_allowed = (
     host == "localhost"
     or host.endswith(".localhost")
-    or is_non_public_literal(host)
-    or is_compose_name(host)
+    or is_loopback_literal(host)
+    or host == "app"
 )
 
 explicit_ephemeral = False
 if ephemeral_raw:
     _e_scheme, e_host, _e_port, ephemeral_normalized = parse_origin(ephemeral_raw)
-    # Ephemeral CI targets must still be structurally non-public. Reserved .test
-    # names are allowed for an explicitly configured CI routing layer; arbitrary
-    # public DNS names remain forbidden even when a caller edits environment vars.
-    ephemeral_host_safe = (
-        e_host == "localhost"
-        or e_host.endswith(".localhost")
-        or e_host.endswith(".test")
-        or is_non_public_literal(e_host)
-        or is_compose_name(e_host)
-    )
+    # An explicit CI ephemeral route must use the reserved .test namespace. This
+    # prevents an ordinary environment/config change from turning a public,
+    # school, production, or private-network hostname into an active scan target.
+    ephemeral_host_safe = e_host.endswith(".test")
     explicit_ephemeral = (
         github_actions.lower() == "true"
         and ephemeral_host_safe
@@ -125,8 +118,8 @@ if ephemeral_raw:
 
 if not (local_allowed or explicit_ephemeral):
     reject(
-        "only localhost, non-public IP literals, single-label Compose service names, "
-        "or an explicitly configured non-public/.test GitHub Actions target are allowed"
+        "only localhost/loopback, the SEC-02 Compose service 'app', or an exact "
+        "reserved .test GitHub Actions ephemeral origin are allowed"
     )
 
 print(normalized)
@@ -344,6 +337,32 @@ PY
     security_scan_fail "expected workspace canary missing for role '$role'" || return 1
   if grep -Fq "$forbidden_canary" "$workspaces_path"; then
     security_scan_fail "cross-tenant workspace canary disclosed for role '$role'"
+    return 1
+  fi
+
+  local other_tenant cross_path cross_http_path cross_status
+  if [[ "$tenant" == "security-alpha" ]]; then
+    other_tenant="security-beta"
+  else
+    other_tenant="security-alpha"
+  fi
+  cross_path="$(security_scan_host_path "${role}-cross-tenant.json")"
+  cross_http_path="$(security_scan_http_path "${role}-cross-tenant.json")"
+  cross_status="$(security_scan_http \
+    --silent --show-error \
+    -o "$cross_http_path" \
+    -w '%{http_code}' \
+    -b "$jar" \
+    -H "X-Tenant-Slug: $other_tenant" \
+    "$SECURITY_SCAN_TARGET/api/workspaces")" ||
+    security_scan_fail "cross-tenant context probe transport failed for role '$role'" || return 1
+  case "$cross_status" in
+    200|401|403|404) ;;
+    *) security_scan_fail "cross-tenant context probe for '$role' returned HTTP $cross_status"; return 1 ;;
+  esac
+  if grep -Fq "$SECURITY_SCAN_ALPHA_WORKSPACE_CANARY" "$cross_path" ||
+     grep -Fq "$SECURITY_SCAN_BETA_WORKSPACE_CANARY" "$cross_path"; then
+    security_scan_fail "tenant-switch probe disclosed a security fixture canary for role '$role'"
     return 1
   fi
 }
