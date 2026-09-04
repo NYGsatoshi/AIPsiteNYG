@@ -31,12 +31,12 @@ jobs:
           python3 -m py_compile \
             scripts/ci/required_check_contract.py \
             scripts/ci/check-required-pr-checks.py
-          ruby scripts/ci/test-workflow-trust-boundaries-all.rb
+          ruby scripts/ci/test-workflow-trust-boundaries-upper-bound.rb
           python3 scripts/ci/test-publication-readiness.py
 
       - name: Enforce publication safety, trust boundaries, and required-check topology
         run: |
-          ruby scripts/ci/check-workflow-trust-boundaries.rb
+          ruby scripts/ci/check-workflow-trust-boundaries-upper-bound.rb
           python3 scripts/ci/check-publication-readiness.py
           python3 scripts/ci/check-required-pr-checks.py
 
