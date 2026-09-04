@@ -83,6 +83,12 @@ def require_security_contract(document: dict[str, object]) -> None:
     if "text/json" in request_content:
         fail("security contract must not advertise runtime-rejected text/json request bodies")
 
+    dependency_path = paths.get("/api/tasks/{taskItemId}/dependencies") if isinstance(paths, dict) else None
+    dependency_operation = dependency_path.get("post") if isinstance(dependency_path, dict) else None
+    dependency_responses = dependency_operation.get("responses") if isinstance(dependency_operation, dict) else None
+    if not isinstance(dependency_responses, dict) or not {"401", "403", "404"}.issubset(dependency_responses):
+        fail("application-authorized path operations must document 401/403/404 responses")
+
 
 def main() -> None:
     if len(sys.argv) != 2:

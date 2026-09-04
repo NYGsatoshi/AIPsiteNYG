@@ -23,8 +23,9 @@ public sealed class SecurityOpenApiOperationTransformer : IOpenApiOperationTrans
         EnsureCookieSecurityScheme(document);
 
         var endpointMetadata = context.Description.ActionDescriptor.EndpointMetadata;
-        var requiresAuthorization = endpointMetadata.OfType<IAuthorizeData>().Any() &&
-                                    !endpointMetadata.OfType<IAllowAnonymous>().Any();
+        var hasAuthorizationBoundary = endpointMetadata.OfType<IAuthorizeData>().Any();
+        var allowsAnonymousTransport = endpointMetadata.OfType<IAllowAnonymous>().Any();
+        var requiresAuthorization = hasAuthorizationBoundary && !allowsAnonymousTransport;
 
         if (requiresAuthorization)
         {
@@ -34,6 +35,13 @@ public sealed class SecurityOpenApiOperationTransformer : IOpenApiOperationTrans
                 [new OpenApiSecuritySchemeReference(CookieSchemeName, document)] = []
             });
 
+        }
+
+        if (hasAuthorizationBoundary)
+        {
+            // A small set of canonical command actions deliberately allows the
+            // transport through so the application layer can return its typed
+            // 401 envelope. They retain the controller authorization boundary.
             AddResponse(operation, "401", "Authentication is required.");
             AddResponse(operation, "403", "Authentication, authorization, or CSRF validation failed.");
             AddResponse(operation, "404", "The protected resource is absent or not visible to the current actor.");
@@ -41,6 +49,11 @@ public sealed class SecurityOpenApiOperationTransformer : IOpenApiOperationTrans
         else if (RequiresCsrf(context.Description.HttpMethod))
         {
             AddResponse(operation, "403", "CSRF validation failed for an authenticated unsafe request.");
+        }
+
+        if (context.Description.RelativePath?.Contains('{') == true)
+        {
+            AddResponse(operation, "404", "The route value is invalid or the addressed resource does not exist.");
         }
 
         if (context.Description.ParameterDescriptions.Count > 0)
