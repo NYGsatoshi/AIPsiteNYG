@@ -1,0 +1,66 @@
+name: Functional Suite Architecture Preflight
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/functional-suite-architecture-preflight.yml"
+      - "playwright.functional.config.ts"
+      - "scripts/ci/build-functional-grep.mjs"
+      - "scripts/ci/functional-tags.mjs"
+      - "scripts/ci/run-functional-playwright.mjs"
+      - "tests/functional/**"
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/functional-suite-architecture-preflight.yml"
+      - "playwright.functional.config.ts"
+      - "scripts/ci/build-functional-grep.mjs"
+      - "scripts/ci/functional-tags.mjs"
+      - "scripts/ci/run-functional-playwright.mjs"
+      - "tests/functional/**"
+
+concurrency:
+  group: functional-suite-architecture-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  functional-suite-architecture-preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
+      - name: Self-test Functional metadata and selection contracts
+        run: node --test tests/functional/*.node-test.mjs
+
+      - name: Check Functional runner syntax
+        shell: bash
+        run: |
+          node --check scripts/ci/functional-tags.mjs
+          node --check scripts/ci/build-functional-grep.mjs
+          node --check scripts/ci/run-functional-playwright.mjs
+
+      - name: Summarize FCI-03 architecture contract
+        shell: bash
+        run: |
+          {
+            echo "### Functional Suite Architecture Preflight"
+            echo
+            echo "- Metadata/tag contract self-tested"
+            echo "- Gate/domain/Journey grep selection self-tested"
+            echo "- Real-backend default classification self-tested"
+            echo "- Artifact redaction self-tested"
+            echo "- Functional runner JavaScript syntax checked"
+          } >> "$GITHUB_STEP_SUMMARY"
