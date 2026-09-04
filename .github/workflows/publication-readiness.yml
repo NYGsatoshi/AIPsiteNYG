@@ -34,6 +34,7 @@ jobs:
             scripts/ci/check-required-pr-checks.py
           python3 scripts/ci/test-governance-policy.py
           python3 scripts/ci/test-governance-review-status-invariants.py
+          ruby scripts/ci/test-workflow-trust-boundaries-all.rb
           python3 scripts/ci/test-governance-live-policy.py
           python3 scripts/ci/test-governance-live-policy-ext.py
           python3 scripts/ci/test-governance-review-gov06-wiring.py
@@ -50,6 +51,7 @@ jobs:
         run: |
           python3 scripts/ci/validate-governance-policy.py
           python3 scripts/ci/check-governance-review-status-invariants.py
+          ruby scripts/ci/check-workflow-trust-boundaries.rb
           python3 scripts/ci/check-publication-readiness.py
           python3 scripts/ci/check-required-pr-checks.py
 

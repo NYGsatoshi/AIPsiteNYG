@@ -196,6 +196,24 @@ Default workflows to read-only and make every write-capable workflow an explicit
         "statuses:write"
       ],
       "workflow": ".github/workflows/external-pr-approval-evaluator.yml"
+    },
+    {
+      "permissions": [
+        "security-events:write"
+      ],
+      "workflow": ".github/workflows/codeql.yml"
+    },
+    {
+      "permissions": [
+        "contents:write"
+      ],
+      "workflow": ".github/workflows/nuget-dependency-submission.yml"
+    },
+    {
+      "permissions": [
+        "contents:write"
+      ],
+      "workflow": ".github/workflows/refresh-pr445-mobile-baseline.yml"
     }
   ]
 }
