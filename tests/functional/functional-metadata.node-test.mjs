@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { buildFunctionalTags } from '../../scripts/ci/functional-tags.mjs';
 import { functionalMetadata } from './fixtures/functional-metadata.mjs';
 
 test('emits explicit gate/domain/ownership tags and annotations', () => {
@@ -68,5 +69,30 @@ test('rejects incomplete or contradictory ownership metadata', () => {
         polarity: 'positive'
       }),
     /Invalid Functional Journey ID/u
+  );
+});
+
+test('buildFunctionalTags cannot bypass required metadata validation', () => {
+  assert.throws(
+    () =>
+      buildFunctionalTags({
+        journeyId: 'FUNC-TASK-001',
+        gates: ['functional-fast'],
+        domains: ['task']
+      }),
+    /Invalid Functional priority/u
+  );
+
+  assert.throws(
+    () =>
+      buildFunctionalTags({
+        journeyId: 'FUNC-TASK-001',
+        gates: ['functional-fast'],
+        domains: ['task'],
+        priority: 'p0',
+        backend: 'unexpected',
+        polarity: 'positive'
+      }),
+    /Invalid Functional backend/u
   );
 });
