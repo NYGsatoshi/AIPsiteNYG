@@ -1,24 +1,123 @@
 #!/usr/bin/env python3
-"""Fail closed when required pull-request checks can be skipped."""
+"""Fail closed when required pull-request workflow checks can be skipped."""
 
 from __future__ import annotations
 
+import json
 import re
 import sys
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
+POLICY_PATH = ROOT / "governance" / "policy.json"
+REQUIRED_CHECKS_CONTROL_ID = "GOV-CHECKS-001"
 
-REQUIRED_PR_CHECKS: dict[str, tuple[str, ...]] = {
-    ".github/workflows/ci.yml": (
-        "build-test",
-        "frontend-test",
-        "security-scan",
-    ),
-    ".github/workflows/publication-readiness.yml": (
-        "publication-readiness",
-    ),
-}
+
+def load_required_status_checks(
+    policy_path: Path = POLICY_PATH,
+) -> tuple[dict[str, str], ...]:
+    """Load every required status context from the Governance policy source of truth."""
+    try:
+        policy: Any = json.loads(policy_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"unable to load governance policy: {exc}") from exc
+
+    controls = policy.get("controls") if isinstance(policy, dict) else None
+    if not isinstance(controls, list):
+        raise RuntimeError("governance policy controls must be an array")
+
+    matches = [
+        control
+        for control in controls
+        if isinstance(control, dict)
+        and control.get("id") == REQUIRED_CHECKS_CONTROL_ID
+    ]
+    if len(matches) != 1:
+        raise RuntimeError(
+            f"governance policy must define exactly one {REQUIRED_CHECKS_CONTROL_ID} control"
+        )
+
+    control = matches[0]
+    if control.get("family") != "required-status-checks":
+        raise RuntimeError(
+            f"{REQUIRED_CHECKS_CONTROL_ID} must use family 'required-status-checks'"
+        )
+
+    expected = control.get("expected")
+    required = expected.get("required") if isinstance(expected, dict) else None
+    if not isinstance(required, list) or not required:
+        raise RuntimeError(
+            f"{REQUIRED_CHECKS_CONTROL_ID}.expected.required must be a non-empty array"
+        )
+
+    result: list[dict[str, str]] = []
+    seen_contexts: set[str] = set()
+    for index, item in enumerate(required):
+        if not isinstance(item, dict):
+            raise RuntimeError(
+                f"{REQUIRED_CHECKS_CONTROL_ID}.expected.required[{index}] must be an object"
+            )
+        kind = item.get("kind")
+        workflow = item.get("workflow")
+        job = item.get("job")
+        context = item.get("context")
+        if kind not in {"workflow-job", "commit-status"}:
+            raise RuntimeError(
+                f"{REQUIRED_CHECKS_CONTROL_ID}.expected.required[{index}].kind is invalid"
+            )
+        if (
+            not isinstance(workflow, str)
+            or not workflow
+            or not isinstance(job, str)
+            or not job
+            or not isinstance(context, str)
+            or not context
+        ):
+            raise RuntimeError(
+                f"{REQUIRED_CHECKS_CONTROL_ID}.expected.required[{index}] "
+                "must define non-empty workflow/job/context"
+            )
+        if context in seen_contexts:
+            raise RuntimeError(
+                f"{REQUIRED_CHECKS_CONTROL_ID} contains duplicate status context {context!r}"
+            )
+        seen_contexts.add(context)
+        result.append(
+            {
+                "kind": kind,
+                "workflow": workflow,
+                "job": job,
+                "context": context,
+            }
+        )
+
+    return tuple(result)
+
+
+def load_required_pr_checks(
+    policy_path: Path = POLICY_PATH,
+) -> dict[str, tuple[str, ...]]:
+    """Load topology-enforced pull_request workflow jobs from Governance policy."""
+    result: dict[str, list[str]] = {}
+    for item in load_required_status_checks(policy_path):
+        if item["kind"] != "workflow-job":
+            continue
+        if item["context"] != item["job"]:
+            raise RuntimeError(
+                f"{REQUIRED_CHECKS_CONTROL_ID} workflow-job context "
+                f"{item['context']!r} must equal repository job name {item['job']!r}"
+            )
+        result.setdefault(item["workflow"], []).append(item["job"])
+    if not result:
+        raise RuntimeError(
+            f"{REQUIRED_CHECKS_CONTROL_ID} must define at least one workflow-job check"
+        )
+    return {workflow: tuple(jobs) for workflow, jobs in result.items()}
+
+
+REQUIRED_STATUS_CHECKS = load_required_status_checks()
+REQUIRED_PR_CHECKS = load_required_pr_checks()
 
 
 def _without_comment(line: str) -> str:
@@ -235,10 +334,12 @@ def main() -> int:
             print(f"- {error}", file=sys.stderr)
         return 1
 
-    check_count = sum(len(checks) for checks in REQUIRED_PR_CHECKS.values())
+    workflow_check_count = sum(len(checks) for checks in REQUIRED_PR_CHECKS.values())
     print(
         "Required PR check policy passed: "
-        f"{check_count} required checks are unfiltered, unconditional, and dependency-independent."
+        f"{workflow_check_count} workflow checks are unfiltered, unconditional, and "
+        f"dependency-independent; {len(REQUIRED_STATUS_CHECKS)} required status contexts "
+        "are policy-owned."
     )
     return 0
 
