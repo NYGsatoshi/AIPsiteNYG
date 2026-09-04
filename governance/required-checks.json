@@ -14,13 +14,10 @@
       "workflow": ".github/workflows/external-pr-approval-evaluator.yml",
       "job": "evaluate",
       "context": "External PR approval policy",
-      "scope": "all-pr",
+      "scope": "release",
       "trigger": {
         "mode": "trusted-default-branch",
-        "events": [
-          "workflow_run",
-          "workflow_dispatch"
-        ],
+        "events": ["workflow_run", "workflow_dispatch"],
         "source_workflow": "External PR review signal"
       },
       "producer": {
@@ -29,9 +26,7 @@
         "workflow_path_required": true
       },
       "ruleset_integration_id": null,
-      "allowed_conclusions": [
-        "success"
-      ],
+      "allowed_conclusions": ["success"],
       "timeout_minutes": 12,
       "staleness_policy": "exact-head-and-timeout",
       "rename": {
@@ -49,28 +44,13 @@
       "job": "build-test",
       "context": "build-test",
       "scope": "all-pr",
-      "trigger": {
-        "mode": "unfiltered-pull-request",
-        "event": "pull_request"
-      },
-      "producer": {
-        "type": "github-actions-check",
-        "integration_id": 15368,
-        "app_slug": "github-actions"
-      },
+      "trigger": {"mode": "unfiltered-pull-request", "event": "pull_request"},
+      "producer": {"type": "github-actions-check", "integration_id": 15368, "app_slug": "github-actions"},
       "ruleset_integration_id": 15368,
-      "allowed_conclusions": [
-        "success"
-      ],
+      "allowed_conclusions": ["success"],
       "timeout_minutes": 120,
       "staleness_policy": "exact-head-and-timeout",
-      "rename": {
-        "state": "stable",
-        "previous_context": null,
-        "previous_workflow": null,
-        "previous_job": null,
-        "migration_issue": null
-      }
+      "rename": {"state": "stable", "previous_context": null, "previous_workflow": null, "previous_job": null, "migration_issue": null}
     },
     {
       "gate_id": "GOV-GATE-FRONTEND-001",
@@ -79,28 +59,13 @@
       "job": "frontend-test",
       "context": "frontend-test",
       "scope": "all-pr",
-      "trigger": {
-        "mode": "unfiltered-pull-request",
-        "event": "pull_request"
-      },
-      "producer": {
-        "type": "github-actions-check",
-        "integration_id": 15368,
-        "app_slug": "github-actions"
-      },
+      "trigger": {"mode": "unfiltered-pull-request", "event": "pull_request"},
+      "producer": {"type": "github-actions-check", "integration_id": 15368, "app_slug": "github-actions"},
       "ruleset_integration_id": 15368,
-      "allowed_conclusions": [
-        "success"
-      ],
+      "allowed_conclusions": ["success"],
       "timeout_minutes": 120,
       "staleness_policy": "exact-head-and-timeout",
-      "rename": {
-        "state": "stable",
-        "previous_context": null,
-        "previous_workflow": null,
-        "previous_job": null,
-        "migration_issue": null
-      }
+      "rename": {"state": "stable", "previous_context": null, "previous_workflow": null, "previous_job": null, "migration_issue": null}
     },
     {
       "gate_id": "GOV-GATE-SECURITY-001",
@@ -109,28 +74,13 @@
       "job": "security-scan",
       "context": "security-scan",
       "scope": "all-pr",
-      "trigger": {
-        "mode": "unfiltered-pull-request",
-        "event": "pull_request"
-      },
-      "producer": {
-        "type": "github-actions-check",
-        "integration_id": 15368,
-        "app_slug": "github-actions"
-      },
+      "trigger": {"mode": "unfiltered-pull-request", "event": "pull_request"},
+      "producer": {"type": "github-actions-check", "integration_id": 15368, "app_slug": "github-actions"},
       "ruleset_integration_id": 15368,
-      "allowed_conclusions": [
-        "success"
-      ],
+      "allowed_conclusions": ["success"],
       "timeout_minutes": 90,
       "staleness_policy": "exact-head-and-timeout",
-      "rename": {
-        "state": "stable",
-        "previous_context": null,
-        "previous_workflow": null,
-        "previous_job": null,
-        "migration_issue": null
-      }
+      "rename": {"state": "stable", "previous_context": null, "previous_workflow": null, "previous_job": null, "migration_issue": null}
     },
     {
       "gate_id": "GOV-GATE-PUBLICATION-001",
@@ -139,28 +89,13 @@
       "job": "publication-readiness",
       "context": "publication-readiness",
       "scope": "all-pr",
-      "trigger": {
-        "mode": "unfiltered-pull-request",
-        "event": "pull_request"
-      },
-      "producer": {
-        "type": "github-actions-check",
-        "integration_id": 15368,
-        "app_slug": "github-actions"
-      },
+      "trigger": {"mode": "unfiltered-pull-request", "event": "pull_request"},
+      "producer": {"type": "github-actions-check", "integration_id": 15368, "app_slug": "github-actions"},
       "ruleset_integration_id": 15368,
-      "allowed_conclusions": [
-        "success"
-      ],
+      "allowed_conclusions": ["success"],
       "timeout_minutes": 20,
       "staleness_policy": "exact-head-and-timeout",
-      "rename": {
-        "state": "stable",
-        "previous_context": null,
-        "previous_workflow": null,
-        "previous_job": null,
-        "migration_issue": null
-      }
+      "rename": {"state": "stable", "previous_context": null, "previous_workflow": null, "previous_job": null, "migration_issue": null}
     }
   ]
 }
