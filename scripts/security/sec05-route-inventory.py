@@ -105,6 +105,18 @@ SURFACES = [
         "tokens": ['[HttpGet("api/audit-logs")]', '[HttpGet("api/admin/audit-grid")]'],
         "routeClasses": ["GET /api/audit-logs", "GET /api/admin/audit-grid"],
     },
+    {
+        "family": "audit-claims-evidence",
+        "controller": "AuditClaimsEvidenceController.cs",
+        "tokens": ['[HttpGet("api/admin/audit/claims-evidence")]'],
+        "routeClasses": ["GET /api/admin/audit/claims-evidence"],
+    },
+    {
+        "family": "audit-finding",
+        "controller": "AuditFindingsController.cs",
+        "tokens": ['[HttpGet("api/admin/audit/findings")]', '[HttpPatch("api/admin/audit/findings/{findingId:guid}/triage")]'],
+        "routeClasses": ["GET /api/admin/audit/findings", "PATCH /api/admin/audit/findings/{findingId}/triage"],
+    },
 ]
 
 
