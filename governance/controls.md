@@ -51,30 +51,40 @@ Keep the protected default-branch rulesets explicit and reviewable instead of le
 
 ### `GOV-CHECKS-001` — Required pull-request status checks
 
-Pin the required check contexts and their repository-owned workflow jobs so rename, skip, missing, or stale states fail closed.
+Pin every required status context, including trusted evaluator statuses, so rename, skip, missing, or stale states fail closed from one repository-owned contract.
 
 ```json
 {
   "missing_or_stale": "fail",
   "required": [
     {
+      "context": "External PR approval policy",
+      "job": "evaluate",
+      "kind": "commit-status",
+      "workflow": ".github/workflows/external-pr-approval-evaluator.yml"
+    },
+    {
       "context": "build-test",
       "job": "build-test",
+      "kind": "workflow-job",
       "workflow": ".github/workflows/ci.yml"
     },
     {
       "context": "frontend-test",
       "job": "frontend-test",
+      "kind": "workflow-job",
       "workflow": ".github/workflows/ci.yml"
     },
     {
       "context": "security-scan",
       "job": "security-scan",
+      "kind": "workflow-job",
       "workflow": ".github/workflows/ci.yml"
     },
     {
       "context": "publication-readiness",
       "job": "publication-readiness",
+      "kind": "workflow-job",
       "workflow": ".github/workflows/publication-readiness.yml"
     }
   ],
@@ -94,12 +104,16 @@ Require signed commits on the protected default branch.
 
 ### `GOV-REVIEW-001` — Pull request review and CODEOWNERS contract
 
-Require PR review, CODEOWNERS participation, and additional approval for unattributed changes.
+Require independent PR review and CODEOWNERS participation without allowing the PR author to be the only effective governance owner.
 
 ```json
 {
   "approvals_required": 1,
+  "author_cannot_self_approve": true,
   "codeowners_review_required": true,
+  "external_pr_approval_reviewer": "@NYGsatoshi",
+  "independent_approval_required": true,
+  "minimum_distinct_codeowners": 2,
   "pull_request_required": true,
   "unattributed_changes_require_additional_approval": true
 }
