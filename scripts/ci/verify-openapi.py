@@ -97,6 +97,43 @@ def require_security_contract(document: dict[str, object]) -> None:
     if not isinstance(dependency_responses, dict) or not {"401", "403", "404"}.issubset(dependency_responses):
         fail("application-authorized path operations must document 401/403/404 responses")
 
+    invite_path = paths.get("/api/invites/validate") if isinstance(paths, dict) else None
+    invite_operation = invite_path.get("get") if isinstance(invite_path, dict) else None
+    invite_parameters = invite_operation.get("parameters") if isinstance(invite_operation, dict) else None
+    invite_token = next(
+        (
+            parameter
+            for parameter in invite_parameters or []
+            if isinstance(parameter, dict) and parameter.get("name") == "token"
+        ),
+        None,
+    )
+    invite_schema = invite_token.get("schema") if isinstance(invite_token, dict) else None
+    if not isinstance(invite_token, dict) or invite_token.get("required") is not True:
+        fail("invite validation token must be a required query parameter")
+    if not isinstance(invite_schema, dict) or invite_schema.get("pattern") != "^[a-f0-9]{64}$":
+        fail("invite validation token must document the generated 64-character hex format")
+    invite_responses = invite_operation.get("responses") if isinstance(invite_operation, dict) else None
+    if not isinstance(invite_responses, dict) or "404" not in invite_responses:
+        fail("well-formed unknown invite tokens must be documented as 404")
+
+    for schema_name, token_property in (
+        ("AcceptInviteRequest", "token"),
+        ("RegisterByInviteRequest", "inviteToken"),
+    ):
+        request_schema = components.get("schemas", {}).get(schema_name) if isinstance(components, dict) else None
+        properties = request_schema.get("properties") if isinstance(request_schema, dict) else None
+        token_schema = properties.get(token_property) if isinstance(properties, dict) else None
+        if not isinstance(token_schema, dict) or token_schema.get("pattern") != "^[a-f0-9]{64}$":
+            fail(f"{schema_name}.{token_property} must document the generated invite-token format")
+
+    for path_name in ("/api/invites/accept", "/api/auth/register-by-invite"):
+        path_item = paths.get(path_name) if isinstance(paths, dict) else None
+        post_operation = path_item.get("post") if isinstance(path_item, dict) else None
+        post_responses = post_operation.get("responses") if isinstance(post_operation, dict) else None
+        if not isinstance(post_responses, dict) or "404" not in post_responses:
+            fail(f"well-formed unknown invite tokens must be documented as 404 for {path_name}")
+
 
 def main() -> None:
     if len(sys.argv) != 2:

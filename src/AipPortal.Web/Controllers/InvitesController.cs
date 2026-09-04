@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
 using AipPortal.Application.Auth;
 using Microsoft.AspNetCore.Authentication;
@@ -12,9 +13,12 @@ namespace AipPortal.Web.Controllers;
 public sealed class InvitesController(IAuthService authService) : ControllerBase
 {
     [HttpGet("validate")]
-    public async Task<IActionResult> Validate([FromQuery] string? token, CancellationToken cancellationToken)
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> Validate(
+        [FromQuery, Required, RegularExpression("^[a-f0-9]{64}$")] string token,
+        CancellationToken cancellationToken)
     {
-        var result = await authService.ValidateInviteAsync(token ?? string.Empty, cancellationToken);
+        var result = await authService.ValidateInviteAsync(token, cancellationToken);
         return result.IsSuccess
             ? Ok(result.Value)
             : InviteProblem(result.Error, "Invite validation failed.");
@@ -22,6 +26,7 @@ public sealed class InvitesController(IAuthService authService) : ControllerBase
 
     [HttpPost("accept")]
     [EnableRateLimiting("invite")]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<LoginResponse>> Accept(AcceptInviteRequest request, CancellationToken cancellationToken)
     {
         var result = await authService.AcceptInviteAsync(request, cancellationToken);
@@ -39,7 +44,7 @@ public sealed class InvitesController(IAuthService authService) : ControllerBase
         return Problem(
             title: title,
             detail: string.IsNullOrWhiteSpace(detail) ? "Invite is invalid." : detail,
-            statusCode: StatusCodes.Status400BadRequest);
+            statusCode: StatusCodes.Status404NotFound);
     }
 
     private Task SignInAsync(LoginResponse user)

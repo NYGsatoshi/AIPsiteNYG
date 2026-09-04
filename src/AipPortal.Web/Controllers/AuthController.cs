@@ -39,6 +39,7 @@ public sealed class AuthController(IAuthService authService) : ControllerBase
 
     [HttpPost("register-by-invite")]
     [EnableRateLimiting("invite")]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<LoginResponse>> RegisterByInvite(
         RegisterByInviteRequest request,
         CancellationToken cancellationToken)
@@ -46,7 +47,7 @@ public sealed class AuthController(IAuthService authService) : ControllerBase
         var result = await authService.RegisterByInviteAsync(request, cancellationToken);
         if (!result.IsSuccess || result.Value is null)
         {
-            return BadRequest(new { error = result.Error });
+            return NotFound(new { error = result.Error });
         }
 
         await SignInAsync(result.Value);
