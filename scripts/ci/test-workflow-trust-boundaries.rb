@@ -39,6 +39,16 @@ class WorkflowTrustBoundaryTests < Minitest::Test
     }
   end
 
+  def runner_routing_policy
+    {
+      'github_hosted_labels' => ['ubuntu-latest', 'macos-latest'],
+      'github_hosted_groups' => [],
+      'approved_dynamic_expressions' => [
+        "${{ (matrix.language == 'swift' && 'macos-latest') || 'ubuntu-latest' }}"
+      ]
+    }
+  end
+
   def validate(*fixtures, allowlist: [])
     Dir.mktmpdir('gov-04-fixture') do |dir|
       root = Pathname.new(dir)
@@ -48,6 +58,7 @@ class WorkflowTrustBoundaryTests < Minitest::Test
       registry = {
         'schema_version' => 1,
         'source_controls' => [CONTROL_PERMISSION, CONTROL_TRUST, CONTROL_RUNNER],
+        'runner_routing' => runner_routing_policy,
         'write_permissions' => allowlist
       }
       root.join(TRUST_REGISTRY_PATH).write(JSON.pretty_generate(registry) + "\n")
