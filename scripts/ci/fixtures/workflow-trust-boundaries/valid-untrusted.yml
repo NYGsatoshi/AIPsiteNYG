@@ -9,5 +9,6 @@ jobs:
     steps:
       - uses: actions/checkout@0123456789012345678901234567890123456789
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - run: echo safe
