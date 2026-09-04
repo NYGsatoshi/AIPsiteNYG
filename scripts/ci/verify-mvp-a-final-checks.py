@@ -20,6 +20,8 @@ REQUIRED_CHECKS = (
     "publication-readiness",
     "frontend-static-analysis",
     "licensed-real-backend",
+    "sbom-source",
+    "sbom-image-trusted",
 )
 
 
