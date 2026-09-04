@@ -1,8 +1,25 @@
 * @NYGsatoshi
 
+# Governance / CI control plane
 /.github/ @NYGsatoshi
 /scripts/ci/ @NYGsatoshi
 /governance/ @NYGsatoshi
+
+# Dependency / toolchain / build policy
+/.npmrc @NYGsatoshi
+/global.json @NYGsatoshi
+/package.json @NYGsatoshi
+/package-lock.json @NYGsatoshi
+/Dockerfile @NYGsatoshi
+/docker-compose.yml @NYGsatoshi
+
+# Release / deployment policy
+/deploy/ @NYGsatoshi
+
+# Contribution / legal / security policy
 /COPYRIGHT.md @NYGsatoshi
 /CONTRIBUTING.md @NYGsatoshi
 /THIRD_PARTY_NOTICES.md @NYGsatoshi
+/.github/SECURITY.md @NYGsatoshi
+/docs/SECURITY.md @NYGsatoshi
+/docs/SECURITY_MODEL.md @NYGsatoshi

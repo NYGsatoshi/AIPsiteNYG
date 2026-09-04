@@ -104,29 +104,81 @@ Require signed commits on the protected default branch.
 
 ### `GOV-REVIEW-001` — Pull request review and CODEOWNERS contract
 
-Require independent PR review and CODEOWNERS participation without allowing the PR author to be the only effective governance owner.
+Require current-head CODEOWNER approval for external pull requests while keeping owner-authored changes mergeable without bypass in the current single-maintainer topology; native rules enforce PR/thread semantics and the trusted evaluator owns authoritative approval state.
 
 ```json
 {
-  "approvals_required": 1,
+  "approvals_required": 0,
   "author_cannot_self_approve": true,
-  "codeowners_review_required": true,
+  "changes_requested_blocks": true,
+  "codeowners_fallback_required": true,
+  "codeowners_required_explicit_patterns": [
+    "/.github/",
+    "/scripts/ci/",
+    "/governance/",
+    "/.npmrc",
+    "/global.json",
+    "/package.json",
+    "/package-lock.json",
+    "/Dockerfile",
+    "/docker-compose.yml",
+    "/deploy/",
+    "/COPYRIGHT.md",
+    "/CONTRIBUTING.md",
+    "/THIRD_PARTY_NOTICES.md",
+    "/.github/SECURITY.md",
+    "/docs/SECURITY.md",
+    "/docs/SECURITY_MODEL.md"
+  ],
+  "codeowners_review_required": false,
+  "codeowners_sensitive_paths": [
+    ".github/CODEOWNERS",
+    ".github/workflows/ci.yml",
+    ".github/workflows/publication-readiness.yml",
+    ".github/workflows/external-pr-approval-evaluator.yml",
+    "scripts/ci/check-governance-review-status-invariants.py",
+    "scripts/ci/evaluate-governance-pr-review.py",
+    "governance/policy.json",
+    "governance/policy.schema.json",
+    "global.json",
+    "package.json",
+    "package-lock.json",
+    ".npmrc",
+    "Dockerfile",
+    "docker-compose.yml",
+    "deploy/gcp/README.md",
+    "COPYRIGHT.md",
+    "CONTRIBUTING.md",
+    "THIRD_PARTY_NOTICES.md",
+    ".github/SECURITY.md",
+    "docs/SECURITY.md",
+    "docs/SECURITY_MODEL.md"
+  ],
+  "dismiss_stale_reviews_on_push": false,
+  "draft_pr_blocks": true,
+  "external_approval_reviewer_must_be_codeowner": true,
   "external_pr_approval_reviewer": "@NYGsatoshi",
-  "independent_approval_required": true,
-  "minimum_distinct_codeowners": 2,
+  "external_pr_current_head_approval_required": true,
+  "minimum_distinct_codeowners": 1,
+  "owner_authored_pr_external_approval_required": false,
+  "previous_head_approval_satisfies": false,
   "pull_request_required": true,
-  "unattributed_changes_require_additional_approval": true
+  "require_last_push_approval": false,
+  "required_review_thread_resolution": true,
+  "unattributed_changes_require_additional_approval": false
 }
 ```
 
 ### `GOV-BYPASS-001` — Bypass actor policy
 
-Treat bypass as an exceptional administrative capability, never as the normal development path.
+Treat bypass as an exceptional administrative capability, never as the normal development path. Every permitted actor must be explicitly identified and justified; the strict baseline currently permits none.
 
 ```json
 {
   "allowed_actors": [],
-  "normal_development_bypass_forbidden": true
+  "break_glass_usage_evidence_required": true,
+  "normal_development_bypass_forbidden": true,
+  "user_always_bypass": "forbidden"
 }
 ```
 

@@ -155,6 +155,43 @@
       "additionalProperties": false,
       "required": ["workflow", "permissions"]
     },
+    "bypassActor": {
+      "type": "object",
+      "properties": {
+        "actor_type": {
+          "enum": ["Integration", "User", "Team", "RepositoryRole", "OrganizationAdmin", "DeployKey"]
+        },
+        "actor_id": {"type": "integer", "minimum": 1},
+        "bypass_mode": {"enum": ["always", "pull_request"]},
+        "purpose": {"type": "string", "minLength": 1},
+        "rationale": {"type": "string", "minLength": 1},
+        "break_glass": {"type": "boolean"},
+        "normal_development": {"const": false},
+        "rulesets": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "actor_type",
+        "actor_id",
+        "bypass_mode",
+        "purpose",
+        "rationale",
+        "break_glass",
+        "normal_development",
+        "rulesets"
+      ],
+      "allOf": [
+        {
+          "if": {"properties": {"actor_type": {"const": "User"}}, "required": ["actor_type"]},
+          "then": {"properties": {"break_glass": {"const": true}}}
+        }
+      ]
+    },
     "control": {
       "type": "object",
       "properties": {
@@ -308,16 +345,37 @@
     "reviewExpected": {
       "type": "object",
       "properties": {
-        "pull_request_required": {"type": "boolean"},
-        "approvals_required": {"type": "integer", "minimum": 1},
+        "pull_request_required": {"const": true},
+        "approvals_required": {"type": "integer", "minimum": 0},
         "codeowners_review_required": {"type": "boolean"},
         "unattributed_changes_require_additional_approval": {"type": "boolean"},
-        "independent_approval_required": {"const": true},
+        "dismiss_stale_reviews_on_push": {"type": "boolean"},
+        "require_last_push_approval": {"type": "boolean"},
+        "required_review_thread_resolution": {"const": true},
         "author_cannot_self_approve": {"const": true},
-        "minimum_distinct_codeowners": {"type": "integer", "minimum": 2},
+        "minimum_distinct_codeowners": {"type": "integer", "minimum": 1},
+        "external_pr_current_head_approval_required": {"const": true},
         "external_pr_approval_reviewer": {
           "type": "string",
           "pattern": "^@[A-Za-z0-9-]+$"
+        },
+        "external_approval_reviewer_must_be_codeowner": {"const": true},
+        "owner_authored_pr_external_approval_required": {"type": "boolean"},
+        "draft_pr_blocks": {"const": true},
+        "changes_requested_blocks": {"const": true},
+        "previous_head_approval_satisfies": {"const": false},
+        "codeowners_fallback_required": {"const": true},
+        "codeowners_required_explicit_patterns": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "codeowners_sensitive_paths": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
         }
       },
       "additionalProperties": false,
@@ -326,10 +384,21 @@
         "approvals_required",
         "codeowners_review_required",
         "unattributed_changes_require_additional_approval",
-        "independent_approval_required",
+        "dismiss_stale_reviews_on_push",
+        "require_last_push_approval",
+        "required_review_thread_resolution",
         "author_cannot_self_approve",
         "minimum_distinct_codeowners",
-        "external_pr_approval_reviewer"
+        "external_pr_current_head_approval_required",
+        "external_pr_approval_reviewer",
+        "external_approval_reviewer_must_be_codeowner",
+        "owner_authored_pr_external_approval_required",
+        "draft_pr_blocks",
+        "changes_requested_blocks",
+        "previous_head_approval_satisfies",
+        "codeowners_fallback_required",
+        "codeowners_required_explicit_patterns",
+        "codeowners_sensitive_paths"
       ]
     },
     "bypassExpected": {
@@ -338,12 +407,19 @@
         "allowed_actors": {
           "type": "array",
           "uniqueItems": true,
-          "items": {"type": "string", "minLength": 1}
+          "items": {"$ref": "#/$defs/bypassActor"}
         },
-        "normal_development_bypass_forbidden": {"type": "boolean"}
+        "normal_development_bypass_forbidden": {"const": true},
+        "user_always_bypass": {"enum": ["forbidden", "break-glass-only"]},
+        "break_glass_usage_evidence_required": {"const": true}
       },
       "additionalProperties": false,
-      "required": ["allowed_actors", "normal_development_bypass_forbidden"]
+      "required": [
+        "allowed_actors",
+        "normal_development_bypass_forbidden",
+        "user_always_bypass",
+        "break_glass_usage_evidence_required"
+      ]
     },
     "workflowPermissionsExpected": {
       "type": "object",
