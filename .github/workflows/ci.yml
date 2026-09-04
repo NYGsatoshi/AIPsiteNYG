@@ -256,6 +256,7 @@ jobs:
       POSTGRES_PASSWORD: ci_dummy_password
       DB_PASSWORD: ci_dummy_password
       LOCAL_ADMIN_PASSWORD: ci_dummy_local_admin_password
+      AIP_SECURITY_CI_PASSWORD: ci_dummy_security_fixture_password
 
     steps:
       - name: Checkout complete history
@@ -292,6 +293,7 @@ jobs:
           docker compose -f docker-compose.dev.yml config --quiet
           docker compose -f docker-compose.playwright.yml config --quiet
           docker compose -p aipsite-real-backend-smoke-ci-config -f docker-compose.real-backend-smoke.yml config --quiet
+          docker compose -p aipsite-security-ci-config -f docker-compose.real-backend-smoke.yml -f docker-compose.security.yml config --format json | python3 scripts/ci/verify-security-compose.py
           docker compose -p aipsite-u22-demo-ci-config -f docker-compose.real-backend-smoke.yml -f docker-compose.u22-demo.yml config --quiet
           docker compose config --quiet
           docker compose -f docker-compose.local.yml config --quiet
