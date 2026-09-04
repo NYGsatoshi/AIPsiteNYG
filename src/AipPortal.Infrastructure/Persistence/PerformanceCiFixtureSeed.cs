@@ -294,6 +294,10 @@ public static class PerformanceCiFixtureSeed
         {
             for (var localIndex = 0; localIndex < plan.MilestoneIds[projectIndex].Length; localIndex++)
             {
+                await EnsureProjectTrackedAsync(
+                    dbContext,
+                    plan.ProjectIds[projectIndex],
+                    cancellationToken);
                 AddWithId(dbContext, new Milestone
                 {
                     TenantId = plan.TenantId,
@@ -326,6 +330,10 @@ public static class PerformanceCiFixtureSeed
             var tasks = plan.TaskIds[projectIndex];
             for (var localIndex = 0; localIndex < tasks.Length; localIndex++)
             {
+                await EnsureProjectTrackedAsync(
+                    dbContext,
+                    plan.ProjectIds[projectIndex],
+                    cancellationToken);
                 var stageIndex = localIndex % 4;
                 var assignedToOperator = projectIndex == 0 && myTasksRemaining > 0;
                 if (assignedToOperator)
@@ -833,6 +841,31 @@ public static class PerformanceCiFixtureSeed
         }
     }
 
+    private static async Task EnsureProjectTrackedAsync(
+        AppDbContext dbContext,
+        Guid projectId,
+        CancellationToken cancellationToken)
+    {
+        if (dbContext.Projects.Local.Any(project => project.Id == projectId))
+        {
+            return;
+        }
+
+        var project = await dbContext.Projects
+            .IgnoreQueryFilters()
+            .SingleOrDefaultAsync(candidate => candidate.Id == projectId, cancellationToken)
+            ?? throw new InvalidOperationException($"PERF-02 Project {projectId:D} disappeared during fixture construction.");
+        if (project.IsDeleted ||
+            project.Status is not (ProjectStatus.Active or ProjectStatus.Review) ||
+            project.ActivationState != ProjectActivationState.Activated ||
+            !project.ActivatedAtUtc.HasValue ||
+            project.ActivationVersion is not > 0)
+        {
+            throw new InvalidOperationException(
+                $"PERF-02 Project {projectId:D} is not an activated writable Project.");
+        }
+    }
+
     private static T AddWithId<T>(AppDbContext dbContext, T entity, Guid id)
         where T : class
     {
@@ -1018,7 +1051,6 @@ public static class PerformanceCiFixtureSeed
                 conversations,
                 projects[kanbanProjectIndex]);
         }
-
 
         private static int[] AllocateTaskCounts(
             DatasetProfile profile,
