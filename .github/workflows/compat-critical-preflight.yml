@@ -1,0 +1,109 @@
+name: Compatibility Critical Suite Preflight
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/compat-critical-preflight.yml"
+      - "package.json"
+      - "package-lock.json"
+      - "playwright.config.ts"
+      - "scripts/ci/compat-critical.contract.json"
+      - "scripts/ci/compat-critical-contract.mjs"
+      - "scripts/ci/build-compat-critical-grep.mjs"
+      - "scripts/ci/run-compat-critical.mjs"
+      - "scripts/ci/verify-compat-critical.mjs"
+      - "tests/ui/compat-critical-contract.node-test.mjs"
+      - "tests/ui/angular-smoke.spec.ts"
+      - "tests/ui/real-backend-smoke.spec.ts"
+      - "docs/ci/compat-critical-suite.md"
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/compat-critical-preflight.yml"
+      - "package.json"
+      - "package-lock.json"
+      - "playwright.config.ts"
+      - "scripts/ci/compat-critical.contract.json"
+      - "scripts/ci/compat-critical-contract.mjs"
+      - "scripts/ci/build-compat-critical-grep.mjs"
+      - "scripts/ci/run-compat-critical.mjs"
+      - "scripts/ci/verify-compat-critical.mjs"
+      - "tests/ui/compat-critical-contract.node-test.mjs"
+      - "tests/ui/angular-smoke.spec.ts"
+      - "tests/ui/real-backend-smoke.spec.ts"
+      - "docs/ci/compat-critical-suite.md"
+
+concurrency:
+  group: compat-critical-preflight-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  compat-critical-preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
+      - name: Install repository Playwright dependencies
+        run: npm ci --prefer-offline --ignore-scripts --no-audit --no-fund
+
+      - name: Self-test compat-critical contract
+        run: node --test tests/ui/compat-critical-contract.node-test.mjs
+
+      - name: Check compat-critical runner syntax
+        shell: bash
+        run: |
+          node --check scripts/ci/compat-critical-contract.mjs
+          node --check scripts/ci/build-compat-critical-grep.mjs
+          node --check scripts/ci/run-compat-critical.mjs
+          node --check scripts/ci/verify-compat-critical.mjs
+
+      - name: Verify browser-engine selection against Playwright discovery
+        run: >-
+          node scripts/ci/verify-compat-critical.mjs
+          --profile browser-engine
+          --project chromium-desktop
+
+      - name: Verify mobile selection against Playwright discovery
+        run: >-
+          node scripts/ci/verify-compat-critical.mjs
+          --profile mobile
+          --project chromium-mobile
+
+      - name: Verify OS-portability selection against Playwright discovery
+        run: >-
+          node scripts/ci/verify-compat-critical.mjs
+          --profile os-portability
+          --project chromium-desktop
+
+      - name: Verify real-backend selection against Playwright discovery
+        run: >-
+          node scripts/ci/verify-compat-critical.mjs
+          --profile real-backend
+          --project chromium-desktop
+
+      - name: Summarize COMPAT-04 contract
+        shell: bash
+        run: |
+          {
+            echo "### COMPAT-04 critical compatibility contract"
+            echo
+            echo "- Manifest schema and fail-closed invariants self-tested"
+            echo "- Selected source tests resolved by exact title"
+            echo "- Browser-engine, mobile, OS-portability, and real-backend profiles discovered by Playwright"
+            echo "- Zero-test, missing-category, obsolete/superseded, and quarantine-only states fail closed"
+            echo "- Selected tests reject arbitrary sleep, unseeded randomness, and pixel-only snapshot assertions"
+            echo "- Compatibility execution forces retries=0"
+          } >> "$GITHUB_STEP_SUMMARY"

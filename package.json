@@ -9,6 +9,7 @@
     "test": "node tests/ui/run-angular-playwright.mjs",
     "test:ui": "node tests/ui/run-angular-playwright.mjs",
     "test:ui:angular": "node tests/ui/run-angular-playwright.mjs",
+    "test:ui:compat-critical": "node scripts/ci/run-compat-critical.mjs",
     "test:ui:angular:docker": "node tests/ui/run-angular-playwright-compose.mjs",
     "test:ui:angular:docker:update-snapshots": "docker compose -f docker-compose.playwright.yml run --build --rm angular-playwright bash -lc \"npm ci && npm --prefix frontend ci && npm --prefix frontend run build && npm run test:ui:angular -- --update-snapshots\"",
     "test:functional": "bash scripts/ci/functional-compose-harness.sh",

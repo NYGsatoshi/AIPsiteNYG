@@ -9,6 +9,14 @@ const expectTimeout = publicHttpsSmoke || process.env.AIP_REAL_BACKEND_SMOKE ===
 const snapshotPathTemplate = process.env.CI
   ? "{testDir}/__angular_snapshots__/linux/{testFilePath}/{arg}{ext}"
   : "{testDir}/__angular_snapshots__/{testFilePath}/{arg}{ext}";
+const compatCriticalContext = process.env.AIP_COMPAT_CRITICAL === "1"
+  ? ({
+      locale: "en-US",
+      timezoneId: "UTC",
+      colorScheme: "light",
+      reducedMotion: "reduce"
+    } as const)
+  : {};
 
 // Issue #361 replaced the embedded two-boolean source-scope smoke with the
 // dedicated four-kind tri-state smoke in task-execution-source-policy-v2.spec.ts.
@@ -67,6 +75,7 @@ export default defineConfig({
   use: {
     baseURL,
     storageState: deterministicUiStorageState,
+    ...compatCriticalContext,
     trace: publicHttpsSmoke ? "off" : "retain-on-failure",
     screenshot: publicHttpsSmoke ? "off" : "only-on-failure",
     video: publicHttpsSmoke ? "off" : "retain-on-failure"
