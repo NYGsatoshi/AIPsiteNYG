@@ -166,7 +166,7 @@ public sealed class ProjectsController(IProjectService projects, ITaskCommandSer
     public async Task<IActionResult> Watch(Guid taskItemId, TaskWatchRequest request, CancellationToken cancellationToken) => ToTaskActionResult(await taskCommands.WatchAsync(taskItemId, request, cancellationToken));
 
     [HttpDelete("api/tasks/{taskItemId:guid}/watch")]
-    public async Task<IActionResult> Unwatch(Guid taskItemId, [FromQuery] long expectedVersion, CancellationToken cancellationToken) => ToTaskActionResult(await taskCommands.UnwatchAsync(taskItemId, new TaskWatchRequest(expectedVersion), cancellationToken));
+    public async Task<IActionResult> Unwatch(Guid taskItemId, [FromQuery, System.ComponentModel.DataAnnotations.Range(typeof(long), "0", "9223372036854775807")] long expectedVersion, CancellationToken cancellationToken) => ToTaskActionResult(await taskCommands.UnwatchAsync(taskItemId, new TaskWatchRequest(expectedVersion), cancellationToken));
 
     [HttpGet("api/tasks/{taskItemId:guid}/subtasks")]
     public async Task<IActionResult> ListSubtasks(Guid taskItemId, [FromQuery] int page = 1, [FromQuery] int pageSize = 50, CancellationToken cancellationToken = default) => ToTaskActionResult(await taskSubresources.ListSubtasksAsync(taskItemId, page, pageSize, cancellationToken));

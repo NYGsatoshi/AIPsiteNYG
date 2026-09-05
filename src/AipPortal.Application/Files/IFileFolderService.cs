@@ -28,8 +28,8 @@ public sealed record FileLocationResponse(
 
 public sealed record FileMoveRequest(
     Guid? DestinationFolderId,
-    long ExpectedVersion,
-    long ExpectedDestinationVersion);
+    [property: System.ComponentModel.DataAnnotations.Range(typeof(long), "0", "9223372036854775807")] long ExpectedVersion,
+    [property: System.ComponentModel.DataAnnotations.Range(typeof(long), "0", "9223372036854775807")] long ExpectedDestinationVersion);
 
 public sealed record FileFolderMoveRequest(
     Guid? DestinationParentFolderId,

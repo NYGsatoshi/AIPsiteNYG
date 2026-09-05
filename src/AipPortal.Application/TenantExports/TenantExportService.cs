@@ -31,11 +31,6 @@ public sealed class TenantExportService(
             return Result<TenantExportFileResponse>.Failure(authorization.Error!);
         }
 
-        if (request.ExportType != TenantExportType.Metadata)
-        {
-            return Result<TenantExportFileResponse>.Failure("Only metadata exports are available in the MVP.");
-        }
-
         if (await exports.GetTenantAsync(tenantId, cancellationToken) is null)
         {
             return Result<TenantExportFileResponse>.Failure("Tenant not found.");

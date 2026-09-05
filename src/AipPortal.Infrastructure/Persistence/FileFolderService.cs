@@ -155,15 +155,15 @@ public sealed class FileFolderService(
         FileMoveRequest request,
         CancellationToken cancellationToken = default)
     {
-        if (request.ExpectedVersion < 0 || request.ExpectedDestinationVersion < 0)
-        {
-            return Result<FileLocationResponse>.Failure("Invalid file move version.");
-        }
-
         var authorized = await ResolveAuthorizedWorkspaceFileAsync(fileObjectId, requireContribution: true, cancellationToken);
         if (authorized is null)
         {
             return Result<FileLocationResponse>.Failure("File not found.");
+        }
+
+        if (request.ExpectedVersion < 0 || request.ExpectedDestinationVersion < 0)
+        {
+            return Result<FileLocationResponse>.Failure("Invalid file move version.");
         }
 
         var workspaceId = authorized.Value.WorkspaceId;

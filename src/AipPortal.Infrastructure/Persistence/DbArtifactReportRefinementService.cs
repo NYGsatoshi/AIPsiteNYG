@@ -93,10 +93,6 @@ public sealed class DbArtifactReportRefinementService(
         var feedback = request.Feedback?.Trim();
         if (feedback?.Length > MaxFeedbackLength)
             return Validation<ArtifactReportRefinementResponse>();
-        if (request.ConfirmedProjectScopeVersion <= 0 ||
-            (request.ConfirmedResearchPlanRevisionId.HasValue != request.ConfirmedResearchPlanRevisionNo.HasValue))
-            return Validation<ArtifactReportRefinementResponse>();
-
         var context = await LoadContextAsync(projectId, baseArtifactVersionId, userId, cancellationToken);
         if (context is null)
             return NotFound<ArtifactReportRefinementResponse>();
