@@ -22,6 +22,7 @@ import { SYNCFUSION_GANTT_THEME_ASSETS, SyncfusionGanttComponent } from './syncf
     <ejs-dialog [showCloseIcon]="true" [visible]="false" />
   `,
 })
+// eslint-disable-next-line @typescript-eslint/no-extraneous-class -- Angular TestBed requires a template host type even when it has no class logic.
 class Angular22ThirdPartyCompatibilityHostComponent {}
 
 describe('Angular 22 third-party compatibility', () => {
@@ -36,17 +37,15 @@ describe('Angular 22 third-party compatibility', () => {
     fixture.detectChanges();
     await fixture.whenStable();
 
-    const uploader = fixture.debugElement.query(By.directive(UploaderComponent));
-    const dialog = fixture.debugElement.query(By.directive(DialogComponent));
-    const icon = fixture.debugElement.query(By.directive(LucideCircle));
+    const [uploader, dialog, icon] = [
+      fixture.debugElement.query(By.directive(UploaderComponent))?.componentInstance,
+      fixture.debugElement.query(By.directive(DialogComponent))?.componentInstance,
+      fixture.debugElement.query(By.directive(LucideCircle))?.componentInstance,
+    ];
 
-    expect(uploader).not.toBeNull();
-    expect(dialog).not.toBeNull();
-    expect(icon).not.toBeNull();
-    expect(uploader.componentInstance).toBeInstanceOf(UploaderComponent);
-    expect(dialog.componentInstance).toBeInstanceOf(DialogComponent);
-
-    fixture.destroy();
+    expect(uploader).toBeInstanceOf(UploaderComponent);
+    expect(dialog).toBeInstanceOf(DialogComponent);
+    expect(icon).toBeInstanceOf(LucideCircle);
   });
 
   it('loads the production Gantt, Syncfusion Grid, and AG Grid Angular integration classes', () => {
@@ -60,9 +59,11 @@ describe('Angular 22 third-party compatibility', () => {
     const connection = new HubConnectionBuilder()
       .withUrl('https://example.invalid/hubs/realtime')
       .build();
+    const sourceValue = Number('21');
+    const doubledValue = await firstValueFrom(of(sourceValue).pipe(map((value) => value + value)));
 
     expect(connection.state).toBe(HubConnectionState.Disconnected);
-    expect(await firstValueFrom(of(21).pipe(map((value) => value * 2)))).toBe(42);
+    expect(doubledValue).toBe(Number('42'));
     expect(window.document).toBe(document);
     expect(document.createElement('div')).toBeInstanceOf(HTMLElement);
   });
@@ -70,6 +71,6 @@ describe('Angular 22 third-party compatibility', () => {
   it('loads the zone.js runtime used by the retained Storybook browser target', async () => {
     await import('zone.js');
 
-    expect((globalThis as typeof globalThis & { Zone?: unknown }).Zone).toBeDefined();
+    expect(Reflect.get(globalThis, 'Zone')).toBeDefined();
   });
 });
