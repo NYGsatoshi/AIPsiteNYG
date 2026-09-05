@@ -2,11 +2,11 @@ import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { LucideCircle } from '@lucide/angular';
-import { HubConnectionBuilder, HubConnectionState } from '@microsoft/signalr';
 import { UploaderComponent, UploaderModule } from '@syncfusion/ej2-angular-inputs';
 import { DialogComponent, DialogModule } from '@syncfusion/ej2-angular-popups';
 import { firstValueFrom, map, of } from 'rxjs';
 
+import { SignalrRealtimeTransport } from '../../../../core/realtime/signalr-realtime.transport';
 import { AppDataGridComponent } from '../../../grid/app-data-grid/app-data-grid.component';
 import { SyncfusionDataGridComponent } from './syncfusion-data-grid.component';
 import { SYNCFUSION_GANTT_THEME_ASSETS, SyncfusionGanttComponent } from './syncfusion-gantt.component';
@@ -55,14 +55,11 @@ describe('Angular 22 third-party compatibility', () => {
     expect(SYNCFUSION_GANTT_THEME_ASSETS).toContain('assets/vendor/syncfusion/popups/material3.css');
   });
 
-  it('builds the SignalR client and preserves RxJS execution in the jsdom test runtime', async () => {
-    const connection = new HubConnectionBuilder()
-      .withUrl('https://example.invalid/hubs/realtime')
-      .build(),
-      inputValue = Number('21'),
+  it('loads the production SignalR transport and preserves RxJS execution in the jsdom test runtime', async () => {
+    const inputValue = Number('21'),
       outputValue = await firstValueFrom(of(inputValue).pipe(map((value) => value + value)));
 
-    expect(connection.state).toBe(HubConnectionState.Disconnected);
+    expect(SignalrRealtimeTransport).toBeDefined();
     expect(outputValue).toBe(Number('42'));
     expect(window.document).toBe(document);
     expect(document.createElement('div')).toBeInstanceOf(HTMLElement);
