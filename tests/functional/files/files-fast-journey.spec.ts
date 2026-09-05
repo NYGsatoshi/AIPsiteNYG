@@ -1,5 +1,6 @@
+/* eslint-disable max-lines, max-lines-per-function -- FCI-05 is an end-to-end owner journey; keep the complete mutation/cleanup contract visible in one spec. */
 import { randomUUID } from 'node:crypto';
-import { expect, type APIRequestContext, type APIResponse, type Page, test } from '@playwright/test';
+import { expect, type APIRequestContext, type APIResponse, type Response, test } from '@playwright/test';
 
 import { functionalMetadata } from '../fixtures/functional-metadata.mjs';
 import { loginViaApi } from '../helpers/auth';
@@ -22,9 +23,9 @@ test.describe('FCI-05 Files real-backend fast journey', () => {
     }
   });
 
-  test.beforeEach(async ({}, testInfo) => {
+  test.beforeEach(({ browserName }, testInfo) => {
     test.skip(
-      testInfo.project.name !== 'chromium-desktop',
+      browserName !== 'chromium' || testInfo.project.name !== 'chromium-desktop',
       'FCI-05 mutates isolated test storage and therefore runs once per Functional Compose project.',
     );
   });
@@ -46,7 +47,6 @@ test.describe('FCI-05 Files real-backend fast journey', () => {
       const failedFileName = `fci05-invalid-${runToken}.txt`;
       const fileContent = `FCI-05 isolated Files evidence ${runToken}\n`;
       let fileObjectId: string | null = null;
-      let workspaceId = '';
       let cleanupSucceeded = false;
 
       const evidence: Record<string, unknown> = {
@@ -67,20 +67,16 @@ test.describe('FCI-05 Files real-backend fast journey', () => {
 
       try {
         await loginViaApi(api, { email: smokeEmail, password: smokePassword });
-        workspaceId = await resolveWorkspaceId(api, smokeWorkspaceTitle);
+        const workspaceId = await resolveWorkspaceId(api, smokeWorkspaceTitle);
         evidence.workspaceId = workspaceId;
 
         // A rejected upload must not manufacture a FileObject or storage-visible metadata.
         const rejectedUpload = await csrfAwareRequest(api, 'POST', '/api/files', {
-          multipart: {
-            OwnerType: 'Workspace',
-            OwnerId: workspaceId,
-            File: {
-              name: failedFileName,
-              mimeType: 'text/plain',
-              buffer: Buffer.alloc(0),
-            },
-          },
+          multipart: Object.fromEntries([
+            ['OwnerType', 'Workspace'],
+            ['OwnerId', workspaceId],
+            ['File', { name: failedFileName, mimeType: 'text/plain', buffer: Buffer.alloc(0) }],
+          ]),
         });
         expect(rejectedUpload.status(), await safeResponsePreview(rejectedUpload)).toBe(400);
         evidence.failedMutationStatus = rejectedUpload.status();
@@ -116,9 +112,11 @@ test.describe('FCI-05 Files real-backend fast journey', () => {
         const uploadedListItem = listAfterUpload.find((item) =>
           readOptionalString(item, 'fileObjectId', 'FileObjectId') === fileObjectId,
         );
-        expect(uploadedListItem, 'fresh list contains the uploaded FileObject').toBeTruthy();
-        expect(readOptionalString(uploadedListItem!, 'originalFileName', 'OriginalFileName')).toBe(fileName);
-        assertNoStorageLeak(uploadedListItem!);
+        if (!uploadedListItem) {
+          throw new Error('Fresh list did not contain the uploaded FileObject.');
+        }
+        expect(readOptionalString(uploadedListItem, 'originalFileName', 'OriginalFileName')).toBe(fileName);
+        assertNoStorageLeak(uploadedListItem);
 
         const previewAction = page.getByRole('button', { name: `Preview ${fileName}` });
         await expect(previewAction).toBeVisible({ timeout: 20_000 });
@@ -297,7 +295,7 @@ function assertNoSensitiveText(text: string): void {
   }
 }
 
-async function boundedPageResponsePreview(response: APIResponse | import('@playwright/test').Response): Promise<string> {
+async function boundedPageResponsePreview(response: APIResponse | Response): Promise<string> {
   try {
     const text = await response.text();
     return text.length <= 1024 ? text : `${text.slice(0, 1024)}…[TRUNCATED]`;
