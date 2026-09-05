@@ -3,21 +3,21 @@ using System.ComponentModel.DataAnnotations;
 namespace AipPortal.Application.Auth;
 
 public sealed record RegisterByInviteRequest(
-    [property: Required, RegularExpression("^[a-f0-9]{64}$")]
+    [Required, RegularExpression("^[a-f0-9]{64}$")]
     string InviteToken,
-    [property: Required]
+    [Required]
     string DisplayName,
-    [property: Required, EmailAddress]
+    [Required, EmailAddress]
     string Email,
-    [property: Required, MinLength(8)]
+    [Required, MinLength(8)]
     string Password);
 
 public sealed record AcceptInviteRequest(
-    [property: Required, RegularExpression("^[a-f0-9]{64}$")]
+    [Required, RegularExpression("^[a-f0-9]{64}$")]
     string Token,
-    [property: Required]
+    [Required]
     string DisplayName,
-    [property: Required, MinLength(8)]
+    [Required, MinLength(8)]
     string Password);
 
 public sealed record InviteValidationResponse(
