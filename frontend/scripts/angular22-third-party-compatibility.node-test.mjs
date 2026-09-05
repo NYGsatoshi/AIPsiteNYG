@@ -2,31 +2,29 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
-const angularJson = JSON.parse(await readFile(new URL('../angular.json', import.meta.url), 'utf8'));
-const aipsitePackageJson = JSON.parse(await readFile(new URL('../../aipsite-frontend/package.json', import.meta.url), 'utf8'));
-const aipsitePackageLock = JSON.parse(await readFile(new URL('../../aipsite-frontend/package-lock.json', import.meta.url), 'utf8'));
-
-const expectedDependencies = {
-  '@lucide/angular': '1.27.0',
-  '@microsoft/signalr': '10.0.0',
-  '@syncfusion/ej2-angular-gantt': '34.1.30',
-  '@syncfusion/ej2-angular-grids': '34.1.33',
-  '@syncfusion/ej2-angular-inputs': '34.1.32',
-  '@syncfusion/ej2-angular-popups': '34.1.29',
-  'ag-grid-angular': '36.0.2',
-  'ag-grid-community': '36.0.2',
-  rxjs: '7.8.2',
-  'zone.js': '0.16.2',
-};
-
-const expectedDevDependencies = {
-  '@angular-devkit/build-angular': '22.1.7',
-  '@storybook/angular': '10.5.5',
-  jsdom: '28.0.0',
-  storybook: '10.5.5',
-  vitest: '4.1.10',
-};
+const aipsitePackageJson = JSON.parse(await readFile(new URL('../../aipsite-frontend/package.json', import.meta.url), 'utf8')),
+  aipsitePackageLock = JSON.parse(await readFile(new URL('../../aipsite-frontend/package-lock.json', import.meta.url), 'utf8')),
+  angularJson = JSON.parse(await readFile(new URL('../angular.json', import.meta.url), 'utf8')),
+  expectedDependencies = {
+    '@lucide/angular': '1.27.0',
+    '@microsoft/signalr': '10.0.0',
+    '@syncfusion/ej2-angular-gantt': '34.1.30',
+    '@syncfusion/ej2-angular-grids': '34.1.33',
+    '@syncfusion/ej2-angular-inputs': '34.1.32',
+    '@syncfusion/ej2-angular-popups': '34.1.29',
+    'ag-grid-angular': '36.0.2',
+    'ag-grid-community': '36.0.2',
+    rxjs: '7.8.2',
+    'zone.js': '0.16.2',
+  },
+  expectedDevDependencies = {
+    '@angular-devkit/build-angular': '22.1.7',
+    '@storybook/angular': '10.5.5',
+    jsdom: '28.0.0',
+    storybook: '10.5.5',
+    vitest: '4.1.10',
+  },
+  packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
 
 test('keeps the reviewed Angular 22 third-party versions pinned', () => {
   for (const [name, version] of Object.entries(expectedDependencies)) {
