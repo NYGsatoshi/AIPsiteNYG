@@ -20,7 +20,7 @@
   },
   "scripts": {
     "lint": "node run.mjs",
-    "lint:enforce": "node run.mjs --enforce",
+    "lint:enforce": "node ang22-source-snapshot.mjs && node run.mjs --enforce",
     "lint:verbose": "node run.mjs --verbose"
   }
 }
