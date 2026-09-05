@@ -121,6 +121,8 @@ def main() -> int:
     seed = seed_path.read_text(encoding="utf-8")
     for token in (
         'DatabaseName = "aip_portal_performance"',
+        "NpgsqlConnectionStringBuilder",
+        "AllowedDatabaseDataSources.Contains(configuredHost)",
         "GetPendingMigrationsAsync",
         "TRUNCATE TABLE",
         "StableGuid",

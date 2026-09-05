@@ -5,6 +5,7 @@ using AipPortal.Application.Common.Interfaces;
 using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace AipPortal.Infrastructure.Persistence;
 
@@ -50,12 +51,13 @@ public static class PerformanceCiFixtureSeed
         }
 
         var connection = dbContext.Database.GetDbConnection();
+        var configuredHost = new NpgsqlConnectionStringBuilder(connection.ConnectionString).Host;
         if (!string.Equals(connection.Database, DatabaseName, StringComparison.Ordinal) ||
-            !AllowedDatabaseDataSources.Contains(connection.DataSource))
+            !AllowedDatabaseDataSources.Contains(configuredHost))
         {
             throw new InvalidOperationException(
-                $"PERF-02 refuses database target '{connection.DataSource}/{connection.Database}'. " +
-                $"Expected an isolated local/Compose {DatabaseName} database.");
+                $"PERF-02 refuses database target '{connection.DataSource}/{connection.Database}' " +
+                $"(configured host '{configuredHost}'). Expected an isolated local/Compose {DatabaseName} database.");
         }
 
         var pendingMigrations = (await dbContext.Database.GetPendingMigrationsAsync(cancellationToken)).ToArray();
