@@ -1,4 +1,4 @@
-import { Component, ElementRef, ViewChild, computed, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, ViewChild, computed, inject } from '@angular/core';
 import { Router } from '@angular/router';
 
 import { AppDataGridActionEvent } from '../../../shared/grid/app-data-grid/app-data-grid.types';
@@ -21,9 +21,10 @@ import {
 import { TaskTableComponent } from '../task-table/task-table.component';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-my-tasks-page', standalone: true,
   imports: [AppEmptyStateComponent, AppErrorBannerComponent, AppInlineLoadingComponent, AppPermissionDeniedComponent, TaskTableComponent],
-  templateUrl: './my-tasks-page.component.html', styleUrl: './my-tasks-page.component.scss'
+  templateUrl: './my-tasks-page.component.html', styleUrl: './my-tasks-page.component.scss',
 })
 export class MyTasksPageComponent {
   @ViewChild('savedFilterNameInput') private savedFilterNameInput?: ElementRef<HTMLInputElement>;

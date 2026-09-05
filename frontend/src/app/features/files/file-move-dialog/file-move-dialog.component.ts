@@ -1,4 +1,4 @@
-import { Component, EventEmitter, Input, OnChanges, Output, SimpleChanges, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, Input, OnChanges, Output, SimpleChanges, inject, signal } from '@angular/core';
 import { Subscription } from 'rxjs';
 
 import { I18nService } from '../../../core/i18n/i18n.service';
@@ -12,6 +12,7 @@ interface DestinationOption {
 }
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-file-move-dialog',
   standalone: true,
   imports: [AipDialogComponent],

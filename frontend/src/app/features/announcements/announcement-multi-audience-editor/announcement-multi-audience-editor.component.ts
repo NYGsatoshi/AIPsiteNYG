@@ -1,12 +1,13 @@
 import {
+  ChangeDetectionStrategy,
   Component,
-  computed,
   EventEmitter,
   Input,
   OnChanges,
   Output,
-  signal,
   SimpleChanges,
+  computed,
+  signal,
 } from '@angular/core';
 
 import { AipDialogComponent } from '../../../shared/ui/aip-dialog/aip-dialog.component';
@@ -18,6 +19,7 @@ import {
 } from '../announcements.types';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-announcement-multi-audience-editor',
   standalone: true,
   imports: [AnnouncementEditorComponent, AipDialogComponent],

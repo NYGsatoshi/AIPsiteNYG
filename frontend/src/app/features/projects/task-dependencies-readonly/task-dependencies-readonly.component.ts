@@ -1,9 +1,10 @@
-import { Component, Input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 
 import { TaskDependencyViewModel } from '../projects.types';
 import { TaskStatusBadgeComponent } from '../task-status-badge/task-status-badge.component';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-task-dependencies-readonly',
   standalone: true,
   imports: [TaskStatusBadgeComponent],
@@ -75,7 +76,7 @@ import { TaskStatusBadgeComponent } from '../task-status-badge/task-status-badge
         border-radius: 0.5rem;
       }
     `
-  ]
+  ],
 })
 export class TaskDependenciesReadonlyComponent {
   @Input() dependencies: readonly TaskDependencyViewModel[] = [];

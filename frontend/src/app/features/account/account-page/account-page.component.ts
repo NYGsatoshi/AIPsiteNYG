@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { finalize } from 'rxjs';
 
 import { I18nService } from '../../../core/i18n/i18n.service';
@@ -15,6 +15,7 @@ import { SessionListComponent } from '../session-list/session-list.component';
 import { TaskNotificationPreferencesComponent } from '../task-notification-preferences/task-notification-preferences.component';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-account-page',
   standalone: true,
   imports: [
@@ -29,7 +30,7 @@ import { TaskNotificationPreferencesComponent } from '../task-notification-prefe
     TaskNotificationPreferencesComponent
   ],
   templateUrl: './account-page.component.html',
-  styleUrl: './account-page.component.scss'
+  styleUrl: './account-page.component.scss',
 })
 export class AccountPageComponent {
   private readonly facade = inject(AccountFacade);

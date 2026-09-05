@@ -1,4 +1,4 @@
-import { Component, computed, effect, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { distinctUntilChanged, map } from 'rxjs';
@@ -18,6 +18,7 @@ import { ProjectSummaryPanelComponent } from '../project-summary-panel/project-s
 import { FrontendFeatureFlagsService } from '../../../core/feature-flags/frontend-feature-flags.service';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-projects-overview-page',
   standalone: true,
   imports: [

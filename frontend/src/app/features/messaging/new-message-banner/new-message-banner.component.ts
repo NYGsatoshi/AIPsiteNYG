@@ -1,6 +1,7 @@
-import { Component, EventEmitter, Output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, Output } from '@angular/core';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-new-message-banner',
   standalone: true,
   template: `
@@ -26,7 +27,7 @@ import { Component, EventEmitter, Output } from '@angular/core';
         cursor: pointer;
       }
     `
-  ]
+  ],
 })
 export class NewMessageBannerComponent {
   @Output() readonly acknowledge = new EventEmitter<void>();

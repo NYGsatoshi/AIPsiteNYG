@@ -1,15 +1,16 @@
 import { DOCUMENT } from '@angular/common';
 import {
   AfterViewChecked,
+  ChangeDetectionStrategy,
   Component,
   ElementRef,
   EventEmitter,
-  inject,
   Input,
-  input,
   Output,
-  output,
   ViewChild,
+  inject,
+  input,
+  output,
 } from '@angular/core';
 import { LucideChevronLeft } from '@lucide/angular';
 
@@ -20,6 +21,7 @@ import { AnnouncementReadStateComponent } from '../announcement-read-state/annou
 import { AnnouncementViewModel } from '../announcements.types';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-announcement-detail',
   standalone: true,
   imports: [
@@ -30,7 +32,7 @@ import { AnnouncementViewModel } from '../announcements.types';
     AnnouncementReadStateComponent
   ],
   templateUrl: './announcement-detail.component.html',
-  styleUrl: './announcement-detail.component.scss'
+  styleUrl: './announcement-detail.component.scss',
 })
 export class AnnouncementDetailComponent implements AfterViewChecked {
   private readonly document = inject(DOCUMENT);

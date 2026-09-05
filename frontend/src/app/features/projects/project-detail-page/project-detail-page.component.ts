@@ -1,5 +1,5 @@
 import { BreakpointObserver } from '@angular/cdk/layout';
-import { Component, DestroyRef, ElementRef, OnDestroy, computed, effect, inject, signal, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, OnDestroy, computed, effect, inject, signal, viewChild } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { distinctUntilChanged, map } from 'rxjs';
@@ -33,7 +33,9 @@ import {
 import { TaskGridRow } from '../projects.types';
 import { TaskTableComponent } from '../task-table/task-table.component';
 
-@Component({ selector: 'app-project-detail-page', standalone: true, imports: [AppEmptyStateComponent, AppErrorBannerComponent, AppInlineLoadingComponent, AppPermissionDeniedComponent, AipKanbanComponent, AipGanttComponent, TaskTableComponent], templateUrl: './project-detail-page.component.html', styleUrl: './project-detail-page.component.scss' })
+@Component({ selector: 'app-project-detail-page', standalone: true, imports: [AppEmptyStateComponent, AppErrorBannerComponent, AppInlineLoadingComponent, AppPermissionDeniedComponent, AipKanbanComponent, AipGanttComponent, TaskTableComponent], templateUrl: './project-detail-page.component.html', styleUrl: './project-detail-page.component.scss',
+  changeDetection: ChangeDetectionStrategy.Eager,
+})
 export class ProjectDetailPageComponent implements OnDestroy {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);

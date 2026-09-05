@@ -1,8 +1,9 @@
-import { Component, Input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 
 import { RightPanelMember } from '../right-panel.types';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'li[app-member-list-item]',
   standalone: true,
   template: `
@@ -18,7 +19,7 @@ import { RightPanelMember } from '../right-panel.types';
       }
     </div>
   `,
-  styleUrl: './member-list-item.component.scss'
+  styleUrl: './member-list-item.component.scss',
 })
 export class MemberListItemComponent {
   @Input({ required: true }) member!: RightPanelMember;

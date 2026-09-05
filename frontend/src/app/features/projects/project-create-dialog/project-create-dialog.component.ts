@@ -1,15 +1,16 @@
 import {
-  afterNextRender,
+  ChangeDetectionStrategy,
   Component,
   ElementRef,
   EventEmitter,
-  inject,
   Injector,
   Input,
   OnChanges,
   Output,
   SimpleChanges,
   ViewChild,
+  afterNextRender,
+  inject,
 } from '@angular/core';
 import {
   AbstractControl,
@@ -41,6 +42,7 @@ import {
 } from '../project-create.facade';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-project-create-dialog',
   standalone: true,
   imports: [ReactiveFormsModule, AipDialogComponent, AppFieldErrorComponent, AppRequestIdComponent],

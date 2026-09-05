@@ -1,6 +1,6 @@
 /* eslint-disable @angular-eslint/sort-keys-in-type-decorator, @typescript-eslint/explicit-member-accessibility, @typescript-eslint/member-ordering, @typescript-eslint/method-signature-style, @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-magic-numbers, @typescript-eslint/prefer-optional-chain, @typescript-eslint/prefer-readonly-parameter-types, @typescript-eslint/strict-boolean-expressions, max-statements, new-cap, no-plusplus, no-ternary, no-void, one-var, sort-imports, sort-keys */
 import { HttpClient, HttpParams } from '@angular/common/http';
-import { Component, DestroyRef, computed, effect, inject, signal, untracked } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, signal, untracked } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { distinctUntilChanged, map, timer } from 'rxjs';
@@ -16,6 +16,7 @@ import {
 } from './audit-package-export-page.models';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-audit-package-export-page',
   standalone: true,
   imports: [RouterLink],

@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { take } from 'rxjs';
 
@@ -8,11 +8,12 @@ import { InviteRegistrationFormComponent } from '../invite-registration-form/inv
 import { InviteTokenStatePanelComponent } from '../invite-token-state-panel/invite-token-state-panel.component';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-invite-registration-page',
   standalone: true,
   imports: [InviteRegistrationFormComponent, InviteTokenStatePanelComponent],
   templateUrl: './invite-registration-page.component.html',
-  styleUrl: './invite-registration-page.component.scss'
+  styleUrl: './invite-registration-page.component.scss',
 })
 export class InviteRegistrationPageComponent {
   private readonly route = inject(ActivatedRoute);

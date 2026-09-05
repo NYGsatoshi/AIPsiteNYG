@@ -1,8 +1,9 @@
-import { Component, Input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 
 import { AuditSeverityDisplay } from '../admin.types';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-audit-severity-badge',
   standalone: true,
   template: `
@@ -67,7 +68,7 @@ import { AuditSeverityDisplay } from '../admin.types';
         color: #334155;
       }
     `
-  ]
+  ],
 })
 export class AuditSeverityBadgeComponent {
   @Input({ required: true }) severity: AuditSeverityDisplay = 'info';

@@ -1,4 +1,4 @@
-import { AfterViewChecked, Component, ElementRef, EventEmitter, Input, Output, ViewChild } from '@angular/core';
+import { AfterViewChecked, ChangeDetectionStrategy, Component, ElementRef, EventEmitter, Input, Output, ViewChild } from '@angular/core';
 
 import { FailedMessageItemComponent } from '../failed-message-item/failed-message-item.component';
 import { MessageItemComponent } from '../message-item/message-item.component';
@@ -10,6 +10,7 @@ import {
 import { NewMessageBannerComponent } from '../new-message-banner/new-message-banner.component';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-message-timeline',
   standalone: true,
   imports: [FailedMessageItemComponent, MessageItemComponent, NewMessageBannerComponent],
@@ -69,7 +70,7 @@ import { NewMessageBannerComponent } from '../new-message-banner/new-message-ban
       }
     </section>
   `,
-  styleUrl: './message-timeline.component.scss'
+  styleUrl: './message-timeline.component.scss',
 })
 export class MessageTimelineComponent implements AfterViewChecked {
   @ViewChild('timeline') private timeline?: ElementRef<HTMLElement>;

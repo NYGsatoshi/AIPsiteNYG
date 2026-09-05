@@ -1,8 +1,9 @@
-import { Component, EventEmitter, Input, OnChanges, Output, SimpleChanges } from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, Input, OnChanges, Output, SimpleChanges } from '@angular/core';
 
 import { MessagingMentionCandidate, MessageSendState } from '../messaging.types';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-message-composer',
   standalone: true,
   template: `
@@ -82,7 +83,7 @@ import { MessagingMentionCandidate, MessageSendState } from '../messaging.types'
       </div>
     </form>
   `,
-  styleUrl: './message-composer.component.scss'
+  styleUrl: './message-composer.component.scss',
 })
 export class MessageComposerComponent implements OnChanges {
   @Input() draft = '';

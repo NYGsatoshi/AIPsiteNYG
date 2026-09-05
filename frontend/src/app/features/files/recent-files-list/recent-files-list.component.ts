@@ -1,15 +1,16 @@
-import { Component, EventEmitter, Input, Output, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output, inject } from '@angular/core';
 
 import { I18nService } from '../../../core/i18n/i18n.service';
 import { FileRowComponent } from '../file-row/file-row.component';
 import { FileViewModel } from '../files.types';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-recent-files-list',
   standalone: true,
   imports: [FileRowComponent],
   templateUrl: './recent-files-list.component.html',
-  styleUrl: './recent-files-list.component.scss'
+  styleUrl: './recent-files-list.component.scss',
 })
 export class RecentFilesListComponent {
   readonly i18n = inject(I18nService);

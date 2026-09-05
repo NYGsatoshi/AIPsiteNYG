@@ -1,4 +1,4 @@
-import { afterNextRender, Component, DestroyRef, effect, ElementRef, inject, Injector, signal, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, Injector, afterNextRender, effect, inject, signal, viewChild } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import {
@@ -27,6 +27,7 @@ import {
 import { TaskCreateInput, TaskCreateSourceScopeMode } from '../task-create.api';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-task-create-page',
   standalone: true,
   imports: [

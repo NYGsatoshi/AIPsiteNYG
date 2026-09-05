@@ -1,15 +1,16 @@
-import { Component, EventEmitter, Input, Output, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output, inject, signal } from '@angular/core';
 
 import { I18nService } from '../../../core/i18n/i18n.service';
 import { FileScanStatusBadgeComponent } from '../file-scan-status-badge/file-scan-status-badge.component';
 import { FileViewModel } from '../files.types';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-file-row',
   standalone: true,
   imports: [FileScanStatusBadgeComponent],
   templateUrl: './file-row.component.html',
-  styleUrl: './file-row.component.scss'
+  styleUrl: './file-row.component.scss',
 })
 export class FileRowComponent {
   readonly i18n = inject(I18nService);

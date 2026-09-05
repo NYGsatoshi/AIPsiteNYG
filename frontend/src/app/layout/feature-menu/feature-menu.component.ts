@@ -1,4 +1,4 @@
-import { Component, EventEmitter, inject, Input, Output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output, inject } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
 
 import {
@@ -9,6 +9,7 @@ import {
 import { I18nService } from '../../core/i18n/i18n.service';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-feature-menu',
   standalone: true,
   imports: [RouterLink, RouterLinkActive],
@@ -166,7 +167,7 @@ import { I18nService } from '../../core/i18n/i18n.service';
       }
     </nav>
   `,
-  styleUrl: './feature-menu.component.scss'
+  styleUrl: './feature-menu.component.scss',
 })
 export class FeatureMenuComponent {
   readonly i18n = inject(I18nService);

@@ -88,7 +88,42 @@ export default tseslint.config(
       // angular-eslint 22 adds these rules to `tsAll`. Keep the Angular 21
       // lint-policy surface stable during the framework/toolchain migration.
       '@angular-eslint/inject-at-top': 'off',
-      '@angular-eslint/prefer-service-decorator': 'off'
+      '@angular-eslint/prefer-service-decorator': 'off',
+      // Angular 22's compatibility schematic adds explicit `changeDetection`
+      // metadata. Core `sort-keys` requires that key before `selector`, so align
+      // only the newly introduced key while preserving angular-eslint's order
+      // for every other Component metadata property.
+      '@angular-eslint/sort-keys-in-type-decorator': [
+        'warn',
+        {
+          Component: [
+            'changeDetection',
+            'selector',
+            'imports',
+            'standalone',
+            'templateUrl',
+            'template',
+            'styleUrl',
+            'styleUrls',
+            'styles',
+            'providers',
+            'encapsulation',
+            'viewProviders',
+            'host',
+            'hostDirectives',
+            'inputs',
+            'outputs',
+            'animations',
+            'schemas',
+            'exportAs',
+            'queries',
+            'preserveWhitespaces',
+            'jit',
+            'moduleId',
+            'interpolation'
+          ]
+        }
+      ]
     }
   },
 

@@ -1,4 +1,5 @@
 import {
+  ChangeDetectionStrategy,
   Component,
   ElementRef,
   HostListener,
@@ -7,7 +8,7 @@ import {
   SimpleChanges,
   ViewChild,
   inject,
-  signal
+  signal,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
@@ -16,6 +17,7 @@ import { MessagingApi, ParticipantStateDto } from '../messaging.api';
 type ConversationSettingsStatus = 'idle' | 'loading' | 'ready' | 'saving' | 'error';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-conversation-settings-panel',
   standalone: true,
   imports: [RouterLink],
@@ -126,7 +128,7 @@ type ConversationSettingsStatus = 'idle' | 'loading' | 'ready' | 'saving' | 'err
     .conversation-settings__footer { display: grid; gap: .25rem; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--aip-color-border-default); font-size: .875rem; }
     .conversation-settings__footer a { color: var(--aip-color-action-primary); font-weight: 800; }
     .conversation-settings__panel :focus-visible, .conversation-settings__trigger:focus-visible { outline: 2px solid var(--aip-color-focus); outline-offset: 3px; }
-  `]
+  `],
 })
 export class ConversationSettingsPanelComponent implements OnChanges {
   private readonly api = inject(MessagingApi);

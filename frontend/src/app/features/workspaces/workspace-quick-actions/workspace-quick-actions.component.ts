@@ -1,14 +1,15 @@
-import { Component, Input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import { WorkspaceActionCapability } from '../workspaces.types';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-workspace-quick-actions',
   standalone: true,
   imports: [RouterLink],
   templateUrl: './workspace-quick-actions.component.html',
-  styleUrl: './workspace-quick-actions.component.scss'
+  styleUrl: './workspace-quick-actions.component.scss',
 })
 export class WorkspaceQuickActionsComponent {
   @Input({ required: true }) workspaceId = '';

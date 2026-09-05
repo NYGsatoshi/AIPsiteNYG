@@ -1,5 +1,5 @@
 import { HttpClient } from '@angular/common/http';
-import { Component, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute } from '@angular/router';
 
@@ -24,6 +24,7 @@ interface ArtifactDetailViewModel {
 }
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-artifact-detail-page',
   standalone: true,
   template: `
@@ -60,7 +61,7 @@ interface ArtifactDetailViewModel {
     h1, p, dl { margin: 0; }
     dl { display: grid; grid-template-columns: max-content 1fr; gap: .5rem 1rem; }
     dt { font-weight: 600; }
-  `]
+  `],
 })
 export class ArtifactDetailPageComponent {
   private readonly http = inject(HttpClient);

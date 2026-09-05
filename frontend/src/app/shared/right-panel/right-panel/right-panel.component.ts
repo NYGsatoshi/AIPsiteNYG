@@ -1,5 +1,6 @@
 import { A11yModule } from '@angular/cdk/a11y';
 import {
+  ChangeDetectionStrategy,
   Component,
   ElementRef,
   Input,
@@ -28,6 +29,7 @@ const DEFAULT_RIGHT_PANEL_SCOPE: RightPanelScope = {
 };
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-right-panel',
   standalone: true,
   imports: [A11yModule, MembersTabComponent, NotificationsTabComponent],
