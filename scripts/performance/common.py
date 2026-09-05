@@ -32,8 +32,11 @@ def repository_root() -> Path:
 
 def load_json(path: Path) -> dict[str, Any]:
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+        # Runtime evidence may be emitted by .NET with a UTF-8 BOM. `utf-8-sig`
+        # accepts that canonical UTF-8 form while remaining strict about invalid
+        # byte sequences and malformed JSON.
+        value = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise PerformanceContractError(f"cannot read JSON {path}: {exc}") from exc
     if not isinstance(value, dict):
         raise PerformanceContractError(f"{path} must contain a JSON object")
