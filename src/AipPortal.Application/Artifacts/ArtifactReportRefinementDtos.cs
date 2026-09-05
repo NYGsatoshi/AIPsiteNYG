@@ -18,7 +18,19 @@ public sealed record RefineArtifactReportRequest(
     [property: System.ComponentModel.DataAnnotations.Range(typeof(long), "1", "9223372036854775807")] long ConfirmedProjectScopeVersion,
     long? ConfirmedTaskOverrideVersion,
     Guid? ConfirmedResearchPlanRevisionId,
-    long? ConfirmedResearchPlanRevisionNo);
+    long? ConfirmedResearchPlanRevisionNo) : System.ComponentModel.DataAnnotations.IValidatableObject
+{
+    public IEnumerable<System.ComponentModel.DataAnnotations.ValidationResult> Validate(
+        System.ComponentModel.DataAnnotations.ValidationContext validationContext)
+    {
+        if (ConfirmedResearchPlanRevisionId.HasValue != ConfirmedResearchPlanRevisionNo.HasValue)
+        {
+            yield return new System.ComponentModel.DataAnnotations.ValidationResult(
+                "Research Plan revision id and revision number must be supplied together.",
+                [nameof(ConfirmedResearchPlanRevisionId), nameof(ConfirmedResearchPlanRevisionNo)]);
+        }
+    }
+}
 
 public sealed record ArtifactReportRefinementScopeResponse(
     string Origin,
