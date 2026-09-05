@@ -14,6 +14,10 @@ const updateBaseline = process.argv.includes('--update-baseline');
 const verbose = process.argv.includes('--verbose');
 const baselineVersion = 1;
 const baselineStrategy = 'rule-count';
+const migrationFixRules = new Set([
+  '@angular-eslint/sort-keys-in-type-decorator',
+  'sort-imports'
+]);
 
 if (enforce && updateBaseline) {
   throw new Error('Use --enforce and --update-baseline separately.');
@@ -100,7 +104,8 @@ const baseline = enforce ? await loadBaseline() : null;
 const eslint = new ESLint({
   cwd: repoRoot,
   overrideConfigFile: path.join(toolRoot, 'eslint.config.mjs'),
-  errorOnUnmatchedPattern: false
+  errorOnUnmatchedPattern: false,
+  fix: (message) => migrationFixRules.has(message.ruleId)
 });
 
 const eslintTargets = [
@@ -111,6 +116,16 @@ const eslintTargets = [
   'frontend/**/*.html'
 ];
 const eslintResults = await eslint.lintFiles(eslintTargets);
+const migrationFixes = Object.fromEntries(
+  eslintResults
+    .filter((result) => typeof result.output === 'string')
+    .map((result) => [path.relative(repoRoot, result.filePath), result.output])
+);
+await writeFile(
+  path.join(artifactsRoot, 'migration-fixes.json'),
+  JSON.stringify(migrationFixes),
+  'utf8'
+);
 const stylish = await eslint.loadFormatter('stylish');
 const stylishOutput = stylish.format(eslintResults);
 if (verbose && stylishOutput) {
