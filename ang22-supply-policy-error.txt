@@ -1,0 +1,8 @@
+=== frontend ===
+npm lockfile policy violation: unreviewed install script detected: lmdb@3.5.6
+npm lockfile policy warning: stale allowScripts entry lmdb@3.5.1
+=== aipsite-frontend ===
+npm lockfile policy violation: unreviewed install script detected: lmdb@3.5.6
+npm lockfile policy warning: stale allowScripts entry lmdb@3.5.1
+frontend_status=1
+aipsite_frontend_status=1
