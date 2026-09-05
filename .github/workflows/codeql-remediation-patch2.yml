@@ -1,0 +1,135 @@
+name: CodeQL remaining remediation patch
+
+on:
+  push:
+    branches:
+      - security/codeql-non-angular-remediation
+    paths:
+      - .github/workflows/codeql-remediation-patch2.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout remediation branch
+        uses: actions/checkout@v7
+        with:
+          ref: security/codeql-non-angular-remediation
+          fetch-depth: 0
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Apply remaining boundary remediations
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              text = file.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected exactly one patch target, found {count}')
+              file.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          replace_once(
+              'src/AipPortal.Application/Projects/TaskCommandService.cs',
+              '        if (request.ExpectedVersion < 0) return Fail<TaskWatchStateResponse>("TASK_INVALID_EXPECTED_VERSION", "Expected watch state version must not be negative.");\n',
+              '')
+
+          replace_once(
+              'src/AipPortal.Web/Controllers/ProjectsController.cs',
+              '    public async Task<IActionResult> Unwatch(Guid taskItemId, [FromQuery] long expectedVersion, CancellationToken cancellationToken) => ToTaskActionResult(await taskCommands.UnwatchAsync(taskItemId, new TaskWatchRequest(expectedVersion), cancellationToken));',
+              '    public async Task<IActionResult> Unwatch(Guid taskItemId, [FromQuery, System.ComponentModel.DataAnnotations.Range(typeof(long), "0", "9223372036854775807")] long expectedVersion, CancellationToken cancellationToken) => ToTaskActionResult(await taskCommands.UnwatchAsync(taskItemId, new TaskWatchRequest(expectedVersion), cancellationToken));')
+
+          replace_once(
+              'src/AipPortal.Application/TenantExports/TenantExportDtos.cs',
+              'public sealed record TenantExportRequest(Guid? TenantId = null, [property: System.ComponentModel.DataAnnotations.AllowedValues(TenantExportType.Metadata)] TenantExportType ExportType = TenantExportType.Metadata);',
+              'public sealed record TenantExportRequest(Guid? TenantId = null);')
+
+          replace_once(
+              'src/AipPortal.Application/TenantExports/TenantExportService.cs',
+              '        if (request.ExportType != TenantExportType.Metadata)\n        {\n            return Result<TenantExportFileResponse>.Failure("Only metadata exports are available in the MVP.");\n        }\n\n',
+              '')
+
+          replace_once(
+              'src/AipPortal.Application/Artifacts/ArtifactReportRefinementDtos.cs',
+              '''public sealed record RefineArtifactReportRequest(
+    ArtifactReportRefinementTargetKind TargetKind,
+    Guid TargetLogicalId,
+    string? Feedback,
+    [property: System.ComponentModel.DataAnnotations.Range(typeof(long), "1", "9223372036854775807")] long ConfirmedProjectScopeVersion,
+    long? ConfirmedTaskOverrideVersion,
+    Guid? ConfirmedResearchPlanRevisionId,
+    long? ConfirmedResearchPlanRevisionNo);''',
+              '''public sealed record RefineArtifactReportRequest(
+    ArtifactReportRefinementTargetKind TargetKind,
+    Guid TargetLogicalId,
+    string? Feedback,
+    [property: System.ComponentModel.DataAnnotations.Range(typeof(long), "1", "9223372036854775807")] long ConfirmedProjectScopeVersion,
+    long? ConfirmedTaskOverrideVersion,
+    Guid? ConfirmedResearchPlanRevisionId,
+    long? ConfirmedResearchPlanRevisionNo) : System.ComponentModel.DataAnnotations.IValidatableObject
+{
+    public IEnumerable<System.ComponentModel.DataAnnotations.ValidationResult> Validate(
+        System.ComponentModel.DataAnnotations.ValidationContext validationContext)
+    {
+        if (ConfirmedResearchPlanRevisionId.HasValue != ConfirmedResearchPlanRevisionNo.HasValue)
+        {
+            yield return new System.ComponentModel.DataAnnotations.ValidationResult(
+                "Research Plan revision id and revision number must be supplied together.",
+                [nameof(ConfirmedResearchPlanRevisionId), nameof(ConfirmedResearchPlanRevisionNo)]);
+        }
+    }
+}''')
+
+          replace_once(
+              'src/AipPortal.Infrastructure/Persistence/DbArtifactReportRefinementService.cs',
+              '''        if (request.ConfirmedProjectScopeVersion <= 0 ||
+            (request.ConfirmedResearchPlanRevisionId.HasValue != request.ConfirmedResearchPlanRevisionNo.HasValue))
+            return Validation<ArtifactReportRefinementResponse>();
+''',
+              '')
+          PY
+
+      - name: Validate diff and build
+        shell: bash
+        run: |
+          git diff --check
+          dotnet restore AipPortal.slnx --disable-parallel --disable-build-servers --verbosity minimal
+          dotnet build AipPortal.slnx --configuration Release --no-restore --disable-build-servers -m:1
+
+      - name: Run focused regression tests
+        shell: bash
+        run: |
+          dotnet test tests/AipPortal.Tests/AipPortal.Tests.csproj \
+            --configuration Release \
+            --no-build \
+            --disable-build-servers \
+            -m:1 \
+            --filter "FullyQualifiedName~TaskCommandServiceTests|FullyQualifiedName~TenantExportServiceAuthorizationTests|FullyQualifiedName~ArtifactReportRefinementSectionTests"
+
+      - name: Commit remediation and remove one-shot workflow
+        shell: bash
+        run: |
+          rm .github/workflows/codeql-remediation-patch2.yml
+          git diff --check
+          git config user.name "Hirota Satoshi"
+          git config user.email "202610880@edu.nishiyamato.ed.jp"
+          git add \
+            src/AipPortal.Application/Projects/TaskCommandService.cs \
+            src/AipPortal.Web/Controllers/ProjectsController.cs \
+            src/AipPortal.Application/TenantExports/TenantExportDtos.cs \
+            src/AipPortal.Application/TenantExports/TenantExportService.cs \
+            src/AipPortal.Application/Artifacts/ArtifactReportRefinementDtos.cs \
+            src/AipPortal.Infrastructure/Persistence/DbArtifactReportRefinementService.cs \
+            .github/workflows/codeql-remediation-patch2.yml
+          git commit -m "fix(security): validate request shape before sensitive operations"
+          git push origin HEAD:security/codeql-non-angular-remediation
