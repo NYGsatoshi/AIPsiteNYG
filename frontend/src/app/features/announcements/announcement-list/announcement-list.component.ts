@@ -1,5 +1,6 @@
 import {
   AfterViewChecked,
+  ChangeDetectionStrategy,
   Component,
   ElementRef,
   EventEmitter,
@@ -17,6 +18,7 @@ import { AnnouncementReadStateComponent } from '../announcement-read-state/annou
 import { AnnouncementViewModel } from '../announcements.types';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-announcement-list',
   standalone: true,
   imports: [
@@ -26,7 +28,7 @@ import { AnnouncementViewModel } from '../announcements.types';
     AnnouncementReadStateComponent
   ],
   templateUrl: './announcement-list.component.html',
-  styleUrl: './announcement-list.component.scss'
+  styleUrl: './announcement-list.component.scss',
 })
 export class AnnouncementListComponent implements AfterViewChecked {
   @Input({ required: true }) announcements: readonly AnnouncementViewModel[] = [];

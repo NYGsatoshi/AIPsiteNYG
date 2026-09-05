@@ -1,4 +1,4 @@
-import { Component, ElementRef, EventEmitter, Input, OnDestroy, Output, ViewChild, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, EventEmitter, Input, OnDestroy, Output, ViewChild, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute, ParamMap, Router, RouterLink } from '@angular/router';
 import { Subscription } from 'rxjs';
 
@@ -70,6 +70,7 @@ const EMPTY_INBOX: MessagingInboxViewModel = {
 };
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-message-search-filters',
   standalone: true,
   imports: [AipFilterChipComponent, ConversationListComponent, RouterLink],
@@ -508,7 +509,7 @@ const EMPTY_INBOX: MessagingInboxViewModel = {
       </section>
     </section>
   `,
-  styleUrl: './message-search-filters.component.scss'
+  styleUrl: './message-search-filters.component.scss',
 })
 export class MessageSearchFiltersComponent implements OnDestroy {
   private readonly api = inject(MessagingApi);

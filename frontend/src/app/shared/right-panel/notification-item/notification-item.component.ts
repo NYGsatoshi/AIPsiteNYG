@@ -1,8 +1,9 @@
-import { Component, EventEmitter, Input, Output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output } from '@angular/core';
 import { RightPanelNotification } from '../right-panel.types';
 import { isSupportedNotificationTarget, requiresAuthorizedServerOpen } from '../right-panel.facade';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-notification-item',
   standalone: true,
   imports: [],
@@ -45,7 +46,7 @@ import { isSupportedNotificationTarget, requiresAuthorizedServerOpen } from '../
       </div>
     </article>
   `,
-  styleUrl: './notification-item.component.scss'
+  styleUrl: './notification-item.component.scss',
 })
 export class NotificationItemComponent {
   @Input({ required: true }) notification!: RightPanelNotification;

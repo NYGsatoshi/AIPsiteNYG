@@ -1,4 +1,4 @@
-import { Component, EventEmitter, Input, OnChanges, Output, SimpleChanges } from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, Input, OnChanges, Output, SimpleChanges } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
 export interface PageLocalSearchRow {
@@ -7,6 +7,7 @@ export interface PageLocalSearchRow {
 }
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-page-local-search',
   standalone: true,
   imports: [FormsModule],
@@ -40,7 +41,7 @@ export interface PageLocalSearchRow {
         font-weight: 400;
       }
     `
-  ]
+  ],
 })
 export class AppPageLocalSearchComponent implements OnChanges {
   @Input() rows: readonly PageLocalSearchRow[] = [];

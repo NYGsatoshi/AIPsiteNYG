@@ -1,4 +1,4 @@
-import { Component, Input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import { WorkStatusBadgeComponent } from '../../../shared/ui/work-status/work-status-badge.component';
@@ -6,6 +6,7 @@ import { projectWorkStatus } from '../projects.mapper';
 import { ProjectSummaryViewModel } from '../projects.types';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-project-summary-panel',
   standalone: true,
   imports: [RouterLink, WorkStatusBadgeComponent],
@@ -167,7 +168,7 @@ import { ProjectSummaryViewModel } from '../projects.types';
         }
       }
     `
-  ]
+  ],
 })
 export class ProjectSummaryPanelComponent {
   @Input() projects: readonly ProjectSummaryViewModel[] = [];

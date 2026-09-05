@@ -1,8 +1,9 @@
-import { Component, Input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 
 import { AuditResultDisplay } from '../admin.types';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-audit-result-badge',
   standalone: true,
   template: `
@@ -67,7 +68,7 @@ import { AuditResultDisplay } from '../admin.types';
         color: #334155;
       }
     `
-  ]
+  ],
 })
 export class AuditResultBadgeComponent {
   @Input({ required: true }) result: AuditResultDisplay = 'success';

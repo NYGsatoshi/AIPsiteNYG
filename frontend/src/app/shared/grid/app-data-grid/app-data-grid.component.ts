@@ -1,5 +1,6 @@
 import {
   AfterViewInit,
+  ChangeDetectionStrategy,
   Component,
   ComponentRef,
   EventEmitter,
@@ -14,7 +15,7 @@ import {
   computed,
   effect,
   inject,
-  signal
+  signal,
 } from '@angular/core';
 import { AgGridAngular } from 'ag-grid-angular';
 import {
@@ -47,11 +48,12 @@ import type { SyncfusionDataGridComponent } from '../../ui/adapters/syncfusion/s
 ModuleRegistry.registerModules([AllCommunityModule]);
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-data-grid',
   standalone: true,
   imports: [AgGridAngular],
   templateUrl: './app-data-grid.component.html',
-  styleUrl: './app-data-grid.component.scss'
+  styleUrl: './app-data-grid.component.scss',
 })
 export class AppDataGridComponent<TData extends object> implements OnInit, AfterViewInit, OnChanges, OnDestroy {
   private readonly flags = inject(FrontendFeatureFlagsService);

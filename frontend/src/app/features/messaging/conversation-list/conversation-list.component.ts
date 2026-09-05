@@ -1,10 +1,11 @@
-import { Component, EventEmitter, inject, Input, Output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import { MessageNavigationStateService } from '../message-navigation-state.service';
 import { MessagingConversationListItem } from '../messaging.types';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-conversation-list',
   standalone: true,
   imports: [RouterLink],
@@ -78,7 +79,7 @@ import { MessagingConversationListItem } from '../messaging.types';
       }
     </nav>
   `,
-  styleUrl: './conversation-list.component.scss'
+  styleUrl: './conversation-list.component.scss',
 })
 export class ConversationListComponent {
   private readonly navigationState = inject(MessageNavigationStateService);

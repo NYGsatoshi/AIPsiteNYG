@@ -1,4 +1,4 @@
-import { Component, EventEmitter, Input, OnChanges, OnDestroy, OnInit, Output, SimpleChanges } from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, Input, OnChanges, OnDestroy, OnInit, Output, SimpleChanges } from '@angular/core';
 import { Subscription } from 'rxjs';
 import {
   AbstractControl,
@@ -46,6 +46,7 @@ export const integerRangeValidator = (min: number, max: number): ValidatorFn => 
 };
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-task-editor',
   standalone: true,
   imports: [ReactiveFormsModule, TaskBriefFieldsComponent],
@@ -382,7 +383,7 @@ export const integerRangeValidator = (min: number, max: number): ValidatorFn => 
         }
       }
     `
-  ]
+  ],
 })
 export class TaskEditorComponent implements OnChanges, OnInit, OnDestroy {
   @Input() task: TaskMockRecord | undefined;

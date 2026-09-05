@@ -1,8 +1,9 @@
-import { Component, inject, Input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input, inject } from '@angular/core';
 
 import { I18nService } from '../../core/i18n/i18n.service';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-account-rail',
   standalone: true,
   template: `
@@ -16,7 +17,7 @@ import { I18nService } from '../../core/i18n/i18n.service';
       </div>
     </aside>
   `,
-  styleUrl: './account-rail.component.scss'
+  styleUrl: './account-rail.component.scss',
 })
 export class AccountRailComponent {
   readonly i18n = inject(I18nService);

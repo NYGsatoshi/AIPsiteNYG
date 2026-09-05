@@ -30,6 +30,15 @@ fi
 
 compose=(docker compose -p "$PROJECT_NAME" -f "$BASE_COMPOSE" -f "$OVERLAY_COMPOSE")
 mkdir -p test-results
+if [[ ! -w test-results ]]; then
+  uid="$(id -u)"
+  gid="$(id -g)"
+  echo "Repairing test-results ownership left by a previous Docker acceptance lane."
+  docker run --rm \
+    -v "$PWD/test-results:/results" \
+    alpine:3.21 \
+    sh -c "chown -R ${uid}:${gid} /results"
+fi
 
 cleanup() {
   local exit_code=$?

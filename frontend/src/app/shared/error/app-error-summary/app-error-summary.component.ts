@@ -1,9 +1,10 @@
-import { Component, Input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 
 import { FrontendApiError } from '../../../core/api/api-error.model';
 import { AppErrorBannerComponent } from '../app-error-banner/app-error-banner.component';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-error-summary',
   standalone: true,
   imports: [AppErrorBannerComponent],
@@ -21,7 +22,7 @@ import { AppErrorBannerComponent } from '../app-error-banner/app-error-banner.co
         gap: 0.75rem;
       }
     `
-  ]
+  ],
 })
 export class AppErrorSummaryComponent {
   @Input() errors: readonly FrontendApiError[] = [];

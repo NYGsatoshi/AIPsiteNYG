@@ -1,6 +1,7 @@
 import { A11yModule } from '@angular/cdk/a11y';
 import {
   AfterViewChecked,
+  ChangeDetectionStrategy,
   Component,
   DestroyRef,
   ElementRef,
@@ -8,7 +9,7 @@ import {
   computed,
   inject,
   signal,
-  viewChild
+  viewChild,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router, RouterOutlet } from '@angular/router';
@@ -27,6 +28,7 @@ import { TopBarComponent } from '../top-bar/top-bar.component';
 import { AppShellFacade } from './app-shell.facade';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-shell',
   standalone: true,
   imports: [
@@ -40,7 +42,7 @@ import { AppShellFacade } from './app-shell.facade';
     TopBarComponent
   ],
   templateUrl: './app-shell.component.html',
-  styleUrl: './app-shell.component.scss'
+  styleUrl: './app-shell.component.scss',
 })
 export class AppShellComponent implements AfterViewChecked {
   private readonly destroyRef = inject(DestroyRef);

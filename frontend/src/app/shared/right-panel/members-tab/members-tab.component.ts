@@ -1,10 +1,11 @@
-import { Component, Input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 
 import { AppPermissionDeniedComponent } from '../../permission/app-permission-denied/app-permission-denied.component';
 import { MemberListItemComponent } from '../member-list-item/member-list-item.component';
 import { RightPanelMember, RightPanelPermission } from '../right-panel.types';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-members-tab',
   standalone: true,
   imports: [AppPermissionDeniedComponent, MemberListItemComponent],
@@ -26,7 +27,7 @@ import { RightPanelMember, RightPanelPermission } from '../right-panel.types';
       }
     </section>
   `,
-  styleUrl: './members-tab.component.scss'
+  styleUrl: './members-tab.component.scss',
 })
 export class MembersTabComponent {
   @Input({ required: true }) members: readonly RightPanelMember[] = [];

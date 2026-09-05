@@ -1,5 +1,6 @@
 import { A11yModule } from '@angular/cdk/a11y';
 import {
+  ChangeDetectionStrategy,
   Component,
   DestroyRef,
   ElementRef,
@@ -52,6 +53,7 @@ const TEXT_PREVIEW_MAX_BYTES = 512 * 1024;
 const PREVIEW_OVERLAY_MAX_WIDTH = 860;
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-files-page',
   standalone: true,
   imports: [
@@ -68,7 +70,7 @@ const PREVIEW_OVERLAY_MAX_WIDTH = 860;
     RecentFilesListComponent,
   ],
   templateUrl: './files-page.component.html',
-  styleUrl: './files-page.component.scss'
+  styleUrl: './files-page.component.scss',
 })
 export class FilesPageComponent {
   @ViewChild(AppDataGridComponent) private dataGrid?: AppDataGridComponent<FileViewModel>;

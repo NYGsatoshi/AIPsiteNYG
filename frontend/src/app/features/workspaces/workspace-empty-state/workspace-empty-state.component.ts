@@ -1,10 +1,11 @@
-import { Component, EventEmitter, Input, Output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output } from '@angular/core';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-workspace-empty-state',
   standalone: true,
   templateUrl: './workspace-empty-state.component.html',
-  styleUrl: './workspace-empty-state.component.scss'
+  styleUrl: './workspace-empty-state.component.scss',
 })
 export class WorkspaceEmptyStateComponent {
   @Input() title = '表示できるWorkspaceがありません';

@@ -3296,7 +3296,7 @@ test.describe('MVP0 real backend browser smoke', () => {
       expectUnexpectedConsoleErrors(ownerEvidence);
       expectUnexpectedApiFailures(ownerEvidence);
       expect(evidence.pageErrors, 'PR07-D recipient browser page errors').toEqual([]);
-      expectUnexpectedConsoleErrors(evidence);
+      expectUnexpectedConsoleErrors(evidence, [expectedRevokedNotificationDenial]);
       expectUnexpectedApiFailures(evidence, [expectedRevokedNotificationDenial]);
     } finally {
       await ownerContext?.close();

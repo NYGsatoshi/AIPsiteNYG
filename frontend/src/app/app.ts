@@ -1,4 +1,4 @@
-import { Component, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 
 import { AipThemeToggleComponent } from './shared/theme/aip-theme-toggle/aip-theme-toggle.component';
@@ -6,10 +6,11 @@ import { RealtimeFacade } from './core/realtime/realtime.facade';
 import { I18nService } from './core/i18n/i18n.service';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-root',
   imports: [RouterOutlet, AipThemeToggleComponent],
   templateUrl: './app.html',
-  styleUrl: './app.scss'
+  styleUrl: './app.scss',
 })
 export class AppComponent {
   // Root ownership makes the transport lifecycle follow the authenticated app,

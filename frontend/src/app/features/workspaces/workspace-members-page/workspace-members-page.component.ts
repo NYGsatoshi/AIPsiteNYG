@@ -1,4 +1,4 @@
-import { Component, computed, effect, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
@@ -20,6 +20,7 @@ import { ActiveWorkspaceFacade } from '../../../core/workspace/active-workspace.
 import { WorkspaceMemberGridRow, WorkspaceMemberRowAction } from '../members.types';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-workspace-members-page',
   standalone: true,
   imports: [
@@ -32,7 +33,7 @@ import { WorkspaceMemberGridRow, WorkspaceMemberRowAction } from '../members.typ
     AppPermissionDeniedComponent
   ],
   templateUrl: './workspace-members-page.component.html',
-  styleUrl: './workspace-members-page.component.scss'
+  styleUrl: './workspace-members-page.component.scss',
 })
 export class WorkspaceMembersPageComponent {
   private readonly facade = inject(WorkspaceMembersFacade);
