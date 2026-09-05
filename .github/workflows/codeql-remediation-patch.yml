@@ -143,7 +143,7 @@ jobs:
               "  assert.equal(sanitized.includes('font-family: Roboto, sans-serif'), true);",
               '  assert.equal(\n'
               '    sanitized,\n'
-              '    [\'@import "./local-overrides.css";\', \'.e-control { font-family: Roboto, sans-serif; }\'].join(\'\\n\')\n'
+              '    [\'\', \'@import "./local-overrides.css";\', \'.e-control { font-family: Roboto, sans-serif; }\'].join(\'\\n\')\n'
               '  );')
           PY
 
