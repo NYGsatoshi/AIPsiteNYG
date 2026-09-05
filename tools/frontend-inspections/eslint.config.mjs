@@ -83,6 +83,12 @@ export default tseslint.config(
         project: ['./tsconfig.eslint.json'],
         tsconfigRootDir: frontendRoot
       }
+    },
+    rules: {
+      // angular-eslint 22 adds these rules to `tsAll`. Keep the Angular 21
+      // lint-policy surface stable during the framework/toolchain migration.
+      '@angular-eslint/inject-at-top': 'off',
+      '@angular-eslint/prefer-service-decorator': 'off'
     }
   },
 
@@ -101,6 +107,15 @@ export default tseslint.config(
   },
 
   ...scope([angular.configs.templateAll], angularTemplateFiles),
+  {
+    files: angularTemplateFiles,
+    rules: {
+      // angular-eslint 22 adds these rules to `templateAll`. Enabling new
+      // policy belongs in a separate lint-policy change, not ANG22-04.
+      '@angular-eslint/template/no-outerhtml': 'off',
+      '@angular-eslint/template/require-switch-default': 'off'
+    }
+  },
   {
     files: [
       'playwright.functional.config.ts',
