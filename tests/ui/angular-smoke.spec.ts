@@ -2519,7 +2519,7 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     } else {
       await expect(page.getByRole('heading', { name: 'Timeline chart', exact: true })).toBeVisible();
       await expect(page.getByTestId('aip-syncfusion-gantt')).toBeVisible();
-      await expect(page.getByTestId('aip-gantt-vendor-error')).toHaveCount(0);
+      await expect(page.getByTestId('aip-gantt-vendor-error')).not.toBeVisible();
     }
 
     let scheduleItem = ganttItem(page, 'task-gantt-schedule');
