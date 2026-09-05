@@ -17,6 +17,23 @@ spec.loader.exec_module(common)
 
 
 class PerformanceEnvironmentContractTests(unittest.TestCase):
+    def test_load_json_accepts_utf8_bom_but_remains_fail_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            temp = Path(directory)
+            bom_json = temp / "fixture.json"
+            bom_json.write_bytes(b"\xef\xbb\xbf" + json.dumps({"schemaVersion": 1}).encode("utf-8"))
+            self.assertEqual({"schemaVersion": 1}, common.load_json(bom_json))
+
+            malformed = temp / "malformed.json"
+            malformed.write_bytes(b"\xef\xbb\xbf{not-json}")
+            with self.assertRaises(common.PerformanceContractError):
+                common.load_json(malformed)
+
+            invalid_utf8 = temp / "invalid-utf8.json"
+            invalid_utf8.write_bytes(b"{\xff}")
+            with self.assertRaises(common.PerformanceContractError):
+                common.load_json(invalid_utf8)
+
     def test_fixture_hash_is_stable_and_profile_specific(self) -> None:
         hashes = []
         for profile in ("small", "medium", "large"):
