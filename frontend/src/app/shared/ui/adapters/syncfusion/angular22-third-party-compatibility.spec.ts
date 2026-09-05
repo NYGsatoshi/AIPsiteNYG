@@ -37,11 +37,9 @@ describe('Angular 22 third-party compatibility', () => {
     fixture.detectChanges();
     await fixture.whenStable();
 
-    const [uploader, dialog, icon] = [
-      fixture.debugElement.query(By.directive(UploaderComponent))?.componentInstance,
-      fixture.debugElement.query(By.directive(DialogComponent))?.componentInstance,
-      fixture.debugElement.query(By.directive(LucideCircle))?.componentInstance,
-    ];
+    const uploader = fixture.debugElement.query(By.directive(UploaderComponent)).injector.get(UploaderComponent),
+      dialog = fixture.debugElement.query(By.directive(DialogComponent)).injector.get(DialogComponent),
+      icon = fixture.debugElement.query(By.directive(LucideCircle)).injector.get(LucideCircle);
 
     expect(uploader).toBeInstanceOf(UploaderComponent);
     expect(dialog).toBeInstanceOf(DialogComponent);
