@@ -47,89 +47,84 @@ jobs:
           replace_once(
               'src/AipPortal.Web/Middleware/CsrfProtectionMiddleware.cs',
               '            logger.LogWarning(ex, "Rejected unsafe request without a valid CSRF token: {Method} {Path}", context.Request.Method, context.Request.Path);',
-              '''            var safeMethod = context.Request.Method
-                  .Replace("\\r", string.Empty, StringComparison.Ordinal)
-                  .Replace("\\n", string.Empty, StringComparison.Ordinal);
-              var safePath = (context.Request.Path.Value ?? string.Empty)
-                  .Replace("\\r", string.Empty, StringComparison.Ordinal)
-                  .Replace("\\n", string.Empty, StringComparison.Ordinal);
-              logger.LogWarning(
-                  ex,
-                  "Rejected unsafe request without a valid CSRF token: {Method} {Path}",
-                  safeMethod,
-                  safePath);''')
+              '            var safeMethod = context.Request.Method\n'
+              '                .Replace("\\r", string.Empty, StringComparison.Ordinal)\n'
+              '                .Replace("\\n", string.Empty, StringComparison.Ordinal);\n'
+              '            var safePath = (context.Request.Path.Value ?? string.Empty)\n'
+              '                .Replace("\\r", string.Empty, StringComparison.Ordinal)\n'
+              '                .Replace("\\n", string.Empty, StringComparison.Ordinal);\n'
+              '            logger.LogWarning(\n'
+              '                ex,\n'
+              '                "Rejected unsafe request without a valid CSRF token: {Method} {Path}",\n'
+              '                safeMethod,\n'
+              '                safePath);')
 
           replace_once(
               'src/AipPortal.Infrastructure/Persistence/FileFolderService.cs',
-              '''    {
-              if (request.ExpectedVersion < 0 || request.ExpectedDestinationVersion < 0)
-              {
-                  return Result<FileLocationResponse>.Failure("Invalid file move version.");
-              }
-
-              var authorized = await ResolveAuthorizedWorkspaceFileAsync(fileObjectId, requireContribution: true, cancellationToken);
-              if (authorized is null)
-              {
-                  return Result<FileLocationResponse>.Failure("File not found.");
-              }
-
-              var workspaceId = authorized.Value.WorkspaceId;''',
-              '''    {
-              var authorized = await ResolveAuthorizedWorkspaceFileAsync(fileObjectId, requireContribution: true, cancellationToken);
-              if (authorized is null)
-              {
-                  return Result<FileLocationResponse>.Failure("File not found.");
-              }
-
-              if (request.ExpectedVersion < 0 || request.ExpectedDestinationVersion < 0)
-              {
-                  return Result<FileLocationResponse>.Failure("Invalid file move version.");
-              }
-
-              var workspaceId = authorized.Value.WorkspaceId;''')
+              '    {\n'
+              '        if (request.ExpectedVersion < 0 || request.ExpectedDestinationVersion < 0)\n'
+              '        {\n'
+              '            return Result<FileLocationResponse>.Failure("Invalid file move version.");\n'
+              '        }\n\n'
+              '        var authorized = await ResolveAuthorizedWorkspaceFileAsync(fileObjectId, requireContribution: true, cancellationToken);\n'
+              '        if (authorized is null)\n'
+              '        {\n'
+              '            return Result<FileLocationResponse>.Failure("File not found.");\n'
+              '        }\n\n'
+              '        var workspaceId = authorized.Value.WorkspaceId;',
+              '    {\n'
+              '        var authorized = await ResolveAuthorizedWorkspaceFileAsync(fileObjectId, requireContribution: true, cancellationToken);\n'
+              '        if (authorized is null)\n'
+              '        {\n'
+              '            return Result<FileLocationResponse>.Failure("File not found.");\n'
+              '        }\n\n'
+              '        if (request.ExpectedVersion < 0 || request.ExpectedDestinationVersion < 0)\n'
+              '        {\n'
+              '            return Result<FileLocationResponse>.Failure("Invalid file move version.");\n'
+              '        }\n\n'
+              '        var workspaceId = authorized.Value.WorkspaceId;')
 
           replace_once(
               'src/AipPortal.Infrastructure/Persistence/DbArtifactReportRefinementService.cs',
-              '''        if (request.ConfirmedProjectScopeVersion <= 0 ||
-              (request.ConfirmedResearchPlanRevisionId.HasValue != request.ConfirmedResearchPlanRevisionNo.HasValue))
-              return Validation<ArtifactReportRefinementResponse>();
-
-          var context = await LoadContextAsync(projectId, baseArtifactVersionId, userId, cancellationToken);''',
-              '''        var context = await LoadContextAsync(projectId, baseArtifactVersionId, userId, cancellationToken);''')
+              '        if (request.ConfirmedProjectScopeVersion <= 0 ||\n'
+              '            (request.ConfirmedResearchPlanRevisionId.HasValue != request.ConfirmedResearchPlanRevisionNo.HasValue))\n'
+              '            return Validation<ArtifactReportRefinementResponse>();\n\n'
+              '        var context = await LoadContextAsync(projectId, baseArtifactVersionId, userId, cancellationToken);',
+              '        var context = await LoadContextAsync(projectId, baseArtifactVersionId, userId, cancellationToken);')
 
           replace_once(
               'src/AipPortal.Infrastructure/Persistence/DbArtifactReportRefinementService.cs',
-              '''        var snapshot = await ReadScopeSnapshotAsync(context.Task.Id, cancellationToken);
-          if (snapshot is null)
-              return Failure<ArtifactReportRefinementResponse>("ReportRefinementUnavailable", "The report refinement scope is unavailable.");
-          if (!MatchesConfirmation(snapshot, request))''',
-              '''        var snapshot = await ReadScopeSnapshotAsync(context.Task.Id, cancellationToken);
-          if (snapshot is null)
-              return Failure<ArtifactReportRefinementResponse>("ReportRefinementUnavailable", "The report refinement scope is unavailable.");
-          if (request.ConfirmedProjectScopeVersion <= 0 ||
-              (request.ConfirmedResearchPlanRevisionId.HasValue != request.ConfirmedResearchPlanRevisionNo.HasValue))
-              return Validation<ArtifactReportRefinementResponse>();
-          if (!MatchesConfirmation(snapshot, request))''')
+              '        var snapshot = await ReadScopeSnapshotAsync(context.Task.Id, cancellationToken);\n'
+              '        if (snapshot is null)\n'
+              '            return Failure<ArtifactReportRefinementResponse>("ReportRefinementUnavailable", "The report refinement scope is unavailable.");\n'
+              '        if (!MatchesConfirmation(snapshot, request))',
+              '        var snapshot = await ReadScopeSnapshotAsync(context.Task.Id, cancellationToken);\n'
+              '        if (snapshot is null)\n'
+              '            return Failure<ArtifactReportRefinementResponse>("ReportRefinementUnavailable", "The report refinement scope is unavailable.");\n'
+              '        if (request.ConfirmedProjectScopeVersion <= 0 ||\n'
+              '            (request.ConfirmedResearchPlanRevisionId.HasValue != request.ConfirmedResearchPlanRevisionNo.HasValue))\n'
+              '            return Validation<ArtifactReportRefinementResponse>();\n'
+              '        if (!MatchesConfirmation(snapshot, request))')
 
           replace_once(
               'src/AipPortal.Application/Files/IFileFolderService.cs',
-              '''public sealed record FileMoveRequest(
-              Guid? DestinationFolderId,
-              long ExpectedVersion,
-              long ExpectedDestinationVersion);''',
-              '''public sealed record FileMoveRequest(
-              Guid? DestinationFolderId,
-              [property: System.ComponentModel.DataAnnotations.Range(typeof(long), "0", "9223372036854775807")] long ExpectedVersion,
-              [property: System.ComponentModel.DataAnnotations.Range(typeof(long), "0", "9223372036854775807")] long ExpectedDestinationVersion);''')
+              'public sealed record FileMoveRequest(\n'
+              '    Guid? DestinationFolderId,\n'
+              '    long ExpectedVersion,\n'
+              '    long ExpectedDestinationVersion);',
+              'public sealed record FileMoveRequest(\n'
+              '    Guid? DestinationFolderId,\n'
+              '    [property: System.ComponentModel.DataAnnotations.Range(typeof(long), "0", "9223372036854775807")] long ExpectedVersion,\n'
+              '    [property: System.ComponentModel.DataAnnotations.Range(typeof(long), "0", "9223372036854775807")] long ExpectedDestinationVersion);')
 
           replace_once(
               'src/AipPortal.Application/Artifacts/ArtifactReportRefinementDtos.cs',
-              '''    string? Feedback,
-              long ConfirmedProjectScopeVersion,
-              long? ConfirmedTaskOverrideVersion,''',
-              '''    string? Feedback,
-              [property: System.ComponentModel.DataAnnotations.Range(typeof(long), "1", "9223372036854775807")] long ConfirmedProjectScopeVersion,
-              long? ConfirmedTaskOverrideVersion,''')
+              '    string? Feedback,\n'
+              '    long ConfirmedProjectScopeVersion,\n'
+              '    long? ConfirmedTaskOverrideVersion,',
+              '    string? Feedback,\n'
+              '    [property: System.ComponentModel.DataAnnotations.Range(typeof(long), "1", "9223372036854775807")] long ConfirmedProjectScopeVersion,\n'
+              '    long? ConfirmedTaskOverrideVersion,')
 
           replace_once(
               'src/AipPortal.Application/Projects/TaskCommandDtos.cs',
@@ -143,13 +138,13 @@ jobs:
 
           replace_once(
               'frontend/scripts/sanitize-syncfusion-theme-css.node-test.mjs',
-              '''  assert.equal(sanitized.includes('fonts.googleapis.com'), false);
-          assert.equal(sanitized.includes('@import "./local-overrides.css";'), true);
-          assert.equal(sanitized.includes('font-family: Roboto, sans-serif'), true);''',
-              '''  assert.equal(
-              sanitized,
-              ['@import "./local-overrides.css";', '.e-control { font-family: Roboto, sans-serif; }'].join('\\n')
-            );''')
+              "  assert.equal(sanitized.includes('fonts.googleapis.com'), false);\n"
+              '  assert.equal(sanitized.includes(\'@import "./local-overrides.css";\'), true);\n'
+              "  assert.equal(sanitized.includes('font-family: Roboto, sans-serif'), true);",
+              '  assert.equal(\n'
+              '    sanitized,\n'
+              '    [\'@import "./local-overrides.css";\', \'.e-control { font-family: Roboto, sans-serif; }\'].join(\'\\n\')\n'
+              '  );')
           PY
 
       - name: Validate lightweight security regressions
