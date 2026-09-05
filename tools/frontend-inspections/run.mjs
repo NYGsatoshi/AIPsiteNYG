@@ -99,13 +99,73 @@ function printRegressions(label, regressions) {
   }
 }
 
+async function collectMigrationFixes(results) {
+  const fixedFiles = {};
+  const unsupportedFindings = [];
+
+  for (const result of results) {
+    const messages = result.messages.filter((message) => migrationFixRules.has(message.ruleId));
+    if (messages.length === 0) {
+      continue;
+    }
+
+    const edits = messages
+      .filter((message) => message.fix?.range && typeof message.fix.text === 'string')
+      .map((message) => ({
+        ruleId: message.ruleId,
+        range: message.fix.range,
+        text: message.fix.text
+      }))
+      .sort((left, right) => right.range[0] - left.range[0]);
+
+    for (const message of messages.filter((message) => !message.fix?.range)) {
+      unsupportedFindings.push({
+        file: path.relative(repoRoot, result.filePath),
+        ruleId: message.ruleId,
+        line: message.line,
+        column: message.column,
+        message: message.message
+      });
+    }
+
+    if (edits.length === 0) {
+      continue;
+    }
+
+    let source = await readFile(result.filePath, 'utf8');
+    let nextBoundary = source.length;
+    let changed = false;
+    for (const edit of edits) {
+      const [start, end] = edit.range;
+      if (start < 0 || end < start || end > nextBoundary) {
+        unsupportedFindings.push({
+          file: path.relative(repoRoot, result.filePath),
+          ruleId: edit.ruleId,
+          line: null,
+          column: null,
+          message: `Skipped overlapping or invalid fix range [${start}, ${end}).`
+        });
+        continue;
+      }
+      source = `${source.slice(0, start)}${edit.text}${source.slice(end)}`;
+      nextBoundary = start;
+      changed = true;
+    }
+
+    if (changed) {
+      fixedFiles[path.relative(repoRoot, result.filePath)] = source;
+    }
+  }
+
+  return { fixedFiles, unsupportedFindings };
+}
+
 const baseline = enforce ? await loadBaseline() : null;
 
 const eslint = new ESLint({
   cwd: repoRoot,
   overrideConfigFile: path.join(toolRoot, 'eslint.config.mjs'),
-  errorOnUnmatchedPattern: false,
-  fix: (message) => migrationFixRules.has(message.ruleId)
+  errorOnUnmatchedPattern: false
 });
 
 const eslintTargets = [
@@ -116,11 +176,7 @@ const eslintTargets = [
   'frontend/**/*.html'
 ];
 const eslintResults = await eslint.lintFiles(eslintTargets);
-const migrationFixes = Object.fromEntries(
-  eslintResults
-    .filter((result) => typeof result.output === 'string')
-    .map((result) => [path.relative(repoRoot, result.filePath), result.output])
-);
+const migrationFixes = await collectMigrationFixes(eslintResults);
 await writeFile(
   path.join(artifactsRoot, 'migration-fixes.json'),
   JSON.stringify(migrationFixes),
