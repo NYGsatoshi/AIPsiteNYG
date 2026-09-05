@@ -3241,20 +3241,26 @@ test.describe('MVP0 real backend browser smoke', () => {
       expect(revoke.csrfHeaderPresent).toBe(true);
       await protectedNotificationCleared;
 
+      const revokedNotificationOpenPath = `/api/notifications/${delayed.notificationId}/open`;
       const unavailable = await requestWithCsrf(
         page,
         'POST',
-        `/api/notifications/${delayed.notificationId}/open`
+        revokedNotificationOpenPath
       );
+      const expectedRevokedNotificationDenial: SmokeFailedApiResponse = {
+        method: 'POST',
+        path: revokedNotificationOpenPath,
+        status: 404
+      };
       const unavailableBody = parseJson(unavailable.text) as Record<string, unknown>;
       evidence.steps.push({
         name: 'pr07-open-revoked-task-notification-is-unavailable',
         method: 'POST',
-        path: `/api/notifications/${delayed.notificationId}/open`,
+        path: revokedNotificationOpenPath,
         status: unavailable.status,
         bodyPreview: preview(unavailable.text)
       });
-      expect(unavailable.status, unavailable.text).toBe(200);
+      expect(unavailable.status, unavailable.text).toBe(404);
       expect(unavailableBody).toMatchObject({ outcome: 'Unavailable', route: null });
       expect(unavailable.text).not.toContain(pr07TaskTitle);
       expect(unavailable.text).not.toContain(projectId);
@@ -3291,7 +3297,7 @@ test.describe('MVP0 real backend browser smoke', () => {
       expectUnexpectedApiFailures(ownerEvidence);
       expect(evidence.pageErrors, 'PR07-D recipient browser page errors').toEqual([]);
       expectUnexpectedConsoleErrors(evidence);
-      expectUnexpectedApiFailures(evidence);
+      expectUnexpectedApiFailures(evidence, [expectedRevokedNotificationDenial]);
     } finally {
       await ownerContext?.close();
       await testInfo.attach('task-v1-pr07d-real-backend-evidence.json', {
