@@ -29,6 +29,9 @@ jobs:
       - name: Use repository npm version
         run: npm install --global npm@11.17.0
 
+      - name: Remove Angular 21 lockfiles before regeneration
+        run: rm -f frontend/package-lock.json aipsite-frontend/package-lock.json
+
       - name: Resolve frontend lockfile strictly
         shell: bash
         run: |
