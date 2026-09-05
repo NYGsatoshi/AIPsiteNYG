@@ -1,4 +1,4 @@
-name: ANG22 metadata reorder (one-shot)
+name: ANG22 metadata comma fix (one-shot)
 
 on:
   push:
@@ -11,7 +11,7 @@ permissions:
   contents: write
 
 jobs:
-  reorder:
+  fix:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout migration branch
@@ -19,79 +19,47 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Reorder migrated changeDetection metadata
+      - name: Normalize migrated changeDetection commas
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          import re
 
           root = Path('frontend/src')
           target = 'changeDetection: ChangeDetectionStrategy.Eager'
-          property_re = re.compile(r'^(?P<indent>\s*)(?P<key>[A-Za-z_$][\w$]*)\s*:')
           modified_files = 0
-          moved_entries = 0
+          modified_entries = 0
 
           for path in sorted(root.rglob('*.ts')):
               text = path.read_text(encoding='utf-8')
               lines = text.splitlines(keepends=True)
-              target_indexes = [i for i, line in enumerate(lines) if target in line]
-              if not target_indexes:
-                  continue
-
               changed = False
-              for index in reversed(target_indexes):
-                  target_line = lines[index]
-                  indent = target_line[: len(target_line) - len(target_line.lstrip())]
-
-                  opener = None
-                  for cursor in range(index - 1, -1, -1):
-                      if '@Component({' in lines[cursor]:
-                          opener = cursor
-                          break
-                  if opener is None:
-                      raise RuntimeError(f'{path}:{index + 1}: no @Component opener found')
-
-                  top_level = []
-                  for cursor in range(opener + 1, index):
-                      match = property_re.match(lines[cursor])
-                      if match and match.group('indent') == indent:
-                          top_level.append((cursor, match.group('key')))
-
-                  prior = [(cursor, key) for cursor, key in top_level if key < 'changeDetection']
-                  if prior:
-                      last_prior_cursor, _ = prior[-1]
-                      following = [cursor for cursor, _ in top_level if cursor > last_prior_cursor]
-                      insert_at = following[0] if following else index
-                  else:
-                      insert_at = opener + 1
-
-                  if insert_at == index:
+              for index, line in enumerate(lines):
+                  if target not in line:
                       continue
-
-                  line = lines.pop(index)
-                  if insert_at > index:
-                      insert_at -= 1
-                  lines.insert(insert_at, line)
+                  body = line.rstrip('\r\n')
+                  newline = line[len(body):]
+                  if body.rstrip().endswith(','):
+                      continue
+                  lines[index] = body + ',' + newline
                   changed = True
-                  moved_entries += 1
-
+                  modified_entries += 1
               if changed:
                   path.write_text(''.join(lines), encoding='utf-8')
                   modified_files += 1
 
-          print(f'modified_files={modified_files} moved_entries={moved_entries}')
-          if moved_entries == 0:
-              raise SystemExit('No migrated changeDetection entries required reordering.')
+          print(f'modified_files={modified_files} modified_entries={modified_entries}')
+          if modified_entries == 0:
+              raise SystemExit('No migrated changeDetection commas required normalization.')
           PY
 
           git diff --check
 
-      - name: Commit source-only metadata ordering fix
+      - name: Commit metadata comma fix
         shell: bash
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add frontend/src
-          git commit -m 'fix(angular): keep migrated component metadata lint-clean'
+          git commit -m 'fix(angular): preserve migrated component metadata syntax'
           git push origin HEAD:chore/ang22-05-official-migrations
