@@ -1,0 +1,123 @@
+name: One-shot MBJ test-results ownership repair
+
+on:
+  push:
+    branches:
+      - integration/angular-22-migration
+    paths:
+      - ".github/workflows/one-shot-mbj-test-results-ownership.yml"
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: one-shot-mbj-test-results-ownership
+  cancel-in-progress: false
+
+jobs:
+  patch-and-dispatch:
+    if: github.repository == 'NYGsatoshi/AIPsiteNYG' && github.ref == 'refs/heads/integration/angular-22-migration'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout integration candidate
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Verify staged commit parent
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "30a2d0b35e6bb97e908c80893d2d2b09fe811677"
+
+      - name: Repair MBJ result-directory ownership guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          paths = [
+              Path('scripts/ci/run-mbj01-bootstrap-acceptance.sh'),
+              Path('scripts/ci/run-mbj02-invite-acceptance.sh'),
+              Path('scripts/ci/run-mbj03-session-acceptance.sh'),
+          ]
+          needle = "compose=(docker compose -p \"$PROJECT_NAME\" -f \"$BASE_COMPOSE\" -f \"$OVERLAY_COMPOSE\")\nmkdir -p test-results\n"
+          replacement = needle + """if [[ ! -w test-results ]]; then
+            uid=\"$(id -u)\"
+            gid=\"$(id -g)\"
+            echo \"Repairing test-results ownership left by a previous Docker acceptance lane.\"
+            docker run --rm \\
+              -v \"$PWD/test-results:/results\" \\
+              alpine:3.21 \\
+              sh -c \"chown -R ${uid}:${gid} /results\"
+          fi
+"""
+
+          for path in paths:
+              text = path.read_text()
+              if text.count(needle) != 1:
+                  raise SystemExit(f'{path}: expected exactly one insertion point')
+              if 'Repairing test-results ownership left by a previous Docker acceptance lane.' in text:
+                  raise SystemExit(f'{path}: ownership repair already present')
+              path.write_text(text.replace(needle, replacement, 1))
+          PY
+          rm .github/workflows/one-shot-mbj-test-results-ownership.yml
+          bash -n scripts/ci/run-mbj01-bootstrap-acceptance.sh
+          bash -n scripts/ci/run-mbj02-invite-acceptance.sh
+          bash -n scripts/ci/run-mbj03-session-acceptance.sh
+          test "$(grep -R -F -l 'Repairing test-results ownership left by a previous Docker acceptance lane.' \
+            scripts/ci/run-mbj01-bootstrap-acceptance.sh \
+            scripts/ci/run-mbj02-invite-acceptance.sh \
+            scripts/ci/run-mbj03-session-acceptance.sh | wc -l)" -eq 3
+          git diff --check
+          test ! -e .github/workflows/one-shot-mbj-test-results-ownership.yml
+
+      - name: Commit and push final candidate
+        id: final
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'fix(ci): repair MBJ result ownership between Docker lanes'
+          final_sha="$(git rev-parse HEAD)"
+          echo "final_sha=$final_sha" >> "$GITHUB_OUTPUT"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+
+      - name: Verify final candidate and dispatch protected suite
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FINAL_SHA: ${{ steps.final.outputs.final_sha }}
+        run: |
+          set -euo pipefail
+          remote_head="$(git ls-remote origin "refs/heads/${GITHUB_REF_NAME}" | cut -f1)"
+          test "$remote_head" = "$FINAL_SHA"
+          git show "$FINAL_SHA:scripts/ci/run-mbj01-bootstrap-acceptance.sh" | grep -F 'Repairing test-results ownership left by a previous Docker acceptance lane.'
+          git show "$FINAL_SHA:scripts/ci/run-mbj02-invite-acceptance.sh" | grep -F 'Repairing test-results ownership left by a previous Docker acceptance lane.'
+          git show "$FINAL_SHA:scripts/ci/run-mbj03-session-acceptance.sh" | grep -F 'Repairing test-results ownership left by a previous Docker acceptance lane.'
+          if git cat-file -e "$FINAL_SHA:.github/workflows/one-shot-mbj-test-results-ownership.yml" 2>/dev/null; then
+            echo 'One-shot workflow still exists in final candidate.' >&2
+            exit 1
+          fi
+          payload="$(printf '{\"ref\":\"%s\",\"inputs\":{\"suite\":\"all\"}}' "$GITHUB_REF_NAME")"
+          code="$(curl --silent --show-error --output "$RUNNER_TEMP/dispatch-response.txt" --write-out '%{http_code}' \
+            --request POST \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header 'Accept: application/vnd.github+json' \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/licensed-real-backend-acceptance.yml/dispatches" \
+            --data "$payload")"
+          if [[ "$code" != '204' ]]; then
+            cat "$RUNNER_TEMP/dispatch-response.txt" >&2 || true
+            echo "workflow_dispatch returned HTTP $code" >&2
+            exit 1
+          fi
+          echo "Protected suite=all dispatched for $FINAL_SHA"
