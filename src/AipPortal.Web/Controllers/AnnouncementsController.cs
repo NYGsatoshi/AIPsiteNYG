@@ -8,6 +8,7 @@ namespace AipPortal.Web.Controllers;
 [Authorize]
 public sealed class AnnouncementsController(
     IAnnouncementService announcements,
+    IAnnouncementAnalyticsService analytics,
     IAnnouncementAudienceService audiences,
     IAnnouncementDraftService drafts) : ControllerBase
 {
@@ -109,6 +110,12 @@ public sealed class AnnouncementsController(
         return ToActionResult(await announcements.GetAsync(announcementId, cancellationToken));
     }
 
+    [HttpGet("api/announcements/{announcementId:guid}/analytics")]
+    public async Task<IActionResult> Analytics(Guid announcementId, CancellationToken cancellationToken)
+    {
+        return ToActionResult(await analytics.GetAsync(announcementId, cancellationToken));
+    }
+
     [HttpPatch("api/announcements/{announcementId:guid}")]
     public async Task<IActionResult> Update(Guid announcementId, UpdateAnnouncementRequest request, CancellationToken cancellationToken)
     {
@@ -126,6 +133,20 @@ public sealed class AnnouncementsController(
     public async Task<IActionResult> MarkRead(Guid announcementId, CancellationToken cancellationToken)
     {
         var result = await announcements.MarkReadAsync(announcementId, cancellationToken);
+        return result.IsSuccess ? Ok(new { status = "OK" }) : BadRequest(new { error = result.Error });
+    }
+
+    [HttpPost("api/announcements/{announcementId:guid}/acknowledge")]
+    public async Task<IActionResult> Acknowledge(Guid announcementId, CancellationToken cancellationToken)
+    {
+        var result = await analytics.AcknowledgeAsync(announcementId, cancellationToken);
+        return result.IsSuccess ? Ok(new { status = "OK" }) : BadRequest(new { error = result.Error });
+    }
+
+    [HttpPost("api/announcements/{announcementId:guid}/cta-click")]
+    public async Task<IActionResult> TrackCtaClick(Guid announcementId, CancellationToken cancellationToken)
+    {
+        var result = await analytics.TrackCtaClickAsync(announcementId, cancellationToken);
         return result.IsSuccess ? Ok(new { status = "OK" }) : BadRequest(new { error = result.Error });
     }
 

@@ -1,4 +1,5 @@
 using AipPortal.Web.Models;
+using Microsoft.AspNetCore.Builder;
 
 namespace AipPortal.Web;
 
@@ -37,6 +38,21 @@ public static class AngularSpaFallback
         File.Exists(Path.Combine(webRootPath, "index.html")) &&
         File.Exists(Path.Combine(webRootPath, BuildMarkerFileName));
 
+    public static void MapEndpointFallback(IApplicationBuilder app, string webRootPath)
+    {
+        // Handle only otherwise-empty 404 responses instead of registering a
+        // catch-all route. A catch-all route participates in HTTP method
+        // matching and contaminates the Allow header of real API 405 responses.
+        app.UseStatusCodePages(async statusCodeContext =>
+        {
+            var context = statusCodeContext.HttpContext;
+            if (context.Response.StatusCode == StatusCodes.Status404NotFound)
+            {
+                await HandleAsync(context, webRootPath);
+            }
+        });
+    }
+
     public static bool CanServeAngularFallback(HttpRequest request, string webRootPath) =>
         (HttpMethods.IsGet(request.Method) || HttpMethods.IsHead(request.Method)) &&
         HasAngularBuild(webRootPath) &&
@@ -60,6 +76,7 @@ public static class AngularSpaFallback
             return;
         }
 
+        context.Response.StatusCode = StatusCodes.Status200OK;
         ApplySpaHtmlHeaders(context.Response);
         if (HttpMethods.IsHead(context.Request.Method))
         {

@@ -326,7 +326,7 @@ export class TaskTableComponent {
   }
 
   private renderTitle(row: TaskGridRow | undefined): HTMLElement | string {
-    if (!row) return '';
+    if (!row) {return '';}
     const title = document.createElement('span');
     title.textContent = row.title;
     title.dataset['taskId'] = row.id;
@@ -335,7 +335,7 @@ export class TaskTableComponent {
   }
 
   private renderStageName(row: TaskGridRow | undefined): HTMLElement | string {
-    if (!row) return '';
+    if (!row) {return '';}
     const stage = document.createElement('span');
     stage.textContent = this.stageName(row);
     stage.dataset['testid'] = `task-stage-name-${row.id}-desktop`;
@@ -343,7 +343,7 @@ export class TaskTableComponent {
   }
 
   private renderBlocked(row: TaskGridRow | undefined): HTMLElement | string {
-    if (!row) return '';
+    if (!row) {return '';}
     const indicator = document.createElement('span');
     indicator.textContent = this.isBlocked(row) ? 'Blocked' : 'Not blocked';
     indicator.dataset['testid'] = `task-blocked-${row.id}-desktop`;
@@ -352,7 +352,7 @@ export class TaskTableComponent {
   }
 
   private renderUpdatedAt(row: TaskGridRow | undefined): HTMLElement | string {
-    if (!row) return '';
+    if (!row) {return '';}
     const timestamp = this.updatedAt(row);
     const container = document.createElement('span');
     container.dataset['testid'] = `task-updated-${row.id}-desktop`;
@@ -368,7 +368,7 @@ export class TaskTableComponent {
   }
 
   private renderArtifact(row: TaskGridRow | undefined): HTMLElement | string {
-    if (!row) return '';
+    if (!row) {return '';}
     const indicator = document.createElement('span');
     const availability = this.artifactAvailability(row);
     indicator.textContent = availability === true
@@ -382,7 +382,7 @@ export class TaskTableComponent {
   }
 
   private renderActions(row: TaskGridRow | undefined): HTMLElement | string {
-    if (!row) return '';
+    if (!row) {return '';}
     const container = document.createElement('div');
     container.className = 'app-grid-actions';
 

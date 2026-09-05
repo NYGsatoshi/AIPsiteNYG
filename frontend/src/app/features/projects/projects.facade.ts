@@ -216,7 +216,7 @@ export class ProjectsFacade {
     }
 
     const detail = taskId ? this.taskDetails()[taskId] : undefined;
-    const aggregateTask = detail && detail.task
+    const aggregateTask = detail?.task
       ? mapTaskDtoToRecord(detail.task as TaskDto, this.authorizedProjects())
       : undefined;
     const listedTask = scenario.tasks.find(
@@ -255,7 +255,7 @@ export class ProjectsFacade {
       return;
     }
 
-    if (this.activeTaskId !== taskId || this.activeProjectId !== projectId) this.clearProtectedTaskState();
+    if (this.activeTaskId !== taskId || this.activeProjectId !== projectId) {this.clearProtectedTaskState();}
     this.activeTaskId = taskId;
     this.activeProjectId = projectId;
     this.activeProjectSubscription?.();
@@ -293,7 +293,7 @@ export class ProjectsFacade {
 
   clearTaskMutationState(): void {
     // A stale-version conflict has only one recovery path: an authoritative reload.
-    if (this.taskMutationState().status !== 'conflict') this.taskMutationState.set({ status: 'idle' });
+    if (this.taskMutationState().status !== 'conflict') {this.taskMutationState.set({ status: 'idle' });}
   }
 
   clearTaskCreateMutationState(): void {
@@ -306,22 +306,22 @@ export class ProjectsFacade {
 
   loadProjectLabelDefinitions(projectId: string, force = false, onReady?: () => void): void {
     const taskId = this.activeTaskId;
-    if (this.scenario || !projectId || !taskId || !this.isActive(taskId, this.detailGeneration)) return;
+    if (this.scenario || !projectId || !taskId || !this.isActive(taskId, this.detailGeneration)) {return;}
     if (!force && this.projectLabelDefinitions()[projectId] && this.labelDefinitionStates()[projectId]?.status === 'ready') { onReady?.(); return; }
     this.labelRequest?.unsubscribe();
     const generation = this.detailGeneration;
     this.setLabelDefinitionState(projectId, { status: 'loading' });
     this.labelRequest = this.http.get<readonly TaskLabelDto[]>(`/api/projects/${projectId}/task-labels?includeArchived=true`, { withCredentials: true })
-      .pipe(finalize(() => { if (this.isActive(taskId, generation)) this.labelRequest = null; }))
+      .pipe(finalize(() => { if (this.isActive(taskId, generation)) {this.labelRequest = null;} }))
       .subscribe({
       next: labels => {
-          if (!this.isActive(taskId, generation)) return;
+          if (!this.isActive(taskId, generation)) {return;}
           this.projectLabelDefinitions.update(current => ({ ...current, [projectId]: labels }));
           this.setLabelDefinitionState(projectId, { status: labels.length ? 'ready' : 'empty' });
           onReady?.();
         },
       error: error => {
-        if (!this.isActive(taskId, generation)) return;
+        if (!this.isActive(taskId, generation)) {return;}
         const normalized = normalizeApiError(error);
         if ((normalized.httpStatus === 401 || normalized.httpStatus === 403) && !isLabelDefinitionOnlyPermissionDenied(normalized.code)) {
           this.reauthorizeActiveState();
@@ -335,14 +335,14 @@ export class ProjectsFacade {
 
   createProjectLabel(taskId: string, projectId: string, name: string, onSuccess?: () => void): void {
     const trimmed = name.trim();
-    if (!trimmed || trimmed.length > TASK_LABEL_NAME_MAX_LENGTH) return;
+    if (!trimmed || trimmed.length > TASK_LABEL_NAME_MAX_LENGTH) {return;}
     this.runDetailCommand(taskId, 'labels', this.http.post(`/api/projects/${projectId}/task-labels`, { name: trimmed, description: null }, { withCredentials: true }), () => this.loadProjectLabelDefinitions(projectId, true, onSuccess));
   }
 
   updateProjectLabel(taskId: string, projectId: string, labelId: string, name: string, description: string, sortKey: string, expectedVersion: string, onSuccess?: () => void): void {
     const trimmed = name.trim();
     const trimmedDescription = description.trim();
-    if (!trimmed || trimmed.length > TASK_LABEL_NAME_MAX_LENGTH || trimmedDescription.length > TASK_LABEL_DESCRIPTION_MAX_LENGTH) return;
+    if (!trimmed || trimmed.length > TASK_LABEL_NAME_MAX_LENGTH || trimmedDescription.length > TASK_LABEL_DESCRIPTION_MAX_LENGTH) {return;}
     this.runDetailCommand(taskId, 'labels', this.http.patch(`/api/projects/${projectId}/task-labels/${labelId}`, { name: trimmed, description: trimmedDescription || null, sortKey: Number(sortKey), expectedVersion: Number(expectedVersion) }, { withCredentials: true }), () => this.loadProjectLabelDefinitions(projectId, true, onSuccess));
   }
 
@@ -356,7 +356,7 @@ export class ProjectsFacade {
   /** Reload a stale editor only after an explicit user request; cancel never reaches this path. */
   reloadTaskAfterConflict(taskId: string): void {
     const status = this.taskMutationState().status;
-    if (this.scenario || this.taskConflictReloadInProgress || (status !== 'conflict' && status !== 'savedButRefreshFailed') || !this.isActive(taskId, this.detailGeneration)) return;
+    if (this.scenario || this.taskConflictReloadInProgress || (status !== 'conflict' && status !== 'savedButRefreshFailed') || !this.isActive(taskId, this.detailGeneration)) {return;}
     this.taskConflictReloadInProgress = true;
     this.taskConflictReloadState.set('loading');
     this.loadTaskDetail(taskId, { kind: 'taskBodyReload' });
@@ -367,25 +367,25 @@ export class ProjectsFacade {
   loadMoreFiles(taskId: string): void { this.loadNextPage(taskId, 'files'); }
   loadMoreActivity(taskId: string): void { this.loadNextPage(taskId, 'activity'); }
   loadActivity(taskId: string): void {
-    if (this.getDetailSectionState('activity').status === 'idle') this.loadActivityFirstPage(taskId);
+    if (this.getDetailSectionState('activity').status === 'idle') {this.loadActivityFirstPage(taskId);}
   }
   retrySection(taskId: string, section: TaskDetailSection): void {
     const failed = this.getDetailSectionState(section);
-    if (section === 'detail' || failed.retryKind === 'aggregate') this.loadTaskDetail(taskId, { kind: 'sectionRecovery', section });
+    if (section === 'detail' || failed.retryKind === 'aggregate') {this.loadTaskDetail(taskId, { kind: 'sectionRecovery', section });}
     else if (section === 'labels') {
       const projectId = this.taskDetails()[taskId]?.task?.projectId;
-      if (typeof projectId === 'string') this.loadProjectLabelDefinitions(projectId, true);
-    } else if (section === 'activity' || section === 'subtasks' || section === 'comments' || section === 'files') this.loadNextPage(taskId, section, failed.failedPage);
-    else this.loadTaskDetail(taskId);
+      if (typeof projectId === 'string') {this.loadProjectLabelDefinitions(projectId, true);}
+    } else if (section === 'activity' || section === 'subtasks' || section === 'comments' || section === 'files') {this.loadNextPage(taskId, section, failed.failedPage);}
+    else {this.loadTaskDetail(taskId);}
   }
 
-  createSubtask(taskId: string, title: string, onSuccess?: () => void): void { const trimmed = title.trim(); if (trimmed && trimmed.length <= 300) this.runDetailCommand(taskId, 'subtasks', this.http.post(`/api/tasks/${taskId}/subtasks`, { title: trimmed, description: null, priority: 1 }, { withCredentials: true }), onSuccess); }
-  createChecklist(taskId: string, text: string, onSuccess?: () => void): void { const trimmed = text.trim(); if (trimmed && trimmed.length <= 1000) this.runDetailCommand(taskId, 'checklist', this.http.post(`/api/tasks/${taskId}/checklist`, { text: trimmed }, { withCredentials: true }), onSuccess); }
-  updateChecklist(taskId: string, itemId: string, text: string, isCompleted: boolean, expectedVersion: string, onSuccess?: () => void): void { const trimmed = text.trim(); if (trimmed && trimmed.length <= 1000) this.runDetailCommand(taskId, 'checklist', this.http.patch(`/api/tasks/${taskId}/checklist/${itemId}`, { text: trimmed, isCompleted, expectedVersion: Number(expectedVersion) }, { withCredentials: true }), onSuccess); }
+  createSubtask(taskId: string, title: string, onSuccess?: () => void): void { const trimmed = title.trim(); if (trimmed && trimmed.length <= 300) {this.runDetailCommand(taskId, 'subtasks', this.http.post(`/api/tasks/${taskId}/subtasks`, { title: trimmed, description: null, priority: 1 }, { withCredentials: true }), onSuccess);} }
+  createChecklist(taskId: string, text: string, onSuccess?: () => void): void { const trimmed = text.trim(); if (trimmed && trimmed.length <= 1000) {this.runDetailCommand(taskId, 'checklist', this.http.post(`/api/tasks/${taskId}/checklist`, { text: trimmed }, { withCredentials: true }), onSuccess);} }
+  updateChecklist(taskId: string, itemId: string, text: string, isCompleted: boolean, expectedVersion: string, onSuccess?: () => void): void { const trimmed = text.trim(); if (trimmed && trimmed.length <= 1000) {this.runDetailCommand(taskId, 'checklist', this.http.patch(`/api/tasks/${taskId}/checklist/${itemId}`, { text: trimmed, isCompleted, expectedVersion: Number(expectedVersion) }, { withCredentials: true }), onSuccess);} }
   deleteChecklist(taskId: string, itemId: string, expectedVersion: string): void { this.runDetailCommand(taskId, 'checklist', this.http.delete(`/api/tasks/${taskId}/checklist/${itemId}?expectedVersion=${encodeURIComponent(expectedVersion)}`, { withCredentials: true })); }
   reorderChecklist(taskId: string, orderedItemIds: readonly string[], expectedTaskVersion: string): void { this.runDetailCommand(taskId, 'checklist', this.http.put(`/api/tasks/${taskId}/checklist/order`, { orderedItemIds, expectedTaskVersion: Number(expectedTaskVersion) }, { withCredentials: true })); }
-  createComment(taskId: string, bodyPlainText: string, isImportant: boolean, onSuccess?: () => void): void { const body = bodyPlainText.trim(); if (body && body.length <= 12000) this.runDetailCommand(taskId, 'comments', this.http.post(`/api/tasks/${taskId}/comments`, { bodyPlainText: body, isImportant }, { withCredentials: true }), onSuccess); }
-  updateComment(taskId: string, commentId: string, bodyPlainText: string, isImportant: boolean, expectedVersion: string, onSuccess?: () => void): void { const body = bodyPlainText.trim(); if (body && body.length <= 12000) this.runDetailCommand(taskId, 'comments', this.http.patch(`/api/task-comments/${commentId}`, { bodyPlainText: body, isImportant, expectedVersion: Number(expectedVersion) }, { withCredentials: true }), onSuccess); }
+  createComment(taskId: string, bodyPlainText: string, isImportant: boolean, onSuccess?: () => void): void { const body = bodyPlainText.trim(); if (body && body.length <= 12000) {this.runDetailCommand(taskId, 'comments', this.http.post(`/api/tasks/${taskId}/comments`, { bodyPlainText: body, isImportant }, { withCredentials: true }), onSuccess);} }
+  updateComment(taskId: string, commentId: string, bodyPlainText: string, isImportant: boolean, expectedVersion: string, onSuccess?: () => void): void { const body = bodyPlainText.trim(); if (body && body.length <= 12000) {this.runDetailCommand(taskId, 'comments', this.http.patch(`/api/task-comments/${commentId}`, { bodyPlainText: body, isImportant, expectedVersion: Number(expectedVersion) }, { withCredentials: true }), onSuccess);} }
   deleteComment(taskId: string, commentId: string, expectedVersion: string): void { this.runDetailCommand(taskId, 'comments', this.http.delete(`/api/task-comments/${commentId}?expectedVersion=${encodeURIComponent(expectedVersion)}`, { withCredentials: true })); }
   applyLabel(taskId: string, labelId: string, expectedVersion: string, onSuccess?: () => void): void { this.runDetailCommand(taskId, 'labels', this.http.put(`/api/tasks/${taskId}/labels/${labelId}`, { expectedVersion: Number(expectedVersion) }, { withCredentials: true }), onSuccess); }
   removeLabel(taskId: string, labelId: string, expectedVersion: string): void { this.runDetailCommand(taskId, 'labels', this.http.delete(`/api/tasks/${taskId}/labels/${labelId}?expectedVersion=${encodeURIComponent(expectedVersion)}`, { withCredentials: true })); }
@@ -420,12 +420,12 @@ export class ProjectsFacade {
       withCredentials: true
     }).subscribe({
       next: () => {
-        if (!isCurrent()) return;
+        if (!isCurrent()) {return;}
         // PATCH has succeeded. A following GET error must not be reported as a save error.
         this.taskMutationState.set({ status: 'refreshingAfterSave' });
         const refresh = forkJoin({ task: this.fetchTask(taskId), projectTasks: this.fetchProjectTasks(projectId) }).subscribe({
           next: ({ task, projectTasks }) => {
-            if (!isCurrent()) return;
+            if (!isCurrent()) {return;}
             this.replaceProjectTasks(projectId, projectTasks);
             this.applyAggregate(taskId, task.detail, { kind: 'taskBodyReload' });
             this.replaceTask(task.task);
@@ -433,7 +433,7 @@ export class ProjectsFacade {
             this.taskMutationState.set({ status: 'success' });
           },
           error: (error: unknown) => {
-            if (!isCurrent()) return;
+            if (!isCurrent()) {return;}
             const normalized = normalizeApiError(error);
             if (normalized.httpStatus === 401 || normalized.httpStatus === 403) {
               this.reauthorizeActiveState();
@@ -445,7 +445,7 @@ export class ProjectsFacade {
         this.trackDetailMutation(refresh);
       },
       error: (error: unknown) => {
-        if (!isCurrent()) return;
+        if (!isCurrent()) {return;}
         const normalized = normalizeApiError(error);
         // Task reads deliberately use a safe 404 for revoked or cross-scope
         // access. An active detail receiving that response must discard every
@@ -485,13 +485,13 @@ export class ProjectsFacade {
       )
       .subscribe({
         next: ({ projectTasks }) => {
-          if (!this.isAuthorizationCurrent(authorizationGeneration)) return;
+          if (!this.isAuthorizationCurrent(authorizationGeneration)) {return;}
           this.replaceProjectTasks(request.projectId, projectTasks);
           this.myTasksFacade.refreshIfLoaded();
           this.taskCreateMutationState.set({ status: 'success' });
         },
         error: (error: unknown) => {
-          if (!this.isAuthorizationCurrent(authorizationGeneration)) return;
+          if (!this.isAuthorizationCurrent(authorizationGeneration)) {return;}
           this.taskCreateMutationState.set(toFailureState(error, 'Task create failed.'));
         }
       });
@@ -542,7 +542,7 @@ export class ProjectsFacade {
       .subscribe({
         next: (result) => {
           if (!this.isAuthorizationCurrent(generation) ||
-              this.activeWorkspace.activeWorkspace()?.id !== workspaceId) return;
+              this.activeWorkspace.activeWorkspace()?.id !== workspaceId) {return;}
           if (result.projects.length === 0) {
             this.liveState.set(
               this.emptyScenario('empty', 'No authorized projects were returned by the API.')
@@ -563,7 +563,7 @@ export class ProjectsFacade {
         },
         error: (error: unknown) => {
           if (!this.isAuthorizationCurrent(generation) ||
-              this.activeWorkspace.activeWorkspace()?.id !== workspaceId) return;
+              this.activeWorkspace.activeWorkspace()?.id !== workspaceId) {return;}
           const normalized = normalizeApiError(error);
           this.liveState.set(
             this.emptyScenario(
@@ -660,26 +660,30 @@ export class ProjectsFacade {
       return;
     }
 
-    if (this.activeTaskId !== taskId) return;
+    if (this.activeTaskId !== taskId) {return;}
     this.detailRequest?.unsubscribe();
     const authorizationGeneration = this.authorizationGeneration;
     const generation = this.detailGeneration;
-    if (scope.kind === 'initialLoad') this.setSectionState('detail', { status: 'loading' });
-    if (scope.kind === 'sectionRecovery') this.setSectionState(scope.section, { status: 'loading', retryKind: 'aggregate' });
-    this.detailRequest = this.fetchTaskWithParentProject(taskId, this.activeProjectId).pipe(finalize(() => {
-      if (this.isActive(taskId, generation)) this.detailRequest = null;
+    // Bind the asynchronous read to the Workspace authorization scope observed here.
+    // Reading ActiveWorkspace later inside switchMap would create a TOCTOU race.
+    // Cold direct-route hydration can otherwise change null -> Workspace mid-flight.
+    // That race can duplicate the parent Project read across authorization generations.
+    const expectedWorkspaceId = this.activeWorkspace.activeWorkspace()?.id ?? null;
+    if (scope.kind === 'initialLoad') {this.setSectionState('detail', { status: 'loading' });}
+    if (scope.kind === 'sectionRecovery') {this.setSectionState(scope.section, { status: 'loading', retryKind: 'aggregate' });}
+    this.detailRequest = this.fetchTaskWithParentProject(taskId, this.activeProjectId, expectedWorkspaceId).pipe(finalize(() => {
+      if (this.isActive(taskId, generation)) {this.detailRequest = null;}
     })).subscribe({
       next: (response) => {
-        if (!this.isAuthorizationCurrent(authorizationGeneration) || !this.isActive(taskId, generation)) return;
+        if (!this.isAuthorizationCurrent(authorizationGeneration) || !this.isActive(taskId, generation)) {return;}
         if (response.scopeMismatch) {
           this.denyTaskDetail();
           return;
         }
-        // A cold direct route can resolve its Task before shell Workspace
-        // hydration. Keep the aggregate undisclosed until the Workspace effect
-        // reauthorizes this exact route against the selected Workspace.
-        if (response.workspacePending) return;
-        if (response.parentProject) this.replaceProject(response.parentProject);
+        // A cold direct route can resolve its Task before shell Workspace hydration.
+        // Keep the aggregate undisclosed until this route is reauthorized.
+        if (response.workspacePending) {return;}
+        if (response.parentProject) {this.replaceProject(response.parentProject);}
         // An aggregate refresh must not cancel an Activity request that the
         // user has already opened. Cancelling it starts a second request that
         // can remain loading after the first real response has completed.
@@ -702,13 +706,13 @@ export class ProjectsFacade {
           this.taskConflictReloadState.set('idle');
         }
         this.taskConflictReloadInProgress = false;
-        if (refreshActivity) this.loadActivityFirstPage(taskId);
+        if (refreshActivity) {this.loadActivityFirstPage(taskId);}
         const projectId = response.detail.task?.projectId;
         const permissions = response.detail.permissions;
-        if (typeof projectId === 'string' && (permissions?.canApplyLabels === true || permissions?.canManageLabelDefinitions === true)) this.loadProjectLabelDefinitions(projectId);
+        if (typeof projectId === 'string' && (permissions?.canApplyLabels === true || permissions?.canManageLabelDefinitions === true)) {this.loadProjectLabelDefinitions(projectId);}
       },
       error: (error: unknown) => {
-        if (!this.isAuthorizationCurrent(authorizationGeneration) || !this.isActive(taskId, generation)) return;
+        if (!this.isAuthorizationCurrent(authorizationGeneration) || !this.isActive(taskId, generation)) {return;}
         this.taskConflictReloadInProgress = false;
         const normalized = normalizeApiError(error);
         // A revoked membership is intentionally surfaced by the API as the same
@@ -730,28 +734,31 @@ export class ProjectsFacade {
         }
         const failure = toSectionFailure(error, 'Task detail could not be loaded.');
         this.setSectionState('detail', failure);
-        if (scope.kind === 'sectionRecovery' && scope.section !== 'detail') this.setSectionState(scope.section, failure);
+        if (scope.kind === 'sectionRecovery' && scope.section !== 'detail') {this.setSectionState(scope.section, failure);}
       }
     });
   }
 
-  private fetchTaskWithParentProject(taskId: string, expectedProjectId: string | null): Observable<TaskDetailLoadResult> {
+  private fetchTaskWithParentProject(
+    taskId: string,
+    expectedProjectId: string | null,
+    expectedWorkspaceId: string | null
+  ): Observable<TaskDetailLoadResult> {
     return this.fetchTask(taskId).pipe(
       switchMap((response) => {
         const projectId = response.task.projectId;
         if (!expectedProjectId || projectId !== expectedProjectId) {
           return of({ ...response, scopeMismatch: true });
         }
-        const activeWorkspaceId = this.activeWorkspace.activeWorkspace()?.id;
-        if (!activeWorkspaceId) return of({ ...response, workspacePending: true });
+        if (!expectedWorkspaceId) {return of({ ...response, workspacePending: true });}
         const taskWorkspaceId = (response.detail.task ?? (response.detail as TaskDto)).workspaceId;
-        if (typeof taskWorkspaceId !== 'string' || taskWorkspaceId !== activeWorkspaceId) {
+        if (typeof taskWorkspaceId !== 'string' || taskWorkspaceId !== expectedWorkspaceId) {
           return of({ ...response, scopeMismatch: true });
         }
         // The broad inventory can contain Projects from multiple Workspaces,
         // so this shortcut is safe only after the canonical Task has matched
-        // the active Workspace above.
-        if (this.authorizedProjects().some((project) => project.id === projectId)) return of(response);
+        // the Workspace snapshot captured for this authorization generation.
+        if (this.authorizedProjects().some((project) => project.id === projectId)) {return of(response);}
 
         return this.http
           .get<ProjectDto>(`/api/projects/${projectId}`, { withCredentials: true })
@@ -792,7 +799,7 @@ export class ProjectsFacade {
     this.clearProtectedTaskState();
     this.liveState.set(this.emptyScenario('loading'));
     this.loadProjects(() => {
-      if (!activeTaskId || !activeProjectId || this.activeTaskId !== activeTaskId || this.activeProjectId !== activeProjectId) return;
+      if (!activeTaskId || !activeProjectId || this.activeTaskId !== activeTaskId || this.activeProjectId !== activeProjectId) {return;}
       const visible = this.liveState().tasks.some(task => task.id === activeTaskId && task.projectId === activeProjectId && task.authorized);
       if (!visible) {
         this.setSectionState('detail', { status: 'permissionDenied', message: 'Task detail is no longer available with your current permission.' });
@@ -803,7 +810,7 @@ export class ProjectsFacade {
   }
 
   private clearForAuthorizationLoss(): void {
-    if (this.scenario) return;
+    if (this.scenario) {return;}
     this.authorizationGeneration++;
     this.projectsRequest?.unsubscribe();
     this.projectsRequest = null;
@@ -833,7 +840,7 @@ export class ProjectsFacade {
   }
 
   private runDetailCommand(taskId: string, section: TaskDetailSection, request: Observable<unknown>, onSuccess?: () => void): void {
-    if (this.scenario || !this.isActive(taskId, this.detailGeneration) || this.sectionStates()[section].status === 'submitting') return;
+    if (this.scenario || !this.isActive(taskId, this.detailGeneration) || this.sectionStates()[section].status === 'submitting') {return;}
     const authorizationGeneration = this.authorizationGeneration;
     const generation = this.detailGeneration;
     this.setSectionState(section, { status: 'submitting' });
@@ -844,7 +851,7 @@ export class ProjectsFacade {
       ))
     ).subscribe({
       next: result => {
-        if (!this.isAuthorizationCurrent(authorizationGeneration) || !this.isActive(taskId, generation)) return;
+        if (!this.isAuthorizationCurrent(authorizationGeneration) || !this.isActive(taskId, generation)) {return;}
         if ('reloadError' in result) {
           const normalized = normalizeApiError(result.reloadError);
           if (normalized.httpStatus === 401 || normalized.httpStatus === 403) {
@@ -860,7 +867,7 @@ export class ProjectsFacade {
         onSuccess?.();
       },
       error: (error: unknown) => {
-        if (!this.isAuthorizationCurrent(authorizationGeneration) || !this.isActive(taskId, generation)) return;
+        if (!this.isAuthorizationCurrent(authorizationGeneration) || !this.isActive(taskId, generation)) {return;}
         const normalized = normalizeApiError(error);
         if (normalized.httpStatus === 401 || normalized.httpStatus === 403) {
           this.reauthorizeActiveState();
@@ -875,12 +882,12 @@ export class ProjectsFacade {
 
   private loadNextPage(taskId: string, section: 'activity' | 'subtasks' | 'comments' | 'files', retryPage?: number): void {
     const detail = this.taskDetails()[taskId];
-    if (!detail || !this.isActive(taskId, this.detailGeneration)) return;
+    if (!detail || !this.isActive(taskId, this.detailGeneration)) {return;}
     const current = detail[section];
     const currentPage = typeof current?.page === 'number' ? current.page : 1;
     const pageSize = typeof current?.pageSize === 'number' && current.pageSize > 0 ? current.pageSize : section === 'subtasks' ? 50 : 20;
-    if (!retryPage && current?.hasMore !== true) return;
-    if (this.pageRequests.has(section)) return;
+    if (!retryPage && current?.hasMore !== true) {return;}
+    if (this.pageRequests.has(section)) {return;}
     const generation = this.detailGeneration;
     const authorizationGeneration = this.authorizationGeneration;
     const page = retryPage ?? currentPage + 1;
@@ -888,10 +895,10 @@ export class ProjectsFacade {
     const endpoint = `/api/tasks/${taskId}/${section}?page=${page}&pageSize=${pageSize}`;
     this.setSectionState(section, { status: 'loading' });
     const request = this.http.get<PagedResponseDto<unknown>>(endpoint, { withCredentials: true }).pipe(finalize(() => {
-      if (this.isActive(taskId, generation)) this.pageRequests.delete(section);
+      if (this.isActive(taskId, generation)) {this.pageRequests.delete(section);}
     })).subscribe({
       next: response => {
-        if (!this.isAuthorizationCurrent(authorizationGeneration) || !this.isActive(taskId, generation)) return;
+        if (!this.isAuthorizationCurrent(authorizationGeneration) || !this.isActive(taskId, generation)) {return;}
         const existing = replaceItems ? [] : (current?.items ?? []);
         const incoming = (response.items ?? []) as typeof existing;
         const seen = new Set(existing.map(item => typeof (item as { id?: unknown }).id === 'string' ? (item as { id: string }).id : ''));
@@ -903,7 +910,7 @@ export class ProjectsFacade {
         this.setSectionState(section, { status: items.length ? 'ready' : 'empty' });
       },
       error: error => {
-        if (!this.isAuthorizationCurrent(authorizationGeneration) || !this.isActive(taskId, generation)) return;
+        if (!this.isAuthorizationCurrent(authorizationGeneration) || !this.isActive(taskId, generation)) {return;}
         const normalized = normalizeApiError(error);
         const failure = { ...toSectionFailure(error, `More ${section} could not be loaded.`), retryKind: 'page' as const, failedPage: page };
         if (failure.status === 'permissionDenied') { this.reauthorizeActiveState(); return; }
@@ -972,9 +979,9 @@ export class ProjectsFacade {
     const current = this.taskDetails()[taskId];
     const states = this.sectionStates();
     const preserve = (section: Exclude<TaskDetailSection, 'detail'>): boolean => {
-      if (!current || scope.kind === 'initialLoad') return false;
-      if (scope.kind === 'taskBodyReload') return true;
-      if (scope.kind === 'sectionMutation' || scope.kind === 'sectionRecovery') return section !== scope.section;
+      if (!current || scope.kind === 'initialLoad') {return false;}
+      if (scope.kind === 'taskBodyReload') {return true;}
+      if (scope.kind === 'sectionMutation' || scope.kind === 'sectionRecovery') {return section !== scope.section;}
       return this.detailEditing || isProtectedSectionState(states[section]);
     };
 
@@ -1046,10 +1053,10 @@ export class ProjectsFacade {
     const version = (value: unknown) => typeof value === 'string' || typeof value === 'number' ? String(value) : '0';
     const activityType = (value: unknown): 'note' | 'statusUpdate' | 'decision' | 'issue' | 'unknown' => {
       const normalized = typeof value === 'string' ? value.replace(/[\s_-]/g, '').toLowerCase() : value;
-      if (normalized === 0 || normalized === 'note') return 'note';
-      if (normalized === 1 || normalized === 'statusupdate') return 'statusUpdate';
-      if (normalized === 2 || normalized === 'decision') return 'decision';
-      if (normalized === 3 || normalized === 'issue') return 'issue';
+      if (normalized === 0 || normalized === 'note') {return 'note';}
+      if (normalized === 1 || normalized === 'statusupdate') {return 'statusUpdate';}
+      if (normalized === 2 || normalized === 'decision') {return 'decision';}
+      if (normalized === 3 || normalized === 'issue') {return 'issue';}
       return 'unknown';
     };
     const page = <TSource, TView>(source: PagedResponseDto<TSource> | null | undefined, items: readonly TView[]) => ({ items, page: number(source?.page) || 1, pageSize: number(source?.pageSize) || items.length, totalCount: number(source?.totalCount), hasMore: boolean(source?.hasMore) });
@@ -1300,7 +1307,7 @@ export class ProjectsFacade {
     this.authorizationGeneration++;
     this.clearProtectedTaskState();
     this.liveState.set(this.emptyScenario('loading'));
-    if (!activeTaskId || !activeProjectId || this.activeTaskId !== activeTaskId || this.activeProjectId !== activeProjectId) return;
+    if (!activeTaskId || !activeProjectId || this.activeTaskId !== activeTaskId || this.activeProjectId !== activeProjectId) {return;}
     this.loadTaskDetail(activeTaskId);
   }
 
@@ -1333,9 +1340,9 @@ export class ProjectsFacade {
 function toFailureState(error: unknown, fallback: string): TaskMutationState {
   const normalized = normalizeApiError(error);
   const stale = normalized.code === 'TASK_STALE_VERSION' || normalized.details.some(detail => detail.code === 'TASK_STALE_VERSION');
-  if (normalized.httpStatus === 409 || stale) return { status: 'conflict', message: normalized.message || fallback, requestId: normalized.requestId };
-  if (normalized.httpStatus === 400 || normalized.httpStatus === 422) return { status: 'validation', message: normalized.message || fallback, requestId: normalized.requestId };
-  if (normalized.httpStatus === 429) return { status: 'rateLimited', message: normalized.message || fallback, requestId: normalized.requestId };
+  if (normalized.httpStatus === 409 || stale) {return { status: 'conflict', message: normalized.message || fallback, requestId: normalized.requestId };}
+  if (normalized.httpStatus === 400 || normalized.httpStatus === 422) {return { status: 'validation', message: normalized.message || fallback, requestId: normalized.requestId };}
+  if (normalized.httpStatus === 429) {return { status: 'rateLimited', message: normalized.message || fallback, requestId: normalized.requestId };}
   return { status: 'failure', message: normalized.message || fallback, requestId: normalized.requestId };
 }
 
@@ -1356,9 +1363,9 @@ function preservePagedSection<T>(
   incoming: PagedResponseDto<T> | null | undefined,
   preserve: boolean
 ): PagedResponseDto<T> | null | undefined {
-  if (preserve && current) return current;
-  if (!incoming) return current;
-  if (!current) return incoming;
+  if (preserve && current) {return current;}
+  if (!incoming) {return current;}
+  if (!current) {return incoming;}
   const items = incoming.items ?? current.items ?? [];
   const uniqueItems = items.filter((item, index, all) => {
     const id = typeof (item as { id?: unknown }).id === 'string' ? (item as { id: string }).id : null;
@@ -1369,8 +1376,8 @@ function preservePagedSection<T>(
 
 function toSectionFailure(error: unknown, fallback: string): TaskDetailSectionState {
   const normalized = normalizeApiError(error);
-  if (normalized.httpStatus === 401 || normalized.httpStatus === 403) return { status: 'permissionDenied', message: 'Permission was denied. Protected task data was removed.', retryable: true, retryKind: 'authorization', requestId: normalized.requestId };
-  if (normalized.httpStatus === 409 || normalized.code === 'TASK_STALE_VERSION') return { status: 'conflict', message: normalized.message || fallback, retryable: true, retryKind: 'aggregate', requestId: normalized.requestId };
+  if (normalized.httpStatus === 401 || normalized.httpStatus === 403) {return { status: 'permissionDenied', message: 'Permission was denied. Protected task data was removed.', retryable: true, retryKind: 'authorization', requestId: normalized.requestId };}
+  if (normalized.httpStatus === 409 || normalized.code === 'TASK_STALE_VERSION') {return { status: 'conflict', message: normalized.message || fallback, retryable: true, retryKind: 'aggregate', requestId: normalized.requestId };}
   return { status: 'error', message: normalized.message || fallback, retryable: true, requestId: normalized.requestId };
 }
 

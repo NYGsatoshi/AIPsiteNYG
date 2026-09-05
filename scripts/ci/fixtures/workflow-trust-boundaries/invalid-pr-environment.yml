@@ -1,0 +1,10 @@
+name: invalid environment
+on:
+  pull_request:
+permissions: {}
+jobs:
+  test:
+    environment: production
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo unsafe

@@ -1,6 +1,7 @@
 using AipPortal.Application.Audit;
 using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
+using AipPortal.Application.Tenancy;
 using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
 using AipPortal.Infrastructure.Persistence;
@@ -54,6 +55,49 @@ public sealed class AuditFindingsServiceTests
         Assert.Equal("Audit Reviewer", item.OwnerDisplayName);
         Assert.Equal("detector.test", item.DetectorKey);
         Assert.Equal("policy-2026.09", item.PolicyVersion);
+        Assert.Equal("Open", item.WorkflowStatus);
+        Assert.Null(item.DueDate);
+        Assert.False(item.IsOverdue);
+    }
+
+    [Fact]
+    public async Task ListSupportsMyReviewsOverdueUnassignedAndWorkflowFilters()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var overdue = fixture.AddFinding(AuditFindingTriageStatus.Open, AuditFindingSeverity.Medium, 70, 1);
+        overdue.WorkflowStatus = AuditFindingWorkflowStatus.InReview;
+        overdue.OwnerUserId = fixture.UserId;
+        overdue.DueDate = new DateOnly(2026, 9, 1);
+
+        var unassigned = fixture.AddFinding(AuditFindingTriageStatus.Open, AuditFindingSeverity.High, 80, 2);
+        unassigned.WorkflowStatus = AuditFindingWorkflowStatus.WaitingFix;
+
+        var done = fixture.AddFinding(AuditFindingTriageStatus.Resolved, AuditFindingSeverity.Critical, 99, 3);
+        done.WorkflowStatus = AuditFindingWorkflowStatus.Done;
+        done.OwnerUserId = fixture.UserId;
+        done.DueDate = new DateOnly(2026, 8, 30);
+        await fixture.Context.SaveChangesAsync();
+
+        var myReviews = await fixture.Service.ListAsync(new AuditFindingsQuery(
+            fixture.ArtifactVersionId,
+            MyReviews: true));
+        Assert.True(myReviews.IsSuccess, myReviews.Error ?? myReviews.ErrorDetail?.Message);
+        Assert.Equal(new[] { overdue.Id, done.Id }, myReviews.Value!.Findings.Select(item => item.FindingId));
+
+        var overdueResult = await fixture.Service.ListAsync(new AuditFindingsQuery(
+            fixture.ArtifactVersionId,
+            Overdue: true));
+        Assert.True(overdueResult.IsSuccess, overdueResult.Error ?? overdueResult.ErrorDetail?.Message);
+        var overdueItem = Assert.Single(overdueResult.Value!.Findings);
+        Assert.Equal(overdue.Id, overdueItem.FindingId);
+        Assert.True(overdueItem.IsOverdue);
+
+        var unassignedResult = await fixture.Service.ListAsync(new AuditFindingsQuery(
+            fixture.ArtifactVersionId,
+            Unassigned: true,
+            WorkflowStatus: "WaitingFix"));
+        Assert.True(unassignedResult.IsSuccess, unassignedResult.Error ?? unassignedResult.ErrorDetail?.Message);
+        Assert.Equal(unassigned.Id, Assert.Single(unassignedResult.Value!.Findings).FindingId);
     }
 
     [Theory]
@@ -102,6 +146,12 @@ public sealed class AuditFindingsServiceTests
         Assert.Equal(fixture.UserId, history.OwnerUserId);
         Assert.Equal("Detector matched a quoted example.", history.Reason);
 
+        var workflowHistory = Assert.Single(fixture.Context.Set<AuditFindingWorkflowHistory>());
+        Assert.Equal(AuditFindingWorkflowStatus.Open, workflowHistory.FromWorkflowStatus);
+        Assert.Equal(AuditFindingWorkflowStatus.Open, workflowHistory.ToWorkflowStatus);
+        Assert.Null(workflowHistory.FromOwnerUserId);
+        Assert.Equal(fixture.UserId, workflowHistory.ToOwnerUserId);
+
         var audit = Assert.Single(fixture.Audit.Entries);
         Assert.Equal("AuditFindingTriageChanged", audit.Action);
         Assert.NotNull(audit.Metadata);
@@ -113,7 +163,7 @@ public sealed class AuditFindingsServiceTests
     }
 
     [Fact]
-    public async Task ActiveTenantMemberCanBeAssignedWithoutChangingStatus()
+    public async Task AuditReviewMemberCanBeAssignedWithoutChangingTriageStatus()
     {
         await using var fixture = await Fixture.CreateAsync();
         var ownerId = await fixture.AddTenantMemberAsync("Finding Owner", TenantUserStatus.Active);
@@ -137,6 +187,35 @@ public sealed class AuditFindingsServiceTests
     }
 
     [Fact]
+    public async Task MemberWithoutAuditReviewGrantIsNotExposedOrAssignable()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var unauthorizedOwnerId = await fixture.AddTenantMemberAsync(
+            "Unauthorized member",
+            TenantUserStatus.Active,
+            grantReview: false);
+        var finding = fixture.AddFinding(AuditFindingTriageStatus.Open, AuditFindingSeverity.Low, 20, 1);
+        await fixture.Context.SaveChangesAsync();
+
+        var list = await fixture.Service.ListAsync(new AuditFindingsQuery(fixture.ArtifactVersionId));
+        Assert.True(list.IsSuccess, list.Error ?? list.ErrorDetail?.Message);
+        Assert.DoesNotContain(list.Value!.EligibleOwners, owner => owner.UserId == unauthorizedOwnerId);
+
+        var result = await fixture.Service.UpdateWorkflowAsync(
+            finding.Id,
+            new UpdateAuditFindingWorkflowRequest(
+                "InReview",
+                OwnerUserId: unauthorizedOwnerId,
+                AssignOwner: true));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("OwnerNotEligible", result.ErrorDetail?.Code);
+        Assert.Null(finding.OwnerUserId);
+        Assert.Equal(AuditFindingWorkflowStatus.Open, finding.WorkflowStatus);
+        Assert.Empty(fixture.Context.Set<AuditFindingWorkflowHistory>());
+    }
+
+    [Fact]
     public async Task SuspendedTenantMemberCannotBeAssigned()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -155,6 +234,84 @@ public sealed class AuditFindingsServiceTests
         Assert.Equal("OwnerNotEligible", result.ErrorDetail?.Code);
         Assert.Null(finding.OwnerUserId);
         Assert.Empty(fixture.Context.Set<AuditFindingHistory>());
+        Assert.Empty(fixture.Context.Set<AuditFindingWorkflowHistory>());
+    }
+
+    [Fact]
+    public async Task WorkflowMutationTracksOwnerDueAndStatusAndCreatesSafeAssignmentNotification()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var ownerId = await fixture.AddTenantMemberAsync("Assigned Reviewer", TenantUserStatus.Active);
+        var finding = fixture.AddFinding(AuditFindingTriageStatus.Open, AuditFindingSeverity.High, 80, 1);
+        await fixture.Context.SaveChangesAsync();
+
+        var result = await fixture.Service.UpdateWorkflowAsync(
+            finding.Id,
+            new UpdateAuditFindingWorkflowRequest(
+                "InReview",
+                OwnerUserId: ownerId,
+                AssignOwner: true,
+                DueDate: new DateOnly(2026, 9, 5),
+                SetDueDate: true));
+
+        Assert.True(result.IsSuccess, result.Error ?? result.ErrorDetail?.Message);
+        Assert.Equal(AuditFindingTriageStatus.Open, finding.Status);
+        Assert.Equal(AuditFindingWorkflowStatus.InReview, finding.WorkflowStatus);
+        Assert.Equal(ownerId, finding.OwnerUserId);
+        Assert.Equal(new DateOnly(2026, 9, 5), finding.DueDate);
+
+        var history = Assert.Single(fixture.Context.Set<AuditFindingWorkflowHistory>());
+        Assert.Equal(AuditFindingWorkflowStatus.Open, history.FromWorkflowStatus);
+        Assert.Equal(AuditFindingWorkflowStatus.InReview, history.ToWorkflowStatus);
+        Assert.Null(history.FromOwnerUserId);
+        Assert.Equal(ownerId, history.ToOwnerUserId);
+        Assert.Null(history.FromDueDate);
+        Assert.Equal(new DateOnly(2026, 9, 5), history.ToDueDate);
+        Assert.Equal(fixture.UserId, history.ChangedByUserId);
+
+        var audit = Assert.Single(fixture.Audit.Entries);
+        Assert.Equal("AuditFindingWorkflowChanged", audit.Action);
+        Assert.DoesNotContain("Claim 1", System.Text.Json.JsonSerializer.Serialize(audit), StringComparison.Ordinal);
+
+        var notification = Assert.Single(fixture.Notifications.Entries);
+        Assert.Equal(ownerId, notification.UserId);
+        Assert.Equal(NotificationType.System, notification.Type);
+        Assert.Equal("Audit review assigned", notification.Title);
+        Assert.Null(notification.Body);
+        Assert.Equal("Artifact", notification.RelatedEntityType);
+        Assert.Equal(StubClaimsEvidenceService.ArtifactId, notification.RelatedEntityId);
+        Assert.DoesNotContain("Claim 1", notification.LogicalKey, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task WorkflowMutationCanClearOwnerAndDueDateAndAppendsAnotherHistoryEntry()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var finding = fixture.AddFinding(AuditFindingTriageStatus.Open, AuditFindingSeverity.High, 80, 1);
+        finding.WorkflowStatus = AuditFindingWorkflowStatus.WaitingFix;
+        finding.OwnerUserId = fixture.UserId;
+        finding.DueDate = new DateOnly(2026, 9, 4);
+        await fixture.Context.SaveChangesAsync();
+
+        var result = await fixture.Service.UpdateWorkflowAsync(
+            finding.Id,
+            new UpdateAuditFindingWorkflowRequest(
+                "ReadyForReReview",
+                OwnerUserId: null,
+                AssignOwner: true,
+                DueDate: null,
+                SetDueDate: true));
+
+        Assert.True(result.IsSuccess, result.Error ?? result.ErrorDetail?.Message);
+        Assert.Null(finding.OwnerUserId);
+        Assert.Null(finding.DueDate);
+        Assert.Equal(AuditFindingWorkflowStatus.ReadyForReReview, finding.WorkflowStatus);
+        var history = Assert.Single(fixture.Context.Set<AuditFindingWorkflowHistory>());
+        Assert.Equal(fixture.UserId, history.FromOwnerUserId);
+        Assert.Null(history.ToOwnerUserId);
+        Assert.Equal(new DateOnly(2026, 9, 4), history.FromDueDate);
+        Assert.Null(history.ToDueDate);
+        Assert.Empty(fixture.Notifications.Entries);
     }
 
     [Fact]
@@ -173,6 +330,15 @@ public sealed class AuditFindingsServiceTests
         Assert.Equal(AuditFindingTriageStatus.Open, finding.Status);
         Assert.Empty(fixture.Context.Set<AuditFindingHistory>());
         Assert.Equal(1, fixture.Authorization.AuthorizeCalls);
+
+        var workflow = await fixture.Service.UpdateWorkflowAsync(
+            finding.Id,
+            new UpdateAuditFindingWorkflowRequest("InReview"));
+        Assert.False(workflow.IsSuccess);
+        Assert.Equal("CapabilityDenied", workflow.ErrorDetail?.Code);
+        Assert.Equal(AuditFindingWorkflowStatus.Open, finding.WorkflowStatus);
+        Assert.Empty(fixture.Context.Set<AuditFindingWorkflowHistory>());
+        Assert.Equal(2, fixture.Authorization.AuthorizeCalls);
     }
 
     private sealed class Fixture : IAsyncDisposable
@@ -187,7 +353,9 @@ public sealed class AuditFindingsServiceTests
             AppDbContext context,
             StubClaimsEvidenceService claims,
             StubAuditAuthorization authorization,
+            StubCapabilityGrantEvaluator capabilities,
             StubAuditLogger audit,
+            StubNotificationService notifications,
             DbAuditFindingsService service)
         {
             TenantId = tenantId;
@@ -197,7 +365,9 @@ public sealed class AuditFindingsServiceTests
             Context = context;
             Claims = claims;
             Authorization = authorization;
+            Capabilities = capabilities;
             Audit = audit;
+            Notifications = notifications;
             Service = service;
         }
 
@@ -207,7 +377,9 @@ public sealed class AuditFindingsServiceTests
         public AppDbContext Context { get; }
         public StubClaimsEvidenceService Claims { get; }
         public StubAuditAuthorization Authorization { get; }
+        public StubCapabilityGrantEvaluator Capabilities { get; }
         public StubAuditLogger Audit { get; }
+        public StubNotificationService Notifications { get; }
         public DbAuditFindingsService Service { get; }
 
         public static async Task<Fixture> CreateAsync(bool canReview = true)
@@ -256,12 +428,21 @@ public sealed class AuditFindingsServiceTests
 
             var claims = new StubClaimsEvidenceService(artifactVersionId);
             var authorization = new StubAuditAuthorization(canReview);
+            var capabilities = new StubCapabilityGrantEvaluator();
+            if (canReview)
+            {
+                capabilities.Grant(userId);
+            }
             var audit = new StubAuditLogger();
+            var notifications = new StubNotificationService();
             var service = new DbAuditFindingsService(
                 context,
                 claims,
                 authorization,
+                capabilities,
                 new StubCurrentUser(userId),
+                new StubClock(new DateTimeOffset(2026, 9, 2, 0, 0, 0, TimeSpan.Zero)),
+                notifications,
                 audit,
                 new ContextUnitOfWork(context));
             return new Fixture(
@@ -272,11 +453,17 @@ public sealed class AuditFindingsServiceTests
                 context,
                 claims,
                 authorization,
+                capabilities,
                 audit,
+                notifications,
                 service);
         }
 
-        public async Task<Guid> AddTenantMemberAsync(string displayName, TenantUserStatus status)
+        public async Task<Guid> AddTenantMemberAsync(
+            string displayName,
+            TenantUserStatus status,
+            bool grantReview = true,
+            TenantUserRole role = TenantUserRole.Member)
         {
             var userId = Guid.NewGuid();
             var user = new User
@@ -293,13 +480,17 @@ public sealed class AuditFindingsServiceTests
             {
                 TenantId = TenantId,
                 UserId = userId,
-                Role = TenantUserRole.Member,
+                Role = role,
                 Status = status,
                 JoinedAt = DateTimeOffset.UtcNow,
                 Tenant = tenant,
                 User = user,
             });
             await Context.SaveChangesAsync();
+            if (grantReview && status == TenantUserStatus.Active)
+            {
+                Capabilities.Grant(userId);
+            }
             return userId;
         }
 
@@ -342,6 +533,7 @@ public sealed class AuditFindingsServiceTests
 
     private sealed class StubClaimsEvidenceService(Guid artifactVersionId) : IAuditClaimsEvidenceService
     {
+        public static readonly Guid ArtifactId = Guid.Parse("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
         private readonly Dictionary<Guid, AuditClaimEvidenceResponse> claims = new();
 
         public void AddClaim(ArtifactClaim claim)
@@ -387,7 +579,7 @@ public sealed class AuditFindingsServiceTests
             }
 
             return Task.FromResult(Result<AuditClaimsEvidenceResponse>.Success(new AuditClaimsEvidenceResponse(
-                Guid.Parse("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
+                ArtifactId,
                 artifactVersionId,
                 1,
                 "Audit report",
@@ -405,8 +597,8 @@ public sealed class AuditFindingsServiceTests
         public Task<bool> HasCapabilityAsync(
             string capabilityKey,
             CancellationToken cancellationToken = default) =>
-            Task.FromResult(capabilityKey == AipPortal.Application.Tenancy.CapabilityKeys.AuditView ||
-                            (capabilityKey == AipPortal.Application.Tenancy.CapabilityKeys.AuditReview && canReview));
+            Task.FromResult(capabilityKey == CapabilityKeys.AuditView ||
+                            (capabilityKey == CapabilityKeys.AuditReview && canReview));
 
         public Task<Result> AuthorizeAsync(
             string capabilityKey,
@@ -415,10 +607,30 @@ public sealed class AuditFindingsServiceTests
         {
             AuthorizeCalls++;
             return Task.FromResult(
-                capabilityKey == AipPortal.Application.Tenancy.CapabilityKeys.AuditReview && canReview
+                capabilityKey == CapabilityKeys.AuditReview && canReview
                     ? Result.Success()
                     : Result.Failure(new ApplicationErrorDetail("CapabilityDenied", "Audit operation denied.")));
         }
+    }
+
+    private sealed class StubCapabilityGrantEvaluator : ICapabilityGrantEvaluator
+    {
+        private readonly HashSet<Guid> grantedUsers = new();
+
+        public void Grant(Guid userId) => grantedUsers.Add(userId);
+
+        public Task<bool> HasActiveGrantAsync(
+            Guid subjectUserId,
+            Guid tenantId,
+            string capabilityKey,
+            CapabilityScopeType scopeType,
+            Guid? scopeId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(
+                grantedUsers.Contains(subjectUserId) &&
+                (capabilityKey == CapabilityKeys.AuditView || capabilityKey == CapabilityKeys.AuditReview) &&
+                scopeType == CapabilityScopeType.Tenant &&
+                scopeId == tenantId);
     }
 
     private sealed class StubCurrentUser(Guid userId) : ICurrentUser
@@ -438,6 +650,11 @@ public sealed class AuditFindingsServiceTests
         public bool IsPlatformScope => false;
     }
 
+    private sealed class StubClock(DateTimeOffset now) : IClock
+    {
+        public DateTimeOffset UtcNow { get; } = now;
+    }
+
     private sealed class StubAuditLogger : IAuditLogger
     {
         public List<AuditLogEntry> Entries { get; } = new();
@@ -447,6 +664,59 @@ public sealed class AuditFindingsServiceTests
             Entries.Add(entry);
             return Task.CompletedTask;
         }
+    }
+
+    private sealed class StubNotificationService : INotificationService
+    {
+        public List<NotificationRecord> Entries { get; } = new();
+
+        public Task<Guid> CreateOrGetByLogicalKeyAsync(
+            Guid userId,
+            NotificationType type,
+            string title,
+            string? body,
+            string? relatedEntityType,
+            Guid? relatedEntityId,
+            string logicalKey,
+            CancellationToken cancellationToken = default)
+        {
+            var existing = Entries.FirstOrDefault(entry =>
+                entry.UserId == userId && string.Equals(entry.LogicalKey, logicalKey, StringComparison.Ordinal));
+            if (existing is not null)
+            {
+                return Task.FromResult(existing.Id);
+            }
+
+            var entry = new NotificationRecord(
+                Guid.NewGuid(),
+                userId,
+                type,
+                title,
+                body,
+                relatedEntityType,
+                relatedEntityId,
+                logicalKey);
+            Entries.Add(entry);
+            return Task.FromResult(entry.Id);
+        }
+
+        public Task NotifyAsync(
+            Guid recipientUserId,
+            string title,
+            string? body,
+            string sourceType,
+            Guid sourceId,
+            CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public sealed record NotificationRecord(
+            Guid Id,
+            Guid UserId,
+            NotificationType Type,
+            string Title,
+            string? Body,
+            string? RelatedEntityType,
+            Guid? RelatedEntityId,
+            string LogicalKey);
     }
 
     private sealed class ContextUnitOfWork(AppDbContext context) : IUnitOfWork

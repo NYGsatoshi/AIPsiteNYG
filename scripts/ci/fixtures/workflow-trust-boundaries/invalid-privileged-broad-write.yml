@@ -1,0 +1,11 @@
+name: invalid privileged broad write
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+  issues: write
+jobs:
+  mutate:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo unsafe

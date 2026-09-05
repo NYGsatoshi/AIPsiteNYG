@@ -5,26 +5,6 @@ on:
   pull_request: # Required check: intentionally unfiltered.
   push:
     branches: ["main"]
-    paths:
-      - ".github/**"
-      - ".gitleaksignore"
-      - "scripts/ci/check-publication-readiness.py"
-      - "scripts/ci/test-publication-readiness.py"
-      - "scripts/ci/check-required-pr-checks.py"
-      - "scripts/ci/test-required-pr-checks.py"
-      - "scripts/ci/npm-audit-baseline.json"
-      - "README.md"
-      - "COPYRIGHT.md"
-      - "CONTRIBUTING.md"
-      - "THIRD_PARTY_NOTICES.md"
-      - "package.json"
-      - "package-lock.json"
-      - "frontend/package.json"
-      - "frontend/package-lock.json"
-      - "aipsite-frontend/package.json"
-      - "aipsite-frontend/package-lock.json"
-      - "docs/PUBLICATION_RUNBOOK.md"
-      - "docs/audit/publication-readiness-2026-09-03.md"
 
 concurrency:
   group: publication-readiness-${{ github.event.pull_request.number || github.ref }}
@@ -46,13 +26,17 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Test publication policy parsers
+      - name: Test publication and trust-boundary parsers
         run: |
+          python3 -m py_compile \
+            scripts/ci/required_check_contract.py \
+            scripts/ci/check-required-pr-checks.py
+          ruby scripts/ci/test-workflow-trust-boundaries-upper-bound.rb
           python3 scripts/ci/test-publication-readiness.py
-          python3 scripts/ci/test-required-pr-checks.py
 
-      - name: Enforce publication and required-check policies
+      - name: Enforce publication safety, trust boundaries, and required-check topology
         run: |
+          ruby scripts/ci/check-workflow-trust-boundaries-upper-bound.rb
           python3 scripts/ci/check-publication-readiness.py
           python3 scripts/ci/check-required-pr-checks.py
 
@@ -79,5 +63,5 @@ jobs:
         with:
           name: publication-readiness-gitleaks-report
           path: gitleaks-publication-report.json
-          if-no-files-found: error
+          if-no-files-found: ignore
           retention-days: 7

@@ -60,7 +60,7 @@ public sealed class NotificationApplicationService(
         }
 
         // The infrastructure implementation owns the target-resolution,
-        // read-state and Outbox transaction.  Do not mark a notification read
+        // read-state and Outbox transaction. Do not mark a notification read
         // on the client or before its current target is authorized.
         var resolution = await notificationOpen.OpenAsync(
             currentTenant.IsAvailable ? currentTenant.TenantId : Guid.Empty,
@@ -76,10 +76,15 @@ public sealed class NotificationApplicationService(
 
         if (!resolution.IsAvailable)
         {
-            return Result<NotificationOpenResponse>.Success(new NotificationOpenResponse(
-                "Unavailable",
-                null,
-                resolution.StateVersion));
+            // Ownership alone is not authority to open a protected target.
+            // Current authorization can disappear after the session was
+            // established (membership revoke, role/scope change, target
+            // deletion). Collapse that stale authorization state to the same
+            // metadata-safe not-found response as a missing/foreign row. A
+            // 2xx "Unavailable" response would turn authorization loss into
+            // an observable success class and violates the SEC-05 fail-closed
+            // contract even when no read mutation occurs.
+            return Result<NotificationOpenResponse>.Failure("Notification not found.");
         }
 
         return Result<NotificationOpenResponse>.Success(new NotificationOpenResponse(

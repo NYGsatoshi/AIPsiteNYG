@@ -1,0 +1,20 @@
+name: Governance live policy audit
+
+# Legacy diagnostic entry point. Live Governance drift is no longer a merge/release gate.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: governance-live-policy-audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Governance live gate retired
+        run: |
+          echo "Live Governance drift is no longer a blocking CI control."
+          echo "Default-branch authority is enforced by native GitHub permissions and owner-only rulesets."
+          echo "Use repository Settings > Rules to inspect the effective rulesets when needed."

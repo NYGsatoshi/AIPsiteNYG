@@ -5,7 +5,9 @@ using AipPortal.Application.Messaging;
 using AipPortal.Application.Notifications;
 using AipPortal.Application.Security.Redaction;
 using AipPortal.Infrastructure.Persistence;
+using AipPortal.Web.Audit;
 using AipPortal.Web.Configuration;
+using AipPortal.Web.OpenApi;
 using AipPortal.Web.Security;
 using AipPortal.Web.Services;
 using AipPortal.Web.Models;
@@ -23,6 +25,7 @@ public static class DependencyInjection
     {
         services.Configure<TenancyOptions>(configuration.GetSection("Tenancy"));
         services.Configure<SecurityOptions>(configuration.GetSection("Security"));
+        services.Configure<AuditPackageExportWorkerOptions>(configuration.GetSection("AuditPackageExport"));
         services.AddSingleton(configuration.GetSection("CommunicationSafety").Get<CommunicationSafetyOptions>() ?? new CommunicationSafetyOptions());
         services.AddSingleton(configuration.GetSection("Security").Get<AuthSecurityOptions>() ?? new AuthSecurityOptions());
         services.Configure<PlatformOptions>(configuration.GetSection("Platform"));
@@ -39,6 +42,7 @@ public static class DependencyInjection
             options.Cookie.SecurePolicy = security.CookieSecurePolicy;
         });
         services.AddHostedService<StartupConfigurationValidator>();
+        services.AddHostedService<AuditPackageExportWorker>();
         services.AddHttpContextAccessor();
         services.AddScoped<ICurrentUser, CurrentUserService>();
         services.AddScoped<DbSessionCookieAuthenticationEvents>();
@@ -52,6 +56,15 @@ public static class DependencyInjection
         services.AddScoped<IMessageNotificationPreferenceService, MessageNotificationPreferenceService>();
         services.AddScoped<DbNotificationService>();
         services.Replace(ServiceDescriptor.Scoped<INotificationService, PreferenceAwareNotificationService>());
+
+        // Register the canonical API description without mapping a runtime
+        // documentation endpoint. SEC-01 emits this document at build time for
+        // security tooling while keeping production OpenAPI exposure disabled.
+        services.AddOpenApi(options =>
+        {
+            options.AddSchemaTransformer<SecurityOpenApiSchemaTransformer>();
+            options.AddOperationTransformer<SecurityOpenApiOperationTransformer>();
+        });
 
         services.AddControllers(options =>
             options.Filters.Add<CanonicalProjectsResponseProjectionFilter>())

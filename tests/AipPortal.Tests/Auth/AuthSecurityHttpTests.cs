@@ -178,6 +178,11 @@ public sealed class AuthSecurityHttpTests
 
         using var currentUser = await app.Client.GetAsync("/api/auth/me");
         Assert.Equal(HttpStatusCode.Unauthorized, currentUser.StatusCode);
+        Assert.Equal("application/json", currentUser.Content.Headers.ContentType?.MediaType);
+        using var unauthorized = JsonDocument.Parse(await currentUser.Content.ReadAsStringAsync());
+        Assert.Equal(
+            "AuthenticationRequired",
+            unauthorized.RootElement.GetProperty("error").GetProperty("code").GetString());
     }
 
     [Fact]
@@ -473,4 +478,3 @@ public sealed class AuthSecurityHttpTests
         }
     }
 }
-

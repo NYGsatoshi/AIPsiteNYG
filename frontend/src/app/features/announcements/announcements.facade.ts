@@ -839,7 +839,7 @@ export class AnnouncementsFacade {
       this.readRequests.delete(announcementId);
       this.readConfirmedIds.add(announcementId);
       const current = this.findAnnouncement(announcementId);
-      if (current) this.replaceAnnouncement(markAnnouncementReadConfirmed(current));
+      if (current) {this.replaceAnnouncement(markAnnouncementReadConfirmed(current));}
       return;
     }
 
@@ -855,7 +855,7 @@ export class AnnouncementsFacade {
           this.readConfirmedIds.add(announcementId);
           this.readFailedIds.delete(announcementId);
           const current = this.findAnnouncement(announcementId);
-          if (current) this.replaceAnnouncement(markAnnouncementReadConfirmed(current));
+          if (current) {this.replaceAnnouncement(markAnnouncementReadConfirmed(current));}
         },
         error: () => {
           if (!this.isCurrentProtectedGeneration(generation)) {
@@ -864,7 +864,7 @@ export class AnnouncementsFacade {
           this.readRequests.delete(announcementId);
           this.readFailedIds.add(announcementId);
           const current = this.findAnnouncement(announcementId);
-          if (current) this.replaceAnnouncement(markAnnouncementReadFailed(current));
+          if (current) {this.replaceAnnouncement(markAnnouncementReadFailed(current));}
         },
       });
     this.trackProtectedRequest(request);

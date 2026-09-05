@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "name": "compat-critical",
+  "defaultProfile": "browser-engine",
+  "requiredCategories": [
+    "boot",
+    "navigation",
+    "form",
+    "overlay-focus",
+    "table-list",
+    "responsive",
+    "fetch-error",
+    "realtime"
+  ],
+  "profiles": {
+    "browser-engine": {
+      "description": "Secretless static Angular compatibility coverage reused by Chromium, Firefox, and WebKit desktop projects.",
+      "requiredCategories": ["boot", "navigation", "form", "overlay-focus", "table-list", "responsive", "fetch-error"]
+    },
+    "mobile": {
+      "description": "Secretless static Angular compatibility coverage reused by mobile and explicit narrow-viewport projects.",
+      "requiredCategories": ["boot", "navigation", "form", "overlay-focus", "table-list", "responsive", "fetch-error"]
+    },
+    "os-portability": {
+      "description": "Small UI discovery subset suitable for cross-OS toolchain and build portability checks.",
+      "requiredCategories": ["boot", "navigation"]
+    },
+    "real-backend": {
+      "description": "Synthetic local-backend coverage that owns the minimum real SignalR negotiate/reconnect evidence outside the secretless browser matrix.",
+      "requiredCategories": ["realtime"]
+    }
+  },
+  "quarantines": [],
+  "tests": [
+    {
+      "id": "COMPAT-BOOT-001",
+      "file": "tests/ui/angular-smoke.spec.ts",
+      "title": "serves the built Angular shell",
+      "categories": ["boot"],
+      "profiles": ["browser-engine", "mobile", "os-portability"],
+      "status": "active"
+    },
+    {
+      "id": "COMPAT-NAV-001",
+      "file": "tests/ui/angular-smoke.spec.ts",
+      "title": "renders the workspace route in the Angular shell",
+      "categories": ["navigation"],
+      "profiles": ["browser-engine", "mobile", "os-portability"],
+      "status": "active"
+    },
+    {
+      "id": "COMPAT-INTERACT-001",
+      "file": "tests/ui/angular-smoke.spec.ts",
+      "title": "saves and reapplies My Tasks filters accessibly without exposing an opaque Project ID at 320px",
+      "categories": ["form", "table-list", "responsive", "fetch-error"],
+      "profiles": ["browser-engine", "mobile"],
+      "status": "active"
+    },
+    {
+      "id": "COMPAT-OVERLAY-001",
+      "file": "tests/ui/angular-smoke.spec.ts",
+      "title": "keeps the redacted audit drawer deep-linkable, focus-safe, and accessible at 320px",
+      "categories": ["navigation", "overlay-focus", "table-list", "responsive"],
+      "profiles": ["browser-engine", "mobile"],
+      "status": "active"
+    },
+    {
+      "id": "COMPAT-REALTIME-001",
+      "file": "tests/ui/real-backend-smoke.spec.ts",
+      "title": "exercises mandatory authenticated MVP0 flows through ASP.NET Core backend",
+      "categories": ["realtime"],
+      "profiles": ["real-backend"],
+      "status": "active"
+    }
+  ]
+}

@@ -12,4 +12,9 @@ public interface IAuditFindingsService
         Guid findingId,
         UpdateAuditFindingTriageRequest request,
         CancellationToken cancellationToken = default);
+
+    Task<Result> UpdateWorkflowAsync(
+        Guid findingId,
+        UpdateAuditFindingWorkflowRequest request,
+        CancellationToken cancellationToken = default);
 }

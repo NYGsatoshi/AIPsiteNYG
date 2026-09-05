@@ -16,3 +16,16 @@ public enum AuditFindingTriageStatus
     AcceptedRisk = 3,
     FalsePositive = 4
 }
+
+/// <summary>
+/// Operational progress for resolving a Finding. This is deliberately separate
+/// from both detector triage and the structured Review Decision aggregate.
+/// </summary>
+public enum AuditFindingWorkflowStatus
+{
+    Open = 0,
+    InReview = 1,
+    WaitingFix = 2,
+    ReadyForReReview = 3,
+    Done = 4
+}

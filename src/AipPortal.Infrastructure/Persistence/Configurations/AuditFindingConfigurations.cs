@@ -20,9 +20,12 @@ public sealed class ArtifactFindingConfiguration : IEntityTypeConfiguration<Arti
         builder.Property(finding => finding.DetectorKey).HasMaxLength(128).IsRequired();
         builder.Property(finding => finding.PolicyVersion).HasMaxLength(128).IsRequired();
         builder.Property(finding => finding.Status).HasEnumStringConversion().HasMaxLength(32).IsRequired();
+        builder.Property(finding => finding.WorkflowStatus).HasEnumStringConversion().HasMaxLength(32).IsRequired();
+        builder.Property(finding => finding.DueDate).HasColumnType("date");
         builder.Property(finding => finding.ResolutionReason).HasMaxLength(1000);
         builder.HasIndex(finding => finding.ArtifactClaimId).IsUnique();
         builder.HasIndex(finding => new { finding.TenantId, finding.Status, finding.Severity });
+        builder.HasIndex(finding => new { finding.TenantId, finding.WorkflowStatus, finding.DueDate, finding.OwnerUserId });
         builder.HasOne(finding => finding.ArtifactClaim)
             .WithOne(claim => claim.Finding)
             .HasForeignKey<ArtifactFinding>(finding => finding.ArtifactClaimId)
@@ -44,6 +47,24 @@ public sealed class AuditFindingHistoryConfiguration : IEntityTypeConfiguration<
         builder.HasIndex(history => new { history.TenantId, history.ArtifactFindingId, history.CreatedAt });
         builder.HasOne(history => history.Finding)
             .WithMany(finding => finding.History)
+            .HasForeignKey(history => history.ArtifactFindingId)
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+public sealed class AuditFindingWorkflowHistoryConfiguration : IEntityTypeConfiguration<AuditFindingWorkflowHistory>
+{
+    public void Configure(EntityTypeBuilder<AuditFindingWorkflowHistory> builder)
+    {
+        builder.ToTable("audit_finding_workflow_history", table => table.ExcludeFromMigrations());
+        builder.ConfigureAuditableEntity();
+        builder.Property(history => history.FromWorkflowStatus).HasEnumStringConversion().HasMaxLength(32).IsRequired();
+        builder.Property(history => history.ToWorkflowStatus).HasEnumStringConversion().HasMaxLength(32).IsRequired();
+        builder.Property(history => history.FromDueDate).HasColumnType("date");
+        builder.Property(history => history.ToDueDate).HasColumnType("date");
+        builder.HasIndex(history => new { history.TenantId, history.ArtifactFindingId, history.CreatedAt });
+        builder.HasOne(history => history.Finding)
+            .WithMany(finding => finding.WorkflowHistory)
             .HasForeignKey(history => history.ArtifactFindingId)
             .OnDelete(DeleteBehavior.Restrict);
     }

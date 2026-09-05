@@ -149,14 +149,14 @@ export class AdminFacade {
   }
 
   initializeAuditLog(filters: AuditFilterSnapshot = EMPTY_AUDIT_FILTERS): void {
-    if (this.auditScenario) return;
+    if (this.auditScenario) {return;}
     const normalized = normalizeFilters(filters);
-    if (this.auditInitialized && filtersEqual(normalized, this.appliedAuditFilters)) return;
+    if (this.auditInitialized && filtersEqual(normalized, this.appliedAuditFilters)) {return;}
     this.applyAuditFilters(normalized);
   }
 
   applyAuditFilters(filters: AuditFilterSnapshot): void {
-    if (this.auditScenario) return;
+    if (this.auditScenario) {return;}
     const normalized = normalizeFilters(filters);
     this.auditInitialized = true;
     this.appliedAuditFilters = normalized;
@@ -556,7 +556,7 @@ export class AdminFacade {
 
   private registerAuditProtectedStateWhenAuthenticated(): void {
     const session = this.auth.session();
-    if (this.auditProtectedStateRegistered || session.status !== 'active' || !session.isAuthenticated) return;
+    if (this.auditProtectedStateRegistered || session.status !== 'active' || !session.isAuthenticated) {return;}
     this.realtime.registerProtectedStateClearer?.(
       'admin-audit',
       () => this.clearAuditProtectedState(),
@@ -688,12 +688,12 @@ function filtersEqual(left: AuditFilterSnapshot, right: AuditFilterSnapshot): bo
 
 function auditFilterParams(filters: AuditFilterSnapshot, fromDate: string | null): HttpParams {
   let params = new HttpParams();
-  if (filters.q) params = params.set('q', filters.q);
-  if (filters.severity) params = params.set('severity', filters.severity);
-  if (filters.type) params = params.set('action', filters.type);
-  if (filters.actor) params = params.set('actor', filters.actor);
-  if (filters.source) params = params.set('entityType', filters.source);
-  if (filters.status) params = params.set('result', filters.status);
+  if (filters.q) {params = params.set('q', filters.q);}
+  if (filters.severity) {params = params.set('severity', filters.severity);}
+  if (filters.type) {params = params.set('action', filters.type);}
+  if (filters.actor) {params = params.set('actor', filters.actor);}
+  if (filters.source) {params = params.set('entityType', filters.source);}
+  if (filters.status) {params = params.set('result', filters.status);}
   return fromDate ? params.set('fromDate', fromDate) : params;
 }
 

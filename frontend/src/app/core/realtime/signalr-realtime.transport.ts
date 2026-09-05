@@ -76,19 +76,19 @@ export class SignalrRealtimeTransport implements RealtimeTransport {
     // settles. Scope every callback to the currently owned connection so an
     // obsolete frame/status cannot contaminate its replacement epoch.
     connection.on('DurableEvent', (event) => {
-      if (this.connection === connection) this.durableEvents.next(event);
+      if (this.connection === connection) {this.durableEvents.next(event);}
     });
     connection.on('AuthorizationInvalidated', () => {
-      if (this.connection === connection) this.authorizationInvalidations.next();
+      if (this.connection === connection) {this.authorizationInvalidations.next();}
     });
     connection.onreconnecting(() => {
-      if (this.connection === connection) this.statuses.next('reconnecting');
+      if (this.connection === connection) {this.statuses.next('reconnecting');}
     });
     connection.onreconnected(() => {
-      if (this.connection === connection) this.statuses.next('reconnected');
+      if (this.connection === connection) {this.statuses.next('reconnected');}
     });
     connection.onclose(() => {
-      if (this.connection === connection) this.statuses.next('closed');
+      if (this.connection === connection) {this.statuses.next('closed');}
     });
     this.connection = connection;
     return connection;
@@ -99,7 +99,7 @@ export class SignalrRealtimeTransport implements RealtimeTransport {
     request: RealtimeSubscriptionRequest
   ): Promise<RealtimeSubscriptionResult> {
     const connection = this.connection;
-    if (!connection || connection.state !== 'Connected') {
+    if (connection?.state !== 'Connected') {
       return { allowed: false, code: 'ConnectionUnavailable' };
     }
 

@@ -9,16 +9,21 @@ const eventId = '55555555-5555-4555-8555-555555555555';
 const ownerId = '66666666-6666-4666-8666-666666666666';
 
 type ReviewDecision = 'NoIssue' | 'NeedsFix' | 'AcceptedRisk';
+type WorkflowStatus = 'Open' | 'InReview' | 'WaitingFix' | 'ReadyForReReview' | 'Done';
 
 test.describe('Audit findings triage', () => {
-  test('records a structured review decision independently from triage and exposes authorized history', async ({ page }) => {
+  test('keeps Decision, workflow, and triage separate while tracking accountable follow-up', async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 800 });
 
     let status = 'Open';
+    let workflowStatus: WorkflowStatus = 'Open';
     let ownerUserId: string | null = null;
     let ownerDisplayName: string | null = null;
+    let dueDate: string | null = null;
     let resolutionReason: string | null = null;
-    let patchCount = 0;
+    let triagePatchCount = 0;
+    let workflowPatchCount = 0;
+    let mentionPostCount = 0;
     let decisionPutCount = 0;
     let currentDecision: ReviewDecision | null = null;
     let currentDecisionRationale: string | null = null;
@@ -26,6 +31,17 @@ test.describe('Audit findings triage', () => {
       fromStatus: string | null;
       toStatus: string;
       reason: string | null;
+      changedAt: string;
+    }> = [];
+    const workflowHistory: Array<{
+      fromWorkflowStatus: WorkflowStatus;
+      toWorkflowStatus: WorkflowStatus;
+      fromOwnerUserId: string | null;
+      fromOwnerDisplayName: string | null;
+      toOwnerUserId: string | null;
+      toOwnerDisplayName: string | null;
+      fromDueDate: string | null;
+      toDueDate: string | null;
       changedAt: string;
     }> = [];
     const decisionHistory: Array<{
@@ -55,6 +71,9 @@ test.describe('Audit findings triage', () => {
       const request = route.request();
       const pathname = new URL(request.url()).pathname;
       const isDecisionEndpoint = pathname.endsWith(`/api/admin/audit/findings/${findingId}/decision`);
+      const isWorkflowEndpoint = pathname.endsWith(`/api/admin/audit/findings/${findingId}/workflow`);
+      const isMentionEndpoint = pathname.endsWith(`/api/admin/audit/findings/${findingId}/mentions`);
+      const isTriageEndpoint = pathname.endsWith(`/api/admin/audit/findings/${findingId}/triage`);
 
       if (isDecisionEndpoint && request.method() === 'GET') {
         await route.fulfill({
@@ -96,27 +115,69 @@ test.describe('Audit findings triage', () => {
         return;
       }
 
-      if (request.method() === 'PATCH') {
-        patchCount += 1;
+      if (isWorkflowEndpoint && request.method() === 'PATCH') {
+        const body = request.postDataJSON() as {
+          workflowStatus: WorkflowStatus;
+          ownerUserId: string | null;
+          assignOwner: boolean;
+          dueDate: string | null;
+          setDueDate: boolean;
+        };
+        workflowPatchCount += 1;
+        const previousWorkflowStatus = workflowStatus;
+        const previousOwnerUserId = ownerUserId;
+        const previousOwnerDisplayName = ownerDisplayName;
+        const previousDueDate = dueDate;
+        workflowStatus = body.workflowStatus;
+        if (body.assignOwner) {
+          ownerUserId = body.ownerUserId;
+          ownerDisplayName = body.ownerUserId === ownerId ? 'Authorized reviewer' : null;
+        }
+        if (body.setDueDate) {
+          dueDate = body.dueDate;
+        }
+        workflowHistory.unshift({
+          fromWorkflowStatus: previousWorkflowStatus,
+          toWorkflowStatus: workflowStatus,
+          fromOwnerUserId: previousOwnerUserId,
+          fromOwnerDisplayName: previousOwnerDisplayName,
+          toOwnerUserId: ownerUserId,
+          toOwnerDisplayName: ownerDisplayName,
+          fromDueDate: previousDueDate,
+          toDueDate: dueDate,
+          changedAt: `2026-09-02T05:${10 + workflowPatchCount}:00Z`,
+        });
+        await route.fulfill({ status: 204, body: '' });
+        return;
+      }
+
+      if (isMentionEndpoint && request.method() === 'POST') {
+        const body = request.postDataJSON() as {
+          userId: string;
+          requestId: string;
+        };
+        expect(body.userId).toBe(ownerId);
+        expect(body.requestId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+        mentionPostCount += 1;
+        await route.fulfill({ status: 204, body: '' });
+        return;
+      }
+
+      if (isTriageEndpoint && request.method() === 'PATCH') {
+        triagePatchCount += 1;
         const body = request.postDataJSON() as {
           status: string;
           reason: string | null;
-          ownerUserId: string | null;
-          assignOwner: boolean;
         };
         history.unshift({
           fromStatus: status,
           toStatus: body.status,
           reason: body.status === status ? null : body.reason,
-          changedAt: `2026-09-01T03:${20 + patchCount}:00Z`,
+          changedAt: `2026-09-01T03:${20 + triagePatchCount}:00Z`,
         });
         if (body.status !== status) {
           status = body.status;
           resolutionReason = body.reason;
-        }
-        if (body.assignOwner) {
-          ownerUserId = body.ownerUserId;
-          ownerDisplayName = body.ownerUserId === ownerId ? 'Authorized reviewer' : null;
         }
         await route.fulfill({ status: 204, body: '' });
         return;
@@ -145,14 +206,18 @@ test.describe('Audit findings triage', () => {
               detectorKey: 'policy.conflict',
               policyVersion: 'policy-2026.09',
               status,
+              workflowStatus,
               ownerUserId,
               ownerDisplayName,
+              dueDate,
+              isOverdue: dueDate === '2026-09-01' && workflowStatus !== 'Done',
               resolutionReason,
               createdAt: '2026-09-01T02:00:00Z',
-              updatedAt: ownerDisplayName ? '2026-09-01T03:21:00Z' : null,
+              updatedAt: workflowPatchCount > 0 || triagePatchCount > 0 ? '2026-09-02T05:11:00Z' : null,
               relatedEvidenceId: evidenceId,
               relatedEventId: eventId,
               history,
+              workflowHistory,
             },
             {
               findingId: '77777777-7777-4777-8777-777777777777',
@@ -164,14 +229,18 @@ test.describe('Audit findings triage', () => {
               detectorKey: 'policy.resolved',
               policyVersion: 'policy-2026.09',
               status: 'Resolved',
+              workflowStatus: 'Done',
               ownerUserId: null,
               ownerDisplayName: null,
+              dueDate: '2026-08-30',
+              isOverdue: false,
               resolutionReason: null,
               createdAt: '2026-09-01T01:00:00Z',
               updatedAt: null,
               relatedEvidenceId: null,
               relatedEventId: null,
               history: [],
+              workflowHistory: [],
             },
           ],
         }),
@@ -185,10 +254,12 @@ test.describe('Audit findings triage', () => {
     await expect(queueCards.first()).toContainText('Claim #3');
     await expect(queueCards.first()).toContainText('Critical severity');
     await expect(queueCards.first()).toContainText('64% confidence');
+    await expect(queueCards.first()).toContainText('Workflow: Open');
     await expect(page.getByTestId('audit-finding-detail')).toContainText('Detector confidence');
     await expect(page.getByTestId('audit-finding-detail')).toContainText('policy.conflict');
     await expect(page.getByTestId('audit-finding-detail')).toContainText('policy-2026.09');
     await expect(page.getByTestId('audit-finding-detail')).toContainText('Unassigned');
+    await expect(page.getByTestId('audit-finding-detail')).toContainText('No due date');
 
     const decisionPanel = page.getByTestId('audit-finding-decision-panel');
     await expect(decisionPanel).toBeVisible();
@@ -211,19 +282,42 @@ test.describe('Audit findings triage', () => {
     await expect(current).toContainText('Accepted risk');
     await expect(current).toContainText('Authorized reviewer');
     await expect(current).toContainText('Risk accepted under policy exception.');
-    await expect(current).toContainText('Previous state');
-    await expect(current).toContainText('None');
-    await expect(page.getByTestId('audit-finding-decision-history')).toContainText('None → Accepted risk');
+    await expect(page.getByTestId('audit-finding-detail').locator('.finding-detail__status')).toHaveText('Open');
+    await expect(page.getByTestId('audit-finding-workflow-status')).toHaveValue('Open');
+
+    await page.getByTestId('audit-finding-owner').selectOption(ownerId);
+    await page.getByTestId('audit-finding-workflow-status').selectOption('InReview');
+    await page.getByTestId('audit-finding-due-date').fill('2026-09-01');
+    await page.getByTestId('audit-finding-save-owner').click();
+    await expect.poll(() => workflowPatchCount).toBe(1);
+    await expect(page.getByTestId('audit-finding-detail')).toContainText('Authorized reviewer');
+    await expect(page.getByTestId('audit-finding-detail')).toContainText('In Review');
+    await expect(page.getByTestId('audit-finding-detail')).toContainText('2026-09-01');
+    await expect(page.getByTestId('audit-finding-detail')).toContainText('Overdue');
+    const workflowHistoryPanel = page.getByTestId('audit-finding-workflow-history');
+    await expect(workflowHistoryPanel).toContainText('Open → In Review');
+    await expect(workflowHistoryPanel).toContainText('Unassigned → Authorized reviewer');
+    await expect(workflowHistoryPanel).toContainText('No due date → 2026-09-01');
+    await expect(current).toContainText('Accepted risk');
     await expect(page.getByTestId('audit-finding-detail').locator('.finding-detail__status')).toHaveText('Open');
 
-    await page.getByTestId('audit-finding-decision-select').selectOption('NeedsFix');
-    await page.getByTestId('audit-finding-decision-rationale').fill('Source must be corrected before release.');
-    await page.getByTestId('audit-finding-decision-save').click();
-    await expect.poll(() => decisionPutCount).toBe(2);
-    await expect(current).toContainText('Needs fix');
+    await page.getByTestId('audit-finding-mention-reviewer').click();
+    await expect.poll(() => mentionPostCount).toBe(1);
+    await expect(page.getByTestId('audit-finding-mutation-notice')).toHaveText('Reviewer mention sent.');
+    await expect(page.getByTestId('audit-finding-workflow-status')).toHaveValue('InReview');
     await expect(current).toContainText('Accepted risk');
-    await expect(current).toContainText('Source must be corrected before release.');
-    await expect(page.getByTestId('audit-finding-decision-history')).toContainText('Accepted risk → Needs fix');
+
+    await page.getByTestId('audit-finding-status-FalsePositive').click();
+    await expect(page.getByRole('alert')).toContainText('A reason is required');
+    expect(triagePatchCount).toBe(0);
+
+    await page.getByTestId('audit-finding-reason').fill('Detector matched a quoted example.');
+    await page.getByTestId('audit-finding-status-FalsePositive').click();
+    await expect.poll(() => triagePatchCount).toBe(1);
+    await expect(page.getByTestId('audit-finding-detail')).toContainText('False Positive');
+    await expect(page.getByTestId('audit-finding-detail')).toContainText('Open → False Positive');
+    await expect(page.getByTestId('audit-finding-workflow-status')).toHaveValue('InReview');
+    await expect(current).toContainText('Accepted risk');
 
     const claimLink = page.getByTestId('audit-finding-claim-link');
     await expect(claimLink).toHaveAttribute(
@@ -235,23 +329,12 @@ test.describe('Audit findings triage', () => {
       `/app/admin/audit?event=${eventId}`,
     );
 
-    await page.getByTestId('audit-finding-owner').selectOption(ownerId);
-    await page.getByTestId('audit-finding-save-owner').click();
-    await expect.poll(() => patchCount).toBe(1);
-    await expect(page.getByTestId('audit-finding-detail')).toContainText('Authorized reviewer');
-
-    await page.getByTestId('audit-finding-status-FalsePositive').click();
-    await expect(page.getByRole('alert')).toContainText('A reason is required');
-    expect(patchCount).toBe(1);
-
-    await page.getByTestId('audit-finding-reason').fill('Detector matched a quoted example.');
-    await page.getByTestId('audit-finding-status-FalsePositive').click();
-    await expect.poll(() => patchCount).toBe(2);
-    await expect(page.getByTestId('audit-finding-detail')).toContainText('False Positive');
-    await expect(page.getByTestId('audit-finding-detail')).toContainText('Authorized reviewer');
-    await expect(page.getByTestId('audit-finding-detail')).toContainText('Detector matched a quoted example.');
-    await expect(page.getByTestId('audit-finding-detail')).toContainText('Open → False Positive');
-
+    await page.getByTestId('audit-findings-my-reviews').check();
+    await expect.poll(() => new URL(page.url()).searchParams.get('myReviews')).toBe('true');
+    await page.getByTestId('audit-findings-overdue').check();
+    await expect.poll(() => new URL(page.url()).searchParams.get('overdue')).toBe('true');
+    await page.getByTestId('audit-findings-unassigned').check();
+    await expect.poll(() => new URL(page.url()).searchParams.get('unassigned')).toBe('true');
     await page.getByTestId('audit-findings-open-only').check();
     await expect.poll(() => new URL(page.url()).searchParams.get('openOnly')).toBe('true');
 

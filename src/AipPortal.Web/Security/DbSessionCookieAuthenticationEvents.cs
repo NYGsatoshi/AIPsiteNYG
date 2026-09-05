@@ -15,7 +15,7 @@ public sealed class DbSessionCookieAuthenticationEvents(
     public override async Task RedirectToLogin(RedirectContext<CookieAuthenticationOptions> context)
     {
         context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-        if (IsWpcPath(context.Request.Path.Value))
+        if (IsApiPath(context.Request.Path))
         {
             await context.Response.WriteAsJsonAsync(ApiEnvelope.Error(
                 context.HttpContext,
@@ -28,7 +28,7 @@ public sealed class DbSessionCookieAuthenticationEvents(
     public override async Task RedirectToAccessDenied(RedirectContext<CookieAuthenticationOptions> context)
     {
         context.Response.StatusCode = StatusCodes.Status403Forbidden;
-        if (IsWpcPath(context.Request.Path.Value))
+        if (IsApiPath(context.Request.Path))
         {
             await context.Response.WriteAsJsonAsync(ApiEnvelope.Error(
                 context.HttpContext,
@@ -90,8 +90,5 @@ public sealed class DbSessionCookieAuthenticationEvents(
         await context.HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
     }
 
-    private static bool IsWpcPath(string? path)
-    {
-        return ApiEnvelope.IsCanonicalCreatePath(path);
-    }
+    private static bool IsApiPath(PathString path) => path.StartsWithSegments("/api");
 }

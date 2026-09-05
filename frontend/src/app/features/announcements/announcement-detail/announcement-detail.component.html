@@ -87,7 +87,7 @@
       </div>
     </dl>
 
-    @if (announcement.readState.requiresReadConfirmation && !announcement.readState.isRead) {
+    @if (!announcement.readState.isRead) {
       <div class="announcement-detail__read-action">
         @if (announcement.readState.markReadError) {
           <p class="announcement-detail__read-error" role="alert" data-testid="announcement-mark-read-error">
@@ -104,6 +104,31 @@
         >
           {{ announcement.readState.isMarkingRead ? '確認中…' : '既読にする' }}
         </button>
+      </div>
+    }
+
+    <!-- eslint-disable @angular-eslint/template/i18n, @angular-eslint/template/cyclomatic-complexity, @angular-eslint/template/no-call-expression -->
+    @if (announcement.readState.requiresReadConfirmation) {
+      <div class="announcement-detail__read-action" data-testid="announcement-acknowledgement">
+        @if (acknowledgementError()) {
+          <p class="announcement-detail__read-error" role="alert" data-testid="announcement-acknowledgement-error">
+            確認状態を記録できませんでした。もう一度お試しください。
+          </p>
+        }
+        @if (acknowledged()) {
+          <p role="status" data-testid="announcement-acknowledged-status">確認済みとして記録しました。</p>
+        } @else {
+          <button
+            type="button"
+            class="announcement-detail__mark-read"
+            data-testid="announcement-acknowledge-action"
+            [disabled]="acknowledgementPending()"
+            [attr.aria-busy]="acknowledgementPending()"
+            (click)="requestAcknowledgement()"
+          >
+            {{ acknowledgementPending() ? '記録中…' : '内容を確認しました' }}
+          </button>
+        }
       </div>
     }
 
@@ -131,6 +156,7 @@
           target="_blank"
           rel="noopener noreferrer"
           data-testid="announcement-cta-action"
+          (click)="recordCtaClick()"
         >
           {{ cta.label }}
         </a>

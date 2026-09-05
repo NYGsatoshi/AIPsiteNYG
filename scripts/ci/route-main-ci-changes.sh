@@ -265,6 +265,11 @@ mark_backend_test_file() {
 
   if [[ "$path" =~ ^tests/AipPortal\.Tests/([^/]+)/ ]]; then
     local scope="${BASH_REMATCH[1]}"
+    if [[ "$scope" == "PostgreSql" ]]; then
+      # PostgreSQL-scoped tests use the CI service database and require the schema
+      # even when the production EF model itself was not changed.
+      backend_ef=true
+    fi
     if [[ "$scope" == "Support" ]]; then
       mark_backend_full
     else

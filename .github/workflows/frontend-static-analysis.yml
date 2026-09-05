@@ -1,0 +1,80 @@
+name: Frontend Static Analysis
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: frontend-static-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  frontend-static-analysis:
+    name: frontend-static-analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
+      - name: Configure persistent npm cache
+        shell: bash
+        run: bash scripts/ci/configure-persistent-caches.sh
+
+      - name: Install repository JavaScript dependencies
+        shell: bash
+        run: |
+          npm ci --prefer-offline --ignore-scripts --no-audit --no-fund
+          npm --prefix frontend ci --prefer-offline --ignore-scripts --no-audit --no-fund
+
+      - name: Install frontend inspection toolchain
+        shell: bash
+        run: |
+          for attempt in 1 2; do
+            set +e
+            if [[ "$attempt" -eq 1 ]]; then
+              npm --prefix tools/frontend-inspections install --prefer-offline --ignore-scripts --no-audit --no-fund
+            else
+              npm_config_prefer_offline=false npm --prefix tools/frontend-inspections install --prefer-online --ignore-scripts --no-audit --no-fund
+            fi
+            status=$?
+            set -e
+            if [[ "$status" -eq 0 ]]; then
+              exit 0
+            fi
+            if [[ "$attempt" -eq 2 ]]; then
+              exit "$status"
+            fi
+            df -h || true
+            df -i || true
+            free -h || true
+            sleep 10
+          done
+
+      - name: Enforce ESLint and Stylelint findings
+        shell: bash
+        run: npm run lint:frontend:enforce
+
+      - name: Upload frontend inspection reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: frontend-static-analysis-reports
+          path: artifacts/frontend-inspections
+          if-no-files-found: warn
+          retention-days: 14

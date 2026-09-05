@@ -40,6 +40,18 @@ type PanelState =
   styleUrl: './audit-finding-decision-panel.component.scss',
 })
 export class AuditFindingDecisionPanelComponent {
+  public readonly saveAnnouncement = signal('');
+  public readonly readyStatusMessage = computed(() => {
+    const announcement = this.saveAnnouncement(), panel = this.state();
+    if (announcement !== '') {
+      return announcement;
+    }
+    if (panel.status === 'ready' && panel.response.reviewCompleted) {
+      return 'A structured decision is recorded.';
+    }
+    return 'No structured decision is recorded yet.';
+  });
+
   private readonly http = inject(HttpClient);
   private requestVersion = 0;
 
@@ -68,12 +80,14 @@ export class AuditFindingDecisionPanelComponent {
     this.selectedDecision.set(isDecision(value) ? value : '');
     this.validationError.set(null);
     this.mutationError.set(null);
+    this.saveAnnouncement.set('');
   }
 
   updateRationale(value: string): void {
     this.rationale.set(value);
     this.validationError.set(null);
     this.mutationError.set(null);
+    this.saveAnnouncement.set('');
   }
 
   save(): void {
@@ -97,6 +111,7 @@ export class AuditFindingDecisionPanelComponent {
 
     this.validationError.set(null);
     this.mutationError.set(null);
+    this.saveAnnouncement.set('Saving structured decision.');
     this.saving.set(true);
     const requestVersion = this.requestVersion;
     this.http
@@ -112,12 +127,19 @@ export class AuditFindingDecisionPanelComponent {
           }
           this.saving.set(false);
           this.applyResponse(response);
+          const savedState = this.state();
+          if (savedState.status === 'ready' && savedState.response.reviewCompleted) {
+            this.saveAnnouncement.set('Structured decision saved. Review complete.');
+          } else {
+            this.saveAnnouncement.set('Structured decision saved.');
+          }
         },
         error: (error: { status?: number }) => {
           if (requestVersion !== this.requestVersion) {
             return;
           }
           this.saving.set(false);
+          this.saveAnnouncement.set('');
           this.mutationError.set(
             error.status === 401 || error.status === 403
               ? 'Audit review permission is required to save a structured decision.'
@@ -153,6 +175,7 @@ export class AuditFindingDecisionPanelComponent {
     this.rationale.set('');
     this.validationError.set(null);
     this.mutationError.set(null);
+    this.saveAnnouncement.set('');
     this.saving.set(false);
 
     this.http

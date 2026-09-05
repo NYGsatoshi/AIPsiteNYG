@@ -653,7 +653,7 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     const sensitiveRequests: string[] = [];
     page.on('request', (request) => {
       const path = new URL(request.url()).pathname;
-      if (/audit|activity|version/i.test(path)) sensitiveRequests.push(path);
+      if (/audit|activity|version/i.test(path)) {sensitiveRequests.push(path);}
     });
 
     await installWorkspaceContextApi(page, [workspace], workspace);
@@ -3119,7 +3119,7 @@ function mergeWarningDto(warnings: MockGanttWarning[], warning: MockGanttWarning
 function findGanttDto(snapshot: MockGanttSnapshot, taskId: string): MockGanttItem {
   const item = [...snapshot.scheduledItems, ...snapshot.unscheduledItems, ...snapshot.milestones]
     .find((candidate) => candidate.taskId === taskId);
-  if (!item) throw new Error(`Unexpected mocked Gantt WorkItem: ${taskId}`);
+  if (!item) {throw new Error(`Unexpected mocked Gantt WorkItem: ${taskId}`);}
   return item;
 }
 
@@ -3236,9 +3236,9 @@ async function installDirectTaskContextApi(
     if (path === `/api/tasks/${context.taskId}` && request.method() === 'PATCH' && context.canEdit === true) {
       const body = request.postDataJSON() as Record<string, unknown>;
       patchBodies.push(body);
-      if ('goal' in body) goal = typeof body['goal'] === 'string' ? body['goal'] : null;
-      if ('deliverable' in body) deliverable = typeof body['deliverable'] === 'string' ? body['deliverable'] : null;
-      if ('constraints' in body) constraints = typeof body['constraints'] === 'string' ? body['constraints'] : null;
+      if ('goal' in body) {goal = typeof body['goal'] === 'string' ? body['goal'] : null;}
+      if ('deliverable' in body) {deliverable = typeof body['deliverable'] === 'string' ? body['deliverable'] : null;}
+      if ('constraints' in body) {constraints = typeof body['constraints'] === 'string' ? body['constraints'] : null;}
       version += 1;
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(taskDto()) });
       return;
@@ -3805,7 +3805,7 @@ function projectKanbanSnapshot(stageId: ProjectKanbanStageId, boardVersion: numb
 }
 
 function projectKanbanStageId(value: unknown): ProjectKanbanStageId {
-  if (value === 'stage-todo' || value === 'stage-done' || value === 'stage-cancelled') return value;
+  if (value === 'stage-todo' || value === 'stage-done' || value === 'stage-cancelled') {return value;}
   throw new Error(`Unexpected mocked Kanban target Stage: ${String(value)}`);
 }
 
@@ -4417,7 +4417,7 @@ async function installAnnouncementEditorApi(
       contentType: 'application/json; charset=utf-8',
       body: JSON.stringify([
         {
-          key: 'workspace:' + workspaceId,
+          key: `workspace:${  workspaceId}`,
           scopeType: 'workspace',
           workspaceId,
           groupId: null,

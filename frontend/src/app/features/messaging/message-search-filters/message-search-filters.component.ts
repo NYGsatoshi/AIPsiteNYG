@@ -95,6 +95,7 @@ const EMPTY_INBOX: MessagingInboxViewModel = {
         id="message-search-filter-controls"
         class="message-discovery__controls"
         [class.message-discovery__controls--open]="mobilePanelOpen()"
+        tabindex="-1"
         (keydown.escape)="closeMobilePanel($event)"
       >
         <form

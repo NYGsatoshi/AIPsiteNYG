@@ -13,10 +13,14 @@ const playwrightCli = fileURLToPath(new URL('../../node_modules/@playwright/test
 const playwrightArgs = process.argv.slice(2);
 const staticSuiteFiles = [
   'tests/ui/angular-smoke.spec.ts',
+  'tests/ui/workspace-needs-attention.spec.ts',
+  'tests/ui/task-execution-source-policy-v2.spec.ts',
+  'tests/ui/file-activity-version-history.spec.ts',
   'tests/ui/message-mobile-navigation.spec.ts',
   'tests/ui/message-search-filters.spec.ts',
   'tests/ui/message-actions.spec.ts',
   'tests/ui/audit-claims-evidence.spec.ts',
+  'tests/ui/audit-accessibility.spec.ts',
   'tests/ui/message-thread-context.spec.ts',
   'tests/ui/message-follow-ups.spec.ts',
   'tests/ui/app.spec.ts'

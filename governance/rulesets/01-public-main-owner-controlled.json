@@ -1,0 +1,36 @@
+{
+  "name": "Public Main Protection - Strict External Review",
+  "target": "branch",
+  "enforcement": "active",
+  "bypass_actors": [
+    {
+      "actor_id": 285141121,
+      "actor_type": "User",
+      "bypass_mode": "always"
+    }
+  ],
+  "conditions": {
+    "ref_name": {
+      "include": ["~DEFAULT_BRANCH"],
+      "exclude": []
+    }
+  },
+  "rules": [
+    {"type": "deletion"},
+    {"type": "non_fast_forward"},
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": true,
+        "do_not_enforce_on_create": false,
+        "required_status_checks": [
+          {"context": "build-test", "integration_id": 15368},
+          {"context": "frontend-test", "integration_id": 15368},
+          {"context": "security-scan", "integration_id": 15368},
+          {"context": "publication-readiness", "integration_id": 15368}
+        ]
+      }
+    },
+    {"type": "required_signatures"}
+  ]
+}

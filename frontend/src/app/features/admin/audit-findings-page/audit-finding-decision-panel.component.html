@@ -1,6 +1,11 @@
 @let panel = state();
+@let isSaving = saving();
 
-<section class="decision-panel" aria-labelledby="finding-decision-title" data-testid="audit-finding-decision-panel">
+<section
+  class="decision-panel"
+  aria-labelledby="finding-decision-title"
+  data-testid="audit-finding-decision-panel"
+>
   <header class="decision-panel__header">
     <div>
       <p class="decision-panel__eyebrow">Structured review</p>
@@ -20,9 +25,7 @@
   <p class="decision-panel__status" role="status" aria-live="polite" aria-atomic="true">
     @switch (panel.status) {
       @case ('loading') { Loading structured decision. }
-      @case ('ready') {
-        {{ panel.response.reviewCompleted ? 'A structured decision is recorded.' : 'No structured decision is recorded yet.' }}
-      }
+      @case ('ready') { {{ readyStatusMessage() }} }
       @default { {{ panel.message }} }
     }
   </p>
@@ -40,7 +43,7 @@
         </div>
         <div>
           <dt>Timestamp</dt>
-          <dd>{{ formatTimestamp(current.timestamp) }}</dd>
+          <dd><time [attr.datetime]="current.timestamp">{{ formatTimestamp(current.timestamp) }}</time></dd>
         </div>
         <div>
           <dt>Previous state</dt>
@@ -58,12 +61,17 @@
     }
 
     @if (panel.response.canReview) {
-      <form class="decision-panel__form" (submit)="$event.preventDefault(); save()">
+      <form
+        class="decision-panel__form"
+        [attr.aria-busy]="isSaving ? 'true' : null"
+        (submit)="$event.preventDefault(); save()"
+      >
         <label for="finding-review-decision">
           <span>Decision</span>
           <select
             id="finding-review-decision"
             data-testid="audit-finding-decision-select"
+            [attr.aria-describedby]="'finding-review-decision-help'"
             [value]="selectedDecision()"
             (change)="updateDecision($any($event.target).value)"
           >
@@ -105,9 +113,10 @@
         <button
           type="submit"
           data-testid="audit-finding-decision-save"
-          [disabled]="saving() || !selectedDecision()"
+          [disabled]="!selectedDecision()"
+          [attr.aria-disabled]="isSaving ? 'true' : null"
         >
-          {{ saving() ? 'Saving…' : 'Save structured decision' }}
+          {{ isSaving ? 'Saving…' : 'Save structured decision' }}
         </button>
       </form>
     } @else {
@@ -128,7 +137,7 @@
                 {{ decisionLabel(entry.previousDecision) }} → {{ decisionLabel(entry.decision) }}
               </strong>
               <span>{{ entry.reviewerDisplayName }}</span>
-              <time>{{ formatTimestamp(entry.timestamp) }}</time>
+              <time [attr.datetime]="entry.timestamp">{{ formatTimestamp(entry.timestamp) }}</time>
               @if (entry.rationale) {
                 <p>{{ entry.rationale }}</p>
               }
