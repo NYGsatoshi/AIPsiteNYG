@@ -1,7 +1,0 @@
-=== frontend ===
-npm lockfile policy passed for /home/runner/work/AIPsiteNYG/AIPsiteNYG/frontend packages=1305 approvedInstallScripts=6 deniedInstallScripts=0
-=== aipsite-frontend ===
-npm lockfile policy violation: unreviewed install script detected: lmdb@3.5.6
-npm lockfile policy warning: stale allowScripts entry lmdb@3.5.1
-frontend_status=0
-aipsite_frontend_status=1
