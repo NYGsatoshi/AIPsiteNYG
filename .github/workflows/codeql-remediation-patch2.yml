@@ -59,43 +59,46 @@ jobs:
               '        if (request.ExportType != TenantExportType.Metadata)\n        {\n            return Result<TenantExportFileResponse>.Failure("Only metadata exports are available in the MVP.");\n        }\n\n',
               '')
 
+          old_artifact = '\n'.join([
+              'public sealed record RefineArtifactReportRequest(',
+              '    ArtifactReportRefinementTargetKind TargetKind,',
+              '    Guid TargetLogicalId,',
+              '    string? Feedback,',
+              '    [property: System.ComponentModel.DataAnnotations.Range(typeof(long), "1", "9223372036854775807")] long ConfirmedProjectScopeVersion,',
+              '    long? ConfirmedTaskOverrideVersion,',
+              '    Guid? ConfirmedResearchPlanRevisionId,',
+              '    long? ConfirmedResearchPlanRevisionNo);',
+          ])
+          new_artifact = '\n'.join([
+              'public sealed record RefineArtifactReportRequest(',
+              '    ArtifactReportRefinementTargetKind TargetKind,',
+              '    Guid TargetLogicalId,',
+              '    string? Feedback,',
+              '    [property: System.ComponentModel.DataAnnotations.Range(typeof(long), "1", "9223372036854775807")] long ConfirmedProjectScopeVersion,',
+              '    long? ConfirmedTaskOverrideVersion,',
+              '    Guid? ConfirmedResearchPlanRevisionId,',
+              '    long? ConfirmedResearchPlanRevisionNo) : System.ComponentModel.DataAnnotations.IValidatableObject',
+              '{',
+              '    public IEnumerable<System.ComponentModel.DataAnnotations.ValidationResult> Validate(',
+              '        System.ComponentModel.DataAnnotations.ValidationContext validationContext)',
+              '    {',
+              '        if (ConfirmedResearchPlanRevisionId.HasValue != ConfirmedResearchPlanRevisionNo.HasValue)',
+              '        {',
+              '            yield return new System.ComponentModel.DataAnnotations.ValidationResult(',
+              '                "Research Plan revision id and revision number must be supplied together.",',
+              '                [nameof(ConfirmedResearchPlanRevisionId), nameof(ConfirmedResearchPlanRevisionNo)]);',
+              '        }',
+              '    }',
+              '}',
+          ])
           replace_once(
               'src/AipPortal.Application/Artifacts/ArtifactReportRefinementDtos.cs',
-              '''public sealed record RefineArtifactReportRequest(
-    ArtifactReportRefinementTargetKind TargetKind,
-    Guid TargetLogicalId,
-    string? Feedback,
-    [property: System.ComponentModel.DataAnnotations.Range(typeof(long), "1", "9223372036854775807")] long ConfirmedProjectScopeVersion,
-    long? ConfirmedTaskOverrideVersion,
-    Guid? ConfirmedResearchPlanRevisionId,
-    long? ConfirmedResearchPlanRevisionNo);''',
-              '''public sealed record RefineArtifactReportRequest(
-    ArtifactReportRefinementTargetKind TargetKind,
-    Guid TargetLogicalId,
-    string? Feedback,
-    [property: System.ComponentModel.DataAnnotations.Range(typeof(long), "1", "9223372036854775807")] long ConfirmedProjectScopeVersion,
-    long? ConfirmedTaskOverrideVersion,
-    Guid? ConfirmedResearchPlanRevisionId,
-    long? ConfirmedResearchPlanRevisionNo) : System.ComponentModel.DataAnnotations.IValidatableObject
-{
-    public IEnumerable<System.ComponentModel.DataAnnotations.ValidationResult> Validate(
-        System.ComponentModel.DataAnnotations.ValidationContext validationContext)
-    {
-        if (ConfirmedResearchPlanRevisionId.HasValue != ConfirmedResearchPlanRevisionNo.HasValue)
-        {
-            yield return new System.ComponentModel.DataAnnotations.ValidationResult(
-                "Research Plan revision id and revision number must be supplied together.",
-                [nameof(ConfirmedResearchPlanRevisionId), nameof(ConfirmedResearchPlanRevisionNo)]);
-        }
-    }
-}''')
+              old_artifact,
+              new_artifact)
 
           replace_once(
               'src/AipPortal.Infrastructure/Persistence/DbArtifactReportRefinementService.cs',
-              '''        if (request.ConfirmedProjectScopeVersion <= 0 ||
-            (request.ConfirmedResearchPlanRevisionId.HasValue != request.ConfirmedResearchPlanRevisionNo.HasValue))
-            return Validation<ArtifactReportRefinementResponse>();
-''',
+              '        if (request.ConfirmedProjectScopeVersion <= 0 ||\n            (request.ConfirmedResearchPlanRevisionId.HasValue != request.ConfirmedResearchPlanRevisionNo.HasValue))\n            return Validation<ArtifactReportRefinementResponse>();\n',
               '')
           PY
 
