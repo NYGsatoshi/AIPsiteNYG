@@ -1,0 +1,44 @@
+name: ANG22 temporary supply policy diagnostic
+
+on:
+  pull_request:
+    branches:
+      - integration/angular-22-migration
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    if: github.actor == 'NYGsatoshi'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout migration branch
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.head_ref }}
+          persist-credentials: true
+
+      - name: Run supply policy verifiers
+        shell: bash
+        run: |
+          set +e
+          {
+            echo '=== frontend ==='
+            node scripts/ci/verify-npm-lockfile.mjs frontend
+            frontend_status=$?
+            echo '=== aipsite-frontend ==='
+            node scripts/ci/verify-npm-lockfile.mjs aipsite-frontend
+            legacy_status=$?
+            echo "frontend_status=$frontend_status"
+            echo "aipsite_frontend_status=$legacy_status"
+          } 2>&1 | tee ang22-supply-policy-error.txt
+          status=${PIPESTATUS[0]}
+          set -e
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ang22-supply-policy-error.txt
+          git commit -m 'ci(temp): capture Angular 22 supply policy result'
+          git push origin HEAD:${GITHUB_HEAD_REF}
+          exit "$status"
