@@ -1,0 +1,47 @@
+name: ANG22-08 PR07-D expected console fix (one-shot)
+
+on:
+  push:
+    branches:
+      - integration/angular-22-migration
+    paths:
+      - .github/workflows/zz-ang22-08-pr07d-console-fix-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout integration candidate
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Correlate the intentional revoked notification 404 with console evidence
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('tests/ui/real-backend-smoke.spec.ts')
+          text = path.read_text(encoding='utf-8')
+          before = """      expect(evidence.pageErrors, 'PR07-D recipient browser page errors').toEqual([]);\n      expectUnexpectedConsoleErrors(evidence);\n      expectUnexpectedApiFailures(evidence, [expectedRevokedNotificationDenial]);\n"""
+          after = """      expect(evidence.pageErrors, 'PR07-D recipient browser page errors').toEqual([]);\n      expectUnexpectedConsoleErrors(evidence, [expectedRevokedNotificationDenial]);\n      expectUnexpectedApiFailures(evidence, [expectedRevokedNotificationDenial]);\n"""
+          count = text.count(before)
+          if count != 1:
+              raise SystemExit(f'Expected one PR07-D assertion block, found {count}.')
+          path.write_text(text.replace(before, after, 1), encoding='utf-8')
+          PY
+
+          git diff --check
+
+      - name: Commit PR07-D evidence fix
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tests/ui/real-backend-smoke.spec.ts
+          git commit -m 'test(real-backend): allow expected revoked notification console 404'
+          git push origin HEAD:integration/angular-22-migration
