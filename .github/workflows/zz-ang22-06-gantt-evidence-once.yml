@@ -1,0 +1,47 @@
+name: ANG22-06 Gantt vendor assertion (one-shot)
+
+on:
+  push:
+    branches:
+      - chore/ang22-06-third-party-compatibility
+    paths:
+      - .github/workflows/zz-ang22-06-gantt-evidence-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout compatibility branch
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Add explicit Syncfusion Gantt browser assertion
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('tests/ui/angular-smoke.spec.ts')
+          text = path.read_text(encoding='utf-8')
+          before = """    } else {\n      await expect(page.getByRole('heading', { name: 'Timeline chart', exact: true })).toBeVisible();\n    }\n\n    let scheduleItem = ganttItem(page, 'task-gantt-schedule');\n"""
+          after = """    } else {\n      await expect(page.getByRole('heading', { name: 'Timeline chart', exact: true })).toBeVisible();\n      await expect(page.getByTestId('aip-syncfusion-gantt')).toBeVisible();\n      await expect(page.getByTestId('aip-gantt-vendor-error')).toHaveCount(0);\n    }\n\n    let scheduleItem = ganttItem(page, 'task-gantt-schedule');\n"""
+          count = text.count(before)
+          if count != 1:
+              raise SystemExit(f'Expected one Gantt evidence insertion point, found {count}.')
+          path.write_text(text.replace(before, after, 1), encoding='utf-8')
+          PY
+
+          git diff --check
+
+      - name: Commit browser compatibility evidence
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tests/ui/angular-smoke.spec.ts
+          git commit -m 'test(angular): assert Syncfusion Gantt vendor load'
+          git push origin HEAD:chore/ang22-06-third-party-compatibility
