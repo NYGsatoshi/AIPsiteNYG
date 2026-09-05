@@ -1,0 +1,132 @@
+name: Angular 22 Final Acceptance
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/angular22-final-acceptance.yml"
+      - "package.json"
+      - "package-lock.json"
+      - "playwright.config.ts"
+      - "scripts/ci/compat-critical.contract.json"
+      - "scripts/ci/compat-critical-contract.mjs"
+      - "scripts/ci/run-compat-critical.mjs"
+      - "tests/ui/angular-smoke.spec.ts"
+      - "frontend/**"
+      - "aipsite-frontend/**"
+
+concurrency:
+  group: angular22-final-acceptance-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  legacy-angular-build:
+    name: aipsite-frontend Angular 22 build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          clean: true
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      - name: Verify candidate identity
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+
+      - name: Clean-install legacy Angular workspace
+        run: bash scripts/ci/npm-ci-retry.sh aipsite-frontend
+
+      - name: Build legacy Angular workspace
+        run: npm --prefix aipsite-frontend run build
+
+  compat-critical:
+    name: compat-critical retries=0
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          clean: true
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      - name: Verify candidate identity
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+
+      - name: Clean-install compatibility dependencies
+        shell: bash
+        run: |
+          bash scripts/ci/npm-ci-retry.sh .
+          bash scripts/ci/npm-ci-retry.sh frontend
+
+      - name: Install Chromium runtime
+        run: npx playwright install --with-deps chromium
+
+      - name: Build active Angular frontend
+        run: npm --prefix frontend run build
+
+      - name: Run compat-critical profiles with zero retries
+        shell: bash
+        run: |
+          set -euo pipefail
+          node tests/ui/serve-static.mjs --port 4173 >"$RUNNER_TEMP/angular22-static-server.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+
+          ready=false
+          for _ in $(seq 1 60); do
+            if curl --fail --silent --show-error http://127.0.0.1:4173/health >/dev/null; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          if [[ "$ready" != "true" ]]; then
+            cat "$RUNNER_TEMP/angular22-static-server.log" >&2 || true
+            exit 1
+          fi
+
+          export PLAYWRIGHT_BASE_URL=http://127.0.0.1:4173
+          export CI=true
+
+          npm run test:ui:compat-critical -- --profile browser-engine -- --project=chromium-desktop
+          npm run test:ui:compat-critical -- --profile mobile -- --project=chromium-mobile
+          npm run test:ui:compat-critical -- --profile os-portability -- --project=chromium-desktop
+
+      - name: Upload compatibility artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: angular22-compat-critical-artifacts
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 7
