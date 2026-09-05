@@ -124,6 +124,26 @@ def evaluate_from_trusted_parent(
     }
 
 
+def _canonical_decision(report: dict[str, Any]) -> str:
+    """Project an internal live report to a bounded, non-sensitive CLI decision."""
+    decision = report.get("decision")
+    if decision == "pass":
+        return "pass"
+    if decision == "pending":
+        return "pending"
+    return "fail"
+
+
+def _public_cli_report(report: dict[str, Any], repository: str, pr_number: int) -> dict[str, Any]:
+    """Return the intentionally minimal report that is safe to emit to CI logs."""
+    return {
+        "schema_version": 1,
+        "repository": repository,
+        "pr_number": pr_number,
+        "decision": _canonical_decision(report),
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--live-pr", type=int, required=True)
@@ -153,11 +173,14 @@ def main(argv: list[str] | None = None) -> int:
             "decision": "fail",
             "error": str(exc),
         }
+
+    public_report = _public_cli_report(report, args.repository, args.live_pr)
+    decision = public_report["decision"]
     if args.json:
-        print(json.dumps(report, ensure_ascii=False, sort_keys=True))
+        print(json.dumps(public_report, ensure_ascii=False, sort_keys=True))
     else:
-        print(f"Trusted-parent required-check evaluation: {report['decision']}")
-    return 0 if report["decision"] == "pass" else (2 if report["decision"] == "pending" else 1)
+        print(f"Trusted-parent required-check evaluation: {decision}")
+    return 0 if decision == "pass" else (2 if decision == "pending" else 1)
 
 
 if __name__ == "__main__":
