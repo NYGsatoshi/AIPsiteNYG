@@ -36,7 +36,7 @@ test('keeps the reviewed Angular 22 third-party versions pinned', () => {
 });
 
 test('retains the Angular Storybook browser builder and zone.js runtime', () => {
-  const architect = angularJson.projects.frontend.architect;
+  const { architect } = angularJson.projects.frontend;
   const browserTarget = architect['storybook-browser'];
   const storybookTarget = architect.storybook;
   const buildStorybookTarget = architect['build-storybook'];
@@ -53,7 +53,7 @@ test('retains Syncfusion license and theme sanitation gates', () => {
   assert.match(packageJson.scripts['syncfusion:activate'], /require-syncfusion-license\.mjs/u);
   assert.match(packageJson.scripts['build-storybook'], /sanitize-syncfusion-theme-css\.mjs/u);
 
-  const assets = angularJson.projects.frontend.architect.build.options.assets;
+  const { assets } = angularJson.projects.frontend.architect.build.options;
   const assetInputs = assets.map((asset) => typeof asset === 'string' ? asset : asset.input);
   for (const requiredInput of [
     'node_modules/@syncfusion/ej2-base/styles',
