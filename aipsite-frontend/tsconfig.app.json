@@ -7,6 +7,9 @@
     "rootDir": "./src",
     "types": []
   },
+  "angularCompilerOptions": {
+    "strictTemplates": false
+  },
   "include": [
     "src/**/*.ts"
   ],
