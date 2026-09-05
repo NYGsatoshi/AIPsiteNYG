@@ -1,5 +1,5 @@
 import { AsyncPipe } from '@angular/common';
-import { Component, inject } from '@angular/core';
+import { Component, inject, ChangeDetectionStrategy } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 import { map } from 'rxjs';
 
@@ -27,6 +27,7 @@ interface PagePlaceholderViewModel {
       </section>
     }
   `,
+  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [
     `
       :host {
@@ -65,19 +66,17 @@ interface PagePlaceholderViewModel {
         color: #52616f;
         line-height: 1.7;
       }
-    `
-  ]
+    `,
+  ],
 })
 export class PagePlaceholderComponent {
   private readonly route = inject(ActivatedRoute);
 
   readonly page$ = this.route.data.pipe(
-    map(
-      (data): PagePlaceholderViewModel => ({
-        title: typeof data['title'] === 'string' ? data['title'] : '未実装',
-        summary: typeof data['summary'] === 'string' ? data['summary'] : '準備中',
-        tone: typeof data['tone'] === 'string' ? data['tone'] : 'default'
-      })
-    )
+    map((data): PagePlaceholderViewModel => ({
+      title: typeof data['title'] === 'string' ? data['title'] : '未実装',
+      summary: typeof data['summary'] === 'string' ? data['summary'] : '準備中',
+      tone: typeof data['tone'] === 'string' ? data['tone'] : 'default',
+    })),
   );
 }

@@ -1,4 +1,16 @@
-import { Component, ElementRef, EventEmitter, Input, OnDestroy, Output, ViewChild, computed, inject, signal } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  EventEmitter,
+  Input,
+  OnDestroy,
+  Output,
+  ViewChild,
+  computed,
+  inject,
+  signal,
+  ChangeDetectionStrategy,
+} from '@angular/core';
 import { ActivatedRoute, ParamMap, Router, RouterLink } from '@angular/router';
 import { Subscription } from 'rxjs';
 
@@ -10,12 +22,12 @@ import {
   MessageReadFilterDto,
   MessageSearchRequestDto,
   MessageSearchResponseDto,
-  MessagingApi
+  MessagingApi,
 } from '../messaging.api';
 import {
   MessagingConversationListItem,
   MessagingInboxView,
-  MessagingInboxViewModel
+  MessagingInboxViewModel,
 } from '../messaging.types';
 
 type MessageSearchStatus = 'idle' | 'invalid' | 'loading' | 'ready' | 'empty' | 'error';
@@ -53,7 +65,7 @@ const ADVANCED_QUERY_KEYS = {
   fromDate: 'messageFromDate',
   toDate: 'messageToDate',
   read: 'messageRead',
-  attachment: 'messageAttachment'
+  attachment: 'messageAttachment',
 } as const;
 const PRIVATE_MESSAGE_SEARCH_QUERY_KEYS = ['q', 'messageSearch', 'messageQuery'] as const;
 const EMPTY_ADVANCED_FILTERS: MessageAdvancedFilters = {
@@ -61,12 +73,12 @@ const EMPTY_ADVANCED_FILTERS: MessageAdvancedFilters = {
   fromDate: '',
   toDate: '',
   read: 'All',
-  attachment: 'All'
+  attachment: 'All',
 };
 const EMPTY_INBOX: MessagingInboxViewModel = {
   view: 'All',
   counts: { all: 0, unread: 0, mentions: 0, later: 0 },
-  status: 'loading'
+  status: 'loading',
 };
 
 @Component({
@@ -118,7 +130,11 @@ const EMPTY_INBOX: MessagingInboxViewModel = {
               [value]="query()"
               (input)="updateQuery($event)"
             />
-            <button type="submit" data-testid="message-search-submit" [disabled]="searchStatus() === 'loading'">
+            <button
+              type="submit"
+              data-testid="message-search-submit"
+              [disabled]="searchStatus() === 'loading'"
+            >
               {{ searchStatus() === 'loading' ? 'Searching' : 'Search' }}
             </button>
           </div>
@@ -164,7 +180,11 @@ const EMPTY_INBOX: MessagingInboxViewModel = {
           </div>
         </form>
 
-        <div class="message-discovery__quick-filters" role="group" aria-labelledby="message-quick-filter-label">
+        <div
+          class="message-discovery__quick-filters"
+          role="group"
+          aria-labelledby="message-quick-filter-label"
+        >
           <span id="message-quick-filter-label">Inbox views</span>
           <div class="message-discovery__quick-filter-buttons">
             <button
@@ -215,8 +235,14 @@ const EMPTY_INBOX: MessagingInboxViewModel = {
               <span class="visually-hidden">conversations</span>
             </button>
           </div>
-          <p class="message-discovery__scope">Unread is based on your read cursor. Mentions and Later remain separate.</p>
-          <p class="message-discovery__status" data-testid="message-inbox-status" aria-live="polite">
+          <p class="message-discovery__scope">
+            Unread is based on your read cursor. Mentions and Later remain separate.
+          </p>
+          <p
+            class="message-discovery__status"
+            data-testid="message-inbox-status"
+            aria-live="polite"
+          >
             @if (inboxState().status === 'loading') {
               Loading {{ displayInboxView() }} conversations.
             } @else if (inboxState().status === 'error') {
@@ -229,7 +255,11 @@ const EMPTY_INBOX: MessagingInboxViewModel = {
       </div>
 
       @if (advancedDrawerOpen()) {
-        <div class="message-discovery__drawer-overlay" role="presentation" (click)="handleDrawerOverlayClick($event)">
+        <div
+          class="message-discovery__drawer-overlay"
+          role="presentation"
+          (click)="handleDrawerOverlayClick($event)"
+        >
           <section
             #advancedDrawer
             class="message-discovery__drawer"
@@ -245,7 +275,13 @@ const EMPTY_INBOX: MessagingInboxViewModel = {
                 <p class="message-discovery__drawer-eyebrow">Message search</p>
                 <h2 id="message-advanced-title">Advanced filters</h2>
               </div>
-              <button type="button" aria-label="Close advanced filters" (click)="cancelAdvancedDrawer()">Close</button>
+              <button
+                type="button"
+                aria-label="Close advanced filters"
+                (click)="cancelAdvancedDrawer()"
+              >
+                Close
+              </button>
             </header>
 
             <form class="message-discovery__advanced-form" (submit)="applyAdvancedFilters($event)">
@@ -264,12 +300,24 @@ const EMPTY_INBOX: MessagingInboxViewModel = {
                 />
                 <p id="message-author-status" class="message-discovery__status" aria-live="polite">
                   @switch (authorSearchStatus()) {
-                    @case ('idle') { Enter at least 2 characters and choose an authorized sender. }
-                    @case ('loading') { Finding authorized senders. }
-                    @case ('empty') { No authorized sender matches. }
-                    @case ('error') { Sender options are unavailable. Try again. }
+                    @case ('idle') {
+                      Enter at least 2 characters and choose an authorized sender.
+                    }
+                    @case ('loading') {
+                      Finding authorized senders.
+                    }
+                    @case ('empty') {
+                      No authorized sender matches.
+                    }
+                    @case ('error') {
+                      Sender options are unavailable. Try again.
+                    }
                     @case ('ready') {
-                      @if (draftAuthor()) { Selected {{ draftAuthor()?.displayName }}. } @else { Choose a sender. }
+                      @if (draftAuthor()) {
+                        Selected {{ draftAuthor()?.displayName }}.
+                      } @else {
+                        Choose a sender.
+                      }
                     }
                   }
                 </p>
@@ -338,16 +386,27 @@ const EMPTY_INBOX: MessagingInboxViewModel = {
               </label>
 
               <p id="message-advanced-help" class="message-discovery__scope">
-                Attachment status uses only clean, classified server file links. Legacy metadata-only rows count as without.
+                Attachment status uses only clean, classified server file links. Legacy
+                metadata-only rows count as without.
               </p>
               @if (advancedFilterError()) {
-                <p class="message-discovery__error" data-testid="message-advanced-error" role="alert">
+                <p
+                  class="message-discovery__error"
+                  data-testid="message-advanced-error"
+                  role="alert"
+                >
                   {{ advancedFilterError() }}
                 </p>
               }
 
               <footer class="message-discovery__drawer-actions">
-                <button type="button" data-testid="message-advanced-reset" (click)="resetAdvancedDraft()">Reset</button>
+                <button
+                  type="button"
+                  data-testid="message-advanced-reset"
+                  (click)="resetAdvancedDraft()"
+                >
+                  Reset
+                </button>
                 <button type="button" (click)="cancelAdvancedDrawer()">Cancel</button>
                 <button type="submit" data-testid="message-advanced-apply">Apply filters</button>
               </footer>
@@ -360,7 +419,9 @@ const EMPTY_INBOX: MessagingInboxViewModel = {
         <section class="message-discovery__active" aria-labelledby="message-active-filter-label">
           <div class="message-discovery__active-heading">
             <h2 id="message-active-filter-label">Active conditions</h2>
-            <button type="button" data-testid="message-filters-clear-all" (click)="clearAll()">Clear all</button>
+            <button type="button" data-testid="message-filters-clear-all" (click)="clearAll()">
+              Clear all
+            </button>
           </div>
           <div class="message-discovery__active-chips" data-testid="message-active-filters">
             @if (appliedQuery()) {
@@ -443,7 +504,9 @@ const EMPTY_INBOX: MessagingInboxViewModel = {
         <section class="message-discovery__matches" aria-labelledby="message-search-results-title">
           <h2 id="message-search-results-title">Message matches</h2>
           @if (searchStatus() === 'loading') {
-            <p class="message-discovery__muted" data-testid="message-search-loading">Searching messages...</p>
+            <p class="message-discovery__muted" data-testid="message-search-loading">
+              Searching messages...
+            </p>
           } @else if (searchStatus() === 'error') {
             <div class="message-discovery__result-state" data-testid="message-search-error">
               <p>Message search is temporarily unavailable. No server error detail is shown.</p>
@@ -451,25 +514,36 @@ const EMPTY_INBOX: MessagingInboxViewModel = {
             </div>
           } @else if (searchStatus() === 'empty') {
             <div class="message-discovery__result-state" data-testid="message-search-empty">
-              <p>No messages match the active conditions. Change the search or clear the active conditions.</p>
+              <p>
+                No messages match the active conditions. Change the search or clear the active
+                conditions.
+              </p>
               <div class="message-discovery__result-actions">
                 <button type="button" data-testid="message-search-change" (click)="changeSearch()">
                   Change search
                 </button>
-                <button type="button" data-testid="message-search-clear-empty" (click)="clearAll()">Clear all</button>
+                <button type="button" data-testid="message-search-clear-empty" (click)="clearAll()">
+                  Clear all
+                </button>
               </div>
             </div>
           } @else if (searchStatus() === 'ready') {
             <ul class="message-discovery__results" data-testid="message-search-results">
               @for (result of searchResults(); track result.messageId) {
                 <li>
-                  <a class="message-discovery__result" data-testid="message-search-result" [routerLink]="result.route">
+                  <a
+                    class="message-discovery__result"
+                    data-testid="message-search-result"
+                    [routerLink]="result.route"
+                  >
                     <span class="message-discovery__result-title">{{ result.title }}</span>
                     @if (result.snippet) {
                       <span class="message-discovery__result-snippet">{{ result.snippet }}</span>
                     }
                     @if (result.authorDisplayName) {
-                      <span class="message-discovery__result-author">From {{ result.authorDisplayName }}</span>
+                      <span class="message-discovery__result-author"
+                        >From {{ result.authorDisplayName }}</span
+                      >
                     }
                   </a>
                 </li>
@@ -479,7 +553,10 @@ const EMPTY_INBOX: MessagingInboxViewModel = {
         </section>
       }
 
-      <section class="message-discovery__conversations" aria-labelledby="message-conversation-results-title">
+      <section
+        class="message-discovery__conversations"
+        aria-labelledby="message-conversation-results-title"
+      >
         <h2 id="message-conversation-results-title">Conversations</h2>
         @if (conversationState().length > 0) {
           <app-conversation-list
@@ -492,7 +569,10 @@ const EMPTY_INBOX: MessagingInboxViewModel = {
             (laterChanged)="requestLaterChange($event)"
           />
         } @else if (inboxState().view !== 'All' || inboxState().counts.all > 0) {
-          <div class="message-discovery__result-state" data-testid="message-conversation-filter-empty">
+          <div
+            class="message-discovery__result-state"
+            data-testid="message-conversation-filter-empty"
+          >
             <p>No conversations are currently in the {{ inboxState().view }} view.</p>
             <button
               type="button"
@@ -508,7 +588,8 @@ const EMPTY_INBOX: MessagingInboxViewModel = {
       </section>
     </section>
   `,
-  styleUrl: './message-search-filters.component.scss'
+  changeDetection: ChangeDetectionStrategy.Eager,
+  styleUrl: './message-search-filters.component.scss',
 })
 export class MessageSearchFiltersComponent implements OnDestroy {
   private readonly api = inject(MessagingApi);
@@ -545,7 +626,11 @@ export class MessageSearchFiltersComponent implements OnDestroy {
   set inbox(value: MessagingInboxViewModel) {
     const previousPending = this.inboxState().laterPendingConversationId;
     this.inboxState.set(value ?? EMPTY_INBOX);
-    if (previousPending && !value?.laterPendingConversationId && this.restoreLaterFilterAfterMutation) {
+    if (
+      previousPending &&
+      !value?.laterPendingConversationId &&
+      this.restoreLaterFilterAfterMutation
+    ) {
       this.restoreLaterFilterAfterMutation = false;
       this.scheduleFocus(this.laterFilter);
     }
@@ -578,24 +663,26 @@ export class MessageSearchFiltersComponent implements OnDestroy {
   readonly advancedFilterError = signal<string | null>(null);
   readonly hasAdvancedConditions = computed(() => advancedFilterCount(this.appliedAdvanced()) > 0);
   readonly hasMessageSearchConditions = computed(
-    () => Boolean(this.appliedQuery()) || this.hasAdvancedConditions()
+    () => Boolean(this.appliedQuery()) || this.hasAdvancedConditions(),
   );
   readonly advancedSummary = computed(() => {
     const count = advancedFilterCount(this.appliedAdvanced());
-    return count === 0 ? 'No advanced filters applied' : `${count} advanced ${count === 1 ? 'filter' : 'filters'} applied`;
+    return count === 0
+      ? 'No advanced filters applied'
+      : `${count} advanced ${count === 1 ? 'filter' : 'filters'} applied`;
   });
   readonly hasActiveConditions = computed(
-    () => this.hasMessageSearchConditions() || this.inboxState().view !== 'All'
+    () => this.hasMessageSearchConditions() || this.inboxState().view !== 'All',
   );
   readonly displayInboxView = computed(
-    () => this.inboxState().requestedView ?? this.inboxState().view
+    () => this.inboxState().requestedView ?? this.inboxState().view,
   );
-  readonly inboxNavigationAvailable = computed(
-    () => this.inboxState().status !== 'unavailable'
-  );
+  readonly inboxNavigationAvailable = computed(() => this.inboxState().status !== 'unavailable');
 
   constructor() {
-    this.routeSubscription = this.route.queryParamMap.subscribe((params) => this.restoreAdvancedFilters(params));
+    this.routeSubscription = this.route.queryParamMap.subscribe((params) =>
+      this.restoreAdvancedFilters(params),
+    );
   }
 
   ngOnDestroy(): void {
@@ -720,7 +807,9 @@ export class MessageSearchFiltersComponent implements OnDestroy {
     if (this.inboxState().view !== 'All') {
       this.inboxViewChanged.emit('All');
     }
-    this.scheduleFocus(this.isMobileViewport() && !this.mobilePanelOpen() ? this.mobileToggle : this.searchInput);
+    this.scheduleFocus(
+      this.isMobileViewport() && !this.mobilePanelOpen() ? this.mobileToggle : this.searchInput,
+    );
   }
 
   openAdvancedDrawer(): void {
@@ -766,19 +855,28 @@ export class MessageSearchFiltersComponent implements OnDestroy {
     }
 
     const eventTarget = event.target instanceof HTMLElement ? event.target : null;
-    const drawer = this.advancedDrawer?.nativeElement
-      ?? eventTarget?.closest<HTMLElement>('[role="dialog"]')
-      ?? (event.currentTarget instanceof HTMLElement ? event.currentTarget : null);
+    const drawer =
+      this.advancedDrawer?.nativeElement ??
+      eventTarget?.closest<HTMLElement>('[role="dialog"]') ??
+      (event.currentTarget instanceof HTMLElement ? event.currentTarget : null);
     const focusable = drawer
-      ? Array.from(drawer.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled)'))
+      ? Array.from(
+          drawer.querySelectorAll<HTMLElement>(
+            'button:not(:disabled), input:not(:disabled), select:not(:disabled)',
+          ),
+        )
       : [];
     if (focusable.length === 0) {
       return;
     }
-    const first = drawer?.querySelector<HTMLElement>('[aria-label="Close advanced filters"]') ?? focusable[0];
-    const last = drawer?.querySelector<HTMLElement>('[data-testid="message-advanced-apply"]')
-      ?? focusable[focusable.length - 1];
-    const focused = eventTarget ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    const first =
+      drawer?.querySelector<HTMLElement>('[aria-label="Close advanced filters"]') ?? focusable[0];
+    const last =
+      drawer?.querySelector<HTMLElement>('[data-testid="message-advanced-apply"]') ??
+      focusable[focusable.length - 1];
+    const focused =
+      eventTarget ??
+      (document.activeElement instanceof HTMLElement ? document.activeElement : null);
     if (event.shiftKey && focused === first) {
       event.preventDefault();
       last.focus();
@@ -833,7 +931,7 @@ export class MessageSearchFiltersComponent implements OnDestroy {
           this.authorOptions.set([]);
           this.authorSearchStatus.set('error');
         }
-      }
+      },
     });
     this.authorRequest = request;
     request.add(() => {
@@ -899,7 +997,7 @@ export class MessageSearchFiltersComponent implements OnDestroy {
       fromDate,
       toDate,
       read: this.draftRead(),
-      attachment: this.draftAttachment()
+      attachment: this.draftAttachment(),
     };
     const cancelledRouteHydration = this.beginLocalAdvancedMutation();
     this.commitAdvancedFilters(filters, true, cancelledRouteHydration);
@@ -915,12 +1013,14 @@ export class MessageSearchFiltersComponent implements OnDestroy {
       ...(key === 'fromDate' ? { fromDate: '' } : {}),
       ...(key === 'toDate' ? { toDate: '' } : {}),
       ...(key === 'read' ? { read: 'All' as const } : {}),
-      ...(key === 'attachment' ? { attachment: 'All' as const } : {})
+      ...(key === 'attachment' ? { attachment: 'All' as const } : {}),
     };
     const cancelledRouteHydration = this.beginLocalAdvancedMutation();
     this.commitAdvancedFilters(filters, true, cancelledRouteHydration);
     this.writeAdvancedFiltersToUrl(filters);
-    this.scheduleFocus(this.isMobileViewport() && !this.mobilePanelOpen() ? this.mobileToggle : this.advancedTrigger);
+    this.scheduleFocus(
+      this.isMobileViewport() && !this.mobilePanelOpen() ? this.mobileToggle : this.advancedTrigger,
+    );
   }
 
   attachmentLabel(value: MessageAttachmentFilterDto): string {
@@ -958,8 +1058,10 @@ export class MessageSearchFiltersComponent implements OnDestroy {
         if (generation !== this.routeHydrationGeneration) {
           return;
         }
-        const author = parseAuthorOptions(response)
-          .find((option) => option.userId.toLowerCase() === parsed.authorUserId!.toLowerCase()) ?? null;
+        const author =
+          parseAuthorOptions(response).find(
+            (option) => option.userId.toLowerCase() === parsed.authorUserId!.toLowerCase(),
+          ) ?? null;
         if (!author) {
           this.removeAdvancedUrlKeys([ADVANCED_QUERY_KEYS.author]);
         }
@@ -970,7 +1072,7 @@ export class MessageSearchFiltersComponent implements OnDestroy {
           this.removeAdvancedUrlKeys([ADVANCED_QUERY_KEYS.author]);
           this.commitAdvancedFilters(parsed.filters, true, true);
         }
-      }
+      },
     });
     this.routeAuthorRequest = request;
     request.add(() => {
@@ -983,7 +1085,7 @@ export class MessageSearchFiltersComponent implements OnDestroy {
   private commitAdvancedFilters(
     filters: MessageAdvancedFilters,
     runSearch: boolean,
-    forceSearch = false
+    forceSearch = false,
   ): void {
     const changed = filterFingerprint(this.appliedAdvanced()) !== filterFingerprint(filters);
     this.appliedAdvanced.set(filters);
@@ -1012,8 +1114,8 @@ export class MessageSearchFiltersComponent implements OnDestroy {
         [ADVANCED_QUERY_KEYS.fromDate]: filters.fromDate || null,
         [ADVANCED_QUERY_KEYS.toDate]: filters.toDate || null,
         [ADVANCED_QUERY_KEYS.read]: filters.read === 'All' ? null : filters.read,
-        [ADVANCED_QUERY_KEYS.attachment]: filters.attachment === 'All' ? null : filters.attachment
-      }
+        [ADVANCED_QUERY_KEYS.attachment]: filters.attachment === 'All' ? null : filters.attachment,
+      },
     });
   }
 
@@ -1037,7 +1139,7 @@ export class MessageSearchFiltersComponent implements OnDestroy {
       relativeTo: this.route,
       queryParamsHandling: 'merge',
       queryParams,
-      replaceUrl: true
+      replaceUrl: true,
     });
   }
 
@@ -1072,7 +1174,7 @@ export class MessageSearchFiltersComponent implements OnDestroy {
           this.searchResults.set([]);
           this.searchStatus.set('error');
         }
-      }
+      },
     });
     this.request = request;
     request.add(() => {
@@ -1088,7 +1190,7 @@ export class MessageSearchFiltersComponent implements OnDestroy {
     }
 
     const conversationsById = new Map(
-      this.conversationState().map((conversation) => [conversation.id.toLowerCase(), conversation])
+      this.conversationState().map((conversation) => [conversation.id.toLowerCase(), conversation]),
     );
     const results: MessageSearchResult[] = [];
     const seenMessageIds = new Set<string>();
@@ -1122,7 +1224,7 @@ export class MessageSearchFiltersComponent implements OnDestroy {
         title,
         snippet: stringValue(raw['snippet'])?.trim().slice(0, 240) ?? '',
         authorDisplayName: stringValue(raw['authorDisplayName'])?.trim().slice(0, 120) ?? '',
-        route: knownConversation?.route ?? `/conversations/${conversationId}`
+        route: knownConversation?.route ?? `/conversations/${conversationId}`,
       });
     }
 
@@ -1136,9 +1238,11 @@ export class MessageSearchFiltersComponent implements OnDestroy {
   }
 
   private isCurrent(generation: number, query: string, advancedFingerprint: string): boolean {
-    return generation === this.requestGeneration &&
+    return (
+      generation === this.requestGeneration &&
       this.appliedQuery() === query &&
-      filterFingerprint(this.appliedAdvanced()) === advancedFingerprint;
+      filterFingerprint(this.appliedAdvanced()) === advancedFingerprint
+    );
   }
 
   private filterElement(view: MessagingInboxView): ElementRef<HTMLButtonElement> | undefined {
@@ -1156,7 +1260,8 @@ export class MessageSearchFiltersComponent implements OnDestroy {
 
   private scheduleFocus(target?: ElementRef<HTMLElement>): void {
     setTimeout(() => {
-      const focusTarget = this.isMobileViewport() && !this.mobilePanelOpen() ? this.mobileToggle : target;
+      const focusTarget =
+        this.isMobileViewport() && !this.mobilePanelOpen() ? this.mobileToggle : target;
       focusTarget?.nativeElement.focus();
     });
   }
@@ -1180,15 +1285,19 @@ function stringValue(value: unknown): string | null {
 
 function inputValue(event: Event): string {
   const target = event.target;
-  return target instanceof HTMLInputElement || target instanceof HTMLSelectElement ? target.value : '';
+  return target instanceof HTMLInputElement || target instanceof HTMLSelectElement
+    ? target.value
+    : '';
 }
 
 function advancedFilterCount(filters: MessageAdvancedFilters): number {
-  return Number(Boolean(filters.author)) +
+  return (
+    Number(Boolean(filters.author)) +
     Number(Boolean(filters.fromDate)) +
     Number(Boolean(filters.toDate)) +
     Number(filters.read !== 'All') +
-    Number(filters.attachment !== 'All');
+    Number(filters.attachment !== 'All')
+  );
 }
 
 function filterFingerprint(filters: MessageAdvancedFilters): string {
@@ -1198,7 +1307,7 @@ function filterFingerprint(filters: MessageAdvancedFilters): string {
     filters.fromDate,
     filters.toDate,
     filters.read,
-    filters.attachment
+    filters.attachment,
   ].join('|');
 }
 
@@ -1209,7 +1318,7 @@ function toSearchRequest(query: string, filters: MessageAdvancedFilters): Messag
     fromDate: filters.fromDate ? localCalendarBoundary(filters.fromDate, false) : undefined,
     toDateExclusive: filters.toDate ? localCalendarBoundary(filters.toDate, true) : undefined,
     messageRead: filters.read,
-    messageAttachment: filters.attachment
+    messageAttachment: filters.attachment,
   };
 }
 
@@ -1224,10 +1333,12 @@ function isCalendarDate(value: string): boolean {
   }
   const [year, month, day] = value.split('-').map(Number);
   const parsed = new Date(year, month - 1, day);
-  return year >= 1000 &&
+  return (
+    year >= 1000 &&
     parsed.getFullYear() === year &&
     parsed.getMonth() === month - 1 &&
-    parsed.getDate() === day;
+    parsed.getDate() === day
+  );
 }
 
 function parseAuthorOptions(response: MessageAuthorOptionsResponseDto): MessageAuthorOption[] {
@@ -1295,6 +1406,6 @@ function parseAdvancedRoute(params: ParamMap): {
   return {
     filters: { author: null, fromDate, toDate, read, attachment },
     authorUserId,
-    invalidKeys
+    invalidKeys,
   };
 }

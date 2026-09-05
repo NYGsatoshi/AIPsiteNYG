@@ -1,11 +1,20 @@
-import { AfterViewChecked, Component, ElementRef, EventEmitter, Input, Output, ViewChild } from '@angular/core';
+import {
+  AfterViewChecked,
+  Component,
+  ElementRef,
+  EventEmitter,
+  Input,
+  Output,
+  ViewChild,
+  ChangeDetectionStrategy,
+} from '@angular/core';
 import {
   LucideEllipsis,
   LucideBookmarkPlus,
   LucideFlag,
   LucideMessageSquare,
   LucidePencil,
-  LucideTrash2
+  LucideTrash2,
 } from '@lucide/angular';
 
 import { AipDialogComponent } from '../../../shared/ui/aip-dialog/aip-dialog.component';
@@ -14,12 +23,22 @@ import { MessagingMessageActionState, MessagingMessageViewModel } from '../messa
 @Component({
   selector: 'app-message-item',
   standalone: true,
-  imports: [AipDialogComponent, LucideBookmarkPlus, LucideEllipsis, LucideFlag, LucideMessageSquare, LucidePencil, LucideTrash2],
+  imports: [
+    AipDialogComponent,
+    LucideBookmarkPlus,
+    LucideEllipsis,
+    LucideFlag,
+    LucideMessageSquare,
+    LucidePencil,
+    LucideTrash2,
+  ],
   template: `
     <article
       #messageArticle
       class="message"
-      [attr.data-testid]="message.deliveryState === 'confirmed' ? 'confirmed-message' : 'pending-message'"
+      [attr.data-testid]="
+        message.deliveryState === 'confirmed' ? 'confirmed-message' : 'pending-message'
+      "
       [attr.id]="messageElementId"
       [class.message--own]="message.isOwnMessage"
       [class.message--focus-target]="focusTarget"
@@ -51,7 +70,11 @@ import { MessagingMessageActionState, MessagingMessageViewModel } from '../messa
             }
             <div class="message__edit-actions">
               <button type="button" [disabled]="isBusy" (click)="cancelEdit()">Cancel</button>
-              <button type="submit" [disabled]="isBusy" [attr.data-testid]="'save-message-edit-' + message.id">
+              <button
+                type="submit"
+                [disabled]="isBusy"
+                [attr.data-testid]="'save-message-edit-' + message.id"
+              >
                 {{ isBusy ? 'Saving...' : 'Save changes' }}
               </button>
             </div>
@@ -64,99 +87,113 @@ import { MessagingMessageActionState, MessagingMessageViewModel } from '../messa
       }
 
       @if (canShowActions || canShowThreadEntry) {
-          <div class="message__actions" role="group" [attr.aria-label]="'Actions for message from ' + message.authorLabel">
-            @if (canShowThreadEntry) {
+        <div
+          class="message__actions"
+          role="group"
+          [attr.aria-label]="'Actions for message from ' + message.authorLabel"
+        >
+          @if (canShowThreadEntry) {
+            <button
+              type="button"
+              class="message__thread-entry"
+              [attr.id]="threadButtonId"
+              [attr.data-testid]="'open-message-thread-' + message.id"
+              [attr.aria-label]="threadEntryAriaLabel"
+              (click)="openThread.emit({ messageId: message.id, triggerElementId: threadButtonId })"
+            >
+              <svg lucideMessageSquare aria-hidden="true"></svg>
+              <span aria-hidden="true">&#x21B3;</span>
+              <span>{{ threadEntryLabel }}</span>
+            </button>
+          }
+          @if (canShowActions) {
+            <button
+              type="button"
+              class="message__action-button message__action-button--primary"
+              [attr.data-testid]="'save-message-for-later-' + message.id"
+              [attr.aria-label]="'Save message from ' + message.authorLabel + ' for later'"
+              [disabled]="isBusy || hasActiveAction"
+              (click)="saveForLater()"
+            >
+              <svg lucideBookmarkPlus aria-hidden="true"></svg>
+              <span>Save for later</span>
+            </button>
+            <div class="message__overflow">
               <button
                 type="button"
-                class="message__thread-entry"
-                [attr.id]="threadButtonId"
-                [attr.data-testid]="'open-message-thread-' + message.id"
-                [attr.aria-label]="threadEntryAriaLabel"
-                (click)="openThread.emit({ messageId: message.id, triggerElementId: threadButtonId })"
-              >
-                <svg lucideMessageSquare aria-hidden="true"></svg>
-                <span aria-hidden="true">&#x21B3;</span>
-                <span>{{ threadEntryLabel }}</span>
-              </button>
-            }
-            @if (canShowActions) {
-              <button
-                type="button"
-                class="message__action-button message__action-button--primary"
-                [attr.data-testid]="'save-message-for-later-' + message.id"
-                [attr.aria-label]="'Save message from ' + message.authorLabel + ' for later'"
+                class="message__action-button message__more-button"
+                [attr.id]="moreButtonId"
+                [attr.data-testid]="'message-more-actions-' + message.id"
+                [attr.aria-label]="'More actions for message from ' + message.authorLabel"
+                [attr.aria-expanded]="overflowOpen"
+                [attr.aria-controls]="overflowPanelId"
                 [disabled]="isBusy || hasActiveAction"
-                (click)="saveForLater()"
+                (click)="toggleOverflow()"
               >
-                <svg lucideBookmarkPlus aria-hidden="true"></svg>
-                <span>Save for later</span>
+                <svg lucideEllipsis aria-hidden="true"></svg>
+                <span>More</span>
               </button>
-              <div class="message__overflow">
-                <button
-                  type="button"
-                  class="message__action-button message__more-button"
-                  [attr.id]="moreButtonId"
-                  [attr.data-testid]="'message-more-actions-' + message.id"
-                  [attr.aria-label]="'More actions for message from ' + message.authorLabel"
-                  [attr.aria-expanded]="overflowOpen"
-                  [attr.aria-controls]="overflowPanelId"
-                  [disabled]="isBusy || hasActiveAction"
-                  (click)="toggleOverflow()"
+              @if (overflowOpen && !hasActiveAction) {
+                <div
+                  class="message__overflow-panel"
+                  [attr.id]="overflowPanelId"
+                  data-testid="message-action-overflow"
                 >
-                  <svg lucideEllipsis aria-hidden="true"></svg>
-                  <span>More</span>
-                </button>
-                @if (overflowOpen && !hasActiveAction) {
-                  <div class="message__overflow-panel" [attr.id]="overflowPanelId" data-testid="message-action-overflow">
-                    @if (canEditMessage) {
-                      <button
-                        type="button"
-                        class="message__action-button"
-                        [attr.id]="editButtonId"
-                        [attr.data-testid]="'edit-message-' + message.id"
-                        [attr.aria-label]="'Edit message from ' + message.authorLabel"
-                        (click)="openEdit()"
-                      >
-                        <svg lucidePencil aria-hidden="true"></svg>
-                        <span>Edit</span>
-                      </button>
-                    }
-                    @if (message.isOwnMessage) {
-                      <button
-                        type="button"
-                        class="message__action-button message__action-button--danger"
-                        [attr.data-testid]="'delete-message-' + message.id"
-                        [attr.aria-label]="'Delete message from ' + message.authorLabel"
-                        (click)="openDelete()"
-                      >
-                        <svg lucideTrash2 aria-hidden="true"></svg>
-                        <span>Delete</span>
-                      </button>
-                    }
+                  @if (canEditMessage) {
                     <button
                       type="button"
                       class="message__action-button"
-                      [attr.data-testid]="'report-message-' + message.id"
-                      [attr.aria-label]="'Report message from ' + message.authorLabel"
-                      (click)="openReport()"
+                      [attr.id]="editButtonId"
+                      [attr.data-testid]="'edit-message-' + message.id"
+                      [attr.aria-label]="'Edit message from ' + message.authorLabel"
+                      (click)="openEdit()"
                     >
-                      <svg lucideFlag aria-hidden="true"></svg>
-                      <span>Report</span>
+                      <svg lucidePencil aria-hidden="true"></svg>
+                      <span>Edit</span>
                     </button>
-                  </div>
-                }
-              </div>
-            }
-          </div>
+                  }
+                  @if (message.isOwnMessage) {
+                    <button
+                      type="button"
+                      class="message__action-button message__action-button--danger"
+                      [attr.data-testid]="'delete-message-' + message.id"
+                      [attr.aria-label]="'Delete message from ' + message.authorLabel"
+                      (click)="openDelete()"
+                    >
+                      <svg lucideTrash2 aria-hidden="true"></svg>
+                      <span>Delete</span>
+                    </button>
+                  }
+                  <button
+                    type="button"
+                    class="message__action-button"
+                    [attr.data-testid]="'report-message-' + message.id"
+                    [attr.aria-label]="'Report message from ' + message.authorLabel"
+                    (click)="openReport()"
+                  >
+                    <svg lucideFlag aria-hidden="true"></svg>
+                    <span>Report</span>
+                  </button>
+                </div>
+              }
+            </div>
+          }
+        </div>
       }
 
       @if (message.readState?.ownReadLabel) {
-        <p class="message__read" data-testid="own-read-marker">{{ message.readState?.ownReadLabel }}</p>
+        <p class="message__read" data-testid="own-read-marker">
+          {{ message.readState?.ownReadLabel }}
+        </p>
       }
       @if (message.readState?.otherReadSummaryLabel) {
-        <p class="message__read" data-testid="other-read-summary">{{ message.readState?.otherReadSummaryLabel }}</p>
+        <p class="message__read" data-testid="other-read-summary">
+          {{ message.readState?.otherReadSummaryLabel }}
+        </p>
       }
-      @if (canViewOthersPreciseReadTimestamps && message.readState?.otherReadPreciseTimestampLabel) {
+      @if (
+        canViewOthersPreciseReadTimestamps && message.readState?.otherReadPreciseTimestampLabel
+      ) {
         <p class="message__read" data-testid="other-read-precise">
           {{ message.readState?.otherReadPreciseTimestampLabel }}
         </p>
@@ -195,7 +232,8 @@ import { MessagingMessageActionState, MessagingMessageViewModel } from '../messa
       }
     </app-aip-dialog>
   `,
-  styleUrl: './message-item.component.scss'
+  changeDetection: ChangeDetectionStrategy.Eager,
+  styleUrl: './message-item.component.scss',
 })
 export class MessageItemComponent implements AfterViewChecked {
   @ViewChild('messageArticle') private messageArticle?: ElementRef<HTMLElement>;
@@ -208,14 +246,20 @@ export class MessageItemComponent implements AfterViewChecked {
   @Input() focusTarget = false;
 
   @Output() readonly startEdit = new EventEmitter<string>();
-  @Output() readonly editDraftChange = new EventEmitter<{ readonly messageId: string; readonly draft: string }>();
+  @Output() readonly editDraftChange = new EventEmitter<{
+    readonly messageId: string;
+    readonly draft: string;
+  }>();
   @Output() readonly saveEditRequested = new EventEmitter<string>();
   @Output() readonly cancelAction = new EventEmitter<void>();
   @Output() readonly requestDelete = new EventEmitter<string>();
   @Output() readonly confirmDelete = new EventEmitter<string>();
   @Output() readonly requestReport = new EventEmitter<string>();
   @Output() readonly saveForLaterRequested = new EventEmitter<string>();
-  @Output() readonly confirmReport = new EventEmitter<{ readonly messageId: string; readonly reasonCode: string }>();
+  @Output() readonly confirmReport = new EventEmitter<{
+    readonly messageId: string;
+    readonly reasonCode: string;
+  }>();
   @Output() readonly openThread = new EventEmitter<{
     readonly messageId: string;
     readonly triggerElementId: string;
@@ -250,10 +294,12 @@ export class MessageItemComponent implements AfterViewChecked {
   }
 
   get canShowThreadEntry(): boolean {
-    return this.canOpenThreads &&
+    return (
+      this.canOpenThreads &&
       this.message.deliveryState === 'confirmed' &&
       !this.message.threadRootMessageId &&
-      (!this.message.isDeleted || (this.message.thread?.replyCount ?? 0) > 0);
+      (!this.message.isDeleted || (this.message.thread?.replyCount ?? 0) > 0)
+    );
   }
 
   get threadEntryLabel(): string {
@@ -266,15 +312,23 @@ export class MessageItemComponent implements AfterViewChecked {
   }
 
   get isEditing(): boolean {
-    return this.messageAction.messageId === this.message.id && this.messageAction.mode === 'editing';
+    return (
+      this.messageAction.messageId === this.message.id && this.messageAction.mode === 'editing'
+    );
   }
 
   get isDeleteConfirmation(): boolean {
-    return this.messageAction.messageId === this.message.id && this.messageAction.mode === 'confirmDelete';
+    return (
+      this.messageAction.messageId === this.message.id &&
+      this.messageAction.mode === 'confirmDelete'
+    );
   }
 
   get isReportConfirmation(): boolean {
-    return this.messageAction.messageId === this.message.id && this.messageAction.mode === 'confirmReport';
+    return (
+      this.messageAction.messageId === this.message.id &&
+      this.messageAction.mode === 'confirmReport'
+    );
   }
 
   get isBusy(): boolean {
@@ -305,7 +359,7 @@ export class MessageItemComponent implements AfterViewChecked {
   changeEditDraft(event: Event): void {
     this.editDraftChange.emit({
       messageId: this.message.id,
-      draft: (event.target as HTMLTextAreaElement).value
+      draft: (event.target as HTMLTextAreaElement).value,
     });
   }
 
@@ -346,7 +400,8 @@ export class MessageItemComponent implements AfterViewChecked {
     } else if (!targetId) {
       this.focusedTargetId = null;
     }
-    const editorKey = this.isEditing && !this.isBusy ? `${this.message.id}:${this.messageAction.mode}` : null;
+    const editorKey =
+      this.isEditing && !this.isBusy ? `${this.message.id}:${this.messageAction.mode}` : null;
     if (!editorKey || editorKey === this.focusedEditorKey) {
       if (!editorKey) {
         this.focusedEditorKey = null;

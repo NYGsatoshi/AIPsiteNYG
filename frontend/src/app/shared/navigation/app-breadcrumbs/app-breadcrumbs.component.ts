@@ -1,4 +1,4 @@
-import { Component, Input } from '@angular/core';
+import { Component, Input, ChangeDetectionStrategy } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 export interface AppBreadcrumbItem {
@@ -25,6 +25,7 @@ export interface AppBreadcrumbItem {
       </ol>
     </nav>
   `,
+  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [
     `
       ol {
@@ -48,8 +49,8 @@ export interface AppBreadcrumbItem {
       a {
         color: #2563eb;
       }
-    `
-  ]
+    `,
+  ],
 })
 export class AppBreadcrumbsComponent {
   @Input() items: readonly AppBreadcrumbItem[] = [];

@@ -1,5 +1,14 @@
 /* eslint-disable -- Issue #390 is isolated while ESLINT-01 reduces the repository-wide configs.all baseline. */
-import { Component, inject, Input, OnChanges, OnDestroy, SimpleChanges, signal } from '@angular/core';
+import {
+  Component,
+  inject,
+  Input,
+  OnChanges,
+  OnDestroy,
+  SimpleChanges,
+  signal,
+  ChangeDetectionStrategy,
+} from '@angular/core';
 import { Subscription } from 'rxjs';
 
 import {
@@ -11,6 +20,7 @@ import {
   selector: 'app-announcement-analytics-panel',
   standalone: true,
   templateUrl: './announcement-analytics-panel.component.html',
+  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './announcement-analytics-panel.component.scss',
 })
 export class AnnouncementAnalyticsPanelComponent implements OnChanges, OnDestroy {

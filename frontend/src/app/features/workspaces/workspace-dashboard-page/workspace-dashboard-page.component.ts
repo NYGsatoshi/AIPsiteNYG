@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal, ChangeDetectionStrategy } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 
@@ -19,7 +19,8 @@ import { WorkspaceCardViewModel, WorkspaceCreateInput } from '../workspaces.type
     WorkspaceSummaryListComponent,
   ],
   templateUrl: './workspace-dashboard-page.component.html',
-  styleUrl: './workspace-dashboard-page.component.scss'
+  changeDetection: ChangeDetectionStrategy.Eager,
+  styleUrl: './workspace-dashboard-page.component.scss',
 })
 export class WorkspaceDashboardPageComponent {
   private readonly facade = inject(WorkspacesFacade);
@@ -29,7 +30,9 @@ export class WorkspaceDashboardPageComponent {
   readonly searchValue = signal('');
   readonly createDialogOpen = signal(false);
   readonly createdAnnouncement = signal<string | null>(null);
-  readonly filteredWorkspaces = computed(() => this.filterWorkspaces(this.dashboard().workspaces, this.searchValue()));
+  readonly filteredWorkspaces = computed(() =>
+    this.filterWorkspaces(this.dashboard().workspaces, this.searchValue()),
+  );
   readonly needsAttentionCount = computed(() =>
     this.dashboard().workspaces.reduce(
       (total, workspace) => total + (workspace.needsAttentionCount ?? 0),
@@ -107,7 +110,9 @@ export class WorkspaceDashboardPageComponent {
     }
 
     const createdId = this.workspaceCreate().createdWorkspaceId;
-    const createdName = this.dashboard().workspaces.find((workspace) => workspace.id === createdId)?.displayName;
+    const createdName = this.dashboard().workspaces.find(
+      (workspace) => workspace.id === createdId,
+    )?.displayName;
     this.searchValue.set('');
     this.createDialogOpen.set(false);
     this.createdAnnouncement.set(
@@ -117,7 +122,10 @@ export class WorkspaceDashboardPageComponent {
     );
   }
 
-  private filterWorkspaces(workspaces: readonly WorkspaceCardViewModel[], searchValue: string): readonly WorkspaceCardViewModel[] {
+  private filterWorkspaces(
+    workspaces: readonly WorkspaceCardViewModel[],
+    searchValue: string,
+  ): readonly WorkspaceCardViewModel[] {
     const query = searchValue.trim().toLocaleLowerCase('ja-JP');
     if (!query) {
       return workspaces;
@@ -127,7 +135,7 @@ export class WorkspaceDashboardPageComponent {
       [workspace.displayName, workspace.roleLabel, workspace.lastUpdatedLabel ?? '']
         .join(' ')
         .toLocaleLowerCase('ja-JP')
-        .includes(query)
+        .includes(query),
     );
   }
 }

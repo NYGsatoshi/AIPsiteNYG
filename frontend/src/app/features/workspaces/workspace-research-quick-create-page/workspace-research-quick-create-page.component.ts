@@ -7,6 +7,7 @@ import {
   computed,
   inject,
   signal,
+  ChangeDetectionStrategy,
 } from '@angular/core';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { finalize } from 'rxjs';
@@ -24,6 +25,7 @@ import {
   standalone: true,
   imports: [RouterLink],
   templateUrl: './workspace-research-quick-create-page.component.html',
+  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './workspace-research-quick-create-page.component.scss',
 })
 export class WorkspaceResearchQuickCreatePageComponent {

@@ -1,11 +1,20 @@
-import { AfterViewChecked, Component, ElementRef, EventEmitter, Input, Output, ViewChild } from '@angular/core';
+import {
+  AfterViewChecked,
+  Component,
+  ElementRef,
+  EventEmitter,
+  Input,
+  Output,
+  ViewChild,
+  ChangeDetectionStrategy,
+} from '@angular/core';
 
 import { FailedMessageItemComponent } from '../failed-message-item/failed-message-item.component';
 import { MessageItemComponent } from '../message-item/message-item.component';
 import {
   MessagingMessageActionState,
   MessagingMessageViewModel,
-  MessagingPageStatus
+  MessagingPageStatus,
 } from '../messaging.types';
 import { NewMessageBannerComponent } from '../new-message-banner/new-message-banner.component';
 
@@ -14,13 +23,24 @@ import { NewMessageBannerComponent } from '../new-message-banner/new-message-ban
   standalone: true,
   imports: [FailedMessageItemComponent, MessageItemComponent, NewMessageBannerComponent],
   template: `
-    <section #timeline class="timeline" id="message-timeline" tabindex="-1" data-testid="message-timeline">
+    <section
+      #timeline
+      class="timeline"
+      id="message-timeline"
+      tabindex="-1"
+      data-testid="message-timeline"
+    >
       @if (inlineError) {
         <p class="timeline__error" data-testid="manual-refresh-error">{{ inlineError }}</p>
       }
 
       @if (messageAction.feedback) {
-        <p class="timeline__action-feedback" role="status" aria-live="polite" data-testid="message-action-status">
+        <p
+          class="timeline__action-feedback"
+          role="status"
+          aria-live="polite"
+          data-testid="message-action-status"
+        >
           {{ messageAction.feedback.message }}
         </p>
       }
@@ -69,7 +89,8 @@ import { NewMessageBannerComponent } from '../new-message-banner/new-message-ban
       }
     </section>
   `,
-  styleUrl: './message-timeline.component.scss'
+  changeDetection: ChangeDetectionStrategy.Eager,
+  styleUrl: './message-timeline.component.scss',
 })
 export class MessageTimelineComponent implements AfterViewChecked {
   @ViewChild('timeline') private timeline?: ElementRef<HTMLElement>;
@@ -86,21 +107,27 @@ export class MessageTimelineComponent implements AfterViewChecked {
     messageId: null,
     mode: 'idle',
     draft: '',
-    pending: null
+    pending: null,
   };
   @Output() readonly retry = new EventEmitter<string>();
   @Output() readonly loadOlder = new EventEmitter<void>();
   @Output() readonly loadNewer = new EventEmitter<void>();
   @Output() readonly acknowledgeNewMessages = new EventEmitter<void>();
   @Output() readonly startEdit = new EventEmitter<string>();
-  @Output() readonly editDraftChange = new EventEmitter<{ readonly messageId: string; readonly draft: string }>();
+  @Output() readonly editDraftChange = new EventEmitter<{
+    readonly messageId: string;
+    readonly draft: string;
+  }>();
   @Output() readonly saveEditRequested = new EventEmitter<string>();
   @Output() readonly cancelAction = new EventEmitter<void>();
   @Output() readonly requestDelete = new EventEmitter<string>();
   @Output() readonly confirmDelete = new EventEmitter<string>();
   @Output() readonly requestReport = new EventEmitter<string>();
   @Output() readonly saveForLaterRequested = new EventEmitter<string>();
-  @Output() readonly confirmReport = new EventEmitter<{ readonly messageId: string; readonly reasonCode: string }>();
+  @Output() readonly confirmReport = new EventEmitter<{
+    readonly messageId: string;
+    readonly reasonCode: string;
+  }>();
   @Output() readonly openThread = new EventEmitter<{
     readonly messageId: string;
     readonly triggerElementId: string;

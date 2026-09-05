@@ -1,4 +1,4 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, inject, signal, ChangeDetectionStrategy } from '@angular/core';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
 import { finalize, take } from 'rxjs';
@@ -11,7 +11,8 @@ import { I18nService } from '../../../core/i18n/i18n.service';
   standalone: true,
   imports: [ReactiveFormsModule],
   templateUrl: './login-page.component.html',
-  styleUrl: './login-page.component.scss'
+  changeDetection: ChangeDetectionStrategy.Eager,
+  styleUrl: './login-page.component.scss',
 })
 export class LoginPageComponent {
   private readonly authSession = inject(AuthSessionFacade);
@@ -23,12 +24,12 @@ export class LoginPageComponent {
   readonly form = new FormGroup({
     email: new FormControl('', {
       nonNullable: true,
-      validators: [Validators.required, Validators.email]
+      validators: [Validators.required, Validators.email],
     }),
     password: new FormControl('', {
       nonNullable: true,
-      validators: [Validators.required]
-    })
+      validators: [Validators.required],
+    }),
   });
 
   submit(): void {
@@ -44,7 +45,7 @@ export class LoginPageComponent {
       .login(email.trim(), password)
       .pipe(
         take(1),
-        finalize(() => this.isSubmitting.set(false))
+        finalize(() => this.isSubmitting.set(false)),
       )
       .subscribe({
         next: () => {
@@ -52,7 +53,7 @@ export class LoginPageComponent {
         },
         error: () => {
           this.errorMessage.set(this.i18n.translate('login.failure'));
-        }
+        },
       });
   }
 }

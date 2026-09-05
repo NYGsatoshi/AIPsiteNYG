@@ -1,4 +1,11 @@
-import { Component, EventEmitter, Input, Output, inject } from '@angular/core';
+import {
+  Component,
+  EventEmitter,
+  Input,
+  Output,
+  inject,
+  ChangeDetectionStrategy,
+} from '@angular/core';
 
 import { I18nService } from '../../../core/i18n/i18n.service';
 import { FileRowComponent } from '../file-row/file-row.component';
@@ -9,7 +16,8 @@ import { FileViewModel } from '../files.types';
   standalone: true,
   imports: [FileRowComponent],
   templateUrl: './recent-files-list.component.html',
-  styleUrl: './recent-files-list.component.scss'
+  changeDetection: ChangeDetectionStrategy.Eager,
+  styleUrl: './recent-files-list.component.scss',
 })
 export class RecentFilesListComponent {
   readonly i18n = inject(I18nService);
@@ -18,5 +26,8 @@ export class RecentFilesListComponent {
   @Input() selectedFileIds: ReadonlySet<string> = new Set();
   @Output() readonly previewRequested = new EventEmitter<FileViewModel>();
   @Output() readonly downloadRequested = new EventEmitter<string>();
-  @Output() readonly selectionChanged = new EventEmitter<{ file: FileViewModel; selected: boolean }>();
+  @Output() readonly selectionChanged = new EventEmitter<{
+    file: FileViewModel;
+    selected: boolean;
+  }>();
 }

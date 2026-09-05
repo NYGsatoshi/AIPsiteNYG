@@ -1,4 +1,12 @@
-import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
+import {
+  Component,
+  computed,
+  effect,
+  inject,
+  signal,
+  untracked,
+  ChangeDetectionStrategy,
+} from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { distinctUntilChanged, map } from 'rxjs';
@@ -18,6 +26,7 @@ import {
   standalone: true,
   imports: [RouterLink, AuditFindingDecisionPanelComponent],
   templateUrl: './audit-findings-page.component.html',
+  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './audit-findings-page.component.scss',
 })
 export class AuditFindingsPageComponent {
@@ -36,15 +45,16 @@ export class AuditFindingsPageComponent {
         overdue: params.get('overdue') === 'true',
         unassigned: params.get('unassigned') === 'true',
       })),
-      distinctUntilChanged((left, right) =>
-        left.artifactVersionId === right.artifactVersionId &&
-        left.status === right.status &&
-        left.severity === right.severity &&
-        left.openOnly === right.openOnly &&
-        left.workflowStatus === right.workflowStatus &&
-        left.myReviews === right.myReviews &&
-        left.overdue === right.overdue &&
-        left.unassigned === right.unassigned,
+      distinctUntilChanged(
+        (left, right) =>
+          left.artifactVersionId === right.artifactVersionId &&
+          left.status === right.status &&
+          left.severity === right.severity &&
+          left.openOnly === right.openOnly &&
+          left.workflowStatus === right.workflowStatus &&
+          left.myReviews === right.myReviews &&
+          left.overdue === right.overdue &&
+          left.unassigned === right.unassigned,
       ),
     ),
     {
@@ -53,7 +63,9 @@ export class AuditFindingsPageComponent {
         status: normalizeStatus(this.route.snapshot.queryParamMap.get('status')),
         severity: normalizeSeverity(this.route.snapshot.queryParamMap.get('severity')),
         openOnly: this.route.snapshot.queryParamMap.get('openOnly') === 'true',
-        workflowStatus: normalizeWorkflowStatus(this.route.snapshot.queryParamMap.get('workflowStatus')),
+        workflowStatus: normalizeWorkflowStatus(
+          this.route.snapshot.queryParamMap.get('workflowStatus'),
+        ),
         myReviews: this.route.snapshot.queryParamMap.get('myReviews') === 'true',
         overdue: this.route.snapshot.queryParamMap.get('overdue') === 'true',
         unassigned: this.route.snapshot.queryParamMap.get('unassigned') === 'true',
@@ -108,26 +120,31 @@ export class AuditFindingsPageComponent {
     return this.vm().findings.find((finding) => finding.id === id) ?? null;
   });
 
-  readonly unresolvedCount = computed(() =>
-    this.vm().findings.filter((finding) => finding.status === 'Open' || finding.status === 'Reviewing').length,
+  readonly unresolvedCount = computed(
+    () =>
+      this.vm().findings.filter(
+        (finding) => finding.status === 'Open' || finding.status === 'Reviewing',
+      ).length,
   );
 
-  readonly overdueCount = computed(() =>
-    this.vm().findings.filter((finding) => finding.isOverdue).length,
+  readonly overdueCount = computed(
+    () => this.vm().findings.filter((finding) => finding.isOverdue).length,
   );
 
   constructor() {
     effect(() => {
       const state = this.routeState();
-      untracked(() => this.loadFromRoute(state.artifactVersionId, {
-        status: state.status,
-        severity: state.severity,
-        openOnly: state.openOnly,
-        workflowStatus: state.workflowStatus,
-        myReviews: state.myReviews,
-        overdue: state.overdue,
-        unassigned: state.unassigned,
-      }));
+      untracked(() =>
+        this.loadFromRoute(state.artifactVersionId, {
+          status: state.status,
+          severity: state.severity,
+          openOnly: state.openOnly,
+          workflowStatus: state.workflowStatus,
+          myReviews: state.myReviews,
+          overdue: state.overdue,
+          unassigned: state.unassigned,
+        }),
+      );
     });
 
     effect(() => {
@@ -306,18 +323,25 @@ export class AuditFindingsPageComponent {
 
   statusLabel(status: AuditFindingStatus): string {
     switch (status) {
-      case 'AcceptedRisk': return 'Accepted Risk';
-      case 'FalsePositive': return 'False Positive';
-      default: return status;
+      case 'AcceptedRisk':
+        return 'Accepted Risk';
+      case 'FalsePositive':
+        return 'False Positive';
+      default:
+        return status;
     }
   }
 
   workflowStatusLabel(status: AuditFindingWorkflowStatus): string {
     switch (status) {
-      case 'InReview': return 'In Review';
-      case 'WaitingFix': return 'Waiting Fix';
-      case 'ReadyForReReview': return 'Ready for Re-review';
-      default: return status;
+      case 'InReview':
+        return 'In Review';
+      case 'WaitingFix':
+        return 'Waiting Fix';
+      case 'ReadyForReReview':
+        return 'Ready for Re-review';
+      default:
+        return status;
     }
   }
 
@@ -338,7 +362,10 @@ export class AuditFindingsPageComponent {
     return displayName || 'Unassigned';
   }
 
-  private updateBooleanFilter(name: 'myReviews' | 'overdue' | 'unassigned', checked: boolean): void {
+  private updateBooleanFilter(
+    name: 'myReviews' | 'overdue' | 'unassigned',
+    checked: boolean,
+  ): void {
     void this.router.navigate([], {
       relativeTo: this.route,
       queryParams: { [name]: checked ? 'true' : null },
@@ -403,5 +430,7 @@ function normalizeSeverity(value: string | null): AuditFindingSeverity | '' {
 }
 
 function isGuid(value: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.trim());
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    value.trim(),
+  );
 }

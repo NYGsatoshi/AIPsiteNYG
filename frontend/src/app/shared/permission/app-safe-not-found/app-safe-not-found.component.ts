@@ -1,4 +1,4 @@
-import { Component, Input } from '@angular/core';
+import { Component, Input, ChangeDetectionStrategy } from '@angular/core';
 
 @Component({
   selector: 'app-safe-not-found',
@@ -9,6 +9,7 @@ import { Component, Input } from '@angular/core';
       <p>対象が見つからないか、表示できません。</p>
     </section>
   `,
+  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [
     `
       .safe-state {
@@ -28,8 +29,8 @@ import { Component, Input } from '@angular/core';
         margin-bottom: 0.5rem;
         font-size: 1rem;
       }
-    `
-  ]
+    `,
+  ],
 })
 export class AppSafeNotFoundComponent {
   @Input() title = '表示できません';

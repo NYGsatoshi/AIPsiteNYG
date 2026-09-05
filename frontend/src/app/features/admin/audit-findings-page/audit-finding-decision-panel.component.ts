@@ -1,5 +1,14 @@
 import { HttpClient } from '@angular/common/http';
-import { Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
+import {
+  Component,
+  computed,
+  effect,
+  inject,
+  input,
+  signal,
+  untracked,
+  ChangeDetectionStrategy,
+} from '@angular/core';
 
 export type AuditFindingDecision = 'NoIssue' | 'NeedsFix' | 'AcceptedRisk';
 
@@ -30,19 +39,29 @@ interface AuditFindingDecisionResponseDto {
 
 type PanelState =
   | { readonly status: 'loading'; readonly response: null; readonly message?: string }
-  | { readonly status: 'ready'; readonly response: AuditFindingDecisionResponseDto; readonly message?: string }
-  | { readonly status: 'permissionDenied' | 'notFound' | 'error'; readonly response: null; readonly message: string };
+  | {
+      readonly status: 'ready';
+      readonly response: AuditFindingDecisionResponseDto;
+      readonly message?: string;
+    }
+  | {
+      readonly status: 'permissionDenied' | 'notFound' | 'error';
+      readonly response: null;
+      readonly message: string;
+    };
 
 @Component({
   selector: 'app-audit-finding-decision-panel',
   standalone: true,
   templateUrl: './audit-finding-decision-panel.component.html',
+  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './audit-finding-decision-panel.component.scss',
 })
 export class AuditFindingDecisionPanelComponent {
   public readonly saveAnnouncement = signal('');
   public readonly readyStatusMessage = computed(() => {
-    const announcement = this.saveAnnouncement(), panel = this.state();
+    const announcement = this.saveAnnouncement(),
+      panel = this.state();
     if (announcement !== '') {
       return announcement;
     }
@@ -159,7 +178,10 @@ export class AuditFindingDecisionPanelComponent {
     }
 
     const response = this.state().response;
-    return response?.options.find((option) => option.decision === decision)?.label ?? fallbackLabel(decision);
+    return (
+      response?.options.find((option) => option.decision === decision)?.label ??
+      fallbackLabel(decision)
+    );
   }
 
   formatTimestamp(value: string): string {
@@ -199,7 +221,8 @@ export class AuditFindingDecisionPanelComponent {
             this.state.set({
               status: 'permissionDenied',
               response: null,
-              message: 'The structured decision is unavailable without current Audit view permission.',
+              message:
+                'The structured decision is unavailable without current Audit view permission.',
             });
             return;
           }
@@ -233,16 +256,19 @@ export class AuditFindingDecisionPanelComponent {
   }
 }
 
-function normalizeResponse(response: AuditFindingDecisionResponseDto): AuditFindingDecisionResponseDto {
+function normalizeResponse(
+  response: AuditFindingDecisionResponseDto,
+): AuditFindingDecisionResponseDto {
   const options = (response.options ?? []).filter(
     (option): option is AuditFindingDecisionOptionDto => isDecision(option.decision),
   );
   const history = (response.history ?? []).filter(
     (entry): entry is AuditFindingDecisionHistoryDto => isDecision(entry.decision),
   );
-  const current = response.currentDecision && isDecision(response.currentDecision.decision)
-    ? response.currentDecision
-    : null;
+  const current =
+    response.currentDecision && isDecision(response.currentDecision.decision)
+      ? response.currentDecision
+      : null;
 
   return {
     findingId: response.findingId,
@@ -260,8 +286,11 @@ function isDecision(value: unknown): value is AuditFindingDecision {
 
 function fallbackLabel(decision: AuditFindingDecision): string {
   switch (decision) {
-    case 'NoIssue': return 'No issue';
-    case 'NeedsFix': return 'Needs fix';
-    case 'AcceptedRisk': return 'Accepted risk';
+    case 'NoIssue':
+      return 'No issue';
+    case 'NeedsFix':
+      return 'Needs fix';
+    case 'AcceptedRisk':
+      return 'Accepted risk';
   }
 }

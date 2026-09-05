@@ -1,13 +1,16 @@
-import { Component } from '@angular/core';
+import { Component, ChangeDetectionStrategy } from '@angular/core';
 
 @Component({
   selector: 'app-session-expired-page',
   standalone: true,
   template: `
     <main class="session-expired" aria-labelledby="session-expired-title">
-      <h1 id="session-expired-title">セッションの有効期限が切れました。もう一度ログインしてください。</h1>
+      <h1 id="session-expired-title">
+        セッションの有効期限が切れました。もう一度ログインしてください。
+      </h1>
     </main>
   `,
+  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [
     `
       :host {
@@ -32,7 +35,7 @@ import { Component } from '@angular/core';
         line-height: 1.5;
         text-align: center;
       }
-    `
-  ]
+    `,
+  ],
 })
 export class SessionExpiredPageComponent {}

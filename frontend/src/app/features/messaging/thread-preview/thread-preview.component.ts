@@ -7,14 +7,12 @@ import {
   OnChanges,
   Output,
   SimpleChanges,
-  ViewChild
+  ViewChild,
+  ChangeDetectionStrategy,
 } from '@angular/core';
 import { LucideArrowLeft, LucideX } from '@lucide/angular';
 
-import {
-  MessagingMentionCandidate,
-  MessagingThreadViewModel
-} from '../messaging.types';
+import { MessagingMentionCandidate, MessagingThreadViewModel } from '../messaging.types';
 
 @Component({
   selector: 'app-thread-preview',
@@ -64,7 +62,11 @@ import {
           <p>{{ thread.error ?? 'Thread data could not be loaded.' }}</p>
         </section>
       } @else if (thread.status === 'ready' && thread.rootMessage && thread.summary) {
-        <section class="thread__root" data-testid="thread-root-message" aria-label="Thread parent message">
+        <section
+          class="thread__root"
+          data-testid="thread-root-message"
+          aria-label="Thread parent message"
+        >
           <p class="thread__pinned">Pinned parent</p>
           <div class="thread__message-meta">
             <strong>{{ thread.rootMessage.authorLabel }}</strong>
@@ -78,18 +80,21 @@ import {
         </section>
 
         <section class="thread__summary" aria-label="Thread summary">
-          <strong>{{ thread.summary.replyCount }} {{ thread.summary.replyCount === 1 ? 'reply' : 'replies' }}</strong>
+          <strong
+            >{{ thread.summary.replyCount }}
+            {{ thread.summary.replyCount === 1 ? 'reply' : 'replies' }}</strong
+          >
           @if (thread.summary.participantDisplayNames.length > 0) {
             <span>Participants: {{ thread.summary.participantDisplayNames.join(', ') }}</span>
           }
           @if (thread.hasMore) {
             <p data-testid="thread-bounded-notice">
               @if (thread.anchorReplyMessageId) {
-                Showing {{ thread.replies.length }} of {{ thread.summary.replyCount }} replies, including the selected reply.
-                Other older replies are not loaded.
+                Showing {{ thread.replies.length }} of {{ thread.summary.replyCount }} replies,
+                including the selected reply. Other older replies are not loaded.
               } @else {
-                Showing the latest {{ thread.maximumReplies }} of {{ thread.summary.replyCount }} replies.
-                Older replies are not loaded.
+                Showing the latest {{ thread.maximumReplies }} of
+                {{ thread.summary.replyCount }} replies. Older replies are not loaded.
               }
             </p>
           }
@@ -131,15 +136,21 @@ import {
             data-testid="thread-reply-draft"
             [value]="thread.draft"
             [disabled]="!canReply || thread.sending"
-            [attr.aria-describedby]="thread.error ? 'thread-composer-hint thread-composer-error' : 'thread-composer-hint'"
+            [attr.aria-describedby]="
+              thread.error ? 'thread-composer-hint thread-composer-error' : 'thread-composer-hint'
+            "
             (input)="changeDraft($event)"
             (keydown)="onDraftKeydown($event)"
             (compositionstart)="composing = true"
             (compositionend)="composing = false"
           ></textarea>
-          <p id="thread-composer-hint" class="thread__hint">Enter to reply · Shift+Enter for a new line</p>
+          <p id="thread-composer-hint" class="thread__hint">
+            Enter to reply · Shift+Enter for a new line
+          </p>
           @if (!canReply) {
-            <p class="thread__disabled" data-testid="thread-composer-disabled">{{ disabledReason }}</p>
+            <p class="thread__disabled" data-testid="thread-composer-disabled">
+              {{ disabledReason }}
+            </p>
           }
           @if (thread.error) {
             <p id="thread-composer-error" class="thread__error" role="alert">{{ thread.error }}</p>
@@ -156,7 +167,8 @@ import {
       }
     </aside>
   `,
-  styleUrl: './thread-preview.component.scss'
+  changeDetection: ChangeDetectionStrategy.Eager,
+  styleUrl: './thread-preview.component.scss',
 })
 export class ThreadPreviewComponent implements AfterViewChecked, OnChanges {
   @ViewChild('panel') private panel?: ElementRef<HTMLElement>;
@@ -177,10 +189,12 @@ export class ThreadPreviewComponent implements AfterViewChecked, OnChanges {
   private focusedMessageId: string | null = null;
 
   get canReply(): boolean {
-    return this.thread.status === 'ready' &&
+    return (
+      this.thread.status === 'ready' &&
       this.thread.rootMessage?.isDeleted !== true &&
       this.canPost &&
-      ((this.thread.summary?.replyCount ?? 0) > 0 || this.canCreateThread);
+      ((this.thread.summary?.replyCount ?? 0) > 0 || this.canCreateThread)
+    );
   }
 
   get disabledReason(): string {
@@ -253,21 +267,22 @@ export class ThreadPreviewComponent implements AfterViewChecked, OnChanges {
       this.focusBackAfterRootDeletion = false;
       queueMicrotask(() => this.backControl?.nativeElement.focus());
     }
-    const key = this.thread.status === 'closed'
-      ? null
-      : this.thread.rootMessageId ?? 'unknown';
+    const key = this.thread.status === 'closed' ? null : (this.thread.rootMessageId ?? 'unknown');
     const shouldFocusPanel = !!key && key !== this.focusedKey;
     if (!key) {
       this.focusedKey = null;
     } else if (shouldFocusPanel) {
       this.focusedKey = key;
     }
-    const shouldFocusMessage = !!this.focusMessageId &&
+    const shouldFocusMessage =
+      !!this.focusMessageId &&
       this.focusMessageId !== this.focusedMessageId &&
       this.thread.status === 'ready';
     if (shouldFocusMessage) {
       this.focusedMessageId = this.focusMessageId;
-      queueMicrotask(() => document.getElementById(`thread-message-${this.safeId(this.focusMessageId!)}`)?.focus());
+      queueMicrotask(() =>
+        document.getElementById(`thread-message-${this.safeId(this.focusMessageId!)}`)?.focus(),
+      );
     } else if (shouldFocusPanel) {
       queueMicrotask(() => this.panel?.nativeElement.focus());
     }

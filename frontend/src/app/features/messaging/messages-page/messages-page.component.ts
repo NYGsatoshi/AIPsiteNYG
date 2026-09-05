@@ -1,4 +1,11 @@
-import { Component, computed, effect, inject, signal } from '@angular/core';
+import {
+  Component,
+  computed,
+  effect,
+  inject,
+  signal,
+  ChangeDetectionStrategy,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 
@@ -48,11 +55,15 @@ interface RecipientOption {
       </header>
 
       @if (page().inlineError) {
-        <p class="messages-page__error" data-testid="messages-list-error">{{ page().inlineError }}</p>
+        <p class="messages-page__error" data-testid="messages-list-error">
+          {{ page().inlineError }}
+        </p>
       }
 
       @if (page().status === 'loading') {
-        <p class="messages-page__empty" data-testid="messages-list-loading">会話を読み込んでいます...</p>
+        <p class="messages-page__empty" data-testid="messages-list-loading">
+          会話を読み込んでいます...
+        </p>
       } @else if (page().status === 'permissionDenied') {
         <section class="messages-page__state" data-testid="messages-permission-denied">
           <h2>Messagesを表示できません</h2>
@@ -71,10 +82,16 @@ interface RecipientOption {
           [preserveListScroll]="true"
           [showUnreadBadges]="globalSettings.showUnreadBadges()"
           (inboxViewChanged)="facade.selectInboxView($event)"
-          (conversationLaterChanged)="facade.setConversationLater($event.conversationId, $event.isLater)"
+          (conversationLaterChanged)="
+            facade.setConversationLater($event.conversationId, $event.isLater)
+          "
         >
           @if (page().conversations.length === 0) {
-            <section message-search-empty class="messages-page__state" data-testid="messages-list-empty">
+            <section
+              message-search-empty
+              class="messages-page__state"
+              data-testid="messages-list-empty"
+            >
               <h2>まだ会話はありません</h2>
               <p>「新しいメッセージ」から相手を選んで会話を開始できます。</p>
               <button
@@ -122,15 +139,21 @@ interface RecipientOption {
             </label>
 
             @if (recipientStatus() === 'idle') {
-              <p class="messages-page__muted" data-testid="recipient-search-idle">検索語を入力してください。</p>
+              <p class="messages-page__muted" data-testid="recipient-search-idle">
+                検索語を入力してください。
+              </p>
             } @else if (recipientStatus() === 'loading') {
-              <p class="messages-page__muted" data-testid="recipient-search-loading">候補を検索しています...</p>
+              <p class="messages-page__muted" data-testid="recipient-search-loading">
+                候補を検索しています...
+              </p>
             } @else if (recipientStatus() === 'error') {
               <p class="messages-page__error" data-testid="recipient-search-error">
                 宛先候補を取得できませんでした。
               </p>
             } @else if (recipientStatus() === 'empty') {
-              <p class="messages-page__muted" data-testid="recipient-search-empty">候補が見つかりません。</p>
+              <p class="messages-page__muted" data-testid="recipient-search-empty">
+                候補が見つかりません。
+              </p>
             } @else {
               <div class="messages-page__recipients" role="listbox" aria-label="宛先候補">
                 @for (recipient of recipients(); track recipient.userId) {
@@ -138,7 +161,9 @@ interface RecipientOption {
                     type="button"
                     role="option"
                     class="messages-page__recipient"
-                    [class.messages-page__recipient--selected]="selectedRecipientId() === recipient.userId"
+                    [class.messages-page__recipient--selected]="
+                      selectedRecipientId() === recipient.userId
+                    "
                     [attr.aria-selected]="selectedRecipientId() === recipient.userId"
                     data-testid="recipient-option"
                     (click)="selectRecipient(recipient.userId)"
@@ -150,11 +175,15 @@ interface RecipientOption {
             }
 
             @if (createError()) {
-              <p class="messages-page__error" data-testid="create-conversation-error">{{ createError() }}</p>
+              <p class="messages-page__error" data-testid="create-conversation-error">
+                {{ createError() }}
+              </p>
             }
 
             <footer class="messages-page__dialog-actions">
-              <button type="button" (click)="closeCreateDialog()" [disabled]="creating()">キャンセル</button>
+              <button type="button" (click)="closeCreateDialog()" [disabled]="creating()">
+                キャンセル
+              </button>
               <button
                 type="button"
                 class="messages-page__primary"
@@ -170,7 +199,8 @@ interface RecipientOption {
       }
     </section>
   `,
-  styleUrl: './messages-page.component.scss'
+  changeDetection: ChangeDetectionStrategy.Eager,
+  styleUrl: './messages-page.component.scss',
 })
 export class MessagesPageComponent {
   readonly facade = inject(MessagingFacade);
@@ -186,7 +216,9 @@ export class MessagesPageComponent {
   readonly selectedRecipientId = signal<string | null>(null);
   readonly creating = signal(false);
   readonly createError = signal<string | null>(null);
-  readonly canSubmitCreate = computed(() => this.selectedRecipientId() !== null && !this.creating());
+  readonly canSubmitCreate = computed(
+    () => this.selectedRecipientId() !== null && !this.creating(),
+  );
 
   constructor() {
     effect(() => {
@@ -229,14 +261,16 @@ export class MessagesPageComponent {
     this.recipientStatus.set('loading');
     this.api.searchRecipients(query).subscribe({
       next: (response) => {
-        const recipients = response.map(mapRecipient).filter((recipient): recipient is RecipientOption => recipient !== null);
+        const recipients = response
+          .map(mapRecipient)
+          .filter((recipient): recipient is RecipientOption => recipient !== null);
         this.recipients.set(recipients);
         this.recipientStatus.set(recipients.length > 0 ? 'ready' : 'empty');
       },
       error: () => {
         this.recipients.set([]);
         this.recipientStatus.set('error');
-      }
+      },
     });
   }
 
@@ -269,7 +303,7 @@ export class MessagesPageComponent {
       error: () => {
         this.creating.set(false);
         this.createError.set('会話を作成できませんでした。');
-      }
+      },
     });
   }
 }

@@ -1,4 +1,4 @@
-import { Component, EventEmitter, Input, Output } from '@angular/core';
+import { Component, EventEmitter, Input, Output, ChangeDetectionStrategy } from '@angular/core';
 
 import { MessagingMessageViewModel } from '../messaging.types';
 
@@ -25,7 +25,8 @@ import { MessagingMessageViewModel } from '../messaging.types';
       }
     </article>
   `,
-  styleUrl: './failed-message-item.component.scss'
+  changeDetection: ChangeDetectionStrategy.Eager,
+  styleUrl: './failed-message-item.component.scss',
 })
 export class FailedMessageItemComponent {
   @Input({ required: true }) message!: MessagingMessageViewModel;

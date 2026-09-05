@@ -11,6 +11,7 @@ import {
   signal,
   SimpleChanges,
   ViewChild,
+  ChangeDetectionStrategy,
 } from '@angular/core';
 import {
   AbstractControl,
@@ -48,6 +49,7 @@ import { AipDialogComponent } from '../../../shared/ui/aip-dialog/aip-dialog.com
     AipDialogComponent,
   ],
   templateUrl: './announcement-editor.component.html',
+  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './announcement-editor.component.scss',
 })
 export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy {
@@ -168,20 +170,18 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
       return [];
     }
 
-    const formErrors: AnnouncementEditorFieldError[] = announcementEditorStepFields[this.currentStep()].flatMap(
-      (field) => {
-        const message = this.fieldError(field);
-        return message ? [{ field, message }] : [];
-      },
-    );
-    const linkErrors: AnnouncementEditorFieldError[] = (this.currentStep() === 'content'
-      ? announcementEditorLinkFields
-      : []).flatMap(
-      (field) => {
-        const message = this.linkFieldError(field);
-        return message ? [{ field, message }] : [];
-      },
-    );
+    const formErrors: AnnouncementEditorFieldError[] = announcementEditorStepFields[
+      this.currentStep()
+    ].flatMap((field) => {
+      const message = this.fieldError(field);
+      return message ? [{ field, message }] : [];
+    });
+    const linkErrors: AnnouncementEditorFieldError[] = (
+      this.currentStep() === 'content' ? announcementEditorLinkFields : []
+    ).flatMap((field) => {
+      const message = this.linkFieldError(field);
+      return message ? [{ field, message }] : [];
+    });
     return [...formErrors, ...linkErrors];
   }
 
@@ -190,7 +190,9 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
       this.updateScheduleValidators(),
     );
     this.formChanges = this.form.valueChanges.subscribe(() => this.emitDraftChange());
-    this.audienceChanges = this.form.controls.audienceKey.valueChanges.subscribe(() => this.applyAudienceTimeZone());
+    this.audienceChanges = this.form.controls.audienceKey.valueChanges.subscribe(() =>
+      this.applyAudienceTimeZone(),
+    );
     this.updateScheduleValidators();
   }
 
@@ -492,7 +494,12 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
     this.form.markAllAsTouched();
     this.markContentLinksTouched();
     const audience = this.selectedAudience();
-    if (!this.canPublish || this.form.invalid || !this.contentLinksAreValid() || audience === null) {
+    if (
+      !this.canPublish ||
+      this.form.invalid ||
+      !this.contentLinksAreValid() ||
+      audience === null
+    ) {
       this.focusFirstInvalidControl(audience === null ? 'audienceKey' : undefined);
       return;
     }
@@ -544,7 +551,8 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
       return 'Publish immediately';
     }
 
-    const localDateTime = review?.scheduledLocalDateTime ?? this.form.controls.scheduledLocalDateTime.value;
+    const localDateTime =
+      review?.scheduledLocalDateTime ?? this.form.controls.scheduledLocalDateTime.value;
     const timeZoneId = review?.timeZoneId ?? this.form.controls.timeZoneId.value;
     return localDateTime && timeZoneId
       ? `Schedule for ${localDateTime} ${timeZoneId}`
@@ -573,7 +581,9 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
   }
 
   private markStepTouched(step: AnnouncementEditorStep): void {
-    announcementEditorStepFields[step].forEach((field) => this.form.controls[field].markAsTouched());
+    announcementEditorStepFields[step].forEach((field) =>
+      this.form.controls[field].markAsTouched(),
+    );
     if (step === 'content') {
       this.markContentLinksTouched();
     }
@@ -585,15 +595,20 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
   private stepIsValid(step: AnnouncementEditorStep): boolean {
     switch (step) {
       case 'content':
-        return !this.form.controls.title.invalid &&
+        return (
+          !this.form.controls.title.invalid &&
           !this.form.controls.body.invalid &&
-          this.contentLinksAreValid();
+          this.contentLinksAreValid()
+        );
       case 'audience':
         return !this.form.controls.audienceKey.invalid && this.selectedAudience() !== null;
       case 'delivery':
-        return !this.form.controls.priority.invalid &&
+        return (
+          !this.form.controls.priority.invalid &&
           (this.form.controls.deliveryMode.value !== 'scheduled' ||
-            (!this.form.controls.scheduledLocalDateTime.invalid && !this.form.controls.timeZoneId.invalid));
+            (!this.form.controls.scheduledLocalDateTime.invalid &&
+              !this.form.controls.timeZoneId.invalid))
+        );
       case 'review':
         return true;
     }
@@ -651,11 +666,18 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
     const invalidFormField = announcementEditorStepFields[step].find(
       (field) => this.form.controls[field].invalid,
     );
-    const invalidLinkField = step === 'content'
-      ? announcementEditorLinkFields.find((field) => this.linkFieldError(field) !== null)
-      : undefined;
-    const invalidField = invalidFormField ?? invalidLinkField ??
-      (step === 'audience' ? 'audienceKey' : step === 'delivery' ? 'scheduledLocalDateTime' : 'title');
+    const invalidLinkField =
+      step === 'content'
+        ? announcementEditorLinkFields.find((field) => this.linkFieldError(field) !== null)
+        : undefined;
+    const invalidField =
+      invalidFormField ??
+      invalidLinkField ??
+      (step === 'audience'
+        ? 'audienceKey'
+        : step === 'delivery'
+          ? 'scheduledLocalDateTime'
+          : 'title');
     setTimeout(() => this.focusControl(invalidField));
   }
 
@@ -748,14 +770,20 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
     const title = value.title.trim();
     const body = value.body.trim();
     if (!title || !body || audience === null || !this.contentLinksAreValid()) {
-      this.focusFirstInvalidControl(!title ? 'title' : !body ? 'body' : audience === null ? 'audienceKey' : undefined);
+      this.focusFirstInvalidControl(
+        !title ? 'title' : !body ? 'body' : audience === null ? 'audienceKey' : undefined,
+      );
       return null;
     }
 
     const deliveryMode = value.deliveryMode;
     const scheduledLocalDateTime = value.scheduledLocalDateTime.trim();
     const timeZoneId = value.timeZoneId.trim();
-    if (requireSchedule && deliveryMode === 'scheduled' && (!scheduledLocalDateTime || !timeZoneId)) {
+    if (
+      requireSchedule &&
+      deliveryMode === 'scheduled' &&
+      (!scheduledLocalDateTime || !timeZoneId)
+    ) {
       this.form.controls.scheduledLocalDateTime.markAsTouched();
       this.form.controls.timeZoneId.markAsTouched();
       this.focusFirstInvalidControl('scheduledLocalDateTime');
@@ -781,9 +809,7 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
       ...(cta ? { cta } : {}),
       ...(attachment ? { attachment } : {}),
       deliveryMode,
-      ...(deliveryMode === 'scheduled'
-        ? { scheduledLocalDateTime, timeZoneId }
-        : {}),
+      ...(deliveryMode === 'scheduled' ? { scheduledLocalDateTime, timeZoneId } : {}),
     };
   }
 
@@ -806,8 +832,10 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
   }
 
   private contentLinksAreValid(): boolean {
-    return this.linkPairIsValid(this.ctaLabel(), this.ctaUrl()) &&
-      this.linkPairIsValid(this.attachmentLabel(), this.attachmentUrl());
+    return (
+      this.linkPairIsValid(this.ctaLabel(), this.ctaUrl()) &&
+      this.linkPairIsValid(this.attachmentLabel(), this.attachmentUrl())
+    );
   }
 
   private linkPairIsValid(rawLabel: string, rawUrl: string): boolean {
@@ -832,7 +860,9 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
   private updateScheduleValidators(): void {
     const scheduled = this.form.controls.deliveryMode.value === 'scheduled';
     this.form.controls.scheduledLocalDateTime.setValidators(scheduled ? [Validators.required] : []);
-    this.form.controls.timeZoneId.setValidators(scheduled ? [Validators.required, ianaTimeZoneValidator] : []);
+    this.form.controls.timeZoneId.setValidators(
+      scheduled ? [Validators.required, ianaTimeZoneValidator] : [],
+    );
     this.form.controls.scheduledLocalDateTime.updateValueAndValidity({ emitEvent: false });
     this.form.controls.timeZoneId.updateValueAndValidity({ emitEvent: false });
   }
@@ -844,7 +874,10 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
    * worker's immutable Scheduled -> Published transition.
    */
   private syncEditability(): void {
-    if (this.draft.publicationState === 'scheduled' || this.draft.publicationState === 'published') {
+    if (
+      this.draft.publicationState === 'scheduled' ||
+      this.draft.publicationState === 'published'
+    ) {
       this.form.disable({ emitEvent: false });
       return;
     }
@@ -853,7 +886,8 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
   }
 }
 
-type AnnouncementEditorFormField = 'title' | 'body' | 'priority' | 'audienceKey' | 'scheduledLocalDateTime';
+type AnnouncementEditorFormField =
+  'title' | 'body' | 'priority' | 'audienceKey' | 'scheduledLocalDateTime';
 type AnnouncementEditorLinkField = 'ctaLabel' | 'ctaUrl' | 'attachmentLabel' | 'attachmentUrl';
 type AnnouncementEditorField = AnnouncementEditorFormField | AnnouncementEditorLinkField;
 type AnnouncementEditorStep = 'content' | 'audience' | 'delivery' | 'review';
@@ -875,7 +909,9 @@ const announcementEditorFormFields: readonly AnnouncementEditorFormField[] = [
   'priority',
   'scheduledLocalDateTime',
 ];
-const announcementEditorStepFields: Readonly<Record<AnnouncementEditorStep, readonly AnnouncementEditorFormField[]>> = {
+const announcementEditorStepFields: Readonly<
+  Record<AnnouncementEditorStep, readonly AnnouncementEditorFormField[]>
+> = {
   content: ['title', 'body'],
   audience: ['audienceKey'],
   delivery: ['priority', 'scheduledLocalDateTime'],
@@ -887,7 +923,9 @@ const announcementEditorLinkFields: readonly AnnouncementEditorLinkField[] = [
   'attachmentLabel',
   'attachmentUrl',
 ];
-const announcementEditorFieldSteps: Readonly<Record<AnnouncementEditorField, AnnouncementEditorStep>> = {
+const announcementEditorFieldSteps: Readonly<
+  Record<AnnouncementEditorField, AnnouncementEditorStep>
+> = {
   title: 'content',
   body: 'content',
   ctaLabel: 'content',
@@ -905,7 +943,11 @@ const announcementLinkLabelMaximumLength = 120;
 const announcementLinkUrlMaximumLength = 2_048;
 
 const announcementEditorFieldDomId = (field: AnnouncementEditorFormField): string =>
-  field === 'audienceKey' ? 'audience' : field === 'scheduledLocalDateTime' ? 'schedule-local-time' : field;
+  field === 'audienceKey'
+    ? 'audience'
+    : field === 'scheduledLocalDateTime'
+      ? 'schedule-local-time'
+      : field;
 
 const announcementLinkFieldDomId = (field: AnnouncementEditorLinkField): string =>
   field === 'ctaLabel'

@@ -7,6 +7,7 @@ import {
   SimpleChanges,
   ViewChild,
   inject,
+  ChangeDetectionStrategy,
 } from '@angular/core';
 
 import { AuthSessionSnapshot } from '../../../core/auth/auth-session.facade';
@@ -92,15 +93,27 @@ const DEFAULT_RIGHT_PANEL_SCOPE: RightPanelScope = {
           <p class="right-panel__status" role="status">Opening notification target…</p>
         }
         @if (vm.realtimeDegraded) {
-          <div class="right-panel__status right-panel__status--degraded" role="status" data-testid="right-panel-realtime-degraded">
+          <div
+            class="right-panel__status right-panel__status--degraded"
+            role="status"
+            data-testid="right-panel-realtime-degraded"
+          >
             <span>Realtime updates are degraded.</span>
-            <button type="button" class="right-panel__status-action" (click)="refreshNotifications()">
+            <button
+              type="button"
+              class="right-panel__status-action"
+              (click)="refreshNotifications()"
+            >
               Refresh notifications
             </button>
           </div>
         }
         @if (vm.unavailableMessage) {
-          <p class="right-panel__status right-panel__status--unavailable" role="status" data-testid="notification-open-unavailable">
+          <p
+            class="right-panel__status right-panel__status--unavailable"
+            role="status"
+            data-testid="notification-open-unavailable"
+          >
             {{ vm.unavailableMessage }}
           </p>
         }
@@ -159,6 +172,7 @@ const DEFAULT_RIGHT_PANEL_SCOPE: RightPanelScope = {
       }
     </aside>
   `,
+  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './right-panel.component.scss',
 })
 export class RightPanelComponent implements OnChanges {

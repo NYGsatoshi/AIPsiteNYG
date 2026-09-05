@@ -7,6 +7,7 @@ import {
   Output,
   signal,
   SimpleChanges,
+  ChangeDetectionStrategy,
 } from '@angular/core';
 
 import { AipDialogComponent } from '../../../shared/ui/aip-dialog/aip-dialog.component';
@@ -22,6 +23,7 @@ import {
   standalone: true,
   imports: [AnnouncementEditorComponent, AipDialogComponent],
   templateUrl: './announcement-multi-audience-editor.component.html',
+  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './announcement-multi-audience-editor.component.scss',
 })
 export class AnnouncementMultiAudienceEditorComponent implements OnChanges {
@@ -41,7 +43,9 @@ export class AnnouncementMultiAudienceEditorComponent implements OnChanges {
 
   readonly selectedAudiences = computed<readonly AnnouncementAudienceOption[]>(() => {
     const draft = this.innerDraft();
-    if (!draft) {return [];}
+    if (!draft) {
+      return [];
+    }
     return this.selectedKeys()
       .map((key) => draft.availableAudiences.find((audience) => audience.key === key))
       .filter((audience): audience is AnnouncementAudienceOption => audience !== undefined);
@@ -61,7 +65,9 @@ export class AnnouncementMultiAudienceEditorComponent implements OnChanges {
     return audiences.reduce((total, audience) => total + (audience.recipientCount ?? 0), 0);
   });
 
-  readonly isEditable = computed(() => (this.innerDraft()?.publicationState ?? 'draft') === 'draft');
+  readonly isEditable = computed(
+    () => (this.innerDraft()?.publicationState ?? 'draft') === 'draft',
+  );
   readonly canAddMore = computed(() => this.selectedKeys().length < maximumAudienceTargets);
 
   ngOnChanges(changes: SimpleChanges): void {
@@ -72,7 +78,8 @@ export class AnnouncementMultiAudienceEditorComponent implements OnChanges {
     const authorizedKeys = new Set(this.draft.availableAudiences.map((audience) => audience.key));
     const current = this.selectedKeys();
     const explicitIncoming = this.draft.audienceKeys?.length ? this.draft.audienceKeys : undefined;
-    const requested = explicitIncoming ??
+    const requested =
+      explicitIncoming ??
       (current.length > 0 && current[0] === this.draft.audienceKey
         ? current
         : [this.draft.audienceKey]);
@@ -128,7 +135,9 @@ export class AnnouncementMultiAudienceEditorComponent implements OnChanges {
     }
 
     const draft = this.innerDraft();
-    if (!draft) {return;}
+    if (!draft) {
+      return;
+    }
     const audience = draft.availableAudiences.find((item) => item.key === audienceKey);
     if (!audience || (audience.scope !== 'group' && audience.scope !== 'channel')) {
       return;
@@ -137,7 +146,9 @@ export class AnnouncementMultiAudienceEditorComponent implements OnChanges {
     const primaryKey = this.selectedKeys()[0];
     const primary = draft.availableAudiences.find((item) => item.key === primaryKey);
     if (!primary || (primary.scope !== 'group' && primary.scope !== 'channel')) {
-      this.localError.set('複数配信する場合は、下の Audience ステップで Group または Channel を主対象に選択してください。');
+      this.localError.set(
+        '複数配信する場合は、下の Audience ステップで Group または Channel を主対象に選択してください。',
+      );
       return;
     }
 
@@ -149,7 +160,9 @@ export class AnnouncementMultiAudienceEditorComponent implements OnChanges {
   }
 
   removeAudience(audienceKey: string): void {
-    if (this.isPrimary(audienceKey)) {return;}
+    if (this.isPrimary(audienceKey)) {
+      return;
+    }
     this.toggleAudience(audienceKey, false);
   }
 
@@ -158,7 +171,9 @@ export class AnnouncementMultiAudienceEditorComponent implements OnChanges {
     const previousPrimary = previousSelection[0];
     const candidateKeys = [
       nextDraft.audienceKey,
-      ...previousSelection.filter((key) => key !== previousPrimary && key !== nextDraft.audienceKey),
+      ...previousSelection.filter(
+        (key) => key !== previousPrimary && key !== nextDraft.audienceKey,
+      ),
     ];
     const normalized = this.normalizeSelection(
       nextDraft.audienceKey,
@@ -183,7 +198,9 @@ export class AnnouncementMultiAudienceEditorComponent implements OnChanges {
 
   onSaveDraftRequested(submission: AnnouncementEditorSubmission): void {
     const augmented = this.augmentSubmission(submission);
-    const error = augmented ? this.validateSubmission(augmented) : '配信対象を1件以上選択してください。';
+    const error = augmented
+      ? this.validateSubmission(augmented)
+      : '配信対象を1件以上選択してください。';
     if (!augmented || error) {
       this.localError.set(error ?? '配信対象を確認してください。');
       return;
@@ -194,7 +211,9 @@ export class AnnouncementMultiAudienceEditorComponent implements OnChanges {
 
   onPublishRequested(submission: AnnouncementEditorSubmission): void {
     const augmented = this.augmentSubmission(submission);
-    const error = augmented ? this.validateSubmission(augmented) : '配信対象を1件以上選択してください。';
+    const error = augmented
+      ? this.validateSubmission(augmented)
+      : '配信対象を1件以上選択してください。';
     if (!augmented || error) {
       this.localError.set(error ?? '配信対象を確認してください。');
       return;
@@ -212,9 +231,13 @@ export class AnnouncementMultiAudienceEditorComponent implements OnChanges {
 
   confirmFinalPublication(): void {
     const pending = this.pendingPublication();
-    if (!pending || this.publishing) {return;}
+    if (!pending || this.publishing) {
+      return;
+    }
     const refreshed = this.augmentSubmission(pending);
-    const error = refreshed ? this.validateSubmission(refreshed) : '配信対象を1件以上選択してください。';
+    const error = refreshed
+      ? this.validateSubmission(refreshed)
+      : '配信対象を1件以上選択してください。';
     if (!refreshed || error) {
       this.localError.set(error ?? '配信対象を確認してください。');
       this.closeFinalReview();
@@ -227,7 +250,9 @@ export class AnnouncementMultiAudienceEditorComponent implements OnChanges {
   }
 
   closeFinalReview(): void {
-    if (this.publishing) {return;}
+    if (this.publishing) {
+      return;
+    }
     this.finalReviewOpen.set(false);
     this.pendingPublication.set(null);
   }
@@ -244,7 +269,9 @@ export class AnnouncementMultiAudienceEditorComponent implements OnChanges {
 
   private applySelection(keys: readonly string[]): void {
     const draft = this.innerDraft();
-    if (!draft) {return;}
+    if (!draft) {
+      return;
+    }
     this.selectedKeys.set(keys);
     this.localError.set(undefined);
     this.closeFinalReview();
@@ -261,7 +288,9 @@ export class AnnouncementMultiAudienceEditorComponent implements OnChanges {
     submission: AnnouncementEditorSubmission,
   ): AnnouncementEditorSubmission | null {
     const draft = this.innerDraft();
-    if (!draft) {return null;}
+    if (!draft) {
+      return null;
+    }
     const audiences = this.selectedKeys()
       .map((key) => draft.availableAudiences.find((audience) => audience.key === key))
       .filter((audience): audience is AnnouncementAudienceOption => audience !== undefined);
@@ -304,7 +333,9 @@ export class AnnouncementMultiAudienceEditorComponent implements OnChanges {
   ): readonly string[] {
     const authorizedByKey = new Map(audiences.map((audience) => [audience.key, audience]));
     const primary = authorizedByKey.get(primaryKey);
-    if (!primary) {return [];}
+    if (!primary) {
+      return [];
+    }
 
     if (primary.scope !== 'group' && primary.scope !== 'channel') {
       return [primary.key];
@@ -312,8 +343,12 @@ export class AnnouncementMultiAudienceEditorComponent implements OnChanges {
 
     const result = [primary.key];
     for (const key of requestedKeys) {
-      if (result.length >= maximumAudienceTargets) {break;}
-      if (key === primary.key || result.includes(key)) {continue;}
+      if (result.length >= maximumAudienceTargets) {
+        break;
+      }
+      if (key === primary.key || result.includes(key)) {
+        continue;
+      }
       const candidate = authorizedByKey.get(key);
       if (candidate?.scope === 'group' || candidate?.scope === 'channel') {
         result.push(candidate.key);
@@ -326,7 +361,9 @@ export class AnnouncementMultiAudienceEditorComponent implements OnChanges {
     return left.length === right.length && left.every((key, index) => key === right[index]);
   }
 
-  private invalidateSelectionReplayIdentity(draft: AnnouncementEditorDraft): AnnouncementEditorDraft {
+  private invalidateSelectionReplayIdentity(
+    draft: AnnouncementEditorDraft,
+  ): AnnouncementEditorDraft {
     return {
       ...draft,
       createIdempotencyKey: draft.id ? draft.createIdempotencyKey : undefined,

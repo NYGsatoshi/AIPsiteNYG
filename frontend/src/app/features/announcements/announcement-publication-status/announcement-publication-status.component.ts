@@ -1,15 +1,16 @@
-import { Component, Input } from '@angular/core';
+import { Component, Input, ChangeDetectionStrategy } from '@angular/core';
 
 import {
   ANNOUNCEMENT_PUBLICATION_STATE_LABELS,
-  AnnouncementPublicationState
+  AnnouncementPublicationState,
 } from '../announcements.types';
 
 @Component({
   selector: 'app-announcement-publication-status',
   standalone: true,
   templateUrl: './announcement-publication-status.component.html',
-  styleUrl: './announcement-publication-status.component.scss'
+  changeDetection: ChangeDetectionStrategy.Eager,
+  styleUrl: './announcement-publication-status.component.scss',
 })
 export class AnnouncementPublicationStatusComponent {
   @Input({ required: true }) state!: AnnouncementPublicationState;

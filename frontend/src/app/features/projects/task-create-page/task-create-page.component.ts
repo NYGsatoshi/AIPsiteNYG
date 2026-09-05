@@ -1,4 +1,15 @@
-import { afterNextRender, Component, DestroyRef, effect, ElementRef, inject, Injector, signal, viewChild } from '@angular/core';
+import {
+  afterNextRender,
+  Component,
+  DestroyRef,
+  effect,
+  ElementRef,
+  inject,
+  Injector,
+  signal,
+  viewChild,
+  ChangeDetectionStrategy,
+} from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import {
@@ -39,6 +50,7 @@ import { TaskCreateInput, TaskCreateSourceScopeMode } from '../task-create.api';
     TaskBriefFieldsComponent,
   ],
   templateUrl: './task-create-page.component.html',
+  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './task-create-page.component.scss',
 })
 export class TaskCreatePageComponent {
@@ -153,10 +165,7 @@ export class TaskCreatePageComponent {
       }
 
       const createState = this.createState();
-      if (
-        createState.status === 'error' &&
-        this.previousCreateStatus !== 'error'
-      ) {
+      if (createState.status === 'error' && this.previousCreateStatus !== 'error') {
         this.focusAfterRender(optionsState.status === 'error' ? 'optionsRetry' : 'summary');
       }
       this.previousCreateStatus = createState.status;
@@ -192,7 +201,11 @@ export class TaskCreatePageComponent {
   get summaryErrors(): readonly TaskCreateFieldError[] {
     const errors = this.invalidSubmission ? this.localErrors() : [];
     for (const error of this.createState().fieldErrors) {
-      if (!errors.some((candidate) => candidate.field === error.field && candidate.message === error.message)) {
+      if (
+        !errors.some(
+          (candidate) => candidate.field === error.field && candidate.message === error.message,
+        )
+      ) {
         errors.push(error);
       }
     }
@@ -218,10 +231,10 @@ export class TaskCreatePageComponent {
           webEnabled: controls.webEnabled.value,
           projectFilesEnabled: controls.projectFilesEnabled.value,
         }
-      : this.options?.projectScope.policy ?? {
+      : (this.options?.projectScope.policy ?? {
           webEnabled: false,
           projectFilesEnabled: false,
-        };
+        });
     const sourcePolicyLabel = usesTaskOverride ? 'Task-specific policy' : 'Project default policy';
     return [
       briefQualityItem('goal', 'Goal', controls.goal.value),
@@ -420,7 +433,9 @@ export class TaskCreatePageComponent {
       this.form.controls.sourceScopeMode.setValue('Inherit', { emitEvent: false });
     }
     if (this.form.controls.sourceScopeMode.value === 'Inherit') {
-      this.form.controls.webEnabled.setValue(options.projectScope.policy.webEnabled, { emitEvent: false });
+      this.form.controls.webEnabled.setValue(options.projectScope.policy.webEnabled, {
+        emitEvent: false,
+      });
       this.form.controls.projectFilesEnabled.setValue(
         options.projectScope.policy.projectFilesEnabled,
         { emitEvent: false },
@@ -440,9 +455,7 @@ export class TaskCreatePageComponent {
     }
     if (
       this.form.controls.milestoneId.value &&
-      !options.milestones.some(
-        (milestone) => milestone.id === this.form.controls.milestoneId.value,
-      )
+      !options.milestones.some((milestone) => milestone.id === this.form.controls.milestoneId.value)
     ) {
       this.form.controls.milestoneId.setValue('', { emitEvent: false });
       this.form.controls.milestoneId.markAsDirty();
@@ -466,22 +479,28 @@ export class TaskCreatePageComponent {
     this.resetForm(null);
   }
 
-  private resetForm(policy: { readonly webEnabled: boolean; readonly projectFilesEnabled: boolean } | null | undefined): void {
-    this.form.reset({
-      title: '',
-      description: '',
-      priority: 'medium',
-      milestoneId: '',
-      primaryAssigneeUserId: '',
-      startDate: '',
-      dueDate: '',
-      goal: '',
-      deliverable: '',
-      constraints: '',
-      sourceScopeMode: 'Inherit',
-      webEnabled: policy?.webEnabled ?? false,
-      projectFilesEnabled: policy?.projectFilesEnabled ?? false,
-    }, { emitEvent: false });
+  private resetForm(
+    policy:
+      { readonly webEnabled: boolean; readonly projectFilesEnabled: boolean } | null | undefined,
+  ): void {
+    this.form.reset(
+      {
+        title: '',
+        description: '',
+        priority: 'medium',
+        milestoneId: '',
+        primaryAssigneeUserId: '',
+        startDate: '',
+        dueDate: '',
+        goal: '',
+        deliverable: '',
+        constraints: '',
+        sourceScopeMode: 'Inherit',
+        webEnabled: policy?.webEnabled ?? false,
+        projectFilesEnabled: policy?.projectFilesEnabled ?? false,
+      },
+      { emitEvent: false },
+    );
     this.form.markAsPristine();
     this.form.markAsUntouched();
     this.formRevision.update((value) => value + 1);
@@ -497,7 +516,10 @@ export class TaskCreatePageComponent {
       errors.push({ field: 'title', message: 'Task title must be 240 characters or fewer.' });
     }
     if (controls.description.hasError('maxlength')) {
-      errors.push({ field: 'description', message: 'Description must be 8,000 characters or fewer.' });
+      errors.push({
+        field: 'description',
+        message: 'Description must be 8,000 characters or fewer.',
+      });
     }
     for (const [field, control, label] of [
       ['goal', controls.goal, 'Goal'],
@@ -519,7 +541,9 @@ export class TaskCreatePageComponent {
     }
     if (
       controls.primaryAssigneeUserId.value &&
-      !this.options?.assignees.some((assignee) => assignee.userId === controls.primaryAssigneeUserId.value)
+      !this.options?.assignees.some(
+        (assignee) => assignee.userId === controls.primaryAssigneeUserId.value,
+      )
     ) {
       errors.push({
         field: 'primaryAssigneeUserId',
@@ -544,7 +568,8 @@ export class TaskCreatePageComponent {
     if (controls.sourceScopeMode.value === 'TaskOverride' && !this.canManageTaskScope) {
       errors.push({
         field: 'sourceScopeMode',
-        message: 'A Task-specific source policy is not available for the current Project authority.',
+        message:
+          'A Task-specific source policy is not available for the current Project authority.',
       });
     }
     return errors;
@@ -607,9 +632,10 @@ function briefQualityItem(
   label: string,
   value: string,
 ): TaskCreateQualityItem {
-  const includedDetail = id === 'constraints'
-    ? 'Constraints are included in this Task Brief.'
-    : `${label} is included in this Task Brief.`;
+  const includedDetail =
+    id === 'constraints'
+      ? 'Constraints are included in this Task Brief.'
+      : `${label} is included in this Task Brief.`;
   return value.trim().length > 0
     ? {
         id,

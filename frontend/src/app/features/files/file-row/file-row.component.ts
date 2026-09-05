@@ -1,4 +1,12 @@
-import { Component, EventEmitter, Input, Output, inject, signal } from '@angular/core';
+import {
+  Component,
+  EventEmitter,
+  Input,
+  Output,
+  inject,
+  signal,
+  ChangeDetectionStrategy,
+} from '@angular/core';
 
 import { I18nService } from '../../../core/i18n/i18n.service';
 import { FileScanStatusBadgeComponent } from '../file-scan-status-badge/file-scan-status-badge.component';
@@ -9,7 +17,8 @@ import { FileViewModel } from '../files.types';
   standalone: true,
   imports: [FileScanStatusBadgeComponent],
   templateUrl: './file-row.component.html',
-  styleUrl: './file-row.component.scss'
+  changeDetection: ChangeDetectionStrategy.Eager,
+  styleUrl: './file-row.component.scss',
 })
 export class FileRowComponent {
   readonly i18n = inject(I18nService);
@@ -18,8 +27,15 @@ export class FileRowComponent {
   @Input() selected = false;
   @Output() readonly previewRequested = new EventEmitter<FileViewModel>();
   @Output() readonly downloadRequested = new EventEmitter<string>();
-  @Output() readonly selectionChanged = new EventEmitter<{ file: FileViewModel; selected: boolean; range?: boolean }>();
-  @Output() readonly adminOverrideRequested = new EventEmitter<{ fileId: string; reason: string }>();
+  @Output() readonly selectionChanged = new EventEmitter<{
+    file: FileViewModel;
+    selected: boolean;
+    range?: boolean;
+  }>();
+  @Output() readonly adminOverrideRequested = new EventEmitter<{
+    fileId: string;
+    reason: string;
+  }>();
 
   readonly auditReason = signal('');
 
@@ -57,7 +73,10 @@ export class FileRowComponent {
   }
 
   canRequestAdminOverride(): boolean {
-    return this.file.capabilities.includes('adminOverrideBlockedDownload') && this.auditReason().trim().length > 0;
+    return (
+      this.file.capabilities.includes('adminOverrideBlockedDownload') &&
+      this.auditReason().trim().length > 0
+    );
   }
 
   requestPreview(): void {
@@ -85,7 +104,7 @@ export class FileRowComponent {
 
     this.adminOverrideRequested.emit({
       fileId: this.file.id,
-      reason: this.auditReason().trim()
+      reason: this.auditReason().trim(),
     });
   }
 
@@ -104,8 +123,10 @@ export class FileRowComponent {
   }
 
   sharingLabel(): string {
-    if (this.file.sharing.accessState === 'external' &&
-      typeof this.file.sharing.externalRecipientCount === 'number') {
+    if (
+      this.file.sharing.accessState === 'external' &&
+      typeof this.file.sharing.externalRecipientCount === 'number'
+    ) {
       return this.i18n.translate('files.sharing.externalCount', {
         count: this.file.sharing.externalRecipientCount,
       });

@@ -1,4 +1,4 @@
-import { Component, EventEmitter, Input, Output } from '@angular/core';
+import { Component, EventEmitter, Input, Output, ChangeDetectionStrategy } from '@angular/core';
 import { RightPanelNotification } from '../right-panel.types';
 import { isSupportedNotificationTarget, requiresAuthorizedServerOpen } from '../right-panel.facade';
 
@@ -45,7 +45,8 @@ import { isSupportedNotificationTarget, requiresAuthorizedServerOpen } from '../
       </div>
     </article>
   `,
-  styleUrl: './notification-item.component.scss'
+  changeDetection: ChangeDetectionStrategy.Eager,
+  styleUrl: './notification-item.component.scss',
 })
 export class NotificationItemComponent {
   @Input({ required: true }) notification!: RightPanelNotification;
@@ -53,9 +54,11 @@ export class NotificationItemComponent {
   @Output() readonly markReadRequested = new EventEmitter<string>();
 
   canOpenTarget(): boolean {
-    return !!this.notification.id && (
-      requiresAuthorizedServerOpen(this.notification.target.type) ||
-      (isSupportedNotificationTarget(this.notification.target.type) && !!this.notification.target.route)
+    return (
+      !!this.notification.id &&
+      (requiresAuthorizedServerOpen(this.notification.target.type) ||
+        (isSupportedNotificationTarget(this.notification.target.type) &&
+          !!this.notification.target.route))
     );
   }
 }

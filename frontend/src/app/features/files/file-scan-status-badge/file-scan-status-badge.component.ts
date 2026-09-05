@@ -1,4 +1,4 @@
-import { Component, Input, inject } from '@angular/core';
+import { Component, Input, inject, ChangeDetectionStrategy } from '@angular/core';
 
 import { I18nService } from '../../../core/i18n/i18n.service';
 import { FileScanStatus } from '../files.types';
@@ -11,7 +11,8 @@ import { FileScanStatus } from '../files.types';
       {{ i18n.fileScanStatusLabel(status) }}
     </span>
   `,
-  styleUrl: './file-scan-status-badge.component.scss'
+  changeDetection: ChangeDetectionStrategy.Eager,
+  styleUrl: './file-scan-status-badge.component.scss',
 })
 export class FileScanStatusBadgeComponent {
   readonly i18n = inject(I18nService);

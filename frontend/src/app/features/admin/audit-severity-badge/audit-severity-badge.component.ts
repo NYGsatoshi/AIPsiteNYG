@@ -1,4 +1,4 @@
-import { Component, Input } from '@angular/core';
+import { Component, Input, ChangeDetectionStrategy } from '@angular/core';
 
 import { AuditSeverityDisplay } from '../admin.types';
 
@@ -10,6 +10,7 @@ import { AuditSeverityDisplay } from '../admin.types';
       <span class="admin-badge__icon" aria-hidden="true"></span>{{ label }}
     </span>
   `,
+  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [
     `
       .admin-badge {
@@ -66,8 +67,8 @@ import { AuditSeverityDisplay } from '../admin.types';
         background: #f8fafc;
         color: #334155;
       }
-    `
-  ]
+    `,
+  ],
 })
 export class AuditSeverityBadgeComponent {
   @Input({ required: true }) severity: AuditSeverityDisplay = 'info';

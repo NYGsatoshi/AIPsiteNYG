@@ -8,7 +8,8 @@ import {
   computed,
   inject,
   signal,
-  viewChild
+  viewChild,
+  ChangeDetectionStrategy,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router, RouterOutlet } from '@angular/router';
@@ -37,10 +38,11 @@ import { AppShellFacade } from './app-shell.facade';
     RealtimeConnectionIndicatorComponent,
     RightPanelComponent,
     RouterOutlet,
-    TopBarComponent
+    TopBarComponent,
   ],
   templateUrl: './app-shell.component.html',
-  styleUrl: './app-shell.component.scss'
+  changeDetection: ChangeDetectionStrategy.Eager,
+  styleUrl: './app-shell.component.scss',
 })
 export class AppShellComponent implements AfterViewChecked {
   private readonly destroyRef = inject(DestroyRef);
@@ -81,7 +83,7 @@ export class AppShellComponent implements AfterViewChecked {
     this.router.events
       .pipe(
         filter((event): event is NavigationEnd => event instanceof NavigationEnd),
-        takeUntilDestroyed(this.destroyRef)
+        takeUntilDestroyed(this.destroyRef),
       )
       .subscribe(() => {
         this.closeMobileDrawer(false);
@@ -130,7 +132,7 @@ export class AppShellComponent implements AfterViewChecked {
       error: () => {
         this.logoutPending.set(false);
         this.logoutError.set('Logout failed. Try again.');
-      }
+      },
     });
   }
 
@@ -184,7 +186,7 @@ export class AppShellComponent implements AfterViewChecked {
 
     const drawer = this.mobileDrawer()?.nativeElement;
     const firstFocusable = drawer?.querySelector<HTMLElement>(
-      'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
     );
     (firstFocusable ?? drawer)?.focus();
     this.mobileDrawerFocused = true;

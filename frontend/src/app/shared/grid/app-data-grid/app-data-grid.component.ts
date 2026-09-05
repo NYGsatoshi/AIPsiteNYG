@@ -14,7 +14,8 @@ import {
   computed,
   effect,
   inject,
-  signal
+  signal,
+  ChangeDetectionStrategy,
 } from '@angular/core';
 import { AgGridAngular } from 'ag-grid-angular';
 import {
@@ -23,7 +24,7 @@ import {
   ColDef,
   GridOptions,
   Module,
-  ModuleRegistry
+  ModuleRegistry,
 } from 'ag-grid-community';
 
 import { FrontendFeatureFlagsService } from '../../../core/feature-flags/frontend-feature-flags.service';
@@ -40,7 +41,7 @@ import {
   AppDataGridSelectionChange,
   AppDataGridSelectionMode,
   AppDataGridSortChange,
-  clampAppDataGridPageSize
+  clampAppDataGridPageSize,
 } from './app-data-grid.types';
 import type { SyncfusionDataGridComponent } from '../../ui/adapters/syncfusion/syncfusion-data-grid.component';
 
@@ -51,12 +52,16 @@ ModuleRegistry.registerModules([AllCommunityModule]);
   standalone: true,
   imports: [AgGridAngular],
   templateUrl: './app-data-grid.component.html',
-  styleUrl: './app-data-grid.component.scss'
+  changeDetection: ChangeDetectionStrategy.Eager,
+  styleUrl: './app-data-grid.component.scss',
 })
-export class AppDataGridComponent<TData extends object> implements OnInit, AfterViewInit, OnChanges, OnDestroy {
+export class AppDataGridComponent<TData extends object>
+  implements OnInit, AfterViewInit, OnChanges, OnDestroy
+{
   private readonly flags = inject(FrontendFeatureFlagsService);
   protected readonly i18n = inject(I18nService);
-  @ViewChild('syncfusionHost', { read: ViewContainerRef }) private syncfusionHost?: ViewContainerRef;
+  @ViewChild('syncfusionHost', { read: ViewContainerRef })
+  private syncfusionHost?: ViewContainerRef;
   @ViewChild(AgGridAngular) private agGrid?: AgGridAngular<TData>;
 
   @Input() rows: readonly TData[] = [];
@@ -101,7 +106,7 @@ export class AppDataGridComponent<TData extends object> implements OnInit, After
     filter: false,
     suppressHeaderMenuButton: true,
     wrapHeaderText: true,
-    autoHeaderHeight: true
+    autoHeaderHeight: true,
   };
   // Keep these references stable. Recreating GridOptions on every Angular
   // change-detection pass causes AG Grid to reprocess its configuration while
@@ -114,7 +119,7 @@ export class AppDataGridComponent<TData extends object> implements OnInit, After
     suppressCellFocus: false,
     enableCellTextSelection: true,
     ensureDomOrder: true,
-    suppressCsvExport: true
+    suppressCsvExport: true,
   };
   private readonly stickyHeaderGridOptions: GridOptions<TData> = {
     ...this.autoHeightGridOptions,
@@ -141,9 +146,11 @@ export class AppDataGridComponent<TData extends object> implements OnInit, After
       // Existing feature-owned renderers remain authoritative. The generic
       // vendor-neutral action renderer is only the fallback for columns that
       // declare action metadata without their own renderer (Files #337).
-      cellRenderer: column.cellRenderer ?? (column.actions
-        ? (params: { data?: TData }) => this.renderActions(column, params.data)
-        : undefined)
+      cellRenderer:
+        column.cellRenderer ??
+        (column.actions
+          ? (params: { data?: TData }) => this.renderActions(column, params.data)
+          : undefined),
     })) as unknown as ColDef<TData>[];
   }
 
@@ -179,7 +186,7 @@ export class AppDataGridComponent<TData extends object> implements OnInit, After
 
   ngOnInit(): void {
     this.syncfusionRequested.set(
-      this.migrationTarget !== undefined && this.flags.syncfusionGridEnabled()
+      this.migrationTarget !== undefined && this.flags.syncfusionGridEnabled(),
     );
   }
 
@@ -241,7 +248,10 @@ export class AppDataGridComponent<TData extends object> implements OnInit, After
     this.syncfusionComponent?.instance.selectAllRows();
   }
 
-  private renderActions(column: AppDataGridColumnDef<TData>, row: TData | undefined): HTMLElement | string {
+  private renderActions(
+    column: AppDataGridColumnDef<TData>,
+    row: TData | undefined,
+  ): HTMLElement | string {
     if (!row || !column.actions) {
       return '';
     }
@@ -283,19 +293,34 @@ export class AppDataGridComponent<TData extends object> implements OnInit, After
     }
 
     try {
-      const { SyncfusionDataGridComponent } = await import('../../ui/adapters/syncfusion/syncfusion-data-grid.component');
+      const { SyncfusionDataGridComponent } =
+        await import('../../ui/adapters/syncfusion/syncfusion-data-grid.component');
       if (!this.syncfusionHost) {
         return;
       }
 
-      const component = this.syncfusionHost.createComponent(SyncfusionDataGridComponent) as unknown as ComponentRef<SyncfusionDataGridComponent<TData>>;
+      const component = this.syncfusionHost.createComponent(
+        SyncfusionDataGridComponent,
+      ) as unknown as ComponentRef<SyncfusionDataGridComponent<TData>>;
       this.syncfusionComponent = component;
-      this.syncfusionComponent.instance.actionInvoked.subscribe((event) => this.actionInvoked.emit(event));
-      this.syncfusionComponent.instance.rowActivated.subscribe((event) => this.rowActivated.emit(event));
-      this.syncfusionComponent.instance.selectionChanged.subscribe((event) => this.selectionChanged.emit(event));
-      this.syncfusionComponent.instance.pageChanged.subscribe((event) => this.pageChanged.emit(event));
-      this.syncfusionComponent.instance.sortChanged.subscribe((event) => this.sortChanged.emit(event));
-      this.syncfusionComponent.instance.filterChanged.subscribe((event) => this.filterChanged.emit(event));
+      this.syncfusionComponent.instance.actionInvoked.subscribe((event) =>
+        this.actionInvoked.emit(event),
+      );
+      this.syncfusionComponent.instance.rowActivated.subscribe((event) =>
+        this.rowActivated.emit(event),
+      );
+      this.syncfusionComponent.instance.selectionChanged.subscribe((event) =>
+        this.selectionChanged.emit(event),
+      );
+      this.syncfusionComponent.instance.pageChanged.subscribe((event) =>
+        this.pageChanged.emit(event),
+      );
+      this.syncfusionComponent.instance.sortChanged.subscribe((event) =>
+        this.sortChanged.emit(event),
+      );
+      this.syncfusionComponent.instance.filterChanged.subscribe((event) =>
+        this.filterChanged.emit(event),
+      );
       this.updateSyncfusionInputs();
     } catch {
       // A flagged vendor adapter must never silently become the AG Grid fallback.
@@ -324,7 +349,10 @@ export class AppDataGridComponent<TData extends object> implements OnInit, After
     component.setInput('emptyState', this.emptyState);
     component.setInput('permissionDenied', this.permissionDenied);
     component.setInput('locale', this.i18n.syncfusionLocale());
-    component.setInput('loadingLabel', this.i18n.translate('grid.loading', { label: this.ariaLabel }));
+    component.setInput(
+      'loadingLabel',
+      this.i18n.translate('grid.loading', { label: this.ariaLabel }),
+    );
     component.setInput('permissionDeniedLabel', this.i18n.translate('grid.permissionDenied'));
     component.setInput('emptyLabel', this.i18n.translate('grid.empty'));
   }

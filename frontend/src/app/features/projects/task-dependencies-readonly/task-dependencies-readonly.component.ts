@@ -1,4 +1,4 @@
-import { Component, Input } from '@angular/core';
+import { Component, Input, ChangeDetectionStrategy } from '@angular/core';
 
 import { TaskDependencyViewModel } from '../projects.types';
 import { TaskStatusBadgeComponent } from '../task-status-badge/task-status-badge.component';
@@ -11,7 +11,9 @@ import { TaskStatusBadgeComponent } from '../task-status-badge/task-status-badge
     <section class="task-dependencies" data-testid="task-dependencies-readonly">
       <header>
         <h2>Dependencies</h2>
-        <p data-testid="dependencies-display-only-note">Display only in P0. Dependency drag/drop and graph editing are not available.</p>
+        <p data-testid="dependencies-display-only-note">
+          Display only in P0. Dependency drag/drop and graph editing are not available.
+        </p>
       </header>
 
       @if (dependencies.length > 0) {
@@ -28,6 +30,7 @@ import { TaskStatusBadgeComponent } from '../task-status-badge/task-status-badge
       }
     </section>
   `,
+  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [
     `
       .task-dependencies {
@@ -74,8 +77,8 @@ import { TaskStatusBadgeComponent } from '../task-status-badge/task-status-badge
         border: 1px dashed #c7d0df;
         border-radius: 0.5rem;
       }
-    `
-  ]
+    `,
+  ],
 })
 export class TaskDependenciesReadonlyComponent {
   @Input() dependencies: readonly TaskDependencyViewModel[] = [];

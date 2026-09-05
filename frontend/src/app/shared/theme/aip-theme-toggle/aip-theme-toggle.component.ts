@@ -1,4 +1,4 @@
-import { Component, inject } from '@angular/core';
+import { Component, inject, ChangeDetectionStrategy } from '@angular/core';
 
 import { AipThemeService } from '../../../core/theme/aip-theme.service';
 
@@ -18,7 +18,8 @@ import { AipThemeService } from '../../../core/theme/aip-theme.service';
       <span>{{ theme.isDark() ? 'Light' : 'Dark' }}</span>
     </button>
   `,
-  styleUrl: './aip-theme-toggle.component.scss'
+  changeDetection: ChangeDetectionStrategy.Eager,
+  styleUrl: './aip-theme-toggle.component.scss',
 })
 export class AipThemeToggleComponent {
   readonly theme = inject(AipThemeService);

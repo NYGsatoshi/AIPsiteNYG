@@ -10,6 +10,7 @@ import {
   ViewChild,
   inject,
   signal,
+  ChangeDetectionStrategy,
 } from '@angular/core';
 import { Router } from '@angular/router';
 import { Observable, Subscription, forkJoin } from 'rxjs';
@@ -82,7 +83,8 @@ const TYPE_PAGE_SIZE = 8;
 
         <p id="workspace-search-scope" class="workspace-search__scope">
           @if (workspaceId) {
-            Current Workspace{{ workspaceLabel ? ': ' + workspaceLabel : '' }} · Files and Research / Projects
+            Current Workspace{{ workspaceLabel ? ': ' + workspaceLabel : '' }} · Files and Research
+            / Projects
           } @else {
             Select a Workspace to search
           }
@@ -95,23 +97,33 @@ const TYPE_PAGE_SIZE = 8;
           aria-live="polite"
         >
           @switch (status()) {
-            @case ('invalid') { Enter at least 2 characters. }
-            @case ('loading') { Searching the current Workspace. }
-            @case ('empty') { No matching Files or Research / Projects were found. }
-            @case ('error') { Search is unavailable. Try again. }
-            @case ('ready') { {{ results().length }} authorized results shown. }
+            @case ('invalid') {
+              Enter at least 2 characters.
+            }
+            @case ('loading') {
+              Searching the current Workspace.
+            }
+            @case ('empty') {
+              No matching Files or Research / Projects were found.
+            }
+            @case ('error') {
+              Search is unavailable. Try again.
+            }
+            @case ('ready') {
+              {{ results().length }} authorized results shown.
+            }
           }
         </div>
 
         @if (status() === 'ready') {
-          <ul id="workspace-search-results" class="workspace-search__results" data-testid="workspace-search-results">
+          <ul
+            id="workspace-search-results"
+            class="workspace-search__results"
+            data-testid="workspace-search-results"
+          >
             @for (result of results(); track result.key) {
               <li>
-                <button
-                  type="button"
-                  class="workspace-search__result"
-                  (click)="openResult(result)"
-                >
+                <button type="button" class="workspace-search__result" (click)="openResult(result)">
                   <span class="workspace-search__kind">{{ result.kindLabel }}</span>
                   <span class="workspace-search__title">{{ result.title }}</span>
                 </button>
@@ -122,6 +134,7 @@ const TYPE_PAGE_SIZE = 8;
       </form>
     </section>
   `,
+  changeDetection: ChangeDetectionStrategy.Eager,
   styles: `
     :host {
       display: block;
@@ -379,7 +392,11 @@ export class WorkspaceSearchComponent implements OnChanges, OnDestroy {
     void this.router.navigateByUrl(result.route);
   }
 
-  private searchType(type: 'Project' | 'File', query: string, workspaceId: string): Observable<unknown> {
+  private searchType(
+    type: 'Project' | 'File',
+    query: string,
+    workspaceId: string,
+  ): Observable<unknown> {
     const params = new HttpParams()
       .set('q', query)
       .set('type', type)

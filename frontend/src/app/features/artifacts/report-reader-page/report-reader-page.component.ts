@@ -1,5 +1,5 @@
 import { HttpClient } from '@angular/common/http';
-import { Component, inject } from '@angular/core';
+import { Component, inject, ChangeDetectionStrategy } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 import { LucideFileText, LucideRefreshCw, LucideX } from '@lucide/angular';
 
@@ -136,7 +136,7 @@ const emptyCitation: Citation = {
   evidence: [],
   id: '',
   logicalClaimId: '',
-  ordinal: Number.NaN
+  ordinal: Number.NaN,
 };
 const emptyScope: RefinementScope = {
   origin: '',
@@ -147,7 +147,7 @@ const emptyScope: RefinementScope = {
   researchPlanRevisionNo: null,
   sourcePolicySchemaVersion: Number.NaN,
   taskOverrideVersion: null,
-  webEnabled: false
+  webEnabled: false,
 };
 const emptyPreflight: RefinementPreflight = {
   artifactId: '',
@@ -161,7 +161,7 @@ const emptyPreflight: RefinementPreflight = {
   targetKind: 'Claim',
   targetLabel: '',
   targetLogicalId: '',
-  taskItemId: ''
+  taskItemId: '',
 };
 const emptyReport: Report = {
   artifactId: '',
@@ -171,7 +171,7 @@ const emptyReport: Report = {
   sections: [],
   taskId: null,
   title: '',
-  versionNumber: Number.NaN
+  versionNumber: Number.NaN,
 };
 
 @Component({
@@ -179,7 +179,8 @@ const emptyReport: Report = {
   imports: [LucideFileText, LucideRefreshCw, LucideX],
   standalone: true,
   templateUrl: './report-reader-page.component.html',
-  styleUrl: './report-reader-page.component.scss'
+  changeDetection: ChangeDetectionStrategy.Eager,
+  styleUrl: './report-reader-page.component.scss',
 })
 export class ReportReaderPageComponent {
   public confirmButtonText = 'Confirm and refine';
@@ -209,7 +210,7 @@ export class ReportReaderPageComponent {
     const [projectId, versionId, taskId] = [
       String(this.route.snapshot.paramMap.get('projectId')),
       String(this.route.snapshot.paramMap.get('artifactVersionId')),
-      this.route.snapshot.paramMap.get('taskId')
+      this.route.snapshot.paramMap.get('taskId'),
     ];
     this.loadReport(projectId, versionId, taskId);
   }
@@ -264,32 +265,35 @@ export class ReportReaderPageComponent {
     this.refinementSubmitting = true;
     this.confirmButtonText = 'Refining…';
     this.refinementError = '';
-    this.http.post<RefinementResult>(
-      `/api/projects/${this.refinement.projectId}/artifact-versions/${this.refinement.baseArtifactVersionId}/report/refinements`,
-      {
-        confirmedProjectScopeVersion: this.refinement.scope.projectScopeVersion,
-        confirmedResearchPlanRevisionId: this.refinement.scope.researchPlanRevisionId,
-        confirmedResearchPlanRevisionNo: this.refinement.scope.researchPlanRevisionNo,
-        confirmedTaskOverrideVersion: this.refinement.scope.taskOverrideVersion,
-        feedback: this.feedback.trim(),
-        targetKind: this.refinement.targetKind,
-        targetLogicalId: this.refinement.targetLogicalId
-      }
-    ).subscribe({
-      error: () => {
-        this.confirmButtonText = 'Confirm and refine';
-        this.refinementError = 'The report could not be refined. Reload the preflight and confirm the current scope before retrying.';
-        this.refinementSubmitting = false;
-      },
-      next: (result) => {
-        this.feedback = '';
-        this.refinementDialogOpen = false;
-        this.refinementSubmitting = false;
-        globalThis.location.assign(
-          `/app/projects/${result.projectId}/tasks/${result.taskItemId}/reports/${result.artifactVersionId}`
-        );
-      }
-    });
+    this.http
+      .post<RefinementResult>(
+        `/api/projects/${this.refinement.projectId}/artifact-versions/${this.refinement.baseArtifactVersionId}/report/refinements`,
+        {
+          confirmedProjectScopeVersion: this.refinement.scope.projectScopeVersion,
+          confirmedResearchPlanRevisionId: this.refinement.scope.researchPlanRevisionId,
+          confirmedResearchPlanRevisionNo: this.refinement.scope.researchPlanRevisionNo,
+          confirmedTaskOverrideVersion: this.refinement.scope.taskOverrideVersion,
+          feedback: this.feedback.trim(),
+          targetKind: this.refinement.targetKind,
+          targetLogicalId: this.refinement.targetLogicalId,
+        },
+      )
+      .subscribe({
+        error: () => {
+          this.confirmButtonText = 'Confirm and refine';
+          this.refinementError =
+            'The report could not be refined. Reload the preflight and confirm the current scope before retrying.';
+          this.refinementSubmitting = false;
+        },
+        next: (result) => {
+          this.feedback = '';
+          this.refinementDialogOpen = false;
+          this.refinementSubmitting = false;
+          globalThis.location.assign(
+            `/app/projects/${result.projectId}/tasks/${result.taskItemId}/reports/${result.artifactVersionId}`,
+          );
+        },
+      });
   }
 
   private loadReport(projectId: string, versionId: string, taskId: string | null): void {
@@ -311,14 +315,14 @@ export class ReportReaderPageComponent {
         this.hasTaskContext = report.canRefine && report.taskId !== null;
         this.loading = false;
         this.report = report;
-      }
+      },
     });
   }
 
   private openRefinement(
     kind: RefinementTargetKind,
     logicalId: string,
-    event: Readonly<Event>
+    event: Readonly<Event>,
   ): void {
     if (this.refinementLoading) {
       return;
@@ -331,39 +335,46 @@ export class ReportReaderPageComponent {
     this.refinementLoading = true;
     this.refinementSources = [];
     const query = new URLSearchParams({ targetKind: kind, targetLogicalId: logicalId });
-    this.http.get<RefinementPreflight>(
-      `/api/projects/${this.report.projectId}/artifact-versions/${this.report.artifactVersionId}/report/refinement-preflight?${query}`
-    ).subscribe({
-      error: () => this.failRefinementPreflight('Refinement details could not be loaded.'),
-      next: (preflight) => this.loadSourceScope(preflight)
-    });
+    this.http
+      .get<RefinementPreflight>(
+        `/api/projects/${this.report.projectId}/artifact-versions/${this.report.artifactVersionId}/report/refinement-preflight?${query}`,
+      )
+      .subscribe({
+        error: () => this.failRefinementPreflight('Refinement details could not be loaded.'),
+        next: (preflight) => this.loadSourceScope(preflight),
+      });
   }
 
   private loadSourceScope(preflight: Readonly<RefinementPreflight>): void {
-    this.http.get<TaskScopeLookup>(
-      `/api/tasks/${encodeURIComponent(preflight.taskItemId)}/execution-scope`
-    ).subscribe({
-      error: () => this.failRefinementPreflight('The inherited source scope could not be confirmed.'),
-      next: (taskScope) => {
-        if (
-          taskScope.projectDefaultVersion !== preflight.scope.projectScopeVersion ||
-          taskScope.taskOverrideVersion !== preflight.scope.taskOverrideVersion
-        ) {
-          this.failRefinementPreflight('The source scope changed during confirmation. Open the refinement action again.');
-          return;
-        }
+    this.http
+      .get<TaskScopeLookup>(
+        `/api/tasks/${encodeURIComponent(preflight.taskItemId)}/execution-scope`,
+      )
+      .subscribe({
+        error: () =>
+          this.failRefinementPreflight('The inherited source scope could not be confirmed.'),
+        next: (taskScope) => {
+          if (
+            taskScope.projectDefaultVersion !== preflight.scope.projectScopeVersion ||
+            taskScope.taskOverrideVersion !== preflight.scope.taskOverrideVersion
+          ) {
+            this.failRefinementPreflight(
+              'The source scope changed during confirmation. Open the refinement action again.',
+            );
+            return;
+          }
 
-        this.feedback = '';
-        this.refinement = preflight;
-        this.refinementSources = buildRefinementSourceRows(taskScope, preflight.scope);
-        this.refinementDialogOpen = true;
-        this.refinementLoading = false;
-        this.updatePreflightLabels(preflight);
-        queueMicrotask(() => {
-          globalThis.document.getElementById('report-refinement-dialog')?.focus();
-        });
-      }
-    });
+          this.feedback = '';
+          this.refinement = preflight;
+          this.refinementSources = buildRefinementSourceRows(taskScope, preflight.scope);
+          this.refinementDialogOpen = true;
+          this.refinementLoading = false;
+          this.updatePreflightLabels(preflight);
+          queueMicrotask(() => {
+            globalThis.document.getElementById('report-refinement-dialog')?.focus();
+          });
+        },
+      });
   }
 
   private failRefinementPreflight(message: string): void {
@@ -385,24 +396,44 @@ export class ReportReaderPageComponent {
 
     this.restrictionText = 'Localized refinement is not available for the current source scope.';
     if (preflight.restrictionCode === 'ReportRefinementProjectFilesRequired') {
-      this.restrictionText = 'Localized refinement requires Project Files in the current source scope.';
+      this.restrictionText =
+        'Localized refinement requires Project Files in the current source scope.';
     }
     if (preflight.restrictionCode === 'ReportRefinementUnsupportedSources') {
-      this.restrictionText = 'This refinement provider cannot yet execute Web, Website, or Connected App sources. Adjust the Task source scope first.';
+      this.restrictionText =
+        'This refinement provider cannot yet execute Web, Website, or Connected App sources. Adjust the Task source scope first.';
     }
   }
 }
 
 function buildRefinementSourceRows(
   taskScope: Readonly<TaskScopeLookup>,
-  fallback: Readonly<RefinementScope>
+  fallback: Readonly<RefinementScope>,
 ): readonly RefinementSourceRow[] {
   const policy = taskScope.effectivePolicy.policyV2 ?? legacySourcePolicy(fallback);
   const rows: RefinementSourceRow[] = [
     { key: 'default:Web', kind: 'Web', label: 'Web default', state: policy.web, itemRule: false },
-    { key: 'default:WebSite', kind: 'WebSite', label: 'Website default', state: policy.webSite, itemRule: false },
-    { key: 'default:ProjectFile', kind: 'ProjectFile', label: 'Project Files default', state: policy.projectFile, itemRule: false },
-    { key: 'default:ConnectedApp', kind: 'ConnectedApp', label: 'Connected Apps default', state: policy.connectedApp, itemRule: false }
+    {
+      key: 'default:WebSite',
+      kind: 'WebSite',
+      label: 'Website default',
+      state: policy.webSite,
+      itemRule: false,
+    },
+    {
+      key: 'default:ProjectFile',
+      kind: 'ProjectFile',
+      label: 'Project Files default',
+      state: policy.projectFile,
+      itemRule: false,
+    },
+    {
+      key: 'default:ConnectedApp',
+      kind: 'ConnectedApp',
+      label: 'Connected Apps default',
+      state: policy.connectedApp,
+      itemRule: false,
+    },
   ];
   const seen = new Set<string>();
   const configured = new Set(policy.items.map((rule) => `${rule.kind}:${rule.sourceId}`));
@@ -418,7 +449,7 @@ function buildRefinementSourceRows(
       kind: source.kind,
       label: source.label,
       state: resolveSourceState(policy, source.kind, source.sourceId),
-      itemRule: configured.has(key)
+      itemRule: configured.has(key),
     });
   }
 
@@ -440,23 +471,27 @@ function legacySourcePolicy(scope: Readonly<RefinementScope>): SourcePolicyV2 {
     items: [],
     projectFile: scope.projectFilesEnabled ? 'Allow' : 'Exclude',
     web: scope.webEnabled ? 'Allow' : 'Exclude',
-    webSite: 'Exclude'
+    webSite: 'Exclude',
   };
 }
 
 function resolveSourceState(
   policy: Readonly<SourcePolicyV2>,
   kind: SourceKind,
-  sourceId: string
+  sourceId: string,
 ): SourceState {
   const rule = policy.items.find((item) => item.kind === kind && item.sourceId === sourceId);
   if (rule) {
     return rule.state;
   }
   switch (kind) {
-    case 'Web': return policy.web;
-    case 'WebSite': return policy.webSite;
-    case 'ProjectFile': return policy.projectFile;
-    case 'ConnectedApp': return policy.connectedApp;
+    case 'Web':
+      return policy.web;
+    case 'WebSite':
+      return policy.webSite;
+    case 'ProjectFile':
+      return policy.projectFile;
+    case 'ConnectedApp':
+      return policy.connectedApp;
   }
 }

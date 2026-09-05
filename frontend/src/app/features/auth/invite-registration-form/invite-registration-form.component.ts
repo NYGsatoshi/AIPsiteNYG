@@ -1,5 +1,12 @@
-import { Component, EventEmitter, Input, Output } from '@angular/core';
-import { AbstractControl, FormBuilder, ReactiveFormsModule, ValidationErrors, ValidatorFn, Validators } from '@angular/forms';
+import { Component, EventEmitter, Input, Output, ChangeDetectionStrategy } from '@angular/core';
+import {
+  AbstractControl,
+  FormBuilder,
+  ReactiveFormsModule,
+  ValidationErrors,
+  ValidatorFn,
+  Validators,
+} from '@angular/forms';
 
 import { AppFieldErrorComponent } from '../../../shared/form/app-field-error/app-field-error.component';
 import { InviteRegistrationFormSubmit } from '../invite-registration.types';
@@ -9,7 +16,8 @@ import { InviteRegistrationFormSubmit } from '../invite-registration.types';
   standalone: true,
   imports: [ReactiveFormsModule, AppFieldErrorComponent],
   templateUrl: './invite-registration-form.component.html',
-  styleUrl: './invite-registration-form.component.scss'
+  changeDetection: ChangeDetectionStrategy.Eager,
+  styleUrl: './invite-registration-form.component.scss',
 })
 export class InviteRegistrationFormComponent {
   @Input({ required: true }) email!: string;
@@ -20,9 +28,9 @@ export class InviteRegistrationFormComponent {
     {
       displayName: ['', [Validators.required]],
       password: ['', [Validators.required]],
-      confirmPassword: ['', [Validators.required]]
+      confirmPassword: ['', [Validators.required]],
     },
-    { validators: [confirmPasswordMatchesValidator()] }
+    { validators: [confirmPasswordMatchesValidator()] },
   );
 
   get displayNameMessages(): readonly string[] {
@@ -61,7 +69,7 @@ export class InviteRegistrationFormComponent {
     const value = this.form.getRawValue();
     this.registerInvite.emit({
       displayName: value.displayName.trim(),
-      password: value.password
+      password: value.password,
     });
   }
 }
@@ -70,6 +78,8 @@ function confirmPasswordMatchesValidator(): ValidatorFn {
   return (control: AbstractControl): ValidationErrors | null => {
     const password = control.get('password')?.value;
     const confirmPassword = control.get('confirmPassword')?.value;
-    return password && confirmPassword && password !== confirmPassword ? { passwordMismatch: true } : null;
+    return password && confirmPassword && password !== confirmPassword
+      ? { passwordMismatch: true }
+      : null;
   };
 }

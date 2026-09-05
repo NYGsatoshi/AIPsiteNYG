@@ -1,4 +1,4 @@
-import { Component, inject } from '@angular/core';
+import { Component, inject, ChangeDetectionStrategy } from '@angular/core';
 
 import { I18nService } from '../../../core/i18n/i18n.service';
 import {
@@ -11,26 +11,40 @@ import {
   standalone: true,
   template: `
     @let preference = viewModel();
-    <section class="task-notification-preferences" aria-labelledby="task-notification-preferences-title">
+    <section
+      class="task-notification-preferences"
+      aria-labelledby="task-notification-preferences-title"
+    >
       <div class="task-notification-preferences__header">
         <div>
-          <p class="task-notification-preferences__eyebrow">{{ i18n.translate('notifications.eyebrow') }}</p>
-          <h2 id="task-notification-preferences-title">{{ i18n.translate('notifications.title') }}</h2>
+          <p class="task-notification-preferences__eyebrow">
+            {{ i18n.translate('notifications.eyebrow') }}
+          </p>
+          <h2 id="task-notification-preferences-title">
+            {{ i18n.translate('notifications.title') }}
+          </h2>
         </div>
-        <button type="button" (click)="refresh()" [disabled]="preference.status === 'loading' || preference.status === 'saving'">
+        <button
+          type="button"
+          (click)="refresh()"
+          [disabled]="preference.status === 'loading' || preference.status === 'saving'"
+        >
           {{ i18n.translate('notifications.refresh') }}
         </button>
       </div>
 
       @if (preference.status === 'idle') {
-        <p class="task-notification-preferences__muted" role="status">{{ i18n.translate('notifications.idle') }}</p>
+        <p class="task-notification-preferences__muted" role="status">
+          {{ i18n.translate('notifications.idle') }}
+        </p>
       } @else if (preference.status === 'loading') {
         <p role="status">{{ i18n.translate('notifications.loading') }}</p>
       } @else if (preference.status === 'permissionDenied') {
         <p class="task-notification-preferences__error" role="status">{{ preference.message }}</p>
       } @else {
         <p class="task-notification-preferences__timezone">
-          {{ i18n.translate('notifications.timezone') }} <strong>{{ preference.workspaceTimeZoneId }}</strong>
+          {{ i18n.translate('notifications.timezone') }}
+          <strong>{{ preference.workspaceTimeZoneId }}</strong>
         </p>
         <label for="task-notification-time">{{ i18n.translate('notifications.digestTime') }}</label>
         <select
@@ -39,13 +53,25 @@ import {
           [disabled]="preference.status === 'saving'"
           (change)="selectTime($any($event.target).value)"
         >
-          <option value="inherit">{{ i18n.translate('notifications.inherit', { time: preference.effectiveDeadlineDigestLocalTime ?? '' }) }}</option>
+          <option value="inherit">
+            {{
+              i18n.translate('notifications.inherit', {
+                time: preference.effectiveDeadlineDigestLocalTime ?? '',
+              })
+            }}
+          </option>
           @for (time of timeOptions; track time) {
             <option [value]="time">{{ time }}</option>
           }
         </select>
         <p class="task-notification-preferences__muted">
-          {{ i18n.translate('notifications.savedValue', { value: preference.storedDeadlineDigestLocalTime ?? i18n.translate('notifications.inherited') }) }}
+          {{
+            i18n.translate('notifications.savedValue', {
+              value:
+                preference.storedDeadlineDigestLocalTime ??
+                i18n.translate('notifications.inherited'),
+            })
+          }}
         </p>
         @if (preference.status === 'saving') {
           <p role="status">{{ i18n.translate('notifications.saving') }}</p>
@@ -56,6 +82,7 @@ import {
       }
     </section>
   `,
+  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './task-notification-preferences.component.scss',
 })
 export class TaskNotificationPreferencesComponent {

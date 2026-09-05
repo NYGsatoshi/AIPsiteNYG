@@ -1,4 +1,4 @@
-import { Component, Input } from '@angular/core';
+import { Component, Input, ChangeDetectionStrategy } from '@angular/core';
 
 @Component({
   selector: 'app-inline-loading',
@@ -9,6 +9,7 @@ import { Component, Input } from '@angular/core';
       <span>{{ label }}</span>
     </span>
   `,
+  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [
     `
       .inline-loading {
@@ -33,8 +34,8 @@ import { Component, Input } from '@angular/core';
           transform: rotate(360deg);
         }
       }
-    `
-  ]
+    `,
+  ],
 })
 export class AppInlineLoadingComponent {
   @Input() label = '読み込み中です。';

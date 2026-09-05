@@ -1,4 +1,4 @@
-import { Component, EventEmitter, Input, Output } from '@angular/core';
+import { Component, EventEmitter, Input, Output, ChangeDetectionStrategy } from '@angular/core';
 
 import { NotificationItemComponent } from '../notification-item/notification-item.component';
 import { RightPanelNotification } from '../right-panel.types';
@@ -9,7 +9,9 @@ import { RightPanelNotification } from '../right-panel.types';
   imports: [NotificationItemComponent],
   template: `
     <section class="notifications-tab" aria-label="通知">
-      <p class="notifications-tab__note">通知は現在のスコープに限定されます。未対応の対象はリンクにしません。</p>
+      <p class="notifications-tab__note">
+        通知は現在のスコープに限定されます。未対応の対象はリンクにしません。
+      </p>
       @if (notifications.length > 0) {
         <div class="notifications-tab__list">
           @for (notification of notifications; track notification.id) {
@@ -25,7 +27,8 @@ import { RightPanelNotification } from '../right-panel.types';
       }
     </section>
   `,
-  styleUrl: './notifications-tab.component.scss'
+  changeDetection: ChangeDetectionStrategy.Eager,
+  styleUrl: './notifications-tab.component.scss',
 })
 export class NotificationsTabComponent {
   @Input({ required: true }) notifications: readonly RightPanelNotification[] = [];

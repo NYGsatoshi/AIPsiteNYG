@@ -1,4 +1,12 @@
-import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
+import {
+  Component,
+  computed,
+  effect,
+  inject,
+  signal,
+  untracked,
+  ChangeDetectionStrategy,
+} from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import { distinctUntilChanged, map } from 'rxjs';
@@ -18,6 +26,7 @@ import {
   standalone: true,
   imports: [AipFilterChipComponent],
   templateUrl: './audit-claims-evidence-page.component.html',
+  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './audit-claims-evidence-page.component.scss',
 })
 export class AuditClaimsEvidencePageComponent {
@@ -71,8 +80,8 @@ export class AuditClaimsEvidencePageComponent {
       : claims;
   });
 
-  readonly unverifiedClaimCount = computed(() =>
-    this.vm().claims.filter((claim) => claim.supportStatus === 'Unverified').length,
+  readonly unverifiedClaimCount = computed(
+    () => this.vm().claims.filter((claim) => claim.supportStatus === 'Unverified').length,
   );
 
   readonly selectedClaim = computed(() => {
@@ -86,7 +95,9 @@ export class AuditClaimsEvidencePageComponent {
     if (!claim) {
       return null;
     }
-    return claim.evidence.find((evidence) => evidence.id === evidenceId) ?? claim.evidence[0] ?? null;
+    return (
+      claim.evidence.find((evidence) => evidence.id === evidenceId) ?? claim.evidence[0] ?? null
+    );
   });
 
   readonly selectedSourceReferences = computed(() => {
@@ -122,8 +133,8 @@ export class AuditClaimsEvidencePageComponent {
     return references;
   });
 
-  readonly selectedSourceClaimCount = computed(() =>
-    new Set(this.selectedSourceReferences().map((reference) => reference.claimId)).size,
+  readonly selectedSourceClaimCount = computed(
+    () => new Set(this.selectedSourceReferences().map((reference) => reference.claimId)).size,
   );
 
   constructor() {
@@ -165,7 +176,11 @@ export class AuditClaimsEvidencePageComponent {
         const current = claims.find((claim) => claim.id === this.selectedClaimId());
         this.selectClaim(requested ?? current ?? claims[0]);
         const selected = this.selectedClaim();
-        if (selected && requestedEvidenceId && selected.evidence.some((evidence) => evidence.id === requestedEvidenceId)) {
+        if (
+          selected &&
+          requestedEvidenceId &&
+          selected.evidence.some((evidence) => evidence.id === requestedEvidenceId)
+        ) {
           this.selectedEvidenceId.set(requestedEvidenceId);
         }
       });
@@ -264,26 +279,36 @@ export class AuditClaimsEvidencePageComponent {
 
   sourceKindLabel(kind: AuditEvidenceSourceKind): string {
     switch (kind) {
-      case 'WebSnapshot': return 'Web snapshot';
-      case 'FileAttachment': return 'File attachment';
-      case 'ArtifactVersion': return 'Artifact version';
-      default: return 'Source';
+      case 'WebSnapshot':
+        return 'Web snapshot';
+      case 'FileAttachment':
+        return 'File attachment';
+      case 'ArtifactVersion':
+        return 'Artifact version';
+      default:
+        return 'Source';
     }
   }
 
   sourceClassificationLabel(classification: AuditEvidenceSourceClassification): string {
     switch (classification) {
-      case 'Primary': return 'Primary source';
-      case 'Secondary': return 'Secondary source';
-      default: return 'Not classified';
+      case 'Primary':
+        return 'Primary source';
+      case 'Secondary':
+        return 'Secondary source';
+      default:
+        return 'Not classified';
     }
   }
 
   verificationLabel(status: AuditEvidenceVerificationStatus): string {
     switch (status) {
-      case 'Verified': return 'Verified';
-      case 'Rejected': return 'Rejected';
-      default: return 'Not verified';
+      case 'Verified':
+        return 'Verified';
+      case 'Rejected':
+        return 'Rejected';
+      default:
+        return 'Not verified';
     }
   }
 
@@ -332,5 +357,7 @@ function normalizeClaimSupport(value: string | null): AuditClaimSupportFilter {
 }
 
 function isGuid(value: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.trim());
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    value.trim(),
+  );
 }

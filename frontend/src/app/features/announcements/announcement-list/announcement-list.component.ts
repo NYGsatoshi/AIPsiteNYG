@@ -8,6 +8,7 @@ import {
   QueryList,
   ViewChild,
   ViewChildren,
+  ChangeDetectionStrategy,
 } from '@angular/core';
 
 import { AnnouncementAudiencePreviewComponent } from '../announcement-audience-preview/announcement-audience-preview.component';
@@ -23,10 +24,11 @@ import { AnnouncementViewModel } from '../announcements.types';
     AnnouncementAudiencePreviewComponent,
     AnnouncementPriorityBadgeComponent,
     AnnouncementPublicationStatusComponent,
-    AnnouncementReadStateComponent
+    AnnouncementReadStateComponent,
   ],
   templateUrl: './announcement-list.component.html',
-  styleUrl: './announcement-list.component.scss'
+  changeDetection: ChangeDetectionStrategy.Eager,
+  styleUrl: './announcement-list.component.scss',
 })
 export class AnnouncementListComponent implements AfterViewChecked {
   @Input({ required: true }) announcements: readonly AnnouncementViewModel[] = [];
@@ -37,7 +39,9 @@ export class AnnouncementListComponent implements AfterViewChecked {
   @Output() readonly announcementSelected = new EventEmitter<string>();
 
   @ViewChild('listHeading') private listHeading?: ElementRef<HTMLElement>;
-  @ViewChildren('announcementAction') private announcementActions?: QueryList<ElementRef<HTMLButtonElement>>;
+  @ViewChildren('announcementAction') private announcementActions?: QueryList<
+    ElementRef<HTMLButtonElement>
+  >;
 
   private handledFocusRequest = 0;
 
@@ -46,9 +50,11 @@ export class AnnouncementListComponent implements AfterViewChecked {
       return;
     }
 
-    const target = this.announcementActions?.toArray().find(
-      (action) => action.nativeElement.dataset['announcementId'] === this.focusAnnouncementId,
-    )?.nativeElement;
+    const target = this.announcementActions
+      ?.toArray()
+      .find(
+        (action) => action.nativeElement.dataset['announcementId'] === this.focusAnnouncementId,
+      )?.nativeElement;
     (target ?? this.listHeading?.nativeElement)?.focus({ preventScroll: true });
     this.handledFocusRequest = this.focusRequest;
   }

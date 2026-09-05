@@ -10,6 +10,7 @@ import {
   Output,
   SimpleChanges,
   ViewChild,
+  ChangeDetectionStrategy,
 } from '@angular/core';
 import {
   AbstractControl,
@@ -45,6 +46,7 @@ import {
   standalone: true,
   imports: [ReactiveFormsModule, AipDialogComponent, AppFieldErrorComponent, AppRequestIdComponent],
   templateUrl: './project-create-dialog.component.html',
+  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './project-create-dialog.component.scss',
 })
 export class ProjectCreateDialogComponent implements OnChanges {

@@ -8,7 +8,8 @@ import {
   Input,
   OnChanges,
   Output,
-  ViewChild
+  ViewChild,
+  ChangeDetectionStrategy,
 } from '@angular/core';
 
 @Component({
@@ -32,13 +33,18 @@ import {
           <h2 [id]="titleId">{{ title }}</h2>
           <p [id]="descriptionId">{{ message }}</p>
           <div class="dialog__actions">
-            <button #cancelButton type="button" class="dialog__secondary" (click)="close(false)">{{ cancelLabel }}</button>
-            <button type="button" class="dialog__primary" (click)="close(true)">{{ confirmLabel }}</button>
+            <button #cancelButton type="button" class="dialog__secondary" (click)="close(false)">
+              {{ cancelLabel }}
+            </button>
+            <button type="button" class="dialog__primary" (click)="close(true)">
+              {{ confirmLabel }}
+            </button>
           </div>
         </section>
       </div>
     }
   `,
+  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [
     `
       .dialog-backdrop {
@@ -95,8 +101,8 @@ import {
         background: #b91c1c;
         color: white;
       }
-    `
-  ]
+    `,
+  ],
 })
 export class AppConfirmDialogComponent implements AfterViewChecked, OnChanges {
   @Input() open = false;

@@ -1,4 +1,4 @@
-import { Component, Input } from '@angular/core';
+import { Component, Input, ChangeDetectionStrategy } from '@angular/core';
 
 @Component({
   selector: 'app-field-error',
@@ -14,6 +14,7 @@ import { Component, Input } from '@angular/core';
       </div>
     }
   `,
+  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [
     `
       .field-error {
@@ -28,8 +29,8 @@ import { Component, Input } from '@angular/core';
         padding: 0;
         list-style: none;
       }
-    `
-  ]
+    `,
+  ],
 })
 export class AppFieldErrorComponent {
   @Input() id: string | null = null;

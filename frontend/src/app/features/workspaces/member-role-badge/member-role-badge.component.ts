@@ -1,4 +1,4 @@
-import { Component, Input } from '@angular/core';
+import { Component, Input, ChangeDetectionStrategy } from '@angular/core';
 
 import { WorkspaceMemberGridRow, WorkspaceMemberRole } from '../members.types';
 
@@ -11,6 +11,7 @@ interface MemberRoleBadgeCellParams {
   selector: 'app-member-role-badge',
   standalone: true,
   template: `<span [class]="'role-badge role-badge--' + role">{{ label }}</span>`,
+  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [
     `
       .role-badge {
@@ -47,8 +48,8 @@ interface MemberRoleBadgeCellParams {
         border-color: #cbd5e1;
         color: #334155;
       }
-    `
-  ]
+    `,
+  ],
 })
 export class MemberRoleBadgeComponent {
   @Input() role: WorkspaceMemberRole = 'member';

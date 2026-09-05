@@ -1,4 +1,11 @@
-import { Component, computed, effect, inject, signal } from '@angular/core';
+import {
+  Component,
+  computed,
+  effect,
+  inject,
+  signal,
+  ChangeDetectionStrategy,
+} from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { distinctUntilChanged, map } from 'rxjs';
@@ -31,6 +38,7 @@ import { FrontendFeatureFlagsService } from '../../../core/feature-flags/fronten
     ProjectSummaryPanelComponent,
   ],
   templateUrl: './projects-overview-page.component.html',
+  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './projects-overview-page.component.scss',
 })
 export class ProjectsOverviewPageComponent {
@@ -86,14 +94,15 @@ export class ProjectsOverviewPageComponent {
     return { id: workspace.id, name: workspace.displayName };
   });
   readonly continueWorkingWorkspaceId = computed(() => this.scopedWorkspace()?.id ?? null);
-  readonly canCreateResearch = computed(() =>
-    this.scopedWorkspace()?.capabilities.includes('openProjectCreate') === true,
+  readonly canCreateResearch = computed(
+    () => this.scopedWorkspace()?.capabilities.includes('openProjectCreate') === true,
   );
-  readonly canBrowseFiles = computed(() =>
-    // Workspace File inventory uses the same server CanViewWorkspace policy
-    // as this dashboard-owned openWorkspace projection. addFiles is a
-    // separate mutation bit and is intentionally not consulted here.
-    this.scopedWorkspace()?.capabilities.includes('openWorkspace') === true,
+  readonly canBrowseFiles = computed(
+    () =>
+      // Workspace File inventory uses the same server CanViewWorkspace policy
+      // as this dashboard-owned openWorkspace projection. addFiles is a
+      // separate mutation bit and is intentionally not consulted here.
+      this.scopedWorkspace()?.capabilities.includes('openWorkspace') === true,
   );
 
   constructor() {

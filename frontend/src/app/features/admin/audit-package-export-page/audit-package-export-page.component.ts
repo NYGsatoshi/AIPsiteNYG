@@ -1,6 +1,15 @@
-/* eslint-disable @angular-eslint/sort-keys-in-type-decorator, @typescript-eslint/explicit-member-accessibility, @typescript-eslint/member-ordering, @typescript-eslint/method-signature-style, @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-magic-numbers, @typescript-eslint/prefer-optional-chain, @typescript-eslint/prefer-readonly-parameter-types, @typescript-eslint/strict-boolean-expressions, max-statements, new-cap, no-plusplus, no-ternary, no-void, one-var, sort-imports, sort-keys */
+/* eslint-disable @angular-eslint/prefer-on-push-component-change-detection, @angular-eslint/sort-keys-in-type-decorator, @typescript-eslint/explicit-member-accessibility, @typescript-eslint/member-ordering, @typescript-eslint/method-signature-style, @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-magic-numbers, @typescript-eslint/prefer-optional-chain, @typescript-eslint/prefer-readonly-parameter-types, @typescript-eslint/strict-boolean-expressions, max-statements, new-cap, no-plusplus, no-ternary, no-void, one-var, sort-imports, sort-keys */
 import { HttpClient, HttpParams } from '@angular/common/http';
-import { Component, DestroyRef, computed, effect, inject, signal, untracked } from '@angular/core';
+import {
+  Component,
+  DestroyRef,
+  computed,
+  effect,
+  inject,
+  signal,
+  untracked,
+  ChangeDetectionStrategy,
+} from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { distinctUntilChanged, map, timer } from 'rxjs';
@@ -20,6 +29,7 @@ import {
   standalone: true,
   imports: [RouterLink],
   templateUrl: './audit-package-export-page.component.html',
+  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './audit-package-export-page.component.scss',
 })
 export class AuditPackageExportPageComponent {
@@ -52,16 +62,18 @@ export class AuditPackageExportPageComponent {
   readonly inputError = signal<string | null>(null);
   readonly failureLabel = auditPackageFailureLabel;
   readonly formatTimestamp = auditPackageFormatTimestamp;
-  readonly accessibilityStatus = computed(() => describeAuditPackageStatus({
-    busy: this.busy(),
-    hasPreview: this.preview() !== null,
-    job: this.job(),
-    jobLastUpdatedAt: this.jobLastUpdatedAt(),
-    jobRefreshBusy: this.jobRefreshBusy(),
-    jobStatusStale: this.jobStatusStale(),
-    loadState: this.loadState(),
-    message: this.message(),
-  }));
+  readonly accessibilityStatus = computed(() =>
+    describeAuditPackageStatus({
+      busy: this.busy(),
+      hasPreview: this.preview() !== null,
+      job: this.job(),
+      jobLastUpdatedAt: this.jobLastUpdatedAt(),
+      jobRefreshBusy: this.jobRefreshBusy(),
+      jobStatusStale: this.jobStatusStale(),
+      loadState: this.loadState(),
+      message: this.message(),
+    }),
+  );
 
   constructor() {
     effect(() => {
@@ -103,23 +115,27 @@ export class AuditPackageExportPageComponent {
     }
     this.busy.set(true);
     this.message.set(null);
-    this.http.post<AuditPackageJobDto>(
-      '/api/admin/audit/package-exports',
-      { artifactVersionId: preview.artifactVersionId },
-      { withCredentials: true },
-    ).subscribe({
-      next: (job) => {
-        this.busy.set(false);
-        this.markJobFresh(job);
-        this.startPolling(job);
-      },
-      error: (error: { status?: number }) => {
-        this.busy.set(false);
-        this.message.set(error.status === 401 || error.status === 403
-          ? 'Audit export permission is required to create this package.'
-          : 'The Audit package export could not be queued.');
-      },
-    });
+    this.http
+      .post<AuditPackageJobDto>(
+        '/api/admin/audit/package-exports',
+        { artifactVersionId: preview.artifactVersionId },
+        { withCredentials: true },
+      )
+      .subscribe({
+        next: (job) => {
+          this.busy.set(false);
+          this.markJobFresh(job);
+          this.startPolling(job);
+        },
+        error: (error: { status?: number }) => {
+          this.busy.set(false);
+          this.message.set(
+            error.status === 401 || error.status === 403
+              ? 'Audit export permission is required to create this package.'
+              : 'The Audit package export could not be queued.',
+          );
+        },
+      });
   }
 
   retryExport(): void {
@@ -129,23 +145,27 @@ export class AuditPackageExportPageComponent {
     }
     this.busy.set(true);
     this.message.set(null);
-    this.http.post<AuditPackageJobDto>(
-      `/api/admin/audit/package-exports/${encodeURIComponent(current.jobId)}/retry`,
-      {},
-      { withCredentials: true },
-    ).subscribe({
-      next: (job) => {
-        this.busy.set(false);
-        this.markJobFresh(job);
-        this.startPolling(job);
-      },
-      error: (error: { status?: number }) => {
-        this.busy.set(false);
-        this.message.set(error.status === 401 || error.status === 403
-          ? 'The package can no longer be retried because export authorization changed.'
-          : 'The Audit package retry could not be queued.');
-      },
-    });
+    this.http
+      .post<AuditPackageJobDto>(
+        `/api/admin/audit/package-exports/${encodeURIComponent(current.jobId)}/retry`,
+        {},
+        { withCredentials: true },
+      )
+      .subscribe({
+        next: (job) => {
+          this.busy.set(false);
+          this.markJobFresh(job);
+          this.startPolling(job);
+        },
+        error: (error: { status?: number }) => {
+          this.busy.set(false);
+          this.message.set(
+            error.status === 401 || error.status === 403
+              ? 'The package can no longer be retried because export authorization changed.'
+              : 'The Audit package retry could not be queued.',
+          );
+        },
+      });
   }
 
   downloadExport(): void {
@@ -201,35 +221,39 @@ export class AuditPackageExportPageComponent {
     const requestVersion = ++this.requestVersion;
     this.loadState.set('loading');
     const params = new HttpParams().set('artifactVersionId', artifactVersionId);
-    this.http.get<AuditPackagePreviewDto>('/api/admin/audit/package-exports/preview', {
-      params,
-      withCredentials: true,
-    }).subscribe({
-      next: (preview) => {
-        if (requestVersion !== this.requestVersion) {
-          return;
-        }
-        this.preview.set(preview);
-        this.loadState.set('ready');
-      },
-      error: (error: { status?: number }) => {
-        if (requestVersion !== this.requestVersion) {
-          return;
-        }
-        if (error.status === 401 || error.status === 403) {
-          this.loadState.set('permissionDenied');
-          this.message.set('Audit view permission is required to preview this package.');
-          return;
-        }
-        if (error.status === 404) {
-          this.loadState.set('notFound');
-          this.message.set('The artifact version is not available in the current authorized scope.');
-          return;
-        }
-        this.loadState.set('error');
-        this.message.set('The Audit package preview could not be loaded.');
-      },
-    });
+    this.http
+      .get<AuditPackagePreviewDto>('/api/admin/audit/package-exports/preview', {
+        params,
+        withCredentials: true,
+      })
+      .subscribe({
+        next: (preview) => {
+          if (requestVersion !== this.requestVersion) {
+            return;
+          }
+          this.preview.set(preview);
+          this.loadState.set('ready');
+        },
+        error: (error: { status?: number }) => {
+          if (requestVersion !== this.requestVersion) {
+            return;
+          }
+          if (error.status === 401 || error.status === 403) {
+            this.loadState.set('permissionDenied');
+            this.message.set('Audit view permission is required to preview this package.');
+            return;
+          }
+          if (error.status === 404) {
+            this.loadState.set('notFound');
+            this.message.set(
+              'The artifact version is not available in the current authorized scope.',
+            );
+            return;
+          }
+          this.loadState.set('error');
+          this.message.set('The Audit package preview could not be loaded.');
+        },
+      });
   }
 
   private startPolling(job: AuditPackageJobDto): void {
@@ -253,35 +277,38 @@ export class AuditPackageExportPageComponent {
     }
     const requestVersion = ++this.jobRequestVersion;
     this.jobRequestInFlight = true;
-    this.http.get<AuditPackageJobDto>(
-      `/api/admin/audit/package-exports/${encodeURIComponent(jobId)}`,
-      { withCredentials: true },
-    ).subscribe({
-      next: (job) => {
-        if (requestVersion !== this.jobRequestVersion) {
-          return;
-        }
-        this.jobRequestInFlight = false;
-        this.jobRefreshBusy.set(false);
-        this.message.set(null);
-        this.markJobFresh(job);
-        if (job.state === 'Completed' || job.state === 'Failed') {
+    this.http
+      .get<AuditPackageJobDto>(`/api/admin/audit/package-exports/${encodeURIComponent(jobId)}`, {
+        withCredentials: true,
+      })
+      .subscribe({
+        next: (job) => {
+          if (requestVersion !== this.jobRequestVersion) {
+            return;
+          }
+          this.jobRequestInFlight = false;
+          this.jobRefreshBusy.set(false);
+          this.message.set(null);
+          this.markJobFresh(job);
+          if (job.state === 'Completed' || job.state === 'Failed') {
+            this.stopPolling();
+          }
+        },
+        error: (error: { status?: number }) => {
+          if (requestVersion !== this.jobRequestVersion) {
+            return;
+          }
+          this.jobRequestInFlight = false;
+          this.jobRefreshBusy.set(false);
           this.stopPolling();
-        }
-      },
-      error: (error: { status?: number }) => {
-        if (requestVersion !== this.jobRequestVersion) {
-          return;
-        }
-        this.jobRequestInFlight = false;
-        this.jobRefreshBusy.set(false);
-        this.stopPolling();
-        this.jobStatusStale.set(this.job() !== null);
-        this.message.set(error.status === 401 || error.status === 403
-          ? 'Export authorization changed while checking the job.'
-          : 'The export job status could not be refreshed.');
-      },
-    });
+          this.jobStatusStale.set(this.job() !== null);
+          this.message.set(
+            error.status === 401 || error.status === 403
+              ? 'Export authorization changed while checking the job.'
+              : 'The export job status could not be refreshed.',
+          );
+        },
+      });
   }
 
   private markJobFresh(job: AuditPackageJobDto): void {

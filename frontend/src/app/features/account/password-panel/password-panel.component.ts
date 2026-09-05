@@ -1,5 +1,21 @@
-import { Component, EventEmitter, inject, Input, OnChanges, Output, SimpleChanges } from '@angular/core';
-import { AbstractControl, FormBuilder, ReactiveFormsModule, ValidationErrors, ValidatorFn, Validators } from '@angular/forms';
+import {
+  Component,
+  EventEmitter,
+  inject,
+  Input,
+  OnChanges,
+  Output,
+  SimpleChanges,
+  ChangeDetectionStrategy,
+} from '@angular/core';
+import {
+  AbstractControl,
+  FormBuilder,
+  ReactiveFormsModule,
+  ValidationErrors,
+  ValidatorFn,
+  Validators,
+} from '@angular/forms';
 
 import { I18nService } from '../../../core/i18n/i18n.service';
 import { AppFieldErrorComponent } from '../../../shared/form/app-field-error/app-field-error.component';
@@ -10,7 +26,8 @@ import { PasswordChangeResult, PasswordChangeSubmit } from '../account.types';
   standalone: true,
   imports: [ReactiveFormsModule, AppFieldErrorComponent],
   templateUrl: './password-panel.component.html',
-  styleUrl: './password-panel.component.scss'
+  changeDetection: ChangeDetectionStrategy.Eager,
+  styleUrl: './password-panel.component.scss',
 })
 export class PasswordPanelComponent implements OnChanges {
   readonly i18n = inject(I18nService);
@@ -22,19 +39,23 @@ export class PasswordPanelComponent implements OnChanges {
     {
       currentPassword: ['', [Validators.required]],
       newPassword: ['', [Validators.required]],
-      confirmNewPassword: ['', [Validators.required]]
+      confirmNewPassword: ['', [Validators.required]],
     },
-    { validators: [confirmNewPasswordMatchesValidator()] }
+    { validators: [confirmNewPasswordMatchesValidator()] },
   );
 
   get currentPasswordMessages(): readonly string[] {
     const control = this.form.controls.currentPassword;
-    return control.touched && control.hasError('required') ? [this.i18n.translate('password.currentRequired')] : [];
+    return control.touched && control.hasError('required')
+      ? [this.i18n.translate('password.currentRequired')]
+      : [];
   }
 
   get newPasswordMessages(): readonly string[] {
     const control = this.form.controls.newPassword;
-    return control.touched && control.hasError('required') ? [this.i18n.translate('password.newRequired')] : [];
+    return control.touched && control.hasError('required')
+      ? [this.i18n.translate('password.newRequired')]
+      : [];
   }
 
   get confirmNewPasswordMessages(): readonly string[] {
@@ -74,6 +95,8 @@ function confirmNewPasswordMatchesValidator(): ValidatorFn {
   return (control: AbstractControl): ValidationErrors | null => {
     const newPassword = control.get('newPassword')?.value;
     const confirmNewPassword = control.get('confirmNewPassword')?.value;
-    return newPassword && confirmNewPassword && newPassword !== confirmNewPassword ? { passwordMismatch: true } : null;
+    return newPassword && confirmNewPassword && newPassword !== confirmNewPassword
+      ? { passwordMismatch: true }
+      : null;
   };
 }

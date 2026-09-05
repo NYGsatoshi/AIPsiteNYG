@@ -1,10 +1,17 @@
-import { Component, EventEmitter, inject, Input, Output } from '@angular/core';
+import {
+  Component,
+  EventEmitter,
+  inject,
+  Input,
+  Output,
+  ChangeDetectionStrategy,
+} from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
 
 import {
   NavigationItem,
   NavigationMoveDirection,
-  NavigationMoveRequest
+  NavigationMoveRequest,
 } from '../../shared/navigation/navigation.models';
 import { I18nService } from '../../core/i18n/i18n.service';
 
@@ -30,8 +37,16 @@ import { I18nService } from '../../core/i18n/i18n.service';
             class="feature-menu__toggle"
             data-testid="feature-menu-toggle"
             [attr.aria-expanded]="!collapsed"
-            [attr.aria-label]="collapsed ? i18n.translate('featureMenu.showMenu') : i18n.translate('featureMenu.hideMenu')"
-            [title]="collapsed ? i18n.translate('featureMenu.showMenu') : i18n.translate('featureMenu.hideMenu')"
+            [attr.aria-label]="
+              collapsed
+                ? i18n.translate('featureMenu.showMenu')
+                : i18n.translate('featureMenu.hideMenu')
+            "
+            [title]="
+              collapsed
+                ? i18n.translate('featureMenu.showMenu')
+                : i18n.translate('featureMenu.hideMenu')
+            "
             (click)="toggleCollapsed()"
           >
             <span aria-hidden="true">{{ collapsed ? '›' : '‹' }}</span>
@@ -70,14 +85,22 @@ import { I18nService } from '../../core/i18n/i18n.service';
                 [title]="i18n.translate('featureMenu.pinPrefix', { item: label(item) })"
                 (click)="itemSelected.emit()"
               >
-                <span class="feature-menu__rail-label" aria-hidden="true">{{ railLabel(item) }}</span>
-                <span class="feature-menu__sr-only">{{ i18n.translate('featureMenu.pinPrefix', { item: label(item) }) }}</span>
+                <span class="feature-menu__rail-label" aria-hidden="true">{{
+                  railLabel(item)
+                }}</span>
+                <span class="feature-menu__sr-only">{{
+                  i18n.translate('featureMenu.pinPrefix', { item: label(item) })
+                }}</span>
               </a>
             }
           }
         </div>
       } @else {
-        <section class="feature-menu__section" data-testid="primary-navigation-section" [attr.aria-label]="navigationAriaLabel">
+        <section
+          class="feature-menu__section"
+          data-testid="primary-navigation-section"
+          [attr.aria-label]="navigationAriaLabel"
+        >
           <h2 class="feature-menu__section-title">{{ i18n.translate('featureMenu.main') }}</h2>
           <div class="feature-menu__items">
             @for (item of navigationItems; track item.id) {
@@ -97,7 +120,11 @@ import { I18nService } from '../../core/i18n/i18n.service';
           </div>
         </section>
 
-        <section class="feature-menu__section feature-menu__section--pinned" data-testid="pinned-navigation-section" [attr.aria-label]="i18n.translate('featureMenu.pinnedNavigation')">
+        <section
+          class="feature-menu__section feature-menu__section--pinned"
+          data-testid="pinned-navigation-section"
+          [attr.aria-label]="i18n.translate('featureMenu.pinnedNavigation')"
+        >
           <div class="feature-menu__section-heading">
             <h2 class="feature-menu__section-title">{{ i18n.translate('featureMenu.pinned') }}</h2>
             @if (pinnedItems.length > 0) {
@@ -106,10 +133,18 @@ import { I18nService } from '../../core/i18n/i18n.service';
                 class="feature-menu__section-toggle"
                 data-testid="pinned-section-toggle"
                 [attr.aria-expanded]="!pinnedCollapsed"
-                [attr.aria-label]="pinnedCollapsed ? i18n.translate('featureMenu.showPinned') : i18n.translate('featureMenu.hidePinned')"
+                [attr.aria-label]="
+                  pinnedCollapsed
+                    ? i18n.translate('featureMenu.showPinned')
+                    : i18n.translate('featureMenu.hidePinned')
+                "
                 (click)="pinnedCollapsedChange.emit(!pinnedCollapsed)"
               >
-                {{ pinnedCollapsed ? i18n.translate('featureMenu.showPinned') : i18n.translate('featureMenu.hidePinned') }}
+                {{
+                  pinnedCollapsed
+                    ? i18n.translate('featureMenu.showPinned')
+                    : i18n.translate('featureMenu.hidePinned')
+                }}
               </button>
             }
           </div>
@@ -139,7 +174,9 @@ import { I18nService } from '../../core/i18n/i18n.service';
                           type="button"
                           class="feature-menu__move"
                           [attr.data-testid]="'pinned-move-up-' + item.id"
-                          [attr.aria-label]="i18n.translate('featureMenu.moveUp', { item: label(item) })"
+                          [attr.aria-label]="
+                            i18n.translate('featureMenu.moveUp', { item: label(item) })
+                          "
                           [disabled]="index === 0"
                           (click)="requestPinnedMove(item.id, 'up')"
                         >
@@ -149,7 +186,9 @@ import { I18nService } from '../../core/i18n/i18n.service';
                           type="button"
                           class="feature-menu__move"
                           [attr.data-testid]="'pinned-move-down-' + item.id"
-                          [attr.aria-label]="i18n.translate('featureMenu.moveDown', { item: label(item) })"
+                          [attr.aria-label]="
+                            i18n.translate('featureMenu.moveDown', { item: label(item) })
+                          "
                           [disabled]="index === pinnedItems.length - 1"
                           (click)="requestPinnedMove(item.id, 'down')"
                         >
@@ -166,7 +205,8 @@ import { I18nService } from '../../core/i18n/i18n.service';
       }
     </nav>
   `,
-  styleUrl: './feature-menu.component.scss'
+  changeDetection: ChangeDetectionStrategy.Eager,
+  styleUrl: './feature-menu.component.scss',
 })
 export class FeatureMenuComponent {
   readonly i18n = inject(I18nService);
@@ -202,7 +242,11 @@ export class FeatureMenuComponent {
     const label = this.label(item);
     const words = label.trim().split(/\s+/).filter(Boolean);
     if (words.length > 1) {
-      return words.slice(0, 2).map((word) => word.slice(0, 1)).join('').toUpperCase();
+      return words
+        .slice(0, 2)
+        .map((word) => word.slice(0, 1))
+        .join('')
+        .toUpperCase();
     }
 
     return label.slice(0, 2).toUpperCase();

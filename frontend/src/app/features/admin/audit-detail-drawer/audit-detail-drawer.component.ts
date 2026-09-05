@@ -1,19 +1,26 @@
-import { AfterViewChecked, Component, ElementRef, EventEmitter, HostListener, Input, Output, ViewChild } from '@angular/core';
+import {
+  AfterViewChecked,
+  Component,
+  ElementRef,
+  EventEmitter,
+  HostListener,
+  Input,
+  Output,
+  ViewChild,
+  ChangeDetectionStrategy,
+} from '@angular/core';
 
 import { AuditResultBadgeComponent } from '../audit-result-badge/audit-result-badge.component';
 import { AuditSeverityBadgeComponent } from '../audit-severity-badge/audit-severity-badge.component';
-import {
-  AuditDetailStatus,
-  AuditGridRow,
-  AuditSensitiveMetadataViewModel,
-} from '../admin.types';
+import { AuditDetailStatus, AuditGridRow, AuditSensitiveMetadataViewModel } from '../admin.types';
 
 @Component({
   selector: 'app-audit-detail-drawer',
   standalone: true,
   imports: [AuditResultBadgeComponent, AuditSeverityBadgeComponent],
   templateUrl: './audit-detail-drawer.component.html',
-  styleUrl: './audit-detail-drawer.component.scss'
+  changeDetection: ChangeDetectionStrategy.Eager,
+  styleUrl: './audit-detail-drawer.component.scss',
 })
 export class AuditDetailDrawerComponent implements AfterViewChecked {
   @Input() isOpen = false;

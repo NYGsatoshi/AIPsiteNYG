@@ -1,4 +1,11 @@
-import { Component, ElementRef, Input, signal, ViewChild } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  Input,
+  signal,
+  ViewChild,
+  ChangeDetectionStrategy,
+} from '@angular/core';
 
 import { AnnouncementPriorityBadgeComponent } from '../announcement-priority-badge/announcement-priority-badge.component';
 import { AnnouncementLocalPreview } from '../announcements.types';
@@ -14,6 +21,7 @@ import { AnnouncementLocalPreview } from '../announcements.types';
   standalone: true,
   imports: [AnnouncementPriorityBadgeComponent],
   templateUrl: './announcement-local-preview.component.html',
+  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './announcement-local-preview.component.scss',
 })
 export class AnnouncementLocalPreviewComponent {

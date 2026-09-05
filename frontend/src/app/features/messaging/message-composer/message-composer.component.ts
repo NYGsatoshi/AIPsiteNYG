@@ -1,4 +1,12 @@
-import { Component, EventEmitter, Input, OnChanges, Output, SimpleChanges } from '@angular/core';
+import {
+  Component,
+  EventEmitter,
+  Input,
+  OnChanges,
+  Output,
+  SimpleChanges,
+  ChangeDetectionStrategy,
+} from '@angular/core';
 
 import { MessagingMentionCandidate, MessageSendState } from '../messaging.types';
 
@@ -29,7 +37,12 @@ import { MessagingMentionCandidate, MessageSendState } from '../messaging.types'
       </p>
 
       @if (mentionCandidates.length > 0) {
-        <div class="composer__mention-tools" role="group" aria-label="メンションを追加" data-testid="mention-candidates">
+        <div
+          class="composer__mention-tools"
+          role="group"
+          aria-label="メンションを追加"
+          data-testid="mention-candidates"
+        >
           <span class="composer__mention-label">メンション</span>
           <div class="composer__mention-candidates">
             @for (candidate of mentionCandidates; track candidate.userId) {
@@ -41,7 +54,8 @@ import { MessagingMentionCandidate, MessageSendState } from '../messaging.types'
                 [disabled]="disabled || sending || isMentioned(candidate.userId)"
                 (click)="addMention(candidate)"
               >
-                {{ '@' + candidate.displayName }}{{ isMentioned(candidate.userId) ? ' 追加済み' : ' を追加' }}
+                {{ '@' + candidate.displayName
+                }}{{ isMentioned(candidate.userId) ? ' 追加済み' : ' を追加' }}
               </button>
             }
           </div>
@@ -49,25 +63,40 @@ import { MessagingMentionCandidate, MessageSendState } from '../messaging.types'
       }
 
       @if (sending || sendState.status === 'sending') {
-        <p class="composer__status" data-testid="composer-send-status" role="status" aria-live="polite">
+        <p
+          class="composer__status"
+          data-testid="composer-send-status"
+          role="status"
+          aria-live="polite"
+        >
           送信しています…
         </p>
       } @else if (sendState.status === 'failed') {
         <div class="composer__error" data-testid="composer-send-error" role="alert">
           <strong>送信できませんでした。</strong>
           <span>{{ sendState.message }}</span>
-          <span>入力内容は保持されています。失敗したメッセージの「再試行」を選択してください。</span>
+          <span
+            >入力内容は保持されています。失敗したメッセージの「再試行」を選択してください。</span
+          >
         </div>
       }
 
       <div class="composer__footer">
-        <div class="composer__secondary-tools" data-testid="composer-secondary-tools" aria-label="補助ツール">
+        <div
+          class="composer__secondary-tools"
+          data-testid="composer-secondary-tools"
+          aria-label="補助ツール"
+        >
           <span class="composer__secondary-label">補助ツール</span>
-          <p class="composer__attachment" data-testid="attachment-disabled">{{ attachmentDisabledLabel }}</p>
+          <p class="composer__attachment" data-testid="attachment-disabled">
+            {{ attachmentDisabledLabel }}
+          </p>
         </div>
 
         @if (disabledReason) {
-          <p class="composer__disabled" data-testid="composer-disabled-reason">{{ disabledReason }}</p>
+          <p class="composer__disabled" data-testid="composer-disabled-reason">
+            {{ disabledReason }}
+          </p>
         }
 
         <button
@@ -82,7 +111,8 @@ import { MessagingMentionCandidate, MessageSendState } from '../messaging.types'
       </div>
     </form>
   `,
-  styleUrl: './message-composer.component.scss'
+  changeDetection: ChangeDetectionStrategy.Eager,
+  styleUrl: './message-composer.component.scss',
 })
 export class MessageComposerComponent implements OnChanges {
   @Input() draft = '';
@@ -168,7 +198,10 @@ export class MessageComposerComponent implements OnChanges {
 
     const selected = new Set(this.selectedMentionUserIds);
     this.selectedMentionUserIds = this.mentionCandidates
-      .filter((candidate) => selected.has(candidate.userId) && value.includes(`@${candidate.displayName}`))
+      .filter(
+        (candidate) =>
+          selected.has(candidate.userId) && value.includes(`@${candidate.displayName}`),
+      )
       .map((candidate) => candidate.userId);
   }
 
