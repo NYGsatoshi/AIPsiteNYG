@@ -1,15 +1,5 @@
 import { DOCUMENT } from '@angular/common';
-import {
-  afterNextRender,
-  Component,
-  computed,
-  effect,
-  inject,
-  Injector,
-  signal,
-  untracked,
-  ChangeDetectionStrategy,
-} from '@angular/core';
+import { ChangeDetectionStrategy, Component, Injector, afterNextRender, computed, effect, inject, signal, untracked } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, ParamMap, Router } from '@angular/router';
@@ -70,8 +60,8 @@ interface DrawerReturnContext {
     FormsModule,
   ],
   templateUrl: './audit-log-page.component.html',
-  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './audit-log-page.component.scss',
+  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class AuditLogPageComponent {
   private readonly facade = inject(AdminFacade);
@@ -90,9 +80,10 @@ export class AuditLogPageComponent {
       )
     : signal<string | null>(null);
   private readonly routeFilters = this.route
-    ? toSignal(this.route.queryParamMap.pipe(map((params) => auditFiltersFromParams(params))), {
-        initialValue: auditFiltersFromParams(this.route.snapshot.queryParamMap),
-      })
+    ? toSignal(
+        this.route.queryParamMap.pipe(map((params) => auditFiltersFromParams(params))),
+        { initialValue: auditFiltersFromParams(this.route.snapshot.queryParamMap) },
+      )
     : signal<AuditFilterSnapshot>(EMPTY_AUDIT_FILTERS);
   private routeSelectionInitialized = false;
   private routeFilterSignature = '';
@@ -147,9 +138,7 @@ export class AuditLogPageComponent {
       const filters = this.routeFilters();
       const signature = JSON.stringify(filters);
       untracked(() => {
-        if (signature === this.routeFilterSignature) {
-          return;
-        }
+        if (signature === this.routeFilterSignature) {return;}
         this.routeFilterSignature = signature;
         this.setDraftFilters(filters);
         this.facade.applyAuditFilters(filters);
@@ -163,12 +152,7 @@ export class AuditLogPageComponent {
 
     effect(() => {
       const page = this.vm();
-      if (
-        page.status !== 'permissionDenied' ||
-        describeAuditFilterChips(page.appliedFilters).length > 0
-      ) {
-        return;
-      }
+      if (page.status !== 'permissionDenied' || describeAuditFilterChips(page.appliedFilters).length > 0) {return;}
       untracked(() => {
         this.setDraftFilters(EMPTY_AUDIT_FILTERS);
         this.routeFilterSignature = JSON.stringify(EMPTY_AUDIT_FILTERS);
@@ -187,9 +171,7 @@ export class AuditLogPageComponent {
         {
           write: () => {
             queueMicrotask(() => {
-              const retry = this.document.querySelector<HTMLElement>(
-                '[data-testid="audit-log-retry"]',
-              );
+              const retry = this.document.querySelector<HTMLElement>('[data-testid="audit-log-retry"]');
               if (retry === this.document.activeElement) {
                 return;
               }
@@ -224,27 +206,13 @@ export class AuditLogPageComponent {
 
   removeFilter(key: keyof AuditFilterSnapshot): void {
     switch (key) {
-      case 'q':
-        this.searchDraft = '';
-        break;
-      case 'severity':
-        this.severityDraft = '';
-        break;
-      case 'type':
-        this.typeDraft = '';
-        break;
-      case 'actor':
-        this.actorDraft = '';
-        break;
-      case 'source':
-        this.sourceDraft = '';
-        break;
-      case 'status':
-        this.statusDraft = '';
-        break;
-      case 'range':
-        this.rangeDraft = '';
-        break;
+      case 'q': this.searchDraft = ''; break;
+      case 'severity': this.severityDraft = ''; break;
+      case 'type': this.typeDraft = ''; break;
+      case 'actor': this.actorDraft = ''; break;
+      case 'source': this.sourceDraft = ''; break;
+      case 'status': this.statusDraft = ''; break;
+      case 'range': this.rangeDraft = ''; break;
     }
     this.applyFilters();
   }
@@ -277,18 +245,14 @@ export class AuditLogPageComponent {
       return;
     }
     this.setDraftFilters(view.snapshot);
-    this.filterMessage.set(
-      `Applied saved view ${view.name}. Results were reauthorized by the server.`,
-    );
+    this.filterMessage.set(`Applied saved view ${view.name}. Results were reauthorized by the server.`);
     this.routeFilterSignature = JSON.stringify(view.snapshot);
     this.facade.applyAuditFilters(view.snapshot);
     void this.updateRouteFilters(view.snapshot);
   }
 
   deleteSelectedView(): void {
-    if (!this.selectedSavedViewId) {
-      return;
-    }
+    if (!this.selectedSavedViewId) {return;}
     const result = this.viewPreferences.delete(this.selectedSavedViewId);
     this.savedViews.set(result.views);
     if (result.status === 'ready') {
@@ -330,9 +294,7 @@ export class AuditLogPageComponent {
   }
 
   private async updateRouteFilters(filters: AuditFilterSnapshot): Promise<void> {
-    if (!this.router || !this.route) {
-      return;
-    }
+    if (!this.router || !this.route) {return;}
     await this.router.navigate([], {
       relativeTo: this.route,
       queryParams: {
@@ -362,9 +324,8 @@ export class AuditLogPageComponent {
       return;
     }
 
-    this.retryFocusRestorePending =
-      this.document.activeElement ===
-      this.document.querySelector<HTMLElement>('[data-testid="audit-log-retry"]');
+    this.retryFocusRestorePending = this.document.activeElement
+      === this.document.querySelector<HTMLElement>('[data-testid="audit-log-retry"]');
     this.facade.reloadAuditLog();
     if (this.vm().loadPhase !== 'retry') {
       this.retryFocusRestorePending = false;
@@ -419,77 +380,53 @@ export class AuditLogPageComponent {
   private withColumns(vm: AuditLogViewModel): AuditLogViewModel {
     return {
       ...vm,
-      columns: this.columns,
+      columns: this.columns
     };
   }
 
   private get columns(): readonly AppDataGridColumnDef<AuditGridRow>[] {
     const visible = this.visibleOptionalColumns();
     const columns: AppDataGridColumnDef<AuditGridRow>[] = [
-      { field: 'createdAt', headerName: 'Created', minWidth: 150, flex: 0.8, sortable: true },
-      {
-        field: 'action',
-        headerName: 'Action',
-        minWidth: 190,
-        flex: 1.1,
-        sortable: true,
-        wrapText: true,
-        autoHeight: true,
-      },
-      { field: 'actorDisplay', headerName: 'Actor', minWidth: 160, flex: 0.9, sortable: true },
-      { field: 'targetType', headerName: 'Target', minWidth: 140, flex: 0.8, sortable: true },
-      {
-        field: 'severity',
-        headerName: 'Severity',
-        minWidth: 120,
-        flex: 0.7,
-        sortable: true,
-        valueFormatter: (params) => params.data?.severityLabel ?? '',
-        cellRenderer: (params: { data?: AuditGridRow }) =>
-          this.renderBadge(params.data?.severityLabel ?? ''),
-      },
-      {
-        field: 'result',
-        headerName: 'Result',
-        minWidth: 120,
-        flex: 0.7,
-        sortable: true,
-        valueFormatter: (params) => params.data?.resultLabel ?? '',
-        cellRenderer: (params: { data?: AuditGridRow }) =>
-          this.renderBadge(params.data?.resultLabel ?? ''),
-      },
-      {
-        field: 'summary',
-        headerName: 'Summary',
-        minWidth: 260,
-        flex: 1.5,
-        sortable: false,
-        wrapText: true,
-        autoHeight: true,
-        actions: (row) => [{ id: 'openAuditDetail', label: row.summary, row }],
-        cellRenderer: (params: { data?: AuditGridRow }) => this.renderDetailButton(params.data),
-      },
+    { field: 'createdAt', headerName: 'Created', minWidth: 150, flex: 0.8, sortable: true },
+    { field: 'action', headerName: 'Action', minWidth: 190, flex: 1.1, sortable: true, wrapText: true, autoHeight: true },
+    { field: 'actorDisplay', headerName: 'Actor', minWidth: 160, flex: 0.9, sortable: true },
+    { field: 'targetType', headerName: 'Target', minWidth: 140, flex: 0.8, sortable: true },
+    {
+      field: 'severity',
+      headerName: 'Severity',
+      minWidth: 120,
+      flex: 0.7,
+      sortable: true,
+      valueFormatter: (params) => params.data?.severityLabel ?? '',
+      cellRenderer: (params: { data?: AuditGridRow }) => this.renderBadge(params.data?.severityLabel ?? '')
+    },
+    {
+      field: 'result',
+      headerName: 'Result',
+      minWidth: 120,
+      flex: 0.7,
+      sortable: true,
+      valueFormatter: (params) => params.data?.resultLabel ?? '',
+      cellRenderer: (params: { data?: AuditGridRow }) => this.renderBadge(params.data?.resultLabel ?? '')
+    },
+    {
+      field: 'summary',
+      headerName: 'Summary',
+      minWidth: 260,
+      flex: 1.5,
+      sortable: false,
+      wrapText: true,
+      autoHeight: true,
+      actions: (row) => [{ id: 'openAuditDetail', label: row.summary, row }],
+      cellRenderer: (params: { data?: AuditGridRow }) => this.renderDetailButton(params.data)
+    },
     ];
 
     if (visible.has('workspace')) {
-      columns.splice(4, 0, {
-        field: 'workspace',
-        headerName: 'Workspace',
-        minWidth: 180,
-        flex: 1,
-        sortable: true,
-        wrapText: true,
-      });
+      columns.splice(4, 0, { field: 'workspace', headerName: 'Workspace', minWidth: 180, flex: 1, sortable: true, wrapText: true });
     }
     if (visible.has('requestId')) {
-      columns.push({
-        field: 'requestId',
-        headerName: 'Request ID',
-        minWidth: 160,
-        flex: 0.9,
-        sortable: true,
-        wrapText: true,
-      });
+      columns.push({ field: 'requestId', headerName: 'Request ID', minWidth: 160, flex: 0.9, sortable: true, wrapText: true });
     }
 
     return columns;
@@ -549,9 +486,7 @@ export class AuditLogPageComponent {
     });
   }
 
-  private restoreDrawerFocus({
-    preserveForHistory = false,
-  }: { preserveForHistory?: boolean } = {}): void {
+  private restoreDrawerFocus({ preserveForHistory = false }: { preserveForHistory?: boolean } = {}): void {
     const context = this.drawerReturnContext();
     if (!preserveForHistory) {
       this.drawerReturnContext.set(null);
@@ -586,9 +521,7 @@ export class AuditLogPageComponent {
       remember(current);
     }
     remember(this.document.getElementById('app-shell-main-content'));
-    remember(
-      this.document.scrollingElement instanceof HTMLElement ? this.document.scrollingElement : null,
-    );
+    remember(this.document.scrollingElement instanceof HTMLElement ? this.document.scrollingElement : null);
 
     return positions;
   }
@@ -631,26 +564,20 @@ export class AuditLogPageComponent {
   }
 
   private resolveReturnFocusTarget(context: DrawerReturnContext): HTMLElement | null {
-    if (
-      this.isFocusableReturnTarget(context.target) &&
-      this.isReturnTargetForAudit(context.target, context.auditId)
-    ) {
+    if (this.isFocusableReturnTarget(context.target) && this.isReturnTargetForAudit(context.target, context.auditId)) {
       return context.target;
     }
 
-    return (
-      Array.from(
-        this.document.querySelectorAll<HTMLElement>(
-          '[data-testid="audit-log-page"] button[data-grid-row-id], ' +
-            '[data-testid="audit-log-page"] [tabindex][data-grid-row-id]',
-        ),
-      ).find(
-        (candidate) =>
-          candidate.dataset['gridRowId'] === context.auditId &&
-          this.isFocusableReturnTarget(candidate) &&
-          this.isReturnTargetForAudit(candidate, context.auditId),
-      ) ?? null
-    );
+    return Array.from(
+      this.document.querySelectorAll<HTMLElement>(
+        '[data-testid="audit-log-page"] button[data-grid-row-id], ' +
+        '[data-testid="audit-log-page"] [tabindex][data-grid-row-id]',
+      ),
+    ).find((candidate) =>
+      candidate.dataset['gridRowId'] === context.auditId &&
+      this.isFocusableReturnTarget(candidate) &&
+      this.isReturnTargetForAudit(candidate, context.auditId),
+    ) ?? null;
   }
 
   private isFocusableReturnTarget(target: HTMLElement): boolean {
@@ -661,9 +588,7 @@ export class AuditLogPageComponent {
     // AG and Syncfusion grid cells are programmatic focus targets even when
     // they use tabindex="-1". Do not select arbitrary rendered text nodes:
     // calling focus on those would silently leave focus on the removed drawer.
-    return target.matches(
-      'button, [href], input, select, textarea, [tabindex], .ag-cell, .e-rowcell',
-    );
+    return target.matches('button, [href], input, select, textarea, [tabindex], .ag-cell, .e-rowcell');
   }
 
   private isReturnTargetForAudit(target: HTMLElement, auditId: string): boolean {
@@ -678,9 +603,8 @@ export class AuditLogPageComponent {
 
     const syncfusionRow = target.closest<HTMLElement>('.e-row');
     if (syncfusionRow) {
-      return Array.from(syncfusionRow.querySelectorAll<HTMLElement>('[data-grid-row-id]')).some(
-        (element) => element.dataset['gridRowId'] === auditId,
-      );
+      return Array.from(syncfusionRow.querySelectorAll<HTMLElement>('[data-grid-row-id]'))
+        .some((element) => element.dataset['gridRowId'] === auditId);
     }
 
     return target.closest<HTMLElement>('[data-grid-row-id]')?.dataset['gridRowId'] === auditId;
@@ -746,31 +670,15 @@ interface AuditFilterChipDescription {
   readonly value: string;
 }
 
-function describeAuditFilterChips(
-  filters: AuditFilterSnapshot,
-): readonly AuditFilterChipDescription[] {
+function describeAuditFilterChips(filters: AuditFilterSnapshot): readonly AuditFilterChipDescription[] {
   const chips: AuditFilterChipDescription[] = [];
-  if (filters.q) {
-    chips.push({ key: 'q', label: 'Search', value: filters.q });
-  }
-  if (filters.severity) {
-    chips.push({ key: 'severity', label: 'Severity', value: capitalize(filters.severity) });
-  }
-  if (filters.type) {
-    chips.push({ key: 'type', label: 'Type', value: filters.type });
-  }
-  if (filters.actor) {
-    chips.push({ key: 'actor', label: 'Actor', value: filters.actor });
-  }
-  if (filters.source) {
-    chips.push({ key: 'source', label: 'Source', value: filters.source });
-  }
-  if (filters.status) {
-    chips.push({ key: 'status', label: 'Status', value: capitalize(filters.status) });
-  }
-  if (filters.range) {
-    chips.push({ key: 'range', label: 'Time range', value: timeRangeLabel(filters.range) });
-  }
+  if (filters.q) {chips.push({ key: 'q', label: 'Search', value: filters.q });}
+  if (filters.severity) {chips.push({ key: 'severity', label: 'Severity', value: capitalize(filters.severity) });}
+  if (filters.type) {chips.push({ key: 'type', label: 'Type', value: filters.type });}
+  if (filters.actor) {chips.push({ key: 'actor', label: 'Actor', value: filters.actor });}
+  if (filters.source) {chips.push({ key: 'source', label: 'Source', value: filters.source });}
+  if (filters.status) {chips.push({ key: 'status', label: 'Status', value: capitalize(filters.status) });}
+  if (filters.range) {chips.push({ key: 'range', label: 'Time range', value: timeRangeLabel(filters.range) });}
   return chips;
 }
 

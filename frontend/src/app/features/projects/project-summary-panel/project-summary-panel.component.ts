@@ -1,4 +1,4 @@
-import { Component, Input, ChangeDetectionStrategy } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import { WorkStatusBadgeComponent } from '../../../shared/ui/work-status/work-status-badge.component';
@@ -10,27 +10,18 @@ import { ProjectSummaryViewModel } from '../projects.types';
   standalone: true,
   imports: [RouterLink, WorkStatusBadgeComponent],
   template: `
-    <section
-      class="project-summary-panel"
-      data-testid="project-summary-panel"
-      data-presentation="card"
-    >
+    <section class="project-summary-panel" data-testid="project-summary-panel" data-presentation="card">
       @for (project of projects; track project.id) {
         <article class="project-summary-panel__item" data-testid="project-summary-card">
           <div class="project-summary-panel__primary">
             <div class="project-summary-panel__identity">
-              <a
-                [routerLink]="['/projects', project.id]"
-                [attr.aria-label]="'Open ' + project.name"
-              >
+              <a [routerLink]="['/projects', project.id]" [attr.aria-label]="'Open ' + project.name">
                 <h2>{{ project.name }}</h2>
               </a>
               <p class="project-summary-panel__updated" data-testid="project-updated-at">
                 <span>Updated</span>
                 @if (project.updatedAt) {
-                  <time [attr.datetime]="project.updatedAt">{{
-                    formatUpdatedAt(project.updatedAt)
-                  }}</time>
+                  <time [attr.datetime]="project.updatedAt">{{ formatUpdatedAt(project.updatedAt) }}</time>
                 } @else {
                   <span>Not available</span>
                 }
@@ -68,7 +59,6 @@ import { ProjectSummaryViewModel } from '../projects.types';
       }
     </section>
   `,
-  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [
     `
       .project-summary-panel {
@@ -176,8 +166,9 @@ import { ProjectSummaryViewModel } from '../projects.types';
           grid-template-columns: 1fr;
         }
       }
-    `,
+    `
   ],
+  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class ProjectSummaryPanelComponent {
   @Input() projects: readonly ProjectSummaryViewModel[] = [];
@@ -192,7 +183,7 @@ export class ProjectSummaryPanelComponent {
 
     return new Intl.DateTimeFormat(undefined, {
       dateStyle: 'medium',
-      timeStyle: 'short',
+      timeStyle: 'short'
     }).format(date);
   }
 }

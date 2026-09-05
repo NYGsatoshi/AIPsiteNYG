@@ -1,19 +1,13 @@
-import { Component, EventEmitter, Output, ChangeDetectionStrategy } from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, Output } from '@angular/core';
 
 @Component({
   selector: 'app-new-message-banner',
   standalone: true,
   template: `
-    <button
-      type="button"
-      class="new-message-banner"
-      data-testid="new-message-banner"
-      (click)="acknowledge.emit()"
-    >
+    <button type="button" class="new-message-banner" data-testid="new-message-banner" (click)="acknowledge.emit()">
       新着メッセージがあります
     </button>
   `,
-  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [
     `
       :host {
@@ -31,8 +25,9 @@ import { Component, EventEmitter, Output, ChangeDetectionStrategy } from '@angul
         font-weight: 900;
         cursor: pointer;
       }
-    `,
+    `
   ],
+  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class NewMessageBannerComponent {
   @Output() readonly acknowledge = new EventEmitter<void>();

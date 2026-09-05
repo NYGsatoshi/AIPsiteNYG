@@ -1,11 +1,4 @@
-import {
-  Component,
-  computed,
-  effect,
-  inject,
-  signal,
-  ChangeDetectionStrategy,
-} from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
@@ -13,7 +6,7 @@ import { distinctUntilChanged, map } from 'rxjs';
 
 import {
   AppDataGridActionEvent,
-  AppDataGridColumnDef,
+  AppDataGridColumnDef
 } from '../../../shared/grid/app-data-grid/app-data-grid.types';
 import { AppDataGridComponent } from '../../../shared/grid/app-data-grid/app-data-grid.component';
 import { AppAuditReasonDialogComponent } from '../../../shared/dialog/app-audit-reason-dialog/app-audit-reason-dialog.component';
@@ -36,11 +29,11 @@ import { WorkspaceMemberGridRow, WorkspaceMemberRowAction } from '../members.typ
     AppDataGridComponent,
     AppEmptyStateComponent,
     AppInlineLoadingComponent,
-    AppPermissionDeniedComponent,
+    AppPermissionDeniedComponent
   ],
   templateUrl: './workspace-members-page.component.html',
-  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './workspace-members-page.component.scss',
+  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class WorkspaceMembersPageComponent {
   private readonly facade = inject(WorkspaceMembersFacade);
@@ -146,12 +139,10 @@ export class WorkspaceMembersPageComponent {
     this.auditAction.set(null);
   }
 
-  private withColumns(
-    vm: ReturnType<WorkspaceMembersFacade['getPage']>,
-  ): ReturnType<WorkspaceMembersFacade['getPage']> {
+  private withColumns(vm: ReturnType<WorkspaceMembersFacade['getPage']>): ReturnType<WorkspaceMembersFacade['getPage']> {
     return {
       ...vm,
-      columns: this.columns,
+      columns: this.columns
     };
   }
 
@@ -165,7 +156,7 @@ export class WorkspaceMembersPageComponent {
       filter: false,
       wrapText: true,
       autoHeight: true,
-      cellClass: 'workspace-members__display-name',
+      cellClass: 'workspace-members__display-name'
     },
     {
       field: 'roleLabel',
@@ -174,7 +165,7 @@ export class WorkspaceMembersPageComponent {
       flex: 0.8,
       sortable: true,
       filter: false,
-      cellRenderer: MemberRoleBadgeComponent,
+      cellRenderer: MemberRoleBadgeComponent
     },
     {
       field: 'groupProjectLabel',
@@ -184,7 +175,7 @@ export class WorkspaceMembersPageComponent {
       sortable: true,
       filter: false,
       wrapText: true,
-      autoHeight: true,
+      autoHeight: true
     },
     {
       field: 'accountStatusLabel',
@@ -192,7 +183,7 @@ export class WorkspaceMembersPageComponent {
       minWidth: 120,
       flex: 0.7,
       sortable: true,
-      filter: false,
+      filter: false
     },
     {
       field: 'joinedAtLabel',
@@ -200,7 +191,7 @@ export class WorkspaceMembersPageComponent {
       minWidth: 130,
       flex: 0.7,
       sortable: true,
-      filter: false,
+      filter: false
     },
     {
       colId: 'rowActions',
@@ -210,31 +201,21 @@ export class WorkspaceMembersPageComponent {
       sortable: false,
       filter: false,
       actions: (row) => row.rowActions.map((action) => ({ ...action, row })),
-      cellRenderer: (params: { data?: WorkspaceMemberGridRow }) =>
-        this.renderActions(params.data?.rowActions ?? []),
-    },
+      cellRenderer: (params: { data?: WorkspaceMemberGridRow }) => this.renderActions(params.data?.rowActions ?? [])
+    }
   ];
 
-  private filterRows(
-    rows: readonly WorkspaceMemberGridRow[],
-    searchValue: string,
-  ): readonly WorkspaceMemberGridRow[] {
+  private filterRows(rows: readonly WorkspaceMemberGridRow[], searchValue: string): readonly WorkspaceMemberGridRow[] {
     const query = searchValue.trim().toLocaleLowerCase('ja-JP');
     if (!query) {
       return rows;
     }
 
     return rows.filter((row) =>
-      [
-        row.displayName,
-        row.roleLabel,
-        row.groupProjectLabel,
-        row.accountStatusLabel,
-        row.joinedAtLabel,
-      ]
+      [row.displayName, row.roleLabel, row.groupProjectLabel, row.accountStatusLabel, row.joinedAtLabel]
         .join(' ')
         .toLocaleLowerCase('ja-JP')
-        .includes(query),
+        .includes(query)
     );
   }
 

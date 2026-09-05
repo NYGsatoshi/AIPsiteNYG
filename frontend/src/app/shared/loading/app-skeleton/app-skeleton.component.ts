@@ -1,4 +1,4 @@
-import { Component, Input, ChangeDetectionStrategy } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 
 @Component({
   selector: 'app-skeleton',
@@ -11,7 +11,6 @@ import { Component, Input, ChangeDetectionStrategy } from '@angular/core';
     </div>
     <span class="skeleton__label">{{ label }}</span>
   `,
-  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [
     `
       .skeleton {
@@ -45,8 +44,9 @@ import { Component, Input, ChangeDetectionStrategy } from '@angular/core';
           background-position: -100% 0;
         }
       }
-    `,
+    `
   ],
+  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class AppSkeletonComponent {
   @Input() lines = 3;

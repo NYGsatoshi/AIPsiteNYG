@@ -1,4 +1,5 @@
 import {
+  ChangeDetectionStrategy,
   Component,
   ElementRef,
   HostListener,
@@ -8,7 +9,6 @@ import {
   ViewChild,
   inject,
   signal,
-  ChangeDetectionStrategy,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
@@ -59,8 +59,7 @@ type ConversationSettingsStatus = 'idle' | 'loading' | 'ready' | 'saving' | 'err
         </header>
 
         <p id="conversation-settings-scope" class="conversation-settings__scope">
-          Changes here affect only “{{ conversationTitle }}”. Other conversations and global Message
-          settings are not changed.
+          Changes here affect only “{{ conversationTitle }}”. Other conversations and global Message settings are not changed.
         </p>
 
         @if (status() === 'loading') {
@@ -86,8 +85,7 @@ type ConversationSettingsStatus = 'idle' | 'loading' | 'ready' | 'saving' | 'err
             </select>
           </label>
           <p id="conversation-notification-level-current" class="conversation-settings__current">
-            Current value: {{ isMuted() ? 'Muted' : 'All activity' }}. Scope: this conversation
-            only.
+            Current value: {{ isMuted() ? 'Muted' : 'All activity' }}. Scope: this conversation only.
           </p>
           @if (status() === 'saving') {
             <p role="status" aria-live="polite">Saving this conversation setting...</p>
@@ -103,101 +101,34 @@ type ConversationSettingsStatus = 'idle' | 'loading' | 'ready' | 'saving' | 'err
       </section>
     }
   `,
-  changeDetection: ChangeDetectionStrategy.Eager,
-  styles: [
-    `
-      :host {
-        position: relative;
-        display: inline-block;
-      }
-      .conversation-settings__trigger,
-      .conversation-settings__header button,
-      .conversation-settings__error button {
-        min-block-size: 2.5rem;
-        border: 1px solid var(--aip-color-border-default);
-        border-radius: 6px;
-        padding: 0 0.75rem;
-        background: var(--aip-color-bg-control);
-        color: var(--aip-color-text-primary);
-        font: inherit;
-        font-weight: 800;
-        cursor: pointer;
-      }
-      .conversation-settings__panel {
-        position: absolute;
-        inset-inline-end: 0;
-        top: calc(100% + 0.5rem);
-        z-index: 50;
-        width: min(26rem, calc(100vw - 2rem));
-        padding: 1rem;
-        border: 1px solid var(--aip-color-border-default);
-        border-radius: 0.75rem;
-        background: var(--aip-color-bg-elevated);
-        color: var(--aip-color-text-primary);
-        box-shadow: var(--aip-shadow-floating);
-        text-align: start;
-      }
-      .conversation-settings__header {
-        display: flex;
-        align-items: flex-start;
-        justify-content: space-between;
-        gap: 1rem;
-      }
-      .conversation-settings__header h2 {
-        margin: 0.35rem 0 0;
-        font-size: 1.1rem;
-      }
-      .conversation-settings__scope-badge {
-        display: inline-flex;
-        border-radius: 999px;
-        padding: 0.2rem 0.55rem;
-        font-size: 0.75rem;
-        font-weight: 700;
-        background: var(--aip-color-bg-selected);
-        color: var(--aip-color-text-secondary);
-      }
-      .conversation-settings__scope,
-      .conversation-settings__current,
-      .conversation-settings__footer {
-        color: var(--aip-color-text-secondary);
-      }
-      .conversation-settings__field {
-        display: grid;
-        gap: 0.35rem;
-        margin-top: 1rem;
-        font-weight: 600;
-      }
-      .conversation-settings__field select {
-        min-block-size: 2.5rem;
-        border: 1px solid var(--aip-color-border-default);
-        border-radius: 6px;
-        padding: 0 0.5rem;
-        background: var(--aip-color-bg-control);
-        color: var(--aip-color-text-primary);
-        font: inherit;
-      }
-      .conversation-settings__error {
-        margin-top: 1rem;
-      }
-      .conversation-settings__footer {
-        display: grid;
-        gap: 0.25rem;
-        margin-top: 1rem;
-        padding-top: 1rem;
-        border-top: 1px solid var(--aip-color-border-default);
-        font-size: 0.875rem;
-      }
-      .conversation-settings__footer a {
-        color: var(--aip-color-action-primary);
-        font-weight: 800;
-      }
-      .conversation-settings__panel :focus-visible,
-      .conversation-settings__trigger:focus-visible {
-        outline: 2px solid var(--aip-color-focus);
-        outline-offset: 3px;
-      }
-    `,
-  ],
+  styles: [`
+    :host { position: relative; display: inline-block; }
+    .conversation-settings__trigger,
+    .conversation-settings__header button,
+    .conversation-settings__error button {
+      min-block-size: 2.5rem;
+      border: 1px solid var(--aip-color-border-default);
+      border-radius: 6px;
+      padding: 0 .75rem;
+      background: var(--aip-color-bg-control);
+      color: var(--aip-color-text-primary);
+      font: inherit;
+      font-weight: 800;
+      cursor: pointer;
+    }
+    .conversation-settings__panel { position: absolute; inset-inline-end: 0; top: calc(100% + .5rem); z-index: 50; width: min(26rem, calc(100vw - 2rem)); padding: 1rem; border: 1px solid var(--aip-color-border-default); border-radius: .75rem; background: var(--aip-color-bg-elevated); color: var(--aip-color-text-primary); box-shadow: var(--aip-shadow-floating); text-align: start; }
+    .conversation-settings__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+    .conversation-settings__header h2 { margin: .35rem 0 0; font-size: 1.1rem; }
+    .conversation-settings__scope-badge { display: inline-flex; border-radius: 999px; padding: .2rem .55rem; font-size: .75rem; font-weight: 700; background: var(--aip-color-bg-selected); color: var(--aip-color-text-secondary); }
+    .conversation-settings__scope, .conversation-settings__current, .conversation-settings__footer { color: var(--aip-color-text-secondary); }
+    .conversation-settings__field { display: grid; gap: .35rem; margin-top: 1rem; font-weight: 600; }
+    .conversation-settings__field select { min-block-size: 2.5rem; border: 1px solid var(--aip-color-border-default); border-radius: 6px; padding: 0 .5rem; background: var(--aip-color-bg-control); color: var(--aip-color-text-primary); font: inherit; }
+    .conversation-settings__error { margin-top: 1rem; }
+    .conversation-settings__footer { display: grid; gap: .25rem; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--aip-color-border-default); font-size: .875rem; }
+    .conversation-settings__footer a { color: var(--aip-color-action-primary); font-weight: 800; }
+    .conversation-settings__panel :focus-visible, .conversation-settings__trigger:focus-visible { outline: 2px solid var(--aip-color-focus); outline-offset: 3px; }
+  `],
+  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class ConversationSettingsPanelComponent implements OnChanges {
   private readonly api = inject(MessagingApi);
@@ -299,7 +230,7 @@ export class ConversationSettingsPanelComponent implements OnChanges {
         }
         this.status.set('error');
         this.message.set('The current conversation setting could not be loaded.');
-      },
+      }
     });
   }
 
@@ -326,26 +257,21 @@ export class ConversationSettingsPanelComponent implements OnChanges {
         }
         this.isMuted.set(state);
         this.status.set('ready');
-        this.message.set(
-          `Notification level saved for this conversation only: ${state ? 'Muted' : 'All activity'}.`,
-        );
+        this.message.set(`Notification level saved for this conversation only: ${state ? 'Muted' : 'All activity'}.`);
       },
       error: () => {
         if (generation !== this.requestGeneration || conversationId !== this.conversationId) {
           return;
         }
         this.status.set('error');
-        this.message.set(
-          'The conversation setting could not be saved. No other conversation was changed.',
-        );
-      },
+        this.message.set('The conversation setting could not be saved. No other conversation was changed.');
+      }
     });
   }
 }
 
 function readState(response: ParticipantStateDto, expectedConversationId: string): boolean | null {
-  const responseConversationId =
-    typeof response.conversationId === 'string' ? response.conversationId : null;
+  const responseConversationId = typeof response.conversationId === 'string' ? response.conversationId : null;
   if (responseConversationId !== expectedConversationId || typeof response.isMuted !== 'boolean') {
     return null;
   }

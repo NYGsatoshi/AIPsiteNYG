@@ -1,5 +1,6 @@
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import {
+  ChangeDetectionStrategy,
   Component,
   DestroyRef,
   ElementRef,
@@ -7,7 +8,6 @@ import {
   computed,
   inject,
   signal,
-  ChangeDetectionStrategy,
 } from '@angular/core';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { finalize } from 'rxjs';
@@ -25,8 +25,8 @@ import {
   standalone: true,
   imports: [RouterLink],
   templateUrl: './workspace-research-quick-create-page.component.html',
-  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './workspace-research-quick-create-page.component.scss',
+  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class WorkspaceResearchQuickCreatePageComponent {
   @ViewChild('titleInput') private titleInput?: ElementRef<HTMLInputElement>;

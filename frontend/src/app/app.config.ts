@@ -12,6 +12,6 @@ export const appConfig: ApplicationConfig = {
     provideBrowserGlobalErrorListeners(),
     provideHttpClient(withXhr(), withInterceptors([authSessionInterceptor])),
     provideRouter(routes),
-    { provide: AIP_REALTIME_TRANSPORT, useExisting: SignalrRealtimeTransport },
-  ],
+    { provide: AIP_REALTIME_TRANSPORT, useExisting: SignalrRealtimeTransport }
+  ]
 };

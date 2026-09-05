@@ -1,16 +1,16 @@
 import { DOCUMENT } from '@angular/common';
 import {
   AfterViewChecked,
+  ChangeDetectionStrategy,
   Component,
   ElementRef,
   EventEmitter,
-  inject,
   Input,
-  input,
   Output,
-  output,
   ViewChild,
-  ChangeDetectionStrategy,
+  inject,
+  input,
+  output,
 } from '@angular/core';
 import { LucideChevronLeft } from '@lucide/angular';
 
@@ -28,11 +28,11 @@ import { AnnouncementViewModel } from '../announcements.types';
     AnnouncementAudiencePreviewComponent,
     AnnouncementPriorityBadgeComponent,
     AnnouncementPublicationStatusComponent,
-    AnnouncementReadStateComponent,
+    AnnouncementReadStateComponent
   ],
   templateUrl: './announcement-detail.component.html',
-  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './announcement-detail.component.scss',
+  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class AnnouncementDetailComponent implements AfterViewChecked {
   private readonly document = inject(DOCUMENT);
@@ -152,9 +152,7 @@ export class AnnouncementDetailComponent implements AfterViewChecked {
     }
 
     this.awaitingMobileTitleFocus = true;
-    this.queueMobileFocus(() =>
-      this.detailEmptyHeading?.nativeElement.focus({ preventScroll: true }),
-    );
+    this.queueMobileFocus(() => this.detailEmptyHeading?.nativeElement.focus({ preventScroll: true }));
   }
 
   private queueMobileFocus(focus: () => void): void {

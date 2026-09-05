@@ -1,20 +1,10 @@
 import { HttpClient } from '@angular/common/http';
-import {
-  Component,
-  Input,
-  OnChanges,
-  OnDestroy,
-  SimpleChanges,
-  inject,
-  signal,
-  ChangeDetectionStrategy,
-} from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input, OnChanges, OnDestroy, SimpleChanges, inject, signal } from '@angular/core';
 import { Subscription } from 'rxjs';
 
 import { normalizeApiError } from '../../../core/api/api-error.adapter';
 
-type RunStatus =
-  'Accepted' | 'Queued' | 'Running' | 'Succeeded' | 'Failed' | 'Stopped' | 'Redirected';
+type RunStatus = 'Accepted' | 'Queued' | 'Running' | 'Succeeded' | 'Failed' | 'Stopped' | 'Redirected';
 type InterventionAction = 'stop' | 'correct';
 
 interface ExecutionRunAcceptance {
@@ -59,8 +49,8 @@ interface InterventionResponse {
   selector: 'app-task-execution-result',
   standalone: true,
   templateUrl: './task-execution-result.component.html',
-  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './task-execution-result.component.scss',
+  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class TaskExecutionResultComponent implements OnChanges, OnDestroy {
   @Input({ required: true }) taskId = '';
@@ -91,9 +81,7 @@ export class TaskExecutionResultComponent implements OnChanges, OnDestroy {
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['taskId'] || changes['interventionCanManage']) {
       this.canManageInterventions.set(this.interventionCanManage);
-      if (!this.interventionCanManage) {
-        this.stopConfirmation.set(false);
-      }
+      if (!this.interventionCanManage) {this.stopConfirmation.set(false);}
     }
     if (changes['taskId'] || changes['loadExistingResult']) {
       if (this.loadExistingResult) {
@@ -116,14 +104,7 @@ export class TaskExecutionResultComponent implements OnChanges, OnDestroy {
   startExecution(): void {
     const taskId = this.taskId.trim();
     const http = this.http;
-    if (
-      !this.allowExecutionStart ||
-      !taskId ||
-      !http ||
-      typeof http.post !== 'function' ||
-      this.starting() ||
-      this.intervening()
-    ) {
+    if (!this.allowExecutionStart || !taskId || !http || typeof http.post !== 'function' || this.starting() || this.intervening()) {
       return;
     }
 
@@ -140,148 +121,110 @@ export class TaskExecutionResultComponent implements OnChanges, OnDestroy {
     this.stopConfirmation.set(false);
     this.starting.set(true);
 
-    this.startRequest = http
-      .post<unknown>(
-        `/api/tasks/${encodeURIComponent(taskId)}/execution-runs`,
-        {},
-        {
-          headers: { 'Idempotency-Key': createExecutionIdempotencyKey() },
-          withCredentials: true,
-        },
-      )
-      .subscribe({
-        next: (response) => {
-          if (!this.isCurrent(generation, taskId)) {
-            return;
-          }
+    this.startRequest = http.post<unknown>(
+      `/api/tasks/${encodeURIComponent(taskId)}/execution-runs`,
+      {},
+      {
+        headers: { 'Idempotency-Key': createExecutionIdempotencyKey() },
+        withCredentials: true,
+      },
+    ).subscribe({
+      next: (response) => {
+        if (!this.isCurrent(generation, taskId)) {
+          return;
+        }
 
-          let accepted: ExecutionRunAcceptance;
-          try {
-            accepted = mapExecutionRunAcceptance(response);
-          } catch {
-            this.startRequest = null;
-            this.starting.set(false);
-            this.startError.set('The execution acceptance response was invalid.');
-            return;
-          }
-
+        let accepted: ExecutionRunAcceptance;
+        try {
+          accepted = mapExecutionRunAcceptance(response);
+        } catch {
           this.startRequest = null;
           this.starting.set(false);
-          this.startFeedback.set(startFeedbackMessage(accepted.status));
-          this.load(generation);
-        },
-        error: (error: unknown) => {
-          if (!this.isCurrent(generation, taskId)) {
-            return;
-          }
+          this.startError.set('The execution acceptance response was invalid.');
+          return;
+        }
 
-          this.startRequest = null;
-          this.starting.set(false);
-          const normalized = normalizeApiError(error);
-          if (
-            normalized.httpStatus === 401 ||
-            normalized.httpStatus === 403 ||
-            normalized.httpStatus === 404
-          ) {
-            this.result.set(null);
-            this.noResult.set(true);
-            this.startError.set('Task execution is unavailable in the current session.');
-            return;
-          }
+        this.startRequest = null;
+        this.starting.set(false);
+        this.startFeedback.set(startFeedbackMessage(accepted.status));
+        this.load(generation);
+      },
+      error: (error: unknown) => {
+        if (!this.isCurrent(generation, taskId)) {
+          return;
+        }
 
-          this.startError.set(
-            normalized.httpStatus === 409
-              ? 'The execution request could not be reconciled. Start a new request.'
-              : 'Task execution could not be started. Try again.',
-          );
-        },
-      });
+        this.startRequest = null;
+        this.starting.set(false);
+        const normalized = normalizeApiError(error);
+        if (normalized.httpStatus === 401 || normalized.httpStatus === 403 || normalized.httpStatus === 404) {
+          this.result.set(null);
+          this.noResult.set(true);
+          this.startError.set('Task execution is unavailable in the current session.');
+          return;
+        }
+
+        this.startError.set(
+          normalized.httpStatus === 409
+            ? 'The execution request could not be reconciled. Start a new request.'
+            : 'Task execution could not be started. Try again.',
+        );
+      },
+    });
   }
 
   canIntervene(status: RunStatus): boolean {
-    return (
-      this.canManageInterventions() &&
-      isIntervenableStatus(status) &&
-      !this.starting() &&
-      this.intervening() === null
-    );
+    return this.canManageInterventions() && isIntervenableStatus(status) && !this.starting() && this.intervening() === null;
   }
 
   interventionUnavailableReason(status: RunStatus): string {
-    if (!this.canManageInterventions()) {
-      return 'You do not have permission to intervene in this Task.';
-    }
-    if (status === 'Succeeded') {
-      return 'This execution already completed successfully.';
-    }
-    if (status === 'Failed') {
-      return 'This execution already ended in a failure state.';
-    }
-    if (status === 'Stopped') {
-      return 'This execution was already stopped.';
-    }
-    if (status === 'Redirected') {
-      return 'This execution was already redirected to a successor Run.';
-    }
+    if (!this.canManageInterventions()) {return 'You do not have permission to intervene in this Task.';}
+    if (status === 'Succeeded') {return 'This execution already completed successfully.';}
+    if (status === 'Failed') {return 'This execution already ended in a failure state.';}
+    if (status === 'Stopped') {return 'This execution was already stopped.';}
+    if (status === 'Redirected') {return 'This execution was already redirected to a successor Run.';}
     return '';
   }
 
   requestStopConfirmation(): void {
     const current = this.result();
-    if (!current || !this.canIntervene(current.status)) {
-      return;
-    }
+    if (!current || !this.canIntervene(current.status)) {return;}
     this.interventionError.set(null);
     this.stopConfirmation.set(true);
   }
 
   cancelStopConfirmation(): void {
-    if (this.intervening() !== 'stop') {
-      this.stopConfirmation.set(false);
-    }
+    if (this.intervening() !== 'stop') {this.stopConfirmation.set(false);}
   }
 
   stopExecution(): void {
     const current = this.result();
-    if (!current || !this.canIntervene(current.status) || !this.stopConfirmation()) {
-      return;
-    }
+    if (!current || !this.canIntervene(current.status) || !this.stopConfirmation()) {return;}
     this.submitIntervention('stop', current.runId);
   }
 
   correctDirection(): void {
     const current = this.result();
-    if (!current || !this.canIntervene(current.status)) {
-      return;
-    }
+    if (!current || !this.canIntervene(current.status)) {return;}
     this.submitIntervention('correct', current.runId);
   }
 
   statusMessage(status: RunStatus): string {
     switch (status) {
-      case 'Accepted':
-        return 'The execution request was durably accepted.';
-      case 'Queued':
-        return 'The execution is queued for server processing.';
-      case 'Running':
-        return 'Authorized Project files are being analyzed.';
-      case 'Succeeded':
-        return 'The durable execution report is ready.';
-      case 'Failed':
-        return 'The execution ended with a safe failure state.';
-      case 'Stopped':
-        return 'The execution was deliberately stopped and no successor Run was started.';
-      case 'Redirected':
-        return 'This immutable Run was closed by a direction correction.';
+      case 'Accepted': return 'The execution request was durably accepted.';
+      case 'Queued': return 'The execution is queued for server processing.';
+      case 'Running': return 'Authorized Project files are being analyzed.';
+      case 'Succeeded': return 'The durable execution report is ready.';
+      case 'Failed': return 'The execution ended with a safe failure state.';
+      case 'Stopped': return 'The execution was deliberately stopped and no successor Run was started.';
+      case 'Redirected': return 'This immutable Run was closed by a direction correction.';
     }
   }
 
   private submitIntervention(action: InterventionAction, runId: string): void {
     const taskId = this.taskId.trim();
     const http = this.http;
-    if (!taskId || !runId || !http || typeof http.post !== 'function' || this.intervening()) {
-      return;
-    }
+    if (!taskId || !runId || !http || typeof http.post !== 'function' || this.intervening()) {return;}
 
     this.generation++;
     const generation = this.generation;
@@ -291,70 +234,52 @@ export class TaskExecutionResultComponent implements OnChanges, OnDestroy {
     this.intervening.set(action);
 
     const command = action === 'stop' ? 'stop' : 'correct-direction';
-    this.interventionRequest = http
-      .post<unknown>(
-        `/api/tasks/${encodeURIComponent(taskId)}/execution-runs/${encodeURIComponent(runId)}/${command}`,
-        {},
-        { withCredentials: true },
-      )
-      .subscribe({
-        next: (response) => {
-          if (!this.isCurrent(generation, taskId)) {
-            return;
-          }
+    this.interventionRequest = http.post<unknown>(
+      `/api/tasks/${encodeURIComponent(taskId)}/execution-runs/${encodeURIComponent(runId)}/${command}`,
+      {},
+      { withCredentials: true },
+    ).subscribe({
+      next: (response) => {
+        if (!this.isCurrent(generation, taskId)) {return;}
 
-          let intervention: InterventionResponse;
-          try {
-            intervention = mapInterventionResponse(response);
-          } catch {
-            this.interventionRequest = null;
-            this.intervening.set(null);
-            this.interventionError.set(
-              'The intervention response was invalid. Reload the execution state.',
-            );
-            return;
-          }
-
+        let intervention: InterventionResponse;
+        try {
+          intervention = mapInterventionResponse(response);
+        } catch {
           this.interventionRequest = null;
           this.intervening.set(null);
+          this.interventionError.set('The intervention response was invalid. Reload the execution state.');
+          return;
+        }
+
+        this.interventionRequest = null;
+        this.intervening.set(null);
+        this.stopConfirmation.set(false);
+        this.interventionFeedback.set(action === 'stop'
+          ? 'Task execution stopped. No successor Run was started.'
+          : `Direction corrected. Resume point: ${resumePointLabel(intervention.resumePoint)}.`);
+        this.result.set(null);
+        this.noResult.set(false);
+        this.load(generation);
+      },
+      error: (error: unknown) => {
+        if (!this.isCurrent(generation, taskId)) {return;}
+        this.interventionRequest = null;
+        this.intervening.set(null);
+        const normalized = normalizeApiError(error);
+        if (normalized.httpStatus === 401 || normalized.httpStatus === 403 || normalized.httpStatus === 404) {
+          this.canManageInterventions.set(false);
           this.stopConfirmation.set(false);
-          this.interventionFeedback.set(
-            action === 'stop'
-              ? 'Task execution stopped. No successor Run was started.'
-              : `Direction corrected. Resume point: ${resumePointLabel(intervention.resumePoint)}.`,
-          );
-          this.result.set(null);
-          this.noResult.set(false);
-          this.load(generation);
-        },
-        error: (error: unknown) => {
-          if (!this.isCurrent(generation, taskId)) {
-            return;
-          }
-          this.interventionRequest = null;
-          this.intervening.set(null);
-          const normalized = normalizeApiError(error);
-          if (
-            normalized.httpStatus === 401 ||
-            normalized.httpStatus === 403 ||
-            normalized.httpStatus === 404
-          ) {
-            this.canManageInterventions.set(false);
-            this.stopConfirmation.set(false);
-            this.interventionError.set(
-              'Execution intervention is unavailable in the current session.',
-            );
-            return;
-          }
-          this.interventionError.set(
-            normalized.httpStatus === 409
-              ? 'The execution changed before the intervention was saved. The latest state has been reloaded.'
-              : 'The execution intervention could not be completed. Try again.',
-          );
-          this.result.set(null);
-          this.load(generation);
-        },
-      });
+          this.interventionError.set('Execution intervention is unavailable in the current session.');
+          return;
+        }
+        this.interventionError.set(normalized.httpStatus === 409
+          ? 'The execution changed before the intervention was saved. The latest state has been reloaded.'
+          : 'The execution intervention could not be completed. Try again.');
+        this.result.set(null);
+        this.load(generation);
+      },
+    });
   }
 
   private reload(): void {
@@ -390,54 +315,49 @@ export class TaskExecutionResultComponent implements OnChanges, OnDestroy {
     }
 
     this.loading.set(true);
-    this.request = http
-      .get<unknown>(`/api/tasks/${encodeURIComponent(taskId)}/execution-result`, {
-        withCredentials: true,
-      })
-      .subscribe({
-        next: (response) => {
-          if (!this.isCurrent(generation, taskId)) {
-            return;
-          }
+    this.request = http.get<unknown>(
+      `/api/tasks/${encodeURIComponent(taskId)}/execution-result`,
+      { withCredentials: true },
+    ).subscribe({
+      next: (response) => {
+        if (!this.isCurrent(generation, taskId)) {
+          return;
+        }
 
-          try {
-            const result = mapExecutionResult(response);
-            this.result.set(result);
-            this.noResult.set(false);
-            this.error.set(null);
-            this.loading.set(false);
-            this.request = null;
-            if (isIntervenableStatus(result.status)) {
-              this.pollTimer = setTimeout(() => this.load(generation), 1500);
-            }
-          } catch {
-            this.loading.set(false);
-            this.request = null;
-            this.error.set('The execution result response was invalid.');
-          }
-        },
-        error: (error: unknown) => {
-          if (!this.isCurrent(generation, taskId)) {
-            return;
-          }
-
+        try {
+          const result = mapExecutionResult(response);
+          this.result.set(result);
+          this.noResult.set(false);
+          this.error.set(null);
           this.loading.set(false);
           this.request = null;
-          const normalized = normalizeApiError(error);
-          if (
-            normalized.httpStatus === 401 ||
-            normalized.httpStatus === 403 ||
-            normalized.httpStatus === 404
-          ) {
-            this.result.set(null);
-            this.error.set(null);
-            this.noResult.set(true);
-            return;
+          if (isIntervenableStatus(result.status)) {
+            this.pollTimer = setTimeout(() => this.load(generation), 1500);
           }
+        } catch {
+          this.loading.set(false);
+          this.request = null;
+          this.error.set('The execution result response was invalid.');
+        }
+      },
+      error: (error: unknown) => {
+        if (!this.isCurrent(generation, taskId)) {
+          return;
+        }
 
-          this.error.set('The execution result could not be loaded. Try again.');
-        },
-      });
+        this.loading.set(false);
+        this.request = null;
+        const normalized = normalizeApiError(error);
+        if (normalized.httpStatus === 401 || normalized.httpStatus === 403 || normalized.httpStatus === 404) {
+          this.result.set(null);
+          this.error.set(null);
+          this.noResult.set(true);
+          return;
+        }
+
+        this.error.set('The execution result could not be loaded. Try again.');
+      },
+    });
   }
 
   private cancelResultRequests(): void {
@@ -479,26 +399,19 @@ function mapExecutionRunAcceptance(value: unknown): ExecutionRunAcceptance {
 
 function startFeedbackMessage(status: RunStatus): string {
   switch (status) {
-    case 'Accepted':
-      return 'Execution request accepted. The durable result will refresh from the server.';
-    case 'Queued':
-      return 'Execution queued. The durable result will refresh from the server.';
-    case 'Running':
-      return 'Execution started. The durable result will refresh from the server.';
-    case 'Succeeded':
-      return 'Execution completed. The durable report is loading from the server.';
-    case 'Failed':
-      return 'Execution completed with a bounded server failure state.';
-    case 'Stopped':
-      return 'Execution was stopped before the start response completed.';
-    case 'Redirected':
-      return 'Execution was redirected before the start response completed.';
+    case 'Accepted': return 'Execution request accepted. The durable result will refresh from the server.';
+    case 'Queued': return 'Execution queued. The durable result will refresh from the server.';
+    case 'Running': return 'Execution started. The durable result will refresh from the server.';
+    case 'Succeeded': return 'Execution completed. The durable report is loading from the server.';
+    case 'Failed': return 'Execution completed with a bounded server failure state.';
+    case 'Stopped': return 'Execution was stopped before the start response completed.';
+    case 'Redirected': return 'Execution was redirected before the start response completed.';
   }
 }
 
 function createExecutionIdempotencyKey(): string {
-  const randomId =
-    globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const randomId = globalThis.crypto?.randomUUID?.()
+    ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   return `task-execution-ui-${randomId}`;
 }
 
@@ -528,28 +441,15 @@ function mapExecutionResult(value: unknown): ExecutionResultProjection {
 function mapInterventionResponse(value: unknown): InterventionResponse {
   const record = requiredRecord(value, 'Task execution intervention');
   const action = record['action'];
-  if (action !== 'Stop' && action !== 'CorrectDirection') {
-    throw new Error('Intervention action is invalid.');
-  }
+  if (action !== 'Stop' && action !== 'CorrectDirection') {throw new Error('Intervention action is invalid.');}
   const closedRun = mapInterventionRun(record['closedRun'], 'Closed Run');
-  const resumedRun =
-    record['resumedRun'] == null ? null : mapInterventionRun(record['resumedRun'], 'Resumed Run');
+  const resumedRun = record['resumedRun'] == null ? null : mapInterventionRun(record['resumedRun'], 'Resumed Run');
   const resumePoint = record['resumePoint'];
-  if (resumePoint !== 'None' && resumePoint !== 'NewRunFromLatestTaskState') {
-    throw new Error('Resume point is invalid.');
-  }
-  if (
-    action === 'Stop' &&
-    (closedRun.status !== 'Stopped' || resumedRun !== null || resumePoint !== 'None')
-  ) {
+  if (resumePoint !== 'None' && resumePoint !== 'NewRunFromLatestTaskState') {throw new Error('Resume point is invalid.');}
+  if (action === 'Stop' && (closedRun.status !== 'Stopped' || resumedRun !== null || resumePoint !== 'None')) {
     throw new Error('Stop intervention response is inconsistent.');
   }
-  if (
-    action === 'CorrectDirection' &&
-    (closedRun.status !== 'Redirected' ||
-      resumedRun === null ||
-      resumePoint !== 'NewRunFromLatestTaskState')
-  ) {
+  if (action === 'CorrectDirection' && (closedRun.status !== 'Redirected' || resumedRun === null || resumePoint !== 'NewRunFromLatestTaskState')) {
     throw new Error('Direction correction response is inconsistent.');
   }
   return {
@@ -609,24 +509,14 @@ function requiredRecord(value: unknown, label: string): Record<string, unknown> 
 }
 
 function requiredStatus(value: unknown): RunStatus {
-  if (
-    value === 'Accepted' ||
-    value === 'Queued' ||
-    value === 'Running' ||
-    value === 'Succeeded' ||
-    value === 'Failed' ||
-    value === 'Stopped' ||
-    value === 'Redirected'
-  ) {
+  if (value === 'Accepted' || value === 'Queued' || value === 'Running' || value === 'Succeeded' || value === 'Failed' || value === 'Stopped' || value === 'Redirected') {
     return value;
   }
   throw new Error('Task execution status is invalid.');
 }
 
 function requiredStringArray(value: unknown, label: string): readonly string[] {
-  if (!Array.isArray(value) || value.length > 10) {
-    throw new Error(`${label} is invalid.`);
-  }
+  if (!Array.isArray(value) || value.length > 10) {throw new Error(`${label} is invalid.`);}
   return value.map((item, index) => requiredString(item, `${label} ${index + 1}`, 100));
 }
 

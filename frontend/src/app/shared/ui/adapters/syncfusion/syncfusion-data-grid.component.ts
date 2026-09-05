@@ -1,20 +1,11 @@
-import {
-  Component,
-  EventEmitter,
-  Input,
-  OnChanges,
-  Output,
-  SimpleChanges,
-  ViewChild,
-  ChangeDetectionStrategy,
-} from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, Input, OnChanges, Output, SimpleChanges, ViewChild } from '@angular/core';
 import {
   FilterService,
   GridComponent,
   GridModule,
   PageService,
   SelectionService,
-  SortService,
+  SortService
 } from '@syncfusion/ej2-angular-grids';
 import { L10n } from '@syncfusion/ej2-base';
 
@@ -30,7 +21,7 @@ import {
   AppDataGridSelectionChange,
   AppDataGridSelectionMode,
   AppDataGridSortChange,
-  clampAppDataGridPageSize,
+  clampAppDataGridPageSize
 } from '../../../grid/app-data-grid/app-data-grid.types';
 
 // This adapter is lazy-loaded. Register Japanese strings with the vendor when
@@ -55,8 +46,8 @@ type SyncfusionGridEvent<TData> = {
   imports: [GridModule],
   providers: [PageService, SortService, FilterService, SelectionService],
   templateUrl: './syncfusion-data-grid.component.html',
-  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './syncfusion-data-grid.component.scss',
+  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class SyncfusionDataGridComponent<TData extends object> implements OnChanges {
   @ViewChild('grid') private grid?: GridComponent;
@@ -126,7 +117,7 @@ export class SyncfusionDataGridComponent<TData extends object> implements OnChan
   }
 
   getCellClass(column: AppDataGridColumnDef<TData>): string {
-    return Array.isArray(column.cellClass) ? column.cellClass.join(' ') : (column.cellClass ?? '');
+    return Array.isArray(column.cellClass) ? column.cellClass.join(' ') : column.cellClass ?? '';
   }
 
   displayValue(column: AppDataGridColumnDef<TData>, row: TData): string {
@@ -138,9 +129,7 @@ export class SyncfusionDataGridComponent<TData extends object> implements OnChan
 
     return column.valueFormatter
       ? column.valueFormatter({ data: row, value })
-      : value === null || value === undefined
-        ? ''
-        : String(value);
+      : value === null || value === undefined ? '' : String(value);
   }
 
   hasActions(column: AppDataGridColumnDef<TData>): boolean {
@@ -198,22 +187,14 @@ export class SyncfusionDataGridComponent<TData extends object> implements OnChan
 
   handleActionComplete(event: SyncfusionGridEvent<TData>): void {
     if (event.requestType === 'paging') {
-      this.pageChanged.emit({
-        page: event.currentPage ?? this.page,
-        pageSize: this.boundedPageSize,
-      });
+      this.pageChanged.emit({ page: event.currentPage ?? this.page, pageSize: this.boundedPageSize });
       return;
     }
 
     if (event.requestType === 'sorting' && event.columnName) {
       this.sortChanged.emit({
         columnId: event.columnName,
-        direction:
-          event.direction === 'Ascending'
-            ? 'ascending'
-            : event.direction === 'Descending'
-              ? 'descending'
-              : null,
+        direction: event.direction === 'Ascending' ? 'ascending' : event.direction === 'Descending' ? 'descending' : null
       });
       return;
     }
@@ -222,32 +203,16 @@ export class SyncfusionDataGridComponent<TData extends object> implements OnChan
       const filter = event.currentFilterObject;
       this.filterChanged.emit({
         columnId: filter?.field ?? event.columnName ?? '',
-        value: filter?.value === undefined || filter?.value === null ? null : String(filter.value),
+        value: filter?.value === undefined || filter?.value === null ? null : String(filter.value)
       });
     }
   }
 
-  private createPageSettings(): {
-    currentPage: number;
-    pageSize: number;
-    pageSizes: readonly number[];
-  } {
-    return {
-      currentPage: Math.max(1, this.page),
-      pageSize: this.boundedPageSize,
-      pageSizes: this.pageSizeOptions,
-    };
+  private createPageSettings(): { currentPage: number; pageSize: number; pageSizes: readonly number[] } {
+    return { currentPage: Math.max(1, this.page), pageSize: this.boundedPageSize, pageSizes: this.pageSizeOptions };
   }
 
-  private createSelectionSettings(): {
-    type: 'Single' | 'Multiple';
-    mode: 'Row';
-    checkboxOnly: boolean;
-  } {
-    return {
-      type: this.selectionMode === 'multiple' ? 'Multiple' : 'Single',
-      mode: 'Row',
-      checkboxOnly: true,
-    };
+  private createSelectionSettings(): { type: 'Single' | 'Multiple'; mode: 'Row'; checkboxOnly: boolean } {
+    return { type: this.selectionMode === 'multiple' ? 'Multiple' : 'Single', mode: 'Row', checkboxOnly: true };
   }
 }

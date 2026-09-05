@@ -1,11 +1,4 @@
-import {
-  Component,
-  EventEmitter,
-  Input,
-  Output,
-  inject,
-  ChangeDetectionStrategy,
-} from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output, inject } from '@angular/core';
 
 import { I18nService } from '../../../core/i18n/i18n.service';
 import { FileScanStatusBadgeComponent } from '../file-scan-status-badge/file-scan-status-badge.component';
@@ -16,8 +9,8 @@ import { FileViewModel } from '../files.types';
   standalone: true,
   imports: [FileScanStatusBadgeComponent],
   templateUrl: './attachment-picker-dialog.component.html',
-  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './attachment-picker-dialog.component.scss',
+  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class AttachmentPickerDialogComponent {
   readonly i18n = inject(I18nService);

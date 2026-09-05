@@ -1,4 +1,4 @@
-import { Component, Input, ChangeDetectionStrategy } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 
 import { TaskStatus } from '../projects.types';
 
@@ -6,7 +6,6 @@ import { TaskStatus } from '../projects.types';
   selector: 'app-task-status-badge',
   standalone: true,
   template: `<span class="task-status-badge" [attr.data-status]="status">{{ label }}</span>`,
-  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [
     `
       .task-status-badge {
@@ -37,8 +36,9 @@ import { TaskStatus } from '../projects.types';
         border-color: #a8b3cf;
         background: #f1f5f9;
       }
-    `,
+    `
   ],
+  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class TaskStatusBadgeComponent {
   @Input({ required: true }) status: TaskStatus = 'notStarted';

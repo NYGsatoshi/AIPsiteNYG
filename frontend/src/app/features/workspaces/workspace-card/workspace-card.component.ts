@@ -1,4 +1,4 @@
-import { Component, Input, ChangeDetectionStrategy } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 
 import { WorkspaceQuickActionsComponent } from '../workspace-quick-actions/workspace-quick-actions.component';
 import { WorkspaceCardViewModel } from '../workspaces.types';
@@ -8,8 +8,8 @@ import { WorkspaceCardViewModel } from '../workspaces.types';
   standalone: true,
   imports: [WorkspaceQuickActionsComponent],
   templateUrl: './workspace-card.component.html',
-  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './workspace-card.component.scss',
+  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class WorkspaceCardComponent {
   @Input({ required: true }) workspace!: WorkspaceCardViewModel;

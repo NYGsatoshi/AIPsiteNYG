@@ -1,11 +1,4 @@
-import {
-  Component,
-  computed,
-  effect,
-  inject,
-  signal,
-  ChangeDetectionStrategy,
-} from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 
@@ -32,8 +25,8 @@ import { ThreadPreviewComponent } from '../thread-preview/thread-preview.compone
     ThreadPreviewComponent,
   ],
   templateUrl: './channel-messaging-page.component.html',
-  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './channel-messaging-page.component.scss',
+  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class ChannelMessagingPageComponent {
   readonly facade = inject(MessagingFacade);
@@ -76,10 +69,9 @@ export class ChannelMessagingPageComponent {
     effect(() => {
       const context = this.routeContext();
       const page = this.page();
-      const key =
-        context.focusMessageId && context.threadRootMessageId
-          ? `${context.focusMessageId}:${context.threadRootMessageId}`
-          : null;
+      const key = context.focusMessageId && context.threadRootMessageId
+        ? `${context.focusMessageId}:${context.threadRootMessageId}`
+        : null;
       if (
         !key ||
         key === this.openedFollowUpThreadKey ||
@@ -91,7 +83,7 @@ export class ChannelMessagingPageComponent {
       this.facade.openThread(
         context.threadRootMessageId!,
         `message-${safeElementId(context.threadRootMessageId!)}`,
-        context.focusMessageId!,
+        context.focusMessageId!
       );
     });
   }
@@ -142,8 +134,8 @@ export class ChannelMessagingPageComponent {
       this.page().status !== 'sessionExpired',
   );
 
-  readonly canCreateThread = computed(
-    () => this.canPost() && this.page().conversation.capabilities.includes('createThread'),
+  readonly canCreateThread = computed(() =>
+    this.canPost() && this.page().conversation.capabilities.includes('createThread'),
   );
 
   readonly threadOpen = computed(() => this.facade.thread().status !== 'closed');

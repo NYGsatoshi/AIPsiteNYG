@@ -1,11 +1,4 @@
-import {
-  Component,
-  EventEmitter,
-  inject,
-  Input,
-  Output,
-  ChangeDetectionStrategy,
-} from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import { AuthSessionStatus } from '../../core/auth/auth-session.facade';
@@ -19,11 +12,7 @@ import { WorkspaceSearchComponent } from '../workspace-search/workspace-search.c
   standalone: true,
   imports: [RouterLink, WorkspaceSearchComponent],
   template: `
-    <header
-      class="top-bar"
-      data-testid="top-bar"
-      [attr.aria-label]="i18n.translate('topBar.primaryHeader')"
-    >
+    <header class="top-bar" data-testid="top-bar" [attr.aria-label]="i18n.translate('topBar.primaryHeader')">
       <section class="top-bar__workspace" aria-labelledby="workspace-context-label">
         <label id="workspace-context-label" class="top-bar__label" for="workspace-switcher">
           {{ i18n.translate('topBar.workspace') }}
@@ -32,20 +21,14 @@ import { WorkspaceSearchComponent } from '../workspace-search/workspace-search.c
           id="workspace-switcher"
           data-testid="workspace-switcher"
           aria-describedby="workspace-selection-status"
-          [disabled]="
-            workspaceSelectionStatus === 'loading' || workspaceSelectionStatus === 'unavailable'
-          "
+          [disabled]="workspaceSelectionStatus === 'loading' || workspaceSelectionStatus === 'unavailable'"
           (change)="onWorkspaceChange($event)"
         >
           @if (!workspace || workspaceSelectionStatus === 'selectionRequired') {
-            <option value="" [selected]="!workspace">
-              {{ i18n.translate('topBar.selectWorkspace') }}
-            </option>
+            <option value="" [selected]="!workspace">{{ i18n.translate('topBar.selectWorkspace') }}</option>
           }
           @for (option of workspaceOptions; track option.id) {
-            <option [value]="option.id" [selected]="option.id === workspace?.id">
-              {{ option.label }}
-            </option>
+            <option [value]="option.id" [selected]="option.id === workspace?.id">{{ option.label }}</option>
           }
         </select>
         <span
@@ -55,33 +38,20 @@ import { WorkspaceSearchComponent } from '../workspace-search/workspace-search.c
           aria-live="polite"
         >
           @switch (workspaceSelectionStatus) {
-            @case ('loading') {
-              {{ i18n.translate('topBar.loadingWorkspaces') }}
-            }
-            @case ('selectionRequired') {
-              {{ i18n.translate('topBar.chooseWorkspace') }}
-            }
-            @case ('unavailable') {
-              {{ i18n.translate('topBar.workspaceUnavailable') }}
-            }
-            @default {
-              {{ workspace?.label || i18n.translate('topBar.workspaceNotSelected') }}
-            }
+            @case ('loading') { {{ i18n.translate('topBar.loadingWorkspaces') }} }
+            @case ('selectionRequired') { {{ i18n.translate('topBar.chooseWorkspace') }} }
+            @case ('unavailable') { {{ i18n.translate('topBar.workspaceUnavailable') }} }
+            @default { {{ workspace?.label || i18n.translate('topBar.workspaceNotSelected') }} }
           }
         </span>
       </section>
 
-      <section
-        class="top-bar__research"
-        [attr.aria-label]="i18n.translate('topBar.researchStatus')"
-        aria-live="polite"
-      >
+      <section class="top-bar__research" [attr.aria-label]="i18n.translate('topBar.researchStatus')" aria-live="polite">
         <span class="top-bar__label">{{ i18n.translate('topBar.research') }}</span>
         <strong data-testid="workspace-research-status">
           @if (runningProjectCount !== null && needsReviewProjectCount !== null) {
-            {{ runningProjectCount }} {{ i18n.translate('topBar.running') }}
-            <span aria-hidden="true">&middot;</span> {{ needsReviewProjectCount }}
-            {{ i18n.translate('topBar.needsReview') }}
+            {{ runningProjectCount }} {{ i18n.translate('topBar.running') }} <span aria-hidden="true">&middot;</span>
+            {{ needsReviewProjectCount }} {{ i18n.translate('topBar.needsReview') }}
           } @else {
             {{ i18n.translate('topBar.statusUnavailable') }}
           }
@@ -99,37 +69,21 @@ import { WorkspaceSearchComponent } from '../workspace-search/workspace-search.c
           <span class="top-bar__status">{{ i18n.translate('topBar.sessionExpired') }}</span>
         }
         @if (logoutError) {
-          <span class="top-bar__status top-bar__status--error" data-testid="logout-error">{{
-            logoutError
-          }}</span>
+          <span class="top-bar__status top-bar__status--error" data-testid="logout-error">{{ logoutError }}</span>
         }
         @if (workspace) {
-          <nav
-            class="top-bar__action-group"
-            [attr.aria-label]="i18n.translate('topBar.workspaceActions')"
-          >
+          <nav class="top-bar__action-group" [attr.aria-label]="i18n.translate('topBar.workspaceActions')">
             @if (memberPreview.length > 0) {
-              <div
-                class="top-bar__avatar-stack"
-                data-testid="workspace-member-preview"
-                [attr.aria-label]="i18n.translate('topBar.memberPreview')"
-              >
+              <div class="top-bar__avatar-stack" data-testid="workspace-member-preview" [attr.aria-label]="i18n.translate('topBar.memberPreview')">
                 @for (member of memberPreview; track member.id) {
-                  <span
-                    class="top-bar__avatar"
-                    [attr.title]="member.displayName"
-                    [attr.aria-label]="member.displayName"
-                    >{{ initials(member.displayName) }}</span
-                  >
+                  <span class="top-bar__avatar" [attr.title]="member.displayName" [attr.aria-label]="member.displayName">{{ initials(member.displayName) }}</span>
                 }
               </div>
             }
             @if (hasExternalShares) {
               <span class="top-bar__external-badge" data-testid="workspace-external-badge">
                 {{ i18n.translate('topBar.external') }}
-                @if (externalShareCount !== null) {
-                  ({{ externalShareCount }})
-                }
+                @if (externalShareCount !== null) { ({{ externalShareCount }}) }
               </span>
             }
             @if (canOpenWorkspaceMembers) {
@@ -137,27 +91,18 @@ import { WorkspaceSearchComponent } from '../workspace-search/workspace-search.c
                 class="top-bar__action"
                 data-testid="workspace-members-action"
                 [routerLink]="['/workspaces', workspace.id, 'members']"
-                >{{ i18n.translate('topBar.members') }}</a
-              >
+              >{{ i18n.translate('topBar.members') }}</a>
             }
             @if (canInspectWorkspaceSharing) {
               <a
                 class="top-bar__action top-bar__action--share"
                 data-testid="workspace-sharing-action"
                 [routerLink]="['/workspaces', workspace.id, 'members']"
-                >{{
-                  canManageWorkspaceSharing
-                    ? i18n.translate('topBar.manageSharing')
-                    : i18n.translate('topBar.sharingDetails')
-                }}</a
-              >
+              >{{ canManageWorkspaceSharing ? i18n.translate('topBar.manageSharing') : i18n.translate('topBar.sharingDetails') }}</a>
             }
           </nav>
         }
-        <nav
-          class="top-bar__action-group top-bar__action-group--global"
-          [attr.aria-label]="i18n.translate('topBar.globalActions')"
-        >
+        <nav class="top-bar__action-group top-bar__action-group--global" [attr.aria-label]="i18n.translate('topBar.globalActions')">
           <button
             #rightPanelButton
             type="button"
@@ -167,15 +112,9 @@ import { WorkspaceSearchComponent } from '../workspace-search/workspace-search.c
             [attr.aria-expanded]="rightPanelMode === 'expanded' || rightPanelMode === 'drawer'"
             (click)="rightPanelToggle.emit(rightPanelButton)"
           >
-            {{
-              rightPanelMode === 'expanded' || rightPanelMode === 'drawer'
-                ? i18n.translate('topBar.closeNotifications')
-                : i18n.translate('topBar.notifications')
-            }}
+            {{ rightPanelMode === 'expanded' || rightPanelMode === 'drawer' ? i18n.translate('topBar.closeNotifications') : i18n.translate('topBar.notifications') }}
           </button>
-          <a class="top-bar__action" data-testid="account-action" routerLink="/account">{{
-            i18n.translate('topBar.account')
-          }}</a>
+          <a class="top-bar__action" data-testid="account-action" routerLink="/account">{{ i18n.translate('topBar.account') }}</a>
           <button
             type="button"
             class="top-bar__action top-bar__action--logout"
@@ -183,16 +122,14 @@ import { WorkspaceSearchComponent } from '../workspace-search/workspace-search.c
             [disabled]="logoutPending"
             (click)="logoutRequested.emit()"
           >
-            {{
-              logoutPending ? i18n.translate('topBar.loggingOut') : i18n.translate('topBar.logout')
-            }}
+            {{ logoutPending ? i18n.translate('topBar.loggingOut') : i18n.translate('topBar.logout') }}
           </button>
         </nav>
       </div>
     </header>
   `,
-  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './top-bar.component.scss',
+  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class TopBarComponent {
   readonly i18n = inject(I18nService);
@@ -233,4 +170,7 @@ export interface WorkspaceHeaderOption {
 }
 
 export type WorkspaceHeaderSelectionStatus =
-  'loading' | 'selected' | 'selectionRequired' | 'unavailable';
+  | 'loading'
+  | 'selected'
+  | 'selectionRequired'
+  | 'unavailable';

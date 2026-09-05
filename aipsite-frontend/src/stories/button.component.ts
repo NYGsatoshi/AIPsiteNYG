@@ -1,20 +1,20 @@
 import { CommonModule } from '@angular/common';
-import { Component, Input, Output, EventEmitter, ChangeDetectionStrategy } from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output } from '@angular/core';
 
 @Component({
   selector: 'storybook-button',
   standalone: true,
   imports: [CommonModule],
   template: ` <button
-    type="button"
-    (click)="onClick.emit($event)"
-    [ngClass]="classes"
-    [ngStyle]="{ 'background-color': backgroundColor }"
-  >
-    {{ label }}
-  </button>`,
-  changeDetection: ChangeDetectionStrategy.Eager,
+  type="button"
+  (click)="onClick.emit($event)"
+  [ngClass]="classes"
+  [ngStyle]="{ 'background-color': backgroundColor }"
+>
+  {{ label }}
+</button>`,
   styleUrls: ['./button.css'],
+  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class ButtonComponent {
   /** Is this the principal call to action on the page? */

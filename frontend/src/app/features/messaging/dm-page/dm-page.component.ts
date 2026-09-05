@@ -1,11 +1,4 @@
-import {
-  Component,
-  computed,
-  effect,
-  inject,
-  signal,
-  ChangeDetectionStrategy,
-} from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 
@@ -28,8 +21,8 @@ import { ThreadPreviewComponent } from '../thread-preview/thread-preview.compone
     ThreadPreviewComponent,
   ],
   templateUrl: './dm-page.component.html',
-  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './dm-page.component.scss',
+  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class DmPageComponent {
   readonly facade = inject(MessagingFacade);
@@ -46,9 +39,7 @@ export class DmPageComponent {
       this.navigationState.resetDetailScroll();
       const focusMessageId = this.route.snapshot?.queryParamMap.get('focusMessageId') ?? null;
       this.focusMessageId.set(focusMessageId);
-      this.threadRootMessageId.set(
-        this.route.snapshot?.queryParamMap.get('threadRootMessageId') ?? null,
-      );
+      this.threadRootMessageId.set(this.route.snapshot?.queryParamMap.get('threadRootMessageId') ?? null);
       this.openedFollowUpThreadKey = null;
       this.facade.loadConversation(paramMap.get('conversationId'), 'dm', null, focusMessageId);
     });
@@ -57,20 +48,15 @@ export class DmPageComponent {
       const focusMessageId = this.focusMessageId();
       const threadRootMessageId = this.threadRootMessageId();
       const page = this.page();
-      const key =
-        focusMessageId && threadRootMessageId ? `${focusMessageId}:${threadRootMessageId}` : null;
-      if (
-        !key ||
-        key === this.openedFollowUpThreadKey ||
-        !page.messages.some((message) => message.id === threadRootMessageId)
-      ) {
+      const key = focusMessageId && threadRootMessageId ? `${focusMessageId}:${threadRootMessageId}` : null;
+      if (!key || key === this.openedFollowUpThreadKey || !page.messages.some((message) => message.id === threadRootMessageId)) {
         return;
       }
       this.openedFollowUpThreadKey = key;
       this.facade.openThread(
         threadRootMessageId!,
         `message-${safeElementId(threadRootMessageId!)}`,
-        focusMessageId!,
+        focusMessageId!
       );
     });
   }
@@ -87,8 +73,8 @@ export class DmPageComponent {
     () => this.canReadBody() && this.page().conversation.capabilities.includes('postMessage'),
   );
 
-  readonly canCreateThread = computed(
-    () => this.canPost() && this.page().conversation.capabilities.includes('createThread'),
+  readonly canCreateThread = computed(() =>
+    this.canPost() && this.page().conversation.capabilities.includes('createThread'),
   );
 
   readonly threadOpen = computed(() => this.facade.thread().status !== 'closed');

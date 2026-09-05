@@ -8,7 +8,7 @@ import { TopBarComponent } from './top-bar.component';
 const STORY_ACTIVE_WORKSPACE: WorkspaceSummary = {
   id: 'fictional-workspace-1',
   label: 'Sample Workspace Alpha',
-  description: 'Storybook workspace mock',
+  description: 'Storybook workspace mock'
 };
 
 const meta: Meta<TopBarComponent> = {
@@ -16,14 +16,14 @@ const meta: Meta<TopBarComponent> = {
   component: TopBarComponent,
   decorators: [
     applicationConfig({
-      providers: [provideRouter([]), provideHttpClient(withXhr())],
-    }),
+      providers: [provideRouter([]), provideHttpClient(withXhr())]
+    })
   ],
   args: {
     workspace: STORY_ACTIVE_WORKSPACE,
     workspaceOptions: [
       { id: STORY_ACTIVE_WORKSPACE.id, label: STORY_ACTIVE_WORKSPACE.label },
-      { id: 'fictional-workspace-2', label: 'Sample Workspace Beta' },
+      { id: 'fictional-workspace-2', label: 'Sample Workspace Beta' }
     ],
     workspaceSelectionStatus: 'selected',
     runningProjectCount: 2,
@@ -34,13 +34,13 @@ const meta: Meta<TopBarComponent> = {
     memberPreview: [
       { id: 'member-a', displayName: 'Alice' },
       { id: 'member-b', displayName: 'Bob' },
-      { id: 'member-c', displayName: 'Carol' },
+      { id: 'member-c', displayName: 'Carol' }
     ],
     canInspectWorkspaceSharing: true,
     canManageWorkspaceSharing: true,
     sessionStatus: 'active',
-    rightPanelMode: 'collapsed',
-  },
+    rightPanelMode: 'collapsed'
+  }
 };
 
 export default meta;
@@ -51,8 +51,8 @@ export const Default: Story = {};
 
 export const SessionExpired: Story = {
   args: {
-    sessionStatus: 'expired',
-  },
+    sessionStatus: 'expired'
+  }
 };
 
 export const SelectionRequired: Story = {
@@ -61,19 +61,19 @@ export const SelectionRequired: Story = {
     workspaceSelectionStatus: 'selectionRequired',
     runningProjectCount: null,
     needsReviewProjectCount: null,
-    canOpenWorkspaceMembers: false,
-  },
+    canOpenWorkspaceMembers: false
+  }
 };
 
 export const ZeroResearchActivity: Story = {
   args: {
     runningProjectCount: 0,
-    needsReviewProjectCount: 0,
-  },
+    needsReviewProjectCount: 0
+  }
 };
 
 export const NarrowHeader: Story = {
   parameters: {
-    viewport: { defaultViewport: 'mobile1' },
-  },
+    viewport: { defaultViewport: 'mobile1' }
+  }
 };

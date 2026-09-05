@@ -1,13 +1,5 @@
 /* eslint-disable max-lines -- Issue #390 extends the existing route/editor page; structural cleanup remains part of ESLINT-01. */
-import {
-  Component,
-  computed,
-  DestroyRef,
-  inject,
-  OnDestroy,
-  signal,
-  ChangeDetectionStrategy,
-} from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, OnDestroy, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -37,8 +29,8 @@ import {
     AnnouncementListComponent,
   ],
   templateUrl: './announcements-page.component.html',
-  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './announcements-page.component.scss',
+  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class AnnouncementsPageComponent implements OnDestroy {
   private readonly facade = inject(AnnouncementsFacade);
@@ -74,9 +66,8 @@ export class AnnouncementsPageComponent implements OnDestroy {
     const routeAnnouncementId = this.routeAnnouncementId();
     if (routeAnnouncementId) {
       return (
-        this.filteredAnnouncements().find(
-          (announcement) => announcement.id === routeAnnouncementId,
-        ) ?? null
+        this.filteredAnnouncements().find((announcement) => announcement.id === routeAnnouncementId) ??
+        null
       );
     }
 

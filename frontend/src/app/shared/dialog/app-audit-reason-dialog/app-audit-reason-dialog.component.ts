@@ -1,12 +1,5 @@
 import { A11yModule } from '@angular/cdk/a11y';
-import {
-  Component,
-  EventEmitter,
-  HostListener,
-  Input,
-  Output,
-  ChangeDetectionStrategy,
-} from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, HostListener, Input, Output } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
 @Component({
@@ -28,26 +21,17 @@ import { FormsModule } from '@angular/forms';
           <h2 [id]="titleId">{{ title }}</h2>
           <label>
             <span>理由</span>
-            <textarea
-              required
-              minlength="3"
-              name="reason"
-              [(ngModel)]="reason"
-              [attr.aria-describedby]="hintId"
-            ></textarea>
+            <textarea required minlength="3" name="reason" [(ngModel)]="reason" [attr.aria-describedby]="hintId"></textarea>
           </label>
           <p [id]="hintId">監査のため、操作理由を入力してください。</p>
           <div class="dialog__actions">
-            <button type="button" class="dialog__secondary" (click)="cancel.emit()">
-              キャンセル
-            </button>
+            <button type="button" class="dialog__secondary" (click)="cancel.emit()">キャンセル</button>
             <button type="submit" class="dialog__primary" [disabled]="!canSubmit">送信</button>
           </div>
         </form>
       </div>
     }
   `,
-  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [
     `
       .dialog-backdrop {
@@ -120,8 +104,9 @@ import { FormsModule } from '@angular/forms';
         cursor: not-allowed;
         opacity: 0.55;
       }
-    `,
+    `
   ],
+  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class AppAuditReasonDialogComponent {
   @Input() open = false;

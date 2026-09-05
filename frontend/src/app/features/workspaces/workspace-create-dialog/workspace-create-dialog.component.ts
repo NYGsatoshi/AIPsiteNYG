@@ -1,17 +1,17 @@
 import { A11yModule } from '@angular/cdk/a11y';
 import {
-  afterNextRender,
+  ChangeDetectionStrategy,
   Component,
   ElementRef,
   EventEmitter,
-  inject,
   Injector,
   Input,
   OnChanges,
   Output,
   SimpleChanges,
   ViewChild,
-  ChangeDetectionStrategy,
+  afterNextRender,
+  inject,
 } from '@angular/core';
 import {
   AbstractControl,
@@ -55,8 +55,8 @@ const ICON_OPTIONS = [
     AppRequestIdComponent,
   ],
   templateUrl: './workspace-create-dialog.component.html',
-  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './workspace-create-dialog.component.scss',
+  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class WorkspaceCreateDialogComponent implements OnChanges {
   @Input() open = false;
@@ -112,20 +112,14 @@ export class WorkspaceCreateDialogComponent implements OnChanges {
   get summaryErrors(): readonly WorkspaceCreateFieldError[] {
     const errors: WorkspaceCreateFieldError[] = [];
     if (this.invalidSubmission) {
-      if (
-        this.form.controls.name.hasError('required') ||
-        this.form.controls.name.hasError('whitespace')
-      ) {
+      if (this.form.controls.name.hasError('required') || this.form.controls.name.hasError('whitespace')) {
         errors.push({ field: 'name', message: 'Enter a Workspace name.' });
       }
       if (this.form.controls.name.hasError('maxlength')) {
         errors.push({ field: 'name', message: 'Workspace name must be 160 characters or fewer.' });
       }
       if (this.form.controls.description.hasError('maxlength')) {
-        errors.push({
-          field: 'description',
-          message: 'Description must be 2,000 characters or fewer.',
-        });
+        errors.push({ field: 'description', message: 'Description must be 2,000 characters or fewer.' });
       }
       if (this.form.controls.icon.hasError('maxlength')) {
         errors.push({ field: 'icon', message: 'Icon must be 120 characters or fewer.' });
@@ -133,11 +127,7 @@ export class WorkspaceCreateDialogComponent implements OnChanges {
     }
 
     for (const error of this.createState.fieldErrors) {
-      if (
-        !errors.some(
-          (candidate) => candidate.field === error.field && candidate.message === error.message,
-        )
-      ) {
+      if (!errors.some((candidate) => candidate.field === error.field && candidate.message === error.message)) {
         errors.push(error);
       }
     }
@@ -193,10 +183,7 @@ export class WorkspaceCreateDialogComponent implements OnChanges {
   fieldErrors(field: 'name' | 'description' | 'icon'): readonly string[] {
     const messages: string[] = [];
     const control = this.form.controls[field];
-    if (
-      (control.touched || this.invalidSubmission) &&
-      (control.hasError('required') || control.hasError('whitespace'))
-    ) {
+    if ((control.touched || this.invalidSubmission) && (control.hasError('required') || control.hasError('whitespace'))) {
       messages.push('Enter a Workspace name.');
     }
     if ((control.touched || this.invalidSubmission) && control.hasError('maxlength')) {

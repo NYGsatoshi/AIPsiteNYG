@@ -1,4 +1,4 @@
-import { Component, Input, ChangeDetectionStrategy } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 
 @Component({
   selector: 'app-request-id',
@@ -14,7 +14,6 @@ import { Component, Input, ChangeDetectionStrategy } from '@angular/core';
       </p>
     }
   `,
-  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [
     `
       .request-id {
@@ -43,8 +42,9 @@ import { Component, Input, ChangeDetectionStrategy } from '@angular/core';
         flex-basis: 100%;
         color: #64748b;
       }
-    `,
+    `
   ],
+  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class AppRequestIdComponent {
   @Input() requestId: string | null | undefined;

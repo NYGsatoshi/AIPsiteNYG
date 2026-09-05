@@ -1,12 +1,9 @@
-import { Component, computed, inject, signal, ChangeDetectionStrategy } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { take } from 'rxjs';
 
 import { InviteRegistrationFacade } from '../invite-registration.facade';
-import {
-  InviteRegistrationFormSubmit,
-  InviteRegistrationViewModel,
-} from '../invite-registration.types';
+import { InviteRegistrationFormSubmit, InviteRegistrationViewModel } from '../invite-registration.types';
 import { InviteRegistrationFormComponent } from '../invite-registration-form/invite-registration-form.component';
 import { InviteTokenStatePanelComponent } from '../invite-token-state-panel/invite-token-state-panel.component';
 
@@ -15,8 +12,8 @@ import { InviteTokenStatePanelComponent } from '../invite-token-state-panel/invi
   standalone: true,
   imports: [InviteRegistrationFormComponent, InviteTokenStatePanelComponent],
   templateUrl: './invite-registration-page.component.html',
-  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './invite-registration-page.component.scss',
+  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class InviteRegistrationPageComponent {
   private readonly route = inject(ActivatedRoute);
@@ -26,9 +23,7 @@ export class InviteRegistrationPageComponent {
   private readonly state = signal<InviteRegistrationViewModel>(initialState(this.inviteToken));
 
   readonly viewState = this.state.asReadonly();
-  readonly canShowForm = computed(() =>
-    ['valid', 'registrationFailure'].includes(this.state().status),
-  );
+  readonly canShowForm = computed(() => ['valid', 'registrationFailure'].includes(this.state().status));
 
   constructor() {
     this.facade
@@ -49,7 +44,7 @@ export class InviteRegistrationPageComponent {
         token: this.inviteToken,
         email: currentState.email,
         displayName: model.displayName,
-        password: model.password,
+        password: model.password
       })
       .pipe(take(1))
       .subscribe((state) => {
@@ -68,13 +63,13 @@ function initialState(token: string | null): InviteRegistrationViewModel {
         email: null,
         message: null,
         submitDisabled: true,
-        bootstrapActions: [],
+        bootstrapActions: []
       }
     : {
         status: 'missing',
         email: null,
         message: 'This invite link is incomplete. Ask for a new invite URL.',
         submitDisabled: true,
-        bootstrapActions: [],
+        bootstrapActions: []
       };
 }

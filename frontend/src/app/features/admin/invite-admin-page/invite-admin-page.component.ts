@@ -1,5 +1,5 @@
 import { HttpClient } from '@angular/common/http';
-import { Component, computed, inject, signal, ChangeDetectionStrategy } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { finalize } from 'rxjs';
 
@@ -68,24 +68,16 @@ const WORKSPACE_ROLE: Record<WorkspaceRoleName, WorkspaceRoleValue> = {
   Admin: 1,
   Adviser: 2,
   Member: 3,
-  ReadOnly: 4,
+  ReadOnly: 4
 };
 
 @Component({
   selector: 'app-invite-admin-page',
   standalone: true,
-  imports: [
-    FormsModule,
-    AipDateTimePickerComponent,
-    AipDialogComponent,
-    AppDataGridComponent,
-    AppEmptyStateComponent,
-    AppInlineLoadingComponent,
-    AppPermissionDeniedComponent,
-  ],
+  imports: [FormsModule, AipDateTimePickerComponent, AipDialogComponent, AppDataGridComponent, AppEmptyStateComponent, AppInlineLoadingComponent, AppPermissionDeniedComponent],
   templateUrl: './invite-admin-page.component.html',
-  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './invite-admin-page.component.scss',
+  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class InviteAdminPageComponent {
   private readonly http = inject(HttpClient);
@@ -111,20 +103,7 @@ export class InviteAdminPageComponent {
     { field: 'role', headerName: 'Role' },
     { field: 'status', headerName: 'Status' },
     { field: 'expiresAt', headerName: 'Expires', flex: 1 },
-    {
-      headerName: 'Actions',
-      actions: (row) => [
-        {
-          id: 'revoke',
-          label: 'Revoke',
-          row,
-          destructive: true,
-          disabled: row.status !== 'Pending',
-          disabledReason:
-            row.status === 'Pending' ? undefined : 'Only pending invites can be revoked.',
-        },
-      ],
-    },
+    { headerName: 'Actions', actions: (row) => [{ id: 'revoke', label: 'Revoke', row, destructive: true, disabled: row.status !== 'Pending', disabledReason: row.status === 'Pending' ? undefined : 'Only pending invites can be revoked.' }] },
   ];
 
   readonly canSubmit = computed(
@@ -132,7 +111,7 @@ export class InviteAdminPageComponent {
       !this.submitting() &&
       this.selectedWorkspaceId().length > 0 &&
       this.email().trim().length > 0 &&
-      Number.isInteger(this.role()),
+      Number.isInteger(this.role())
   );
 
   readonly roleOptions: readonly WorkspaceRoleOption[] = [
@@ -140,7 +119,7 @@ export class InviteAdminPageComponent {
     { label: 'ReadOnly', value: WORKSPACE_ROLE.ReadOnly },
     { label: 'Adviser', value: WORKSPACE_ROLE.Adviser },
     { label: 'Admin', value: WORKSPACE_ROLE.Admin },
-    { label: 'Owner', value: WORKSPACE_ROLE.Owner },
+    { label: 'Owner', value: WORKSPACE_ROLE.Owner }
   ];
 
   constructor() {
@@ -152,24 +131,20 @@ export class InviteAdminPageComponent {
     this.message.set(null);
     this.http.get<readonly WorkspaceDto[]>('/api/workspaces', { withCredentials: true }).subscribe({
       next: (response) => {
-        const workspaces = response
-          .map(toWorkspaceOption)
-          .filter((workspace) => workspace.id.length > 0);
+        const workspaces = response.map(toWorkspaceOption).filter((workspace) => workspace.id.length > 0);
         this.workspaces.set(workspaces);
         this.selectedWorkspaceId.set(workspaces[0]?.id ?? '');
         this.status.set(workspaces.length > 0 ? 'ready' : 'empty');
         this.loadInvites();
       },
       error: (error: { status?: number }) => {
-        this.status.set(
-          error.status === 401 || error.status === 403 ? 'permissionDenied' : 'error',
-        );
+        this.status.set(error.status === 401 || error.status === 403 ? 'permissionDenied' : 'error');
         this.message.set(
           error.status === 401 || error.status === 403
             ? 'Admin access is required.'
-            : 'Workspace API request failed.',
+            : 'Workspace API request failed.'
         );
-      },
+      }
     });
   }
 
@@ -185,7 +160,7 @@ export class InviteAdminPageComponent {
       workspaceId: this.selectedWorkspaceId(),
       email: this.email().trim(),
       role: this.role(),
-      expiresAt: this.toExpiresAtIso(),
+      expiresAt: this.toExpiresAtIso()
     };
 
     this.http
@@ -196,9 +171,7 @@ export class InviteAdminPageComponent {
           const created = toCreatedInviteDetails(invite, body.email);
           this.email.set('');
           this.createdInvite.set(created);
-          this.createdNotice.set(
-            `Invite created for ${created.email}. Copy or send the URL below.`,
-          );
+          this.createdNotice.set(`Invite created for ${created.email}. Copy or send the URL below.`);
           this.createDialogOpen.set(false);
           this.loadInvites();
         },
@@ -207,74 +180,33 @@ export class InviteAdminPageComponent {
           if (isHttpStatus(error, 401) || isHttpStatus(error, 403)) {
             this.status.set('permissionDenied');
           }
-        },
+        }
       });
   }
 
   createBulkInvites(): void {
-    const emails = this.bulkEmails()
-      .split(/[\n,;]/u)
-      .map((email) => email.trim())
-      .filter(Boolean);
-    if (!this.canSubmit() || emails.length === 0) {
-      this.message.set('Enter at least one email address.');
-      return;
-    }
+    const emails = this.bulkEmails().split(/[\n,;]/u).map((email) => email.trim()).filter(Boolean);
+    if (!this.canSubmit() || emails.length === 0) { this.message.set('Enter at least one email address.'); return; }
     this.submitting.set(true);
-    this.http
-      .post<readonly InviteDto[]>(
-        '/api/admin/invites/bulk',
-        {
-          workspaceId: this.selectedWorkspaceId(),
-          emails,
-          role: this.role(),
-          expiresAt: this.toExpiresAtIso(),
-        },
-        { withCredentials: true },
-      )
-      .pipe(finalize(() => this.submitting.set(false)))
-      .subscribe({
-        next: (invites) => {
-          this.bulkEmails.set('');
-          this.createdNotice.set(
-            `${invites.length} invites created. Each URL is available only in the authorized one-time response.`,
-          );
-          this.createDialogOpen.set(false);
-          this.loadInvites();
-        },
+    this.http.post<readonly InviteDto[]>('/api/admin/invites/bulk', { workspaceId: this.selectedWorkspaceId(), emails, role: this.role(), expiresAt: this.toExpiresAtIso() }, { withCredentials: true })
+      .pipe(finalize(() => this.submitting.set(false))).subscribe({
+        next: (invites) => { this.bulkEmails.set(''); this.createdNotice.set(`${invites.length} invites created. Each URL is available only in the authorized one-time response.`); this.createDialogOpen.set(false); this.loadInvites(); },
         error: (error: unknown) => this.message.set(this.formatInviteError(error)),
       });
   }
 
-  requestRevoke(row: InviteRow): void {
-    this.revokeTarget.set(row);
-    this.revokeDialogOpen.set(true);
-  }
+  requestRevoke(row: InviteRow): void { this.revokeTarget.set(row); this.revokeDialogOpen.set(true); }
   revokeInvite(): void {
     const target = this.revokeTarget();
-    if (!target?.id || this.revoking()) {
-      return;
-    }
+    if (!target?.id || this.revoking()) { return; }
     this.revoking.set(true);
-    this.http
-      .post(`/api/admin/invites/${target.id}/revoke`, {}, { withCredentials: true })
-      .pipe(finalize(() => this.revoking.set(false)))
-      .subscribe({
-        next: () => {
-          this.revokeDialogOpen.set(false);
-          this.revokeTarget.set(null);
-          this.createdNotice.set('Invite revoked.');
-          this.loadInvites();
-        },
-        error: (error: unknown) => this.message.set(this.formatInviteError(error)),
-      });
+    this.http.post(`/api/admin/invites/${target.id}/revoke`, {}, { withCredentials: true }).pipe(finalize(() => this.revoking.set(false))).subscribe({
+      next: () => { this.revokeDialogOpen.set(false); this.revokeTarget.set(null); this.createdNotice.set('Invite revoked.'); this.loadInvites(); },
+      error: (error: unknown) => this.message.set(this.formatInviteError(error)),
+    });
   }
 
-  handleGridAction(event: { actionId: string; row: InviteRow }): void {
-    if (event.actionId === 'revoke') {
-      this.requestRevoke(event.row);
-    }
-  }
+  handleGridAction(event: { actionId: string; row: InviteRow }): void { if (event.actionId === 'revoke') { this.requestRevoke(event.row); } }
 
   copyInviteUrl(): void {
     const inviteUrl = this.createdInvite()?.inviteUrl;
@@ -285,22 +217,20 @@ export class InviteAdminPageComponent {
 
     void navigator.clipboard.writeText(inviteUrl).then(
       () => this.createdNotice.set('Invite URL copied. Send it manually to the invitee.'),
-      () => this.message.set('Copy failed. Select and copy the invite URL.'),
+      () => this.message.set('Copy failed. Select and copy the invite URL.')
     );
   }
 
   private loadInvites(): void {
-    this.http
-      .get<PagedResponseDto<InviteDto>>('/api/admin/invites', { withCredentials: true })
-      .subscribe({
-        next: (response) => this.invites.set((response.items ?? []).map(toInviteRow)),
-        error: (error: { status?: number }) => {
-          if (error.status === 401 || error.status === 403) {
-            this.status.set('permissionDenied');
-            this.message.set('Admin access is required.');
-          }
-        },
-      });
+    this.http.get<PagedResponseDto<InviteDto>>('/api/admin/invites', { withCredentials: true }).subscribe({
+      next: (response) => this.invites.set((response.items ?? []).map(toInviteRow)),
+      error: (error: { status?: number }) => {
+        if (error.status === 401 || error.status === 403) {
+          this.status.set('permissionDenied');
+          this.message.set('Admin access is required.');
+        }
+      }
+    });
   }
 
   private toExpiresAtIso(): string | null {
@@ -353,7 +283,7 @@ function toWorkspaceOption(workspace: WorkspaceDto): WorkspaceOption {
   const id = stringValue(workspace.id);
   return {
     id,
-    name: stringValue(workspace.name) || id,
+    name: stringValue(workspace.name) || id
   };
 }
 
@@ -366,7 +296,7 @@ function toInviteRow(invite: InviteDto): InviteRow {
     email: stringValue(invite.email),
     role: workspaceRoleLabel(invite.role),
     status: revokedAt ? 'Revoked' : acceptedAt ? 'Accepted' : 'Pending',
-    expiresAt: formatDate(invite.expiresAt),
+    expiresAt: formatDate(invite.expiresAt)
   };
 }
 
@@ -375,7 +305,7 @@ function toCreatedInviteDetails(invite: InviteDto, fallbackEmail: string): Creat
     email: stringValue(invite.email) || fallbackEmail,
     role: workspaceRoleLabel(invite.role),
     inviteUrl: stringValue(invite.inviteUrl),
-    expiresAt: formatDate(invite.expiresAt),
+    expiresAt: formatDate(invite.expiresAt)
   };
 }
 
@@ -390,10 +320,7 @@ function formatDate(value: unknown): string {
 
 function workspaceRoleLabel(value: unknown): string {
   if (typeof value === 'number') {
-    return (
-      Object.entries(WORKSPACE_ROLE).find(([, roleValue]) => roleValue === value)?.[0] ??
-      value.toString()
-    );
+    return Object.entries(WORKSPACE_ROLE).find(([, roleValue]) => roleValue === value)?.[0] ?? value.toString();
   }
 
   return stringValue(value);

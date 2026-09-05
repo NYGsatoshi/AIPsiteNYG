@@ -1,11 +1,4 @@
-import {
-  Component,
-  EventEmitter,
-  inject,
-  Input,
-  Output,
-  ChangeDetectionStrategy,
-} from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output, inject } from '@angular/core';
 
 import { I18nService } from '../../core/i18n/i18n.service';
 
@@ -13,22 +6,14 @@ import { I18nService } from '../../core/i18n/i18n.service';
   selector: 'app-mobile-header',
   standalone: true,
   template: `
-    <div
-      class="mobile-header"
-      role="region"
-      [attr.aria-label]="i18n.translate('shell.mobileControls')"
-    >
+    <div class="mobile-header" role="region" [attr.aria-label]="i18n.translate('shell.mobileControls')">
       <button
         type="button"
         class="mobile-header__menu"
         data-testid="mobile-nav-toggle"
         [attr.aria-expanded]="drawerOpen"
         aria-controls="mobile-navigation"
-        [attr.aria-label]="
-          drawerOpen
-            ? i18n.translate('shell.closeNavigation')
-            : i18n.translate('shell.openNavigation')
-        "
+        [attr.aria-label]="drawerOpen ? i18n.translate('shell.closeNavigation') : i18n.translate('shell.openNavigation')"
         (click)="drawerToggle.emit()"
       >
         <span aria-hidden="true"></span>
@@ -40,8 +25,8 @@ import { I18nService } from '../../core/i18n/i18n.service';
       </div>
     </div>
   `,
-  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './mobile-header.component.scss',
+  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class MobileHeaderComponent {
   readonly i18n = inject(I18nService);

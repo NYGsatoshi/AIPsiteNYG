@@ -1,5 +1,5 @@
 import { HttpClient } from '@angular/common/http';
-import { Component, inject, signal, ChangeDetectionStrategy } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute } from '@angular/router';
 
@@ -54,35 +54,14 @@ interface ArtifactDetailViewModel {
       }
     </main>
   `,
-  changeDetection: ChangeDetectionStrategy.Eager,
-  styles: [
-    `
-      .artifact-detail {
-        display: grid;
-        gap: 1rem;
-        max-width: 56rem;
-        padding: 1.5rem;
-      }
-      .artifact-detail__eyebrow {
-        margin: 0;
-        font-size: 0.75rem;
-        text-transform: uppercase;
-      }
-      h1,
-      p,
-      dl {
-        margin: 0;
-      }
-      dl {
-        display: grid;
-        grid-template-columns: max-content 1fr;
-        gap: 0.5rem 1rem;
-      }
-      dt {
-        font-weight: 600;
-      }
-    `,
-  ],
+  styles: [`
+    .artifact-detail { display: grid; gap: 1rem; max-width: 56rem; padding: 1.5rem; }
+    .artifact-detail__eyebrow { margin: 0; font-size: .75rem; text-transform: uppercase; }
+    h1, p, dl { margin: 0; }
+    dl { display: grid; grid-template-columns: max-content 1fr; gap: .5rem 1rem; }
+    dt { font-weight: 600; }
+  `],
+  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class ArtifactDetailPageComponent {
   private readonly http = inject(HttpClient);
@@ -103,39 +82,34 @@ export class ArtifactDetailPageComponent {
 
   private loadArtifact(artifactId: string): void {
     this.viewModel.set(emptyViewModel('loading'));
-    this.http
-      .get<ArtifactDetailDto>(`/api/artifacts/${encodeURIComponent(artifactId)}`, {
-        withCredentials: true,
-      })
-      .subscribe({
-        next: (artifact) => {
-          const id = stringValue(artifact.id);
-          if (!id || id !== artifactId) {
-            this.viewModel.set(emptyViewModel('unavailable'));
-            return;
-          }
+    this.http.get<ArtifactDetailDto>(`/api/artifacts/${encodeURIComponent(artifactId)}`, {
+      withCredentials: true
+    }).subscribe({
+      next: (artifact) => {
+        const id = stringValue(artifact.id);
+        if (!id || id !== artifactId) {
+          this.viewModel.set(emptyViewModel('unavailable'));
+          return;
+        }
 
-          const updatedAt =
-            stringValue(artifact.updatedAt) ?? stringValue(artifact.createdAt) ?? '';
-          this.viewModel.set({
-            status: 'ready',
-            title: stringValue(artifact.title) ?? 'Artifact',
-            description: stringValue(artifact.description) ?? '',
-            artifactType: displayValue(artifact.artifactType),
-            artifactStatus: displayValue(artifact.status),
-            updatedAt: updatedAt ? new Date(updatedAt).toLocaleString() : 'Unknown',
-          });
-        },
-        error: (error: { status?: number }) => {
-          this.viewModel.set(
-            emptyViewModel(
-              error.status === 401 || error.status === 403 || error.status === 404
-                ? 'unavailable'
-                : 'error',
-            ),
-          );
-        },
-      });
+        const updatedAt = stringValue(artifact.updatedAt) ?? stringValue(artifact.createdAt) ?? '';
+        this.viewModel.set({
+          status: 'ready',
+          title: stringValue(artifact.title) ?? 'Artifact',
+          description: stringValue(artifact.description) ?? '',
+          artifactType: displayValue(artifact.artifactType),
+          artifactStatus: displayValue(artifact.status),
+          updatedAt: updatedAt ? new Date(updatedAt).toLocaleString() : 'Unknown'
+        });
+      },
+      error: (error: { status?: number }) => {
+        this.viewModel.set(emptyViewModel(
+          error.status === 401 || error.status === 403 || error.status === 404
+            ? 'unavailable'
+            : 'error'
+        ));
+      }
+    });
   }
 }
 
@@ -146,7 +120,7 @@ function emptyViewModel(status: ArtifactDetailViewModel['status']): ArtifactDeta
     description: '',
     artifactType: '',
     artifactStatus: '',
-    updatedAt: '',
+    updatedAt: ''
   };
 }
 

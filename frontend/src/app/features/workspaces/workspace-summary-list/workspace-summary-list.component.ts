@@ -1,4 +1,4 @@
-import { Component, Input, ChangeDetectionStrategy } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 
 import { WorkspaceCardComponent } from '../workspace-card/workspace-card.component';
 import { WorkspaceCardViewModel } from '../workspaces.types';
@@ -8,8 +8,8 @@ import { WorkspaceCardViewModel } from '../workspaces.types';
   standalone: true,
   imports: [WorkspaceCardComponent],
   templateUrl: './workspace-summary-list.component.html',
-  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './workspace-summary-list.component.scss',
+  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class WorkspaceSummaryListComponent {
   @Input() workspaces: readonly WorkspaceCardViewModel[] = [];

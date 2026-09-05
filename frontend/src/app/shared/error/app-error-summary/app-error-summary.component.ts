@@ -1,4 +1,4 @@
-import { Component, Input, ChangeDetectionStrategy } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 
 import { FrontendApiError } from '../../../core/api/api-error.model';
 import { AppErrorBannerComponent } from '../app-error-banner/app-error-banner.component';
@@ -14,15 +14,15 @@ import { AppErrorBannerComponent } from '../app-error-banner/app-error-banner.co
       }
     </div>
   `,
-  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [
     `
       .error-summary {
         display: grid;
         gap: 0.75rem;
       }
-    `,
+    `
   ],
+  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class AppErrorSummaryComponent {
   @Input() errors: readonly FrontendApiError[] = [];

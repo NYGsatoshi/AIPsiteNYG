@@ -1,4 +1,4 @@
-import { Component, Input, ChangeDetectionStrategy } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 
 @Component({
   selector: 'app-preview-disabled',
@@ -9,7 +9,6 @@ import { Component, Input, ChangeDetectionStrategy } from '@angular/core';
       <span>{{ message }}</span>
     </section>
   `,
-  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [
     `
       .preview-disabled {
@@ -25,8 +24,9 @@ import { Component, Input, ChangeDetectionStrategy } from '@angular/core';
       strong {
         color: #334155;
       }
-    `,
+    `
   ],
+  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class AppPreviewDisabledComponent {
   @Input() title = 'プレビューは無効です';

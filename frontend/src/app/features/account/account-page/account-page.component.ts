@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal, ChangeDetectionStrategy } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { finalize } from 'rxjs';
 
 import { I18nService } from '../../../core/i18n/i18n.service';
@@ -26,11 +26,11 @@ import { TaskNotificationPreferencesComponent } from '../task-notification-prefe
     LanguagePreferencesComponent,
     PasswordPanelComponent,
     SessionListComponent,
-    TaskNotificationPreferencesComponent,
+    TaskNotificationPreferencesComponent
   ],
   templateUrl: './account-page.component.html',
-  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './account-page.component.scss',
+  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class AccountPageComponent {
   private readonly facade = inject(AccountFacade);

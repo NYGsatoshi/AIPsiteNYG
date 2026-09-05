@@ -1,4 +1,4 @@
-import { Component, Input, inject, ChangeDetectionStrategy } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input, inject } from '@angular/core';
 
 import { I18nService } from '../../../core/i18n/i18n.service';
 import { FileQuotaViewModel } from '../files.types';
@@ -15,8 +15,8 @@ import { FileQuotaViewModel } from '../files.types';
       <span>{{ formatBytes(quota.usedBytes) }} / {{ formatBytes(quota.limitBytes) }}</span>
     </section>
   `,
-  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './file-quota-state.component.scss',
+  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class FileQuotaStateComponent {
   readonly i18n = inject(I18nService);

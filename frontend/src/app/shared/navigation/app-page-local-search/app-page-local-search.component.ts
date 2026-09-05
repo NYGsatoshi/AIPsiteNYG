@@ -1,12 +1,4 @@
-import {
-  Component,
-  EventEmitter,
-  Input,
-  OnChanges,
-  Output,
-  SimpleChanges,
-  ChangeDetectionStrategy,
-} from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, Input, OnChanges, Output, SimpleChanges } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
 export interface PageLocalSearchRow {
@@ -30,7 +22,6 @@ export interface PageLocalSearchRow {
       />
     </label>
   `,
-  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [
     `
       .page-local-search {
@@ -48,8 +39,9 @@ export interface PageLocalSearchRow {
         font: inherit;
         font-weight: 400;
       }
-    `,
+    `
   ],
+  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class AppPageLocalSearchComponent implements OnChanges {
   @Input() rows: readonly PageLocalSearchRow[] = [];
@@ -76,9 +68,7 @@ export class AppPageLocalSearchComponent implements OnChanges {
   private applyFilter(): void {
     const normalizedQuery = this.searchValue.trim().toLocaleLowerCase('ja-JP');
     this.filteredRows = normalizedQuery
-      ? this.rows.filter((row) =>
-          row.searchText.toLocaleLowerCase('ja-JP').includes(normalizedQuery),
-        )
+      ? this.rows.filter((row) => row.searchText.toLocaleLowerCase('ja-JP').includes(normalizedQuery))
       : [...this.rows];
     this.filteredRowsChange.emit(this.filteredRows);
   }

@@ -1,5 +1,6 @@
 import { A11yModule } from '@angular/cdk/a11y';
 import {
+  ChangeDetectionStrategy,
   Component,
   DestroyRef,
   ElementRef,
@@ -9,7 +10,6 @@ import {
   effect,
   inject,
   signal,
-  ChangeDetectionStrategy,
 } from '@angular/core';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { Observable, Subscription } from 'rxjs';
@@ -29,10 +29,7 @@ import { FileActivityPanelComponent } from '../file-activity-panel/file-activity
 import { FileFolderStore } from '../file-folders.service';
 import { FileMoveDialogComponent } from '../file-move-dialog/file-move-dialog.component';
 import { FilePreviewService } from '../file-preview.service';
-import {
-  FileBrowserShortcut,
-  FileBrowserSidebarComponent,
-} from '../file-browser-sidebar/file-browser-sidebar.component';
+import { FileBrowserShortcut, FileBrowserSidebarComponent } from '../file-browser-sidebar/file-browser-sidebar.component';
 import { FileQuotaStateComponent } from '../file-quota-state/file-quota-state.component';
 import { FilesFacade } from '../files.facade';
 import { FileSharingDetailViewModel } from '../files.api';
@@ -72,8 +69,8 @@ const PREVIEW_OVERLAY_MAX_WIDTH = 860;
     RecentFilesListComponent,
   ],
   templateUrl: './files-page.component.html',
-  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './files-page.component.scss',
+  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class FilesPageComponent {
   @ViewChild(AppDataGridComponent) private dataGrid?: AppDataGridComponent<FileViewModel>;
@@ -99,11 +96,8 @@ export class FilesPageComponent {
   readonly searchOwner = signal<FileSearchOwnerFilter>('any');
   readonly browserShortcut = signal<FileBrowserShortcut>('recent');
   readonly browserFolders = this.fileFolders.tree;
-  readonly activeWorkspaceLabel = computed(
-    () =>
-      this.activeWorkspace.activeWorkspace()?.label ??
-      this.i18n.translate('files.currentWorkspace'),
-  );
+  readonly activeWorkspaceLabel = computed(() =>
+    this.activeWorkspace.activeWorkspace()?.label ?? this.i18n.translate('files.currentWorkspace'));
   readonly browserShortcutLabel = computed(() => {
     switch (this.browserShortcut()) {
       case 'starred':
@@ -149,22 +143,19 @@ export class FilesPageComponent {
   readonly selectedFiles = signal<readonly FileViewModel[]>([]);
   readonly selectionSnapshot = this.facade.selectionSnapshot;
   readonly selectedSearchResults = computed(() => this.selectionSnapshot().selection);
-  readonly selectedCount = computed(
-    () => this.selectedSearchResults()?.selectedCount ?? this.selectedFiles().length,
-  );
+  readonly selectedCount = computed(() =>
+    this.selectedSearchResults()?.selectedCount ?? this.selectedFiles().length);
   readonly hasSelection = computed(() => this.selectedCount() > 0);
   readonly hasSearchResultsSelection = computed(() => this.selectedSearchResults() !== null);
   readonly selectionCaptureBusy = computed(() => this.selectionSnapshot().status === 'capturing');
-  readonly selectedFileIds = computed<ReadonlySet<string>>(
-    () => new Set(this.selectedFiles().map((file) => file.id)),
-  );
+  readonly selectedFileIds = computed<ReadonlySet<string>>(() =>
+    new Set(this.selectedFiles().map((file) => file.id)));
   readonly moveDialogOpen = signal(false);
   readonly moveFolderId = signal<string | null>(null);
   readonly moveFileObjectIds = computed<readonly string[]>(() =>
     this.selectedFiles()
       .map((file) => file.canonicalFileId)
-      .filter((id): id is string => typeof id === 'string' && id.length > 0),
-  );
+      .filter((id): id is string => typeof id === 'string' && id.length > 0));
   readonly canMoveSelection = computed(() => {
     if (this.hasSearchResultsSelection()) {
       return false;
@@ -179,10 +170,7 @@ export class FilesPageComponent {
       return true;
     }
     const selected = this.selectedFiles();
-    return (
-      selected.length > 0 &&
-      selected.every((file) => file.canDelete === true && !!file.canonicalFileId)
-    );
+    return selected.length > 0 && selected.every((file) => file.canDelete === true && !!file.canonicalFileId);
   });
   readonly downloadableSelection = computed(() => {
     if (this.hasSearchResultsSelection()) {
@@ -190,10 +178,8 @@ export class FilesPageComponent {
     }
     const selected = this.selectedFiles();
     const file = selected.length === 1 ? selected[0] : undefined;
-    return file?.canonicalFileId &&
-      file.downloadPolicy === 'available' &&
-      file.scanStatus === 'allowed' &&
-      file.downloadState !== 'pending'
+    return file?.canonicalFileId && file.downloadPolicy === 'available' &&
+      file.scanStatus === 'allowed' && file.downloadState !== 'pending'
       ? file
       : null;
   });
@@ -210,20 +196,13 @@ export class FilesPageComponent {
   readonly previewOpen = computed(() => this.previewFile() !== null);
   readonly inspectorTab = signal<FileInspectorTab>('preview');
   readonly inspectorTabs: readonly FileInspectorTab[] = ['preview', 'details', 'activity'];
-  readonly fileLocationLabel = computed(
-    () =>
-      this.activeWorkspace.activeWorkspace()?.label ??
-      this.i18n.translate('files.currentWorkspace'),
-  );
+  readonly fileLocationLabel = computed(() =>
+    this.activeWorkspace.activeWorkspace()?.label ?? this.i18n.translate('files.currentWorkspace'));
   readonly previewCanDownload = computed(() => {
     const file = this.previewFile();
-    return (
-      !!file?.canonicalFileId &&
-      file.downloadPolicy === 'available' &&
-      file.scanStatus === 'allowed' &&
-      file.capabilities.includes('download') &&
-      file.downloadState !== 'pending'
-    );
+    return !!file?.canonicalFileId && file.downloadPolicy === 'available' &&
+      file.scanStatus === 'allowed' && file.capabilities.includes('download') &&
+      file.downloadState !== 'pending';
   });
   readonly previewCanOpen = computed(() => this.previewState() === 'ready' && !!this.previewUrl());
   readonly researchHandoffHref = computed(() => {
@@ -240,11 +219,7 @@ export class FilesPageComponent {
   });
   readonly previewCanManageSharing = computed(() => {
     const file = this.previewFile();
-    return (
-      !!file?.canonicalFileId &&
-      file.sharing.canManageSharing === true &&
-      !!file.sharing.sharingVersion
-    );
+    return !!file?.canonicalFileId && file.sharing.canManageSharing === true && !!file.sharing.sharingVersion;
   });
 
   readonly sharingDialogOpen = signal(false);
@@ -253,9 +228,8 @@ export class FilesPageComponent {
   readonly sharingError = signal('');
   readonly sharingSelectedRecipientId = signal('');
   readonly sharingDialogFile = computed(() => this.previewFile());
-  readonly sharingDialogCanEdit = computed(
-    () => this.sharingDetail()?.sharing.canManageSharing === true && !this.sharingBusy(),
-  );
+  readonly sharingDialogCanEdit = computed(() =>
+    this.sharingDetail()?.sharing.canManageSharing === true && !this.sharingBusy());
 
   readonly deleteDialogOpen = signal(false);
   readonly deleteTargets = signal<readonly FileViewModel[]>([]);
@@ -265,14 +239,11 @@ export class FilesPageComponent {
   readonly deleteDialogTitle = computed(() =>
     this.deleteSelectionCount() === 1
       ? this.i18n.translate('files.delete.titleOne')
-      : this.i18n.translate('files.delete.titleMany', { count: this.deleteSelectionCount() }),
-  );
+      : this.i18n.translate('files.delete.titleMany', { count: this.deleteSelectionCount() }));
   readonly deleteDialogDescription = computed(() => {
     const snapshot = this.deleteSnapshot();
     if (snapshot) {
-      return this.i18n.translate('files.delete.descriptionSearch', {
-        count: snapshot.selectedCount,
-      });
+      return this.i18n.translate('files.delete.descriptionSearch', { count: snapshot.selectedCount });
     }
     const targets = this.deleteTargets();
     if (targets.length === 1) {
@@ -308,38 +279,31 @@ export class FilesPageComponent {
         headerName: this.i18n.translate('files.table.name'),
         flex: 2,
         minWidth: 220,
-        actions: (row) => [
-          {
-            id: 'open',
-            label: row.originalFileName,
-            row,
-          },
-        ],
+        actions: (row) => [{
+          id: 'open',
+          label: row.originalFileName,
+          row,
+        }],
       },
       {
         colId: 'modified',
         headerName: this.i18n.translate('files.table.modified'),
         flex: 1,
         minWidth: 150,
-        valueGetter: ({ data }) => (data ? this.fileModifiedLabel(data) : ''),
+        valueGetter: ({ data }) => data ? this.fileModifiedLabel(data) : '',
       },
-      {
-        field: 'uploadedByDisplay',
-        headerName: this.i18n.translate('files.table.owner'),
-        flex: 1,
-        minWidth: 140,
-      },
+      { field: 'uploadedByDisplay', headerName: this.i18n.translate('files.table.owner'), flex: 1, minWidth: 140 },
       {
         colId: 'access',
         headerName: this.i18n.translate('files.table.access'),
         minWidth: 130,
-        valueGetter: ({ data }) => (data ? this.fileSharingLabel(data) : ''),
+        valueGetter: ({ data }) => data ? this.fileSharingLabel(data) : '',
       },
       {
         colId: 'status',
         headerName: this.i18n.translate('files.table.status'),
         minWidth: 130,
-        valueGetter: ({ data }) => (data ? this.i18n.fileScanStatusLabel(data.scanStatus) : ''),
+        valueGetter: ({ data }) => data ? this.i18n.fileScanStatusLabel(data.scanStatus) : '',
       },
     ];
 
@@ -365,8 +329,7 @@ export class FilesPageComponent {
         field: 'scanStatus',
         headerName: this.i18n.translate('files.table.scanDetails'),
         minWidth: 130,
-        valueFormatter: ({ value }) =>
-          this.i18n.fileScanStatusLabel(value as FileViewModel['scanStatus']),
+        valueFormatter: ({ value }) => this.i18n.fileScanStatusLabel(value as FileViewModel['scanStatus']),
       });
     }
 
@@ -426,12 +389,7 @@ export class FilesPageComponent {
 
   @HostListener('document:keydown.escape', ['$event'])
   handleEscape(event: KeyboardEvent): void {
-    if (
-      this.moveDialogOpen() ||
-      !this.previewOpen() ||
-      this.deleteDialogOpen() ||
-      this.sharingDialogOpen()
-    ) {
+    if (this.moveDialogOpen() || !this.previewOpen() || this.deleteDialogOpen() || this.sharingDialogOpen()) {
       return;
     }
     event.preventDefault();
@@ -484,28 +442,24 @@ export class FilesPageComponent {
   }
 
   searchKindLabel(kind: FileSearchKindFilter): string {
-    const key = (
-      {
-        all: 'files.search.anyType',
-        document: 'files.search.documents',
-        image: 'files.search.images',
-        pdf: 'files.search.pdf',
-        video: 'files.search.video',
-        archive: 'files.search.archives',
-      } as const
-    )[kind];
+    const key = ({
+      all: 'files.search.anyType',
+      document: 'files.search.documents',
+      image: 'files.search.images',
+      pdf: 'files.search.pdf',
+      video: 'files.search.video',
+      archive: 'files.search.archives',
+    } as const)[kind];
     return this.i18n.translate(key);
   }
 
   searchModifiedLabel(modified: FileSearchModifiedFilter): string {
-    const key = (
-      {
-        any: 'files.search.anyTime',
-        last7Days: 'files.search.last7Days',
-        last30Days: 'files.search.last30Days',
-        last90Days: 'files.search.last90Days',
-      } as const
-    )[modified];
+    const key = ({
+      any: 'files.search.anyTime',
+      last7Days: 'files.search.last7Days',
+      last30Days: 'files.search.last30Days',
+      last90Days: 'files.search.last90Days',
+    } as const)[modified];
     return this.i18n.translate(key);
   }
 
@@ -554,10 +508,9 @@ export class FilesPageComponent {
       ? files.findIndex((file) => file.id === this.mobileSelectionAnchorId)
       : -1;
     const targetIndex = files.findIndex((file) => file.id === event.file.id);
-    const affected =
-      event.range && anchorIndex >= 0 && targetIndex >= 0
-        ? files.slice(Math.min(anchorIndex, targetIndex), Math.max(anchorIndex, targetIndex) + 1)
-        : [event.file];
+    const affected = event.range && anchorIndex >= 0 && targetIndex >= 0
+      ? files.slice(Math.min(anchorIndex, targetIndex), Math.max(anchorIndex, targetIndex) + 1)
+      : [event.file];
     for (const file of affected) {
       if (event.selected) {
         selectedIds.add(file.id);
@@ -659,9 +612,7 @@ export class FilesPageComponent {
       this.previewRequest = null;
       if (!result.ok || !result.blob) {
         this.previewState.set('failed');
-        this.previewMessage.set(
-          result.message || this.i18n.translate('files.preview.contentUnavailable'),
-        );
+        this.previewMessage.set(result.message || this.i18n.translate('files.preview.contentUnavailable'));
         return;
       }
       this.applyPreviewBlob(file, result.blob, generation);
@@ -735,10 +686,13 @@ export class FilesPageComponent {
     event.preventDefault();
     const targetTab = this.inspectorTabs[targetIndex] ?? currentTab;
     this.inspectorTab.set(targetTab);
-    const tabList =
-      event.currentTarget instanceof HTMLElement ? event.currentTarget.parentElement : null;
+    const tabList = event.currentTarget instanceof HTMLElement
+      ? event.currentTarget.parentElement
+      : null;
     queueMicrotask(() => {
-      tabList?.querySelector<HTMLButtonElement>(`[data-inspector-tab="${targetTab}"]`)?.focus();
+      tabList
+        ?.querySelector<HTMLButtonElement>(`[data-inspector-tab="${targetTab}"]`)
+        ?.focus();
     });
   }
 
@@ -753,9 +707,7 @@ export class FilesPageComponent {
   fileSharingLabel(file: FileViewModel): string {
     const accessState = file.sharing.accessState;
     if (accessState === 'external' && typeof file.sharing.externalRecipientCount === 'number') {
-      return this.i18n.translate('files.sharing.externalCount', {
-        count: file.sharing.externalRecipientCount,
-      });
+      return this.i18n.translate('files.sharing.externalCount', { count: file.sharing.externalRecipientCount });
     }
     return this.fileSharingStateLabel(accessState);
   }
@@ -784,20 +736,15 @@ export class FilesPageComponent {
     if (clipboard && typeof clipboard.writeText === 'function') {
       void clipboard.writeText(citation).then(
         () => this.previewActionStatus.set(this.i18n.translate('files.preview.citationCopied')),
-        () =>
-          this.previewActionStatus.set(
-            this.fallbackCopyText(citation)
-              ? this.i18n.translate('files.preview.citationCopied')
-              : this.i18n.translate('files.preview.copyUnavailable'),
-          ),
+        () => this.previewActionStatus.set(this.fallbackCopyText(citation)
+          ? this.i18n.translate('files.preview.citationCopied')
+          : this.i18n.translate('files.preview.copyUnavailable')),
       );
       return;
     }
-    this.previewActionStatus.set(
-      this.fallbackCopyText(citation)
-        ? this.i18n.translate('files.preview.citationCopied')
-        : this.i18n.translate('files.preview.copyUnavailable'),
-    );
+    this.previewActionStatus.set(this.fallbackCopyText(citation)
+      ? this.i18n.translate('files.preview.citationCopied')
+      : this.i18n.translate('files.preview.copyUnavailable'));
   }
 
   openSharingDialog(): void {
@@ -854,19 +801,16 @@ export class FilesPageComponent {
     if (!detail || !this.sharingDialogCanEdit()) {
       return;
     }
-    this.runSharingMutation(
-      this.facade.updateFileSharingPolicy(
-        detail.fileObjectId,
-        enabled,
-        detail.sharing.sharingVersion!,
-      ),
-    );
+    this.runSharingMutation(this.facade.updateFileSharingPolicy(
+      detail.fileObjectId,
+      enabled,
+      detail.sharing.sharingVersion!,
+    ));
   }
 
   updateSharingRecipient(event: Event): void {
     this.sharingSelectedRecipientId.set(
-      event.target instanceof HTMLSelectElement ? event.target.value : '',
-    );
+      event.target instanceof HTMLSelectElement ? event.target.value : '');
   }
 
   grantSharingRecipient(): void {
@@ -875,13 +819,11 @@ export class FilesPageComponent {
     if (!detail || !recipientUserId || !this.sharingDialogCanEdit()) {
       return;
     }
-    this.runSharingMutation(
-      this.facade.grantFileSharingRecipient(
-        detail.fileObjectId,
-        recipientUserId,
-        detail.sharing.sharingVersion!,
-      ),
-    );
+    this.runSharingMutation(this.facade.grantFileSharingRecipient(
+      detail.fileObjectId,
+      recipientUserId,
+      detail.sharing.sharingVersion!,
+    ));
   }
 
   revokeSharingRecipient(grantId: string): void {
@@ -889,13 +831,11 @@ export class FilesPageComponent {
     if (!detail || !grantId || !this.sharingDialogCanEdit()) {
       return;
     }
-    this.runSharingMutation(
-      this.facade.revokeFileSharingRecipient(
-        detail.fileObjectId,
-        grantId,
-        detail.sharing.sharingVersion!,
-      ),
-    );
+    this.runSharingMutation(this.facade.revokeFileSharingRecipient(
+      detail.fileObjectId,
+      grantId,
+      detail.sharing.sharingVersion!,
+    ));
   }
 
   private runSharingMutation(request: Observable<FileSharingDetailViewModel>): void {
@@ -934,16 +874,15 @@ export class FilesPageComponent {
     this.sharingDetail.set(detail);
     this.facade.reconcileFileSharing(detail);
     this.previewFile.update((file) =>
-      file?.canonicalFileId === detail.fileObjectId ? { ...file, sharing: detail.sharing } : file,
-    );
+      file?.canonicalFileId === detail.fileObjectId
+        ? { ...file, sharing: detail.sharing }
+        : file);
   }
 
   private isCurrentSharingRequest(generation: number, fileObjectId: string): boolean {
-    return (
-      generation === this.sharingGeneration &&
+    return generation === this.sharingGeneration &&
       this.sharingDialogOpen() &&
-      this.previewFile()?.canonicalFileId === fileObjectId
-    );
+      this.previewFile()?.canonicalFileId === fileObjectId;
   }
 
   private cancelSharingRequest(): void {
@@ -1090,11 +1029,7 @@ export class FilesPageComponent {
       return;
     }
     const active = document.activeElement;
-    if (
-      active instanceof HTMLElement &&
-      active !== document.body &&
-      !this.previewPane?.nativeElement.contains(active)
-    ) {
+    if (active instanceof HTMLElement && active !== document.body && !this.previewPane?.nativeElement.contains(active)) {
       this.previewReturnFocus = active;
     }
   }
@@ -1106,11 +1041,7 @@ export class FilesPageComponent {
   }
 
   private revokePreviewObjectUrl(): void {
-    if (
-      this.previewObjectUrl &&
-      typeof URL !== 'undefined' &&
-      typeof URL.revokeObjectURL === 'function'
-    ) {
+    if (this.previewObjectUrl && typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function') {
       URL.revokeObjectURL(this.previewObjectUrl);
     }
     this.previewObjectUrl = null;
@@ -1155,21 +1086,11 @@ export class FilesPageComponent {
     if (contentType.startsWith('text/')) {
       return true;
     }
-    if (
-      [
-        'application/json',
-        'application/xml',
-        'application/yaml',
-        'application/x-yaml',
-        'application/x-ndjson',
-      ].includes(contentType)
-    ) {
+    if (['application/json', 'application/xml', 'application/yaml', 'application/x-yaml', 'application/x-ndjson'].includes(contentType)) {
       return true;
     }
     const fileName = file.originalFileName.toLowerCase();
-    return ['.txt', '.md', '.csv', '.log', '.json', '.xml', '.yaml', '.yml'].some((extension) =>
-      fileName.endsWith(extension),
-    );
+    return ['.txt', '.md', '.csv', '.log', '.json', '.xml', '.yaml', '.yml'].some((extension) => fileName.endsWith(extension));
   }
 
   private applyPreviewBlob(file: FileViewModel, blob: Blob, generation: number): void {
@@ -1189,15 +1110,12 @@ export class FilesPageComponent {
       return;
     }
 
-    const objectUrlAvailable =
-      typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function';
+    const objectUrlAvailable = typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function';
     if (objectUrlAvailable) {
       const objectUrl = URL.createObjectURL(blob);
       this.previewObjectUrl = objectUrl;
       this.previewUrl.set(objectUrl);
-      this.previewResourceUrl.set(
-        renderer === 'pdf' ? this.sanitizer.bypassSecurityTrustResourceUrl(objectUrl) : null,
-      );
+      this.previewResourceUrl.set(renderer === 'pdf' ? this.sanitizer.bypassSecurityTrustResourceUrl(objectUrl) : null);
     } else if (renderer !== 'text') {
       this.previewState.set('failed');
       this.previewMessage.set(this.i18n.translate('files.preview.localUrlUnavailable'));
@@ -1206,25 +1124,19 @@ export class FilesPageComponent {
 
     if (renderer === 'text') {
       const truncated = blob.size > TEXT_PREVIEW_MAX_BYTES;
-      void blob
-        .slice(0, TEXT_PREVIEW_MAX_BYTES)
-        .text()
-        .then((text) => {
-          if (generation !== this.previewGeneration || this.previewFile()?.id !== file.id) {
-            return;
-          }
-          this.previewText.set(text);
-          this.previewMessage.set(
-            truncated ? this.i18n.translate('files.preview.textLimited') : '',
-          );
-          this.previewState.set('ready');
-        })
-        .catch(() => {
-          if (generation === this.previewGeneration && this.previewFile()?.id === file.id) {
-            this.previewState.set('failed');
-            this.previewMessage.set(this.i18n.translate('files.preview.textDecodeFailed'));
-          }
-        });
+      void blob.slice(0, TEXT_PREVIEW_MAX_BYTES).text().then((text) => {
+        if (generation !== this.previewGeneration || this.previewFile()?.id !== file.id) {
+          return;
+        }
+        this.previewText.set(text);
+        this.previewMessage.set(truncated ? this.i18n.translate('files.preview.textLimited') : '');
+        this.previewState.set('ready');
+      }).catch(() => {
+        if (generation === this.previewGeneration && this.previewFile()?.id === file.id) {
+          this.previewState.set('failed');
+          this.previewMessage.set(this.i18n.translate('files.preview.textDecodeFailed'));
+        }
+      });
       return;
     }
 

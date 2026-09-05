@@ -1,4 +1,4 @@
-import { Component, Input, ChangeDetectionStrategy } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 
 @Component({
   selector: 'app-form-actions',
@@ -8,7 +8,6 @@ import { Component, Input, ChangeDetectionStrategy } from '@angular/core';
       <ng-content />
     </div>
   `,
-  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [
     `
       .form-actions {
@@ -21,8 +20,9 @@ import { Component, Input, ChangeDetectionStrategy } from '@angular/core';
       .form-actions--end {
         justify-content: flex-end;
       }
-    `,
+    `
   ],
+  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class AppFormActionsComponent {
   @Input() align: 'start' | 'end' = 'end';

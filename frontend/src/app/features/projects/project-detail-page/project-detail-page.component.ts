@@ -1,16 +1,5 @@
 import { BreakpointObserver } from '@angular/cdk/layout';
-import {
-  Component,
-  DestroyRef,
-  ElementRef,
-  OnDestroy,
-  computed,
-  effect,
-  inject,
-  signal,
-  viewChild,
-  ChangeDetectionStrategy,
-} from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, OnDestroy, computed, effect, inject, signal, viewChild } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { distinctUntilChanged, map } from 'rxjs';
@@ -19,49 +8,33 @@ import { AppEmptyStateComponent } from '../../../shared/empty-state/app-empty-st
 import { AppErrorBannerComponent } from '../../../shared/error/app-error-banner/app-error-banner.component';
 import { AppInlineLoadingComponent } from '../../../shared/loading/app-inline-loading/app-inline-loading.component';
 import { AppPermissionDeniedComponent } from '../../../shared/permission/app-permission-denied/app-permission-denied.component';
-import {
-  AipGanttComponent,
-  AipKanbanComponent,
-} from '../../../shared/ui/adapters/syncfusion/aip-adapter-shells.components';
+import { AipGanttComponent, AipKanbanComponent } from '../../../shared/ui/adapters/syncfusion/aip-adapter-shells.components';
 import {
   AipAdapterState,
   AipGanttContract,
   AipGanttEditIntent,
   AipGanttItem,
   AipKanbanContract,
-  AipKanbanMoveRequest,
+  AipKanbanMoveRequest
 } from '../../../shared/ui/contracts/aip-complex-adapter.contracts';
 import { ProjectGanttSnapshot } from '../project-gantt.models';
 import {
   ProjectKanbanCard,
   ProjectKanbanColumn,
   ProjectKanbanSnapshot,
-  ProjectKanbanSwimlane,
+  ProjectKanbanSwimlane
 } from '../project-kanban.models';
 import {
   ProjectDetailFacade,
   ProjectDetailTab,
   ProjectKanbanStatus,
-  ProjectScheduleStatus,
+  ProjectScheduleStatus
 } from '../project-detail.facade';
 import { TaskGridRow } from '../projects.types';
 import { TaskTableComponent } from '../task-table/task-table.component';
 
-@Component({
-  selector: 'app-project-detail-page',
-  standalone: true,
-  imports: [
-    AppEmptyStateComponent,
-    AppErrorBannerComponent,
-    AppInlineLoadingComponent,
-    AppPermissionDeniedComponent,
-    AipKanbanComponent,
-    AipGanttComponent,
-    TaskTableComponent,
-  ],
-  templateUrl: './project-detail-page.component.html',
-  changeDetection: ChangeDetectionStrategy.Eager,
-  styleUrl: './project-detail-page.component.scss',
+@Component({ selector: 'app-project-detail-page', standalone: true, imports: [AppEmptyStateComponent, AppErrorBannerComponent, AppInlineLoadingComponent, AppPermissionDeniedComponent, AipKanbanComponent, AipGanttComponent, TaskTableComponent], templateUrl: './project-detail-page.component.html', styleUrl: './project-detail-page.component.scss',
+  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class ProjectDetailPageComponent implements OnDestroy {
   private readonly route = inject(ActivatedRoute);
@@ -75,8 +48,7 @@ export class ProjectDetailPageComponent implements OnDestroy {
   readonly configOpen = signal(false);
   readonly configColumns = signal<readonly ProjectKanbanColumn[]>([]);
   readonly configSwimlane = signal<ProjectKanbanSwimlane>('none');
-  private readonly activationAnnouncement =
-    viewChild<ElementRef<HTMLElement>>('activationAnnouncement');
+  private readonly activationAnnouncement = viewChild<ElementRef<HTMLElement>>('activationAnnouncement');
   private readonly pageFocus = viewChild<ElementRef<HTMLElement>>('pageFocus');
   private previousActivationStatus = 'idle';
   private activationCompletionInterrupted = false;
@@ -84,78 +56,54 @@ export class ProjectDetailPageComponent implements OnDestroy {
   private readonly pendingTaskCreateProjectId = signal<string | null>(null);
   private readonly taskCreateNavigationInterrupted = signal(false);
   private readonly taskCreateNavigationInFlight = signal(false);
-  private readonly operationalTabs: readonly { id: ProjectDetailTab; label: string }[] = [
-    { id: 'overview', label: 'Overview' },
-    { id: 'tasks', label: 'Tasks' },
-    { id: 'list', label: 'List' },
-    { id: 'schedule', label: 'Schedule' },
-    { id: 'workload', label: 'Workload' },
-    { id: 'members', label: 'Members' },
-  ];
+  private readonly operationalTabs: readonly { id: ProjectDetailTab; label: string }[] = [{ id: 'overview', label: 'Overview' }, { id: 'tasks', label: 'Tasks' }, { id: 'list', label: 'List' }, { id: 'schedule', label: 'Schedule' }, { id: 'workload', label: 'Workload' }, { id: 'members', label: 'Members' }];
   readonly tabs = computed<readonly { id: ProjectDetailTab; label: string }[]>(() =>
     this.page().project?.isOperational === true
       ? this.operationalTabs
-      : this.operationalTabs.slice(0, 1),
-  );
+      : this.operationalTabs.slice(0, 1));
   readonly canActivate = computed(() => {
     const vm = this.page();
-    return (
-      vm.project?.canActivate === true &&
+    return vm.project?.canActivate === true &&
       Number.isSafeInteger(vm.project.versionNo) &&
       (vm.project.versionNo ?? 0) > 0 &&
-      ['idle', 'failure', 'conflict'].includes(vm.activation.status)
-    );
+      ['idle', 'failure', 'conflict'].includes(vm.activation.status);
   });
   readonly activationBusy = computed(() =>
-    ['submitting', 'reconciling'].includes(this.page().activation.status),
-  );
+    ['submitting', 'reconciling'].includes(this.page().activation.status));
   readonly swimlanes: readonly { value: ProjectKanbanSwimlane; label: string }[] = [
     { value: 'none', label: 'None' },
     { value: 'primaryAssignee', label: 'Primary assignee' },
     { value: 'targetGroup', label: 'Target group' },
     { value: 'priority', label: 'Priority' },
-    { value: 'parentTask', label: 'Parent task' },
+    { value: 'parentTask', label: 'Parent task' }
   ];
 
   constructor() {
-    this.route.paramMap
-      .pipe(
-        map((params) => params.get('projectId')?.trim() ?? ''),
-        distinctUntilChanged(),
-        takeUntilDestroyed(this.destroyRef),
-      )
-      .subscribe((projectId) => {
-        this.tab.set('overview');
-        this.configOpen.set(false);
-        this.configColumns.set([]);
-        this.configSwimlane.set('none');
-        this.previousActivationStatus = 'idle';
-        this.activationCompletionInterrupted = false;
-        this.activationInterruptionFallbackFocused = false;
-        this.pendingTaskCreateProjectId.set(null);
-        this.taskCreateNavigationInterrupted.set(false);
-        if (projectId) {
-          this.facade.load(projectId);
-        } else {
-          this.facade.release();
-        }
-      });
-    this.breakpoints
-      .observe('(max-width: 40rem)')
+    this.route.paramMap.pipe(
+      map((params) => params.get('projectId')?.trim() ?? ''),
+      distinctUntilChanged(),
+      takeUntilDestroyed(this.destroyRef)
+    ).subscribe((projectId) => {
+      this.tab.set('overview');
+      this.configOpen.set(false);
+      this.configColumns.set([]);
+      this.configSwimlane.set('none');
+      this.previousActivationStatus = 'idle';
+      this.activationCompletionInterrupted = false;
+      this.activationInterruptionFallbackFocused = false;
+      this.pendingTaskCreateProjectId.set(null);
+      this.taskCreateNavigationInterrupted.set(false);
+      if (projectId) {this.facade.load(projectId);}
+      else {this.facade.release();}
+    });
+    this.breakpoints.observe('(max-width: 40rem)')
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((result) => this.schedulePresentation.set(result.matches ? 'narrow' : 'desktop'));
     effect(() => {
       const view = this.page();
       const status = view.activation.status;
-      const completed = [
-        'success',
-        'failure',
-        'conflict',
-        'uncertain',
-        'permissionDenied',
-      ].includes(status);
-      const wasBusy =
-        this.previousActivationStatus === 'submitting' ||
+      const completed = ['success', 'failure', 'conflict', 'uncertain', 'permissionDenied'].includes(status);
+      const wasBusy = this.previousActivationStatus === 'submitting' ||
         this.previousActivationStatus === 'reconciling';
       if (
         status === 'idle' &&
@@ -166,24 +114,23 @@ export class ProjectDetailPageComponent implements OnDestroy {
         this.activationInterruptionFallbackFocused = false;
       }
       const outerTerminal = view.status === 'permissionDenied' || view.status === 'error';
-      const focusInterruptedFallback =
-        this.activationCompletionInterrupted &&
+      const focusInterruptedFallback = this.activationCompletionInterrupted &&
         outerTerminal &&
         !this.activationInterruptionFallbackFocused;
-      const focusCompletion = completed && (wasBusy || this.activationCompletionInterrupted);
+      const focusCompletion = completed &&
+        (wasBusy || this.activationCompletionInterrupted);
       this.previousActivationStatus = status;
       if (focusCompletion || focusInterruptedFallback) {
-        if (focusInterruptedFallback) {
-          this.activationInterruptionFallbackFocused = true;
-        }
+        if (focusInterruptedFallback)
+          {this.activationInterruptionFallbackFocused = true;}
         if (completed) {
           this.activationCompletionInterrupted = false;
           this.activationInterruptionFallbackFocused = false;
         }
         this.tab.set('overview');
         queueMicrotask(() => {
-          const focusTarget =
-            this.activationAnnouncement()?.nativeElement ?? this.pageFocus()?.nativeElement;
+          const focusTarget = this.activationAnnouncement()?.nativeElement ??
+            this.pageFocus()?.nativeElement;
           focusTarget?.focus();
         });
       }
@@ -226,9 +173,7 @@ export class ProjectDetailPageComponent implements OnDestroy {
     });
   }
 
-  ngOnDestroy(): void {
-    this.facade.release();
-  }
+  ngOnDestroy(): void { this.facade.release(); }
   openCreateTask(): void {
     const project = this.page().project;
     if (project?.isOperational === true && project.canCreateTask === true) {
@@ -261,59 +206,30 @@ export class ProjectDetailPageComponent implements OnDestroy {
       this.taskCreateNavigationInFlight.set(false);
     }
   }
-  openTask(row: TaskGridRow): void {
-    void this.router.navigate(['/projects', row.projectId, 'tasks', row.id]);
-  }
+  openTask(row: TaskGridRow): void { void this.router.navigate(['/projects', row.projectId, 'tasks', row.id]); }
   openKanbanItem(item: object, projectId: string): void {
     const card = item as ProjectKanbanCard;
-    if (card.canOpen) {
-      void this.router.navigate(['/projects', projectId, 'tasks', card.taskId]);
-    }
+    if (card.canOpen) {void this.router.navigate(['/projects', projectId, 'tasks', card.taskId]);}
   }
   requestKanbanMove(event: AipKanbanMoveRequest<object>): void {
     this.facade.moveTask(event as AipKanbanMoveRequest<ProjectKanbanCard>);
   }
-  setKanbanInteractionActive(active: boolean): void {
-    this.facade.setKanbanInteractionActive(active);
-  }
-  retryKanban(): void {
-    this.facade.retryKanban();
-  }
-  retryTaskList(): void {
-    this.facade.retryTaskList();
-  }
-  retrySchedule(): void {
-    this.facade.retrySchedule();
-  }
-  activateProject(): void {
-    this.facade.activate();
-  }
-  retryPreservedScheduleIntent(): void {
-    this.facade.retryPreservedScheduleIntent();
-  }
-  clearPreservedScheduleIntent(): void {
-    this.facade.clearPreservedScheduleIntent();
-  }
-  requestGanttEdit(intent: AipGanttEditIntent): void {
-    this.facade.applyGanttEdit(intent);
-  }
-  setGanttInteractionActive(active: boolean): void {
-    this.facade.setScheduleInteractionActive(active);
-  }
-  reportGanttFailure(): void {
-    this.facade.reportGanttAdapterFailure();
-  }
+  setKanbanInteractionActive(active: boolean): void { this.facade.setKanbanInteractionActive(active); }
+  retryKanban(): void { this.facade.retryKanban(); }
+  retryTaskList(): void { this.facade.retryTaskList(); }
+  retrySchedule(): void { this.facade.retrySchedule(); }
+  activateProject(): void { this.facade.activate(); }
+  retryPreservedScheduleIntent(): void { this.facade.retryPreservedScheduleIntent(); }
+  clearPreservedScheduleIntent(): void { this.facade.clearPreservedScheduleIntent(); }
+  requestGanttEdit(intent: AipGanttEditIntent): void { this.facade.applyGanttEdit(intent); }
+  setGanttInteractionActive(active: boolean): void { this.facade.setScheduleInteractionActive(active); }
+  reportGanttFailure(): void { this.facade.reportGanttAdapterFailure(); }
   openGanttItem(item: AipGanttItem, projectId: string): void {
-    if (item.kind === 'task' && item.scheduleEditPermissions.canOpen) {
-      void this.router.navigate(['/projects', projectId, 'tasks', item.taskId]);
-    }
+    if (item.kind === 'task' && item.scheduleEditPermissions.canOpen)
+      {void this.router.navigate(['/projects', projectId, 'tasks', item.taskId]);}
   }
-  setSwimlane(value: string): void {
-    this.facade.setKanbanSwimlane(value as ProjectKanbanSwimlane);
-  }
-  setIncludeOlderCompleted(include: boolean): void {
-    this.facade.setIncludeOlderCompleted(include);
-  }
+  setSwimlane(value: string): void { this.facade.setKanbanSwimlane(value as ProjectKanbanSwimlane); }
+  setIncludeOlderCompleted(include: boolean): void { this.facade.setIncludeOlderCompleted(include); }
 
   openConfiguration(snapshot: ProjectKanbanSnapshot): void {
     this.configColumns.set(snapshot.columns.map((column) => ({ ...column })));
@@ -328,25 +244,16 @@ export class ProjectDetailPageComponent implements OnDestroy {
   moveConfigColumn(index: number, offset: -1 | 1): void {
     const columns = [...this.configColumns()];
     const target = index + offset;
-    if (target < 0 || target >= columns.length) {
-      return;
-    }
+    if (target < 0 || target >= columns.length) {return;}
     [columns[index], columns[target]] = [columns[target], columns[index]];
     this.configColumns.set(columns);
   }
   setWipLimit(stageId: string, value: string): void {
     const parsed = value.trim() ? Number(value) : null;
-    this.configColumns.update((columns) =>
-      columns.map((column) =>
-        column.workflowStageId === stageId
-          ? {
-              ...column,
-              wipWarningLimit:
-                parsed !== null && Number.isInteger(parsed) && parsed > 0 ? parsed : null,
-            }
-          : column,
-      ),
-    );
+    this.configColumns.update((columns) => columns.map((column) =>
+      column.workflowStageId === stageId
+        ? { ...column, wipWarningLimit: parsed !== null && Number.isInteger(parsed) && parsed > 0 ? parsed : null }
+        : column));
   }
   saveConfiguration(): void {
     this.facade.updateKanbanConfig(this.configSwimlane(), this.configColumns());
@@ -354,13 +261,7 @@ export class ProjectDetailPageComponent implements OnDestroy {
     this.facade.setKanbanInteractionActive(false);
   }
 
-  kanban(
-    snapshot: ProjectKanbanSnapshot,
-    status: ProjectKanbanStatus,
-    feedback: string | null,
-    busyTaskId: string | null,
-    focusTaskId: string | null,
-  ): AipKanbanContract<ProjectKanbanCard> {
+  kanban(snapshot: ProjectKanbanSnapshot, status: ProjectKanbanStatus, feedback: string | null, busyTaskId: string | null, focusTaskId: string | null): AipKanbanContract<ProjectKanbanCard> {
     return {
       ariaLabel: 'Canonical Project Task Kanban',
       presentation: 'desktop',
@@ -368,31 +269,22 @@ export class ProjectDetailPageComponent implements OnDestroy {
       items: snapshot.cards,
       itemIdentity: (card) => card.taskId,
       itemTitle: (card) => card.summary,
-      itemDescription: (card) =>
-        `Primary assignee: ${card.primaryAssigneeLabel}. Target group: ${card.targetGroupLabel}.`,
+      itemDescription: (card) => `Primary assignee: ${card.primaryAssigneeLabel}. Target group: ${card.targetGroupLabel}.`,
       itemMetadata: (card) => [
         `Priority: ${card.priority}`,
         card.isBlocked ? 'Blocked' : 'Not blocked',
-        card.isParentSummary
-          ? `Derived progress: ${card.progressPercent}%`
-          : `Progress: ${card.progressPercent}%`,
+        card.isParentSummary ? `Derived progress: ${card.progressPercent}%` : `Progress: ${card.progressPercent}%`,
         card.isParentSummary
           ? `Derived dates: ${card.plannedStartDate ?? 'No start date'} to ${card.plannedEndDate ?? 'No end date'}`
-          : card.parentSummary
-            ? `Parent: ${card.parentSummary}`
-            : 'Leaf task',
-        card.isParentSummary
-          ? `${card.completedChildCount} of ${card.childCount} child tasks complete`
-          : 'Actionable card',
+          : card.parentSummary ? `Parent: ${card.parentSummary}` : 'Leaf task',
+        card.isParentSummary ? `${card.completedChildCount} of ${card.childCount} child tasks complete` : 'Actionable card'
       ],
-      itemKindLabel: (card) =>
-        card.isParentSummary ? 'Parent summary task' : 'Actionable leaf task',
+      itemKindLabel: (card) => card.isParentSummary ? 'Parent summary task' : 'Actionable leaf task',
       itemStatus: (card) => card.workflowStageId,
       itemOrder: (card) => card.boardOrder,
-      itemSwimlane:
-        snapshot.selectedSwimlane === 'none'
-          ? undefined
-          : (card) => ({ key: card.swimlaneKey, label: card.swimlaneLabel }),
+      itemSwimlane: snapshot.selectedSwimlane === 'none'
+        ? undefined
+        : (card) => ({ key: card.swimlaneKey, label: card.swimlaneLabel }),
       canOpenItem: (card) => card.canOpen,
       canMoveItem: (card) => card.canMove,
       columns: snapshot.columns.map((column) => ({
@@ -402,35 +294,27 @@ export class ProjectDetailPageComponent implements OnDestroy {
         cardCount: column.currentAuthorizedCardCount,
         wipWarningLimit: column.wipWarningLimit,
         hasWipWarning: column.hasWipWarning,
-        requiresReason: column.category === 'cancelled',
+        requiresReason: column.category === 'cancelled'
       })),
       canRequestTransition: (card, target) => card.allowedTargetWorkflowStageIds.includes(target),
       busyItemId: busyTaskId,
       focusItemId: focusTaskId,
-      feedback,
+      feedback
     };
   }
 
   kanbanState(status: ProjectKanbanStatus): AipAdapterState {
-    return status === 'permissionDenied'
-      ? 'permission-denied'
-      : status === 'notFound'
-        ? 'error'
-        : status === 'disabled'
-          ? 'empty'
-          : status;
+    return status === 'permissionDenied' ? 'permission-denied' :
+      status === 'notFound' ? 'error' :
+      status === 'disabled' ? 'empty' :
+      status;
   }
 
-  gantt(
-    snapshot: ProjectGanttSnapshot,
-    status: ProjectScheduleStatus,
-  ): AipGanttContract<AipGanttItem> {
+  gantt(snapshot: ProjectGanttSnapshot, status: ProjectScheduleStatus): AipGanttContract<AipGanttItem> {
     const schedule = this.page().schedule;
-    const compatibilityTasks = [...snapshot.scheduledItems, ...snapshot.unscheduledItems].filter(
-      (item) => item.kind === 'task',
-    );
-    const readOnly =
-      !schedule.canonicalEnabled ||
+    const compatibilityTasks = [...snapshot.scheduledItems, ...snapshot.unscheduledItems]
+      .filter((item) => item.kind === 'task');
+    const readOnly = !schedule.canonicalEnabled ||
       !(
         snapshot.permissions.canEditSchedule ||
         snapshot.permissions.canEditProgress ||
@@ -450,7 +334,7 @@ export class ProjectDetailPageComponent implements OnDestroy {
         id: milestone.taskId,
         title: milestone.title,
         dueDate: milestone.milestoneDate,
-        status: milestone.workflowStageName ?? milestone.stageCategory,
+        status: milestone.workflowStageName ?? milestone.stageCategory
       })),
       timezone: snapshot.calendar.timeZone,
       readOnly,
@@ -463,7 +347,7 @@ export class ProjectDetailPageComponent implements OnDestroy {
       permissions: schedule.canonicalEnabled ? snapshot.permissions : undefined,
       busyItemId: schedule.busyItemId,
       focusItemId: schedule.focusItemId,
-      feedback: schedule.feedback,
+      feedback: schedule.feedback
     };
   }
 

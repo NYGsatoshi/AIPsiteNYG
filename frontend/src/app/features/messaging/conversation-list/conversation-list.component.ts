@@ -1,11 +1,4 @@
-import {
-  Component,
-  EventEmitter,
-  inject,
-  Input,
-  Output,
-  ChangeDetectionStrategy,
-} from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import { MessageNavigationStateService } from '../message-navigation-state.service';
@@ -33,39 +26,22 @@ import { MessagingConversationListItem } from '../messaging.types';
             <span class="conversation-list__title">{{ conversation.title }}</span>
             <span class="conversation-list__meta">{{ conversation.lastActivityLabel }}</span>
             @if (conversation.kind === 'dm') {
-              <span class="conversation-list__preview" data-testid="dm-preview-hidden"
-                >DMプレビュー非表示</span
-              >
+              <span class="conversation-list__preview" data-testid="dm-preview-hidden">DMプレビュー非表示</span>
             } @else {
-              <span class="conversation-list__preview" data-testid="channel-preview">{{
-                conversation.safePreviewLabel
-              }}</span>
+              <span class="conversation-list__preview" data-testid="channel-preview">{{ conversation.safePreviewLabel }}</span>
             }
 
-            @if (
-              isSelected(conversation) ||
-              (showUnreadBadges && isUnread(conversation)) ||
-              conversation.hasMention === true ||
-              conversation.isLater === true
-            ) {
+            @if (isSelected(conversation) || (showUnreadBadges && isUnread(conversation)) || conversation.hasMention === true || conversation.isLater === true) {
               <span class="conversation-list__states" data-testid="conversation-state-summary">
                 @if (isSelected(conversation)) {
-                  <span
-                    class="conversation-list__state conversation-list__state--selected"
-                    data-testid="conversation-selected"
-                  >
+                  <span class="conversation-list__state conversation-list__state--selected" data-testid="conversation-selected">
                     選択中
                   </span>
                 }
                 @if (showUnreadBadges && isUnread(conversation)) {
-                  <span
-                    class="conversation-list__state conversation-list__state--unread"
-                    data-testid="conversation-unread"
-                  >
+                  <span class="conversation-list__state conversation-list__state--unread" data-testid="conversation-unread">
                     <span class="conversation-list__unread-dot" aria-hidden="true"></span>
-                    <span data-testid="conversation-unread-badge"
-                      >未読 {{ conversation.unreadCount }}件</span
-                    >
+                    <span data-testid="conversation-unread-badge">未読 {{ conversation.unreadCount }}件</span>
                   </span>
                 }
                 @if (conversation.hasMention === true) {
@@ -78,10 +54,7 @@ import { MessagingConversationListItem } from '../messaging.types';
                   </span>
                 }
                 @if (conversation.isLater === true) {
-                  <span
-                    class="conversation-list__state conversation-list__state--later"
-                    data-testid="conversation-later-state"
-                  >
+                  <span class="conversation-list__state conversation-list__state--later" data-testid="conversation-later-state">
                     Later
                   </span>
                 }
@@ -96,28 +69,17 @@ import { MessagingConversationListItem } from '../messaging.types';
               [attr.aria-label]="laterActionLabel(conversation)"
               [attr.aria-pressed]="conversation.isLater === true"
               [disabled]="laterPendingConversationId !== null"
-              (click)="
-                laterChanged.emit({
-                  conversationId: conversation.id,
-                  isLater: conversation.isLater !== true,
-                })
-              "
+              (click)="laterChanged.emit({ conversationId: conversation.id, isLater: conversation.isLater !== true })"
             >
-              {{
-                laterPendingConversationId === conversation.id
-                  ? 'Saving'
-                  : conversation.isLater === true
-                    ? 'Remove'
-                    : 'Later'
-              }}
+              {{ laterPendingConversationId === conversation.id ? 'Saving' : (conversation.isLater === true ? 'Remove' : 'Later') }}
             </button>
           }
         </div>
       }
     </nav>
   `,
-  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './conversation-list.component.scss',
+  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class ConversationListComponent {
   private readonly navigationState = inject(MessageNavigationStateService);
@@ -127,10 +89,7 @@ export class ConversationListComponent {
   @Input() showUnreadBadges = true;
   @Input() showLaterActions = false;
   @Input() laterPendingConversationId: string | null = null;
-  @Output() readonly laterChanged = new EventEmitter<{
-    conversationId: string;
-    isLater: boolean;
-  }>();
+  @Output() readonly laterChanged = new EventEmitter<{ conversationId: string; isLater: boolean }>();
 
   isSelected(conversation: MessagingConversationListItem): boolean {
     return this.selectedConversationId === conversation.id;

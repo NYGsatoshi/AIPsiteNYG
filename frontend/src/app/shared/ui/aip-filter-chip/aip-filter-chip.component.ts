@@ -1,11 +1,4 @@
-import {
-  Component,
-  EventEmitter,
-  Input,
-  Output,
-  inject,
-  ChangeDetectionStrategy,
-} from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output, inject } from '@angular/core';
 
 import { I18nService } from '../../../core/i18n/i18n.service';
 
@@ -14,25 +7,17 @@ import { I18nService } from '../../../core/i18n/i18n.service';
   standalone: true,
   template: `
     <span class="aip-filter-chip" data-testid="filter-chip">
-      <span class="aip-filter-chip__text"
-        ><strong>{{ label }}:</strong> {{ value }}</span
-      >
+      <span class="aip-filter-chip__text"><strong>{{ label }}:</strong> {{ value }}</span>
       <button
         type="button"
         class="aip-filter-chip__remove"
         [attr.aria-label]="i18n.translate('common.removeFilter', { label, value })"
         (click)="removed.emit()"
-      >
-        <span aria-hidden="true">&times;</span>
-      </button>
+      ><span aria-hidden="true">&times;</span></button>
     </span>
   `,
-  changeDetection: ChangeDetectionStrategy.Eager,
   styles: `
-    :host {
-      display: inline-flex;
-      min-width: 0;
-    }
+    :host { display: inline-flex; min-width: 0; }
     .aip-filter-chip {
       display: inline-flex;
       align-items: center;
@@ -66,14 +51,13 @@ import { I18nService } from '../../../core/i18n/i18n.service';
       font-size: 1.05rem;
       font-weight: 900;
     }
-    .aip-filter-chip__remove:hover {
-      background: var(--aip-color-bg-hover);
-    }
+    .aip-filter-chip__remove:hover { background: var(--aip-color-bg-hover); }
     .aip-filter-chip__remove:focus-visible {
       outline: 3px solid var(--aip-color-focus, #2f6feb);
       outline-offset: 1px;
     }
   `,
+  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class AipFilterChipComponent {
   protected readonly i18n = inject(I18nService);

@@ -1,20 +1,14 @@
-import { Component, Input, ChangeDetectionStrategy } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 
 @Component({
   selector: 'app-permission-denied',
   standalone: true,
   template: `
-    <section
-      class="safe-state"
-      data-testid="permission-denied-state"
-      role="status"
-      [attr.aria-labelledby]="titleId"
-    >
+    <section class="safe-state" data-testid="permission-denied-state" role="status" [attr.aria-labelledby]="titleId">
       <h2 [id]="titleId">{{ title }}</h2>
       <p>この操作を実行する権限がありません。</p>
     </section>
   `,
-  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [
     `
       .safe-state {
@@ -34,8 +28,9 @@ import { Component, Input, ChangeDetectionStrategy } from '@angular/core';
         margin-bottom: 0.5rem;
         font-size: 1rem;
       }
-    `,
+    `
   ],
+  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class AppPermissionDeniedComponent {
   @Input() title = 'アクセスできません';

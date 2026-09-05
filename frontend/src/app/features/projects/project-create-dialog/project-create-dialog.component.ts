@@ -1,16 +1,16 @@
 import {
-  afterNextRender,
+  ChangeDetectionStrategy,
   Component,
   ElementRef,
   EventEmitter,
-  inject,
   Injector,
   Input,
   OnChanges,
   Output,
   SimpleChanges,
   ViewChild,
-  ChangeDetectionStrategy,
+  afterNextRender,
+  inject,
 } from '@angular/core';
 import {
   AbstractControl,
@@ -46,8 +46,8 @@ import {
   standalone: true,
   imports: [ReactiveFormsModule, AipDialogComponent, AppFieldErrorComponent, AppRequestIdComponent],
   templateUrl: './project-create-dialog.component.html',
-  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './project-create-dialog.component.scss',
+  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class ProjectCreateDialogComponent implements OnChanges {
   @Input() open = false;

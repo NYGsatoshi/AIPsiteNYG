@@ -1,4 +1,4 @@
-import { Component, Input, ChangeDetectionStrategy } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 
 import { FrontendApiError, FrontendApiErrorDetail } from '../../../core/api/api-error.model';
 import { AppRequestIdComponent } from '../app-request-id/app-request-id.component';
@@ -40,7 +40,6 @@ import { AppRequestIdComponent } from '../app-request-id/app-request-id.componen
       </section>
     }
   `,
-  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [
     `
       .error-banner {
@@ -99,8 +98,9 @@ import { AppRequestIdComponent } from '../app-request-id/app-request-id.componen
         margin: 0;
         overflow-wrap: anywhere;
       }
-    `,
+    `
   ],
+  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class AppErrorBannerComponent {
   @Input({ required: true }) error!: FrontendApiError;
@@ -130,7 +130,7 @@ function isSafeText(value: string): boolean {
     /\b(at\s+\S+\(|stack|exception|sql|select\s+|insert\s+|update\s+|delete\s+|from\s+)/i,
     /\b(password|secret|token|connection\s*string|storage\s*key|metadata)\b/i,
     /[A-Za-z]:\\|\/(?:home|var|etc|usr|opt)\//,
-    /[{[]\s*["']?\w+["']?\s*:/,
+    /[{[]\s*["']?\w+["']?\s*:/
   ];
 
   return value.length <= 240 && !unsafePatterns.some((pattern) => pattern.test(value));

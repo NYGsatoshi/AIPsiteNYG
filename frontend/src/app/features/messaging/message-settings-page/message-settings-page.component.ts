@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal, ChangeDetectionStrategy } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import { AppConfirmDialogComponent } from '../../../shared/dialog/app-confirm-dialog/app-confirm-dialog.component';
@@ -18,9 +18,8 @@ type GlobalSettingsStatus = 'loading' | 'ready' | 'saving' | 'error';
           <p class="message-settings__eyebrow">Messages</p>
           <h1>Global message settings</h1>
           <p id="global-message-settings-scope" class="message-settings__scope">
-            Notification delivery changes here apply to every Message conversation for your account
-            in the current tenant. Conversation-specific mute settings remain separate and can still
-            suppress one conversation.
+            Notification delivery changes here apply to every Message conversation for your account in the current
+            tenant. Conversation-specific mute settings remain separate and can still suppress one conversation.
           </p>
         </div>
         <a routerLink="/messages">Back to conversations</a>
@@ -34,15 +33,12 @@ type GlobalSettingsStatus = 'loading' | 'ready' | 'saving' | 'error';
           <button type="button" (click)="load()">Retry</button>
         </div>
       } @else {
-        <section
-          class="message-settings__card"
-          aria-labelledby="global-notification-settings-title"
-        >
+        <section class="message-settings__card" aria-labelledby="global-notification-settings-title">
           <div class="message-settings__scope-badge">Global</div>
           <h2 id="global-notification-settings-title">Message notification delivery</h2>
           <p class="message-settings__muted">
-            This is the account-level Message notification switch for the current tenant. A muted
-            conversation stays muted even when this global switch is On.
+            This is the account-level Message notification switch for the current tenant. A muted conversation stays
+            muted even when this global switch is On.
           </p>
 
           <label class="message-settings__setting" for="message-notifications-enabled">
@@ -69,16 +65,15 @@ type GlobalSettingsStatus = 'loading' | 'ready' | 'saving' | 'error';
           <div class="message-settings__scope-badge">Browser display</div>
           <h2 id="global-display-settings-title">Conversation list display</h2>
           <p class="message-settings__muted">
-            This presentation preference is stored only for this signed-in account and tenant on
-            this browser. It does not change server notification delivery.
+            This presentation preference is stored only for this signed-in account and tenant on this browser. It does
+            not change server notification delivery.
           </p>
 
           <label class="message-settings__setting" for="show-unread-badges">
             <span>
               <strong>Show unread badges</strong>
               <small id="show-unread-badges-help">
-                Scope: Message conversation lists for this account and tenant on this browser.
-                Current saved value:
+                Scope: Message conversation lists for this account and tenant on this browser. Current saved value:
                 {{ settings.showUnreadBadges() ? 'On' : 'Off' }}.
               </small>
             </span>
@@ -94,14 +89,11 @@ type GlobalSettingsStatus = 'loading' | 'ready' | 'saving' | 'error';
           </label>
         </section>
 
-        <section
-          class="message-settings__conversation-scope"
-          aria-labelledby="conversation-settings-separate-title"
-        >
+        <section class="message-settings__conversation-scope" aria-labelledby="conversation-settings-separate-title">
           <h2 id="conversation-settings-separate-title">This conversation</h2>
           <p>
-            Conversation-specific notification controls are deliberately kept out of this page. Open
-            a conversation and choose “Conversation settings” to mute only that conversation.
+            Conversation-specific notification controls are deliberately kept out of this page. Open a conversation and
+            choose “Conversation settings” to mute only that conversation.
           </p>
         </section>
 
@@ -120,9 +112,7 @@ type GlobalSettingsStatus = 'loading' | 'ready' | 'saving' | 'error';
           <p class="message-settings__error-text" role="alert">{{ errorMessage() }}</p>
         }
         @if (savedMessage()) {
-          <p class="message-settings__status" role="status" aria-live="polite">
-            {{ savedMessage() }}
-          </p>
+          <p class="message-settings__status" role="status" aria-live="polite">{{ savedMessage() }}</p>
         }
       }
 
@@ -141,139 +131,32 @@ type GlobalSettingsStatus = 'loading' | 'ready' | 'saving' | 'error';
       }
     </section>
   `,
-  changeDetection: ChangeDetectionStrategy.Eager,
-  styles: [
-    `
-      :host {
-        display: block;
-      }
-      .message-settings {
-        max-width: 58rem;
-        margin: 0 auto;
-        padding: 1.5rem;
-        color: var(--aip-color-text-primary);
-      }
-      .message-settings__header {
-        display: flex;
-        justify-content: space-between;
-        gap: 1.5rem;
-        align-items: flex-start;
-        margin-bottom: 1.5rem;
-      }
-      .message-settings__eyebrow {
-        margin: 0;
-        color: var(--aip-color-text-muted);
-        font-size: 0.75rem;
-        font-weight: 700;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-      }
-      .message-settings__header h1 {
-        margin: 0.25rem 0 0.5rem;
-      }
-      .message-settings__header a {
-        min-block-size: 2.5rem;
-        display: inline-flex;
-        align-items: center;
-        color: var(--aip-color-action-primary);
-        font-weight: 800;
-      }
-      .message-settings__scope,
-      .message-settings__muted,
-      .message-settings__conversation-scope {
-        max-width: 44rem;
-        color: var(--aip-color-text-secondary);
-      }
-      .message-settings__card {
-        margin-bottom: 1rem;
-        border: 1px solid var(--aip-color-border-default);
-        border-radius: 0.75rem;
-        padding: 1.25rem;
-        background: var(--aip-color-bg-surface);
-      }
-      .message-settings__scope-badge {
-        display: inline-flex;
-        border-radius: 999px;
-        padding: 0.2rem 0.55rem;
-        font-size: 0.75rem;
-        font-weight: 700;
-        background: var(--aip-color-bg-selected);
-        color: var(--aip-color-text-secondary);
-      }
-      .message-settings__setting {
-        display: flex;
-        justify-content: space-between;
-        gap: 1rem;
-        align-items: center;
-        padding: 1rem 0 0;
-        border-top: 1px solid var(--aip-color-border-default);
-      }
-      .message-settings__setting span {
-        display: grid;
-        gap: 0.25rem;
-      }
-      .message-settings__setting small {
-        color: var(--aip-color-text-secondary);
-      }
-      .message-settings__setting input {
-        inline-size: 1.25rem;
-        block-size: 1.25rem;
-        accent-color: var(--aip-color-action-primary);
-      }
-      .message-settings__conversation-scope {
-        margin-bottom: 1rem;
-        padding: 1rem 1.25rem;
-        border-left: 3px solid var(--aip-color-border-default);
-      }
-      .message-settings__conversation-scope h2,
-      .message-settings__conversation-scope p {
-        margin-block: 0 0.5rem;
-      }
-      .message-settings__actions {
-        display: flex;
-        justify-content: flex-end;
-        gap: 0.75rem;
-      }
-      .message-settings button {
-        min-block-size: 2.5rem;
-        border: 1px solid var(--aip-color-border-default);
-        border-radius: 6px;
-        padding: 0 0.85rem;
-        background: var(--aip-color-bg-control);
-        color: var(--aip-color-text-primary);
-        font: inherit;
-        font-weight: 800;
-        cursor: pointer;
-      }
-      .message-settings button:disabled {
-        cursor: not-allowed;
-        opacity: 0.6;
-      }
-      .message-settings__status {
-        margin-bottom: 0;
-      }
-      .message-settings__error {
-        border: 1px solid var(--aip-color-border-default);
-        border-radius: 0.75rem;
-        padding: 1rem;
-      }
-      .message-settings__error-text {
-        color: var(--aip-color-warning);
-      }
-      .message-settings :focus-visible {
-        outline: 2px solid var(--aip-color-focus);
-        outline-offset: 3px;
-      }
-      @media (max-width: 40rem) {
-        .message-settings__header {
-          flex-direction: column;
-        }
-        .message-settings__setting {
-          align-items: flex-start;
-        }
-      }
-    `,
-  ],
+  styles: [`
+    :host { display: block; }
+    .message-settings { max-width: 58rem; margin: 0 auto; padding: 1.5rem; color: var(--aip-color-text-primary); }
+    .message-settings__header { display: flex; justify-content: space-between; gap: 1.5rem; align-items: flex-start; margin-bottom: 1.5rem; }
+    .message-settings__eyebrow { margin: 0; color: var(--aip-color-text-muted); font-size: .75rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+    .message-settings__header h1 { margin: .25rem 0 .5rem; }
+    .message-settings__header a { min-block-size: 2.5rem; display: inline-flex; align-items: center; color: var(--aip-color-action-primary); font-weight: 800; }
+    .message-settings__scope, .message-settings__muted, .message-settings__conversation-scope { max-width: 44rem; color: var(--aip-color-text-secondary); }
+    .message-settings__card { margin-bottom: 1rem; border: 1px solid var(--aip-color-border-default); border-radius: .75rem; padding: 1.25rem; background: var(--aip-color-bg-surface); }
+    .message-settings__scope-badge { display: inline-flex; border-radius: 999px; padding: .2rem .55rem; font-size: .75rem; font-weight: 700; background: var(--aip-color-bg-selected); color: var(--aip-color-text-secondary); }
+    .message-settings__setting { display: flex; justify-content: space-between; gap: 1rem; align-items: center; padding: 1rem 0 0; border-top: 1px solid var(--aip-color-border-default); }
+    .message-settings__setting span { display: grid; gap: .25rem; }
+    .message-settings__setting small { color: var(--aip-color-text-secondary); }
+    .message-settings__setting input { inline-size: 1.25rem; block-size: 1.25rem; accent-color: var(--aip-color-action-primary); }
+    .message-settings__conversation-scope { margin-bottom: 1rem; padding: 1rem 1.25rem; border-left: 3px solid var(--aip-color-border-default); }
+    .message-settings__conversation-scope h2, .message-settings__conversation-scope p { margin-block: 0 .5rem; }
+    .message-settings__actions { display: flex; justify-content: flex-end; gap: .75rem; }
+    .message-settings button { min-block-size: 2.5rem; border: 1px solid var(--aip-color-border-default); border-radius: 6px; padding: 0 .85rem; background: var(--aip-color-bg-control); color: var(--aip-color-text-primary); font: inherit; font-weight: 800; cursor: pointer; }
+    .message-settings button:disabled { cursor: not-allowed; opacity: .6; }
+    .message-settings__status { margin-bottom: 0; }
+    .message-settings__error { border: 1px solid var(--aip-color-border-default); border-radius: .75rem; padding: 1rem; }
+    .message-settings__error-text { color: var(--aip-color-warning); }
+    .message-settings :focus-visible { outline: 2px solid var(--aip-color-focus); outline-offset: 3px; }
+    @media (max-width: 40rem) { .message-settings__header { flex-direction: column; } .message-settings__setting { align-items: flex-start; } }
+  `],
+  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class MessageSettingsPageComponent {
   readonly settings = inject(MessageGlobalSettingsService);
@@ -290,7 +173,7 @@ export class MessageSettingsPageComponent {
   readonly hasChanges = computed(
     () =>
       this.pendingMessageNotificationsEnabled() !== this.messageNotificationsEnabled() ||
-      this.pendingShowUnreadBadges() !== this.settings.showUnreadBadges(),
+      this.pendingShowUnreadBadges() !== this.settings.showUnreadBadges()
   );
 
   readonly confirmationMessage = computed(() => {
@@ -324,7 +207,7 @@ export class MessageSettingsPageComponent {
       error: () => {
         this.status.set('error');
         this.errorMessage.set('Global Message settings could not be loaded.');
-      },
+      }
     });
   }
 
@@ -357,13 +240,10 @@ export class MessageSettingsPageComponent {
     }
 
     const requestedNotificationsEnabled = this.pendingMessageNotificationsEnabled();
-    const notificationChanged =
-      requestedNotificationsEnabled !== this.messageNotificationsEnabled();
+    const notificationChanged = requestedNotificationsEnabled !== this.messageNotificationsEnabled();
     if (!notificationChanged) {
       this.applyBrowserDisplaySetting();
-      this.savedMessage.set(
-        'Global Message settings were updated. Conversation-specific mute settings were not changed.',
-      );
+      this.savedMessage.set('Global Message settings were updated. Conversation-specific mute settings were not changed.');
       return;
     }
 
@@ -374,9 +254,7 @@ export class MessageSettingsPageComponent {
         const saved = readMessageNotificationPreference(response);
         if (saved === null || saved !== requestedNotificationsEnabled) {
           this.status.set('ready');
-          this.errorMessage.set(
-            'The saved global Message notification setting could not be verified.',
-          );
+          this.errorMessage.set('The saved global Message notification setting could not be verified.');
           return;
         }
 
@@ -384,16 +262,12 @@ export class MessageSettingsPageComponent {
         this.pendingMessageNotificationsEnabled.set(saved);
         this.applyBrowserDisplaySetting();
         this.status.set('ready');
-        this.savedMessage.set(
-          'Global Message settings were updated. Conversation-specific mute settings were not changed.',
-        );
+        this.savedMessage.set('Global Message settings were updated. Conversation-specific mute settings were not changed.');
       },
       error: () => {
         this.status.set('ready');
-        this.errorMessage.set(
-          'Global Message settings could not be saved. No conversation-specific setting was changed.',
-        );
-      },
+        this.errorMessage.set('Global Message settings could not be saved. No conversation-specific setting was changed.');
+      }
     });
   }
 
@@ -404,9 +278,7 @@ export class MessageSettingsPageComponent {
   }
 }
 
-function readMessageNotificationPreference(
-  response: MessageNotificationPreferenceDto,
-): boolean | null {
+function readMessageNotificationPreference(response: MessageNotificationPreferenceDto): boolean | null {
   return typeof response.messageNotificationsEnabled === 'boolean'
     ? response.messageNotificationsEnabled
     : null;

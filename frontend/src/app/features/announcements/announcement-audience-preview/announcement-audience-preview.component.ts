@@ -1,4 +1,4 @@
-import { Component, Input, ChangeDetectionStrategy } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 
 import { ANNOUNCEMENT_AUDIENCE_LABELS, AnnouncementAudienceScope } from '../announcements.types';
 
@@ -6,8 +6,8 @@ import { ANNOUNCEMENT_AUDIENCE_LABELS, AnnouncementAudienceScope } from '../anno
   selector: 'app-announcement-audience-preview',
   standalone: true,
   templateUrl: './announcement-audience-preview.component.html',
-  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './announcement-audience-preview.component.scss',
+  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class AnnouncementAudiencePreviewComponent {
   @Input({ required: true }) audienceScope!: AnnouncementAudienceScope;

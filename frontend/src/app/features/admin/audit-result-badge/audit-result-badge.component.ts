@@ -1,4 +1,4 @@
-import { Component, Input, ChangeDetectionStrategy } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 
 import { AuditResultDisplay } from '../admin.types';
 
@@ -10,7 +10,6 @@ import { AuditResultDisplay } from '../admin.types';
       <span class="admin-badge__icon" aria-hidden="true"></span>{{ label }}
     </span>
   `,
-  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [
     `
       .admin-badge {
@@ -67,8 +66,9 @@ import { AuditResultDisplay } from '../admin.types';
         background: #f8fafc;
         color: #334155;
       }
-    `,
+    `
   ],
+  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class AuditResultBadgeComponent {
   @Input({ required: true }) result: AuditResultDisplay = 'success';

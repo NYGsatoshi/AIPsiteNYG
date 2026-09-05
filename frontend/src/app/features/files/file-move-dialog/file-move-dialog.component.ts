@@ -1,14 +1,4 @@
-import {
-  Component,
-  EventEmitter,
-  Input,
-  OnChanges,
-  Output,
-  SimpleChanges,
-  inject,
-  signal,
-  ChangeDetectionStrategy,
-} from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, Input, OnChanges, Output, SimpleChanges, inject, signal } from '@angular/core';
 import { Subscription } from 'rxjs';
 
 import { I18nService } from '../../../core/i18n/i18n.service';
@@ -40,11 +30,7 @@ interface DestinationOption {
       <div class="move-dialog" [attr.aria-busy]="busy()">
         <label>
           <span>{{ i18n.translate('files.browser.folders') }}</span>
-          <select
-            [value]="destinationFolderId() ?? ''"
-            (change)="selectDestination($event)"
-            data-testid="files-move-destination"
-          >
+          <select [value]="destinationFolderId() ?? ''" (change)="selectDestination($event)" data-testid="files-move-destination">
             <option value="">{{ i18n.translate('files.currentWorkspace') }}</option>
             @for (option of destinationOptions(); track option.id) {
               <option [value]="option.id" [disabled]="option.disabled">{{ option.label }}</option>
@@ -66,29 +52,13 @@ interface DestinationOption {
       </div>
     </app-aip-dialog>
   `,
-  changeDetection: ChangeDetectionStrategy.Eager,
-  styles: [
-    `
-      .move-dialog {
-        display: grid;
-        gap: 12px;
-        min-width: min(420px, 75vw);
-      }
-      .move-dialog label {
-        display: grid;
-        gap: 6px;
-        font-weight: 600;
-      }
-      .move-dialog select {
-        width: 100%;
-        min-height: 40px;
-        padding: 7px 10px;
-      }
-      .move-dialog p {
-        margin: 0;
-      }
-    `,
-  ],
+  styles: [`
+    .move-dialog { display: grid; gap: 12px; min-width: min(420px, 75vw); }
+    .move-dialog label { display: grid; gap: 6px; font-weight: 600; }
+    .move-dialog select { width: 100%; min-height: 40px; padding: 7px 10px; }
+    .move-dialog p { margin: 0; }
+  `],
+  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class FileMoveDialogComponent implements OnChanges {
   @Input() open = false;
@@ -193,15 +163,10 @@ function flattenFolders(
   return result;
 }
 
-function descendantIds(
-  folders: readonly FileFolderViewModel[],
-  sourceFolderId: string,
-): Set<string> {
+function descendantIds(folders: readonly FileFolderViewModel[], sourceFolderId: string): Set<string> {
   const descendants = new Set<string>();
   const visit = (parentFolderId: string): void => {
-    for (const folder of folders.filter(
-      (candidate) => candidate.parentFolderId === parentFolderId,
-    )) {
+    for (const folder of folders.filter((candidate) => candidate.parentFolderId === parentFolderId)) {
       if (descendants.has(folder.id)) {
         continue;
       }
