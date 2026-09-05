@@ -1,3 +1,4 @@
+# Temporary branch-only verifier; remove after remediation evidence is complete.
 name: CodeQL remediation diagnostics
 
 on:
