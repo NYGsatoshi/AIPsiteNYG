@@ -1,6 +1,6 @@
 # Frontend inspections
 
-This isolated toolchain provides broad static-analysis coverage without changing the active Angular application's dependency lockfile.
+This isolated toolchain provides broad static-analysis coverage without changing the active Angular application's dependency lockfile. The inspection workspace has its own committed lockfile so CI and local verification resolve the same toolchain deterministically.
 
 Coverage:
 
@@ -19,11 +19,13 @@ Line and column positions are deliberately excluded. Fixing an existing finding 
 ```bash
 npm ci
 npm ci --prefix frontend
-npm install --prefix tools/frontend-inspections
+npm ci --prefix tools/frontend-inspections
 node tools/frontend-inspections/run.mjs
 node tools/frontend-inspections/run.mjs --verbose
 node tools/frontend-inspections/run.mjs --enforce
 ```
+
+For the repository's fail-closed install-script, lockfile, and dependency-tree policy, use `scripts/ci/npm-ci-retry.sh` for the relevant workspace.
 
 To intentionally replace the accepted baseline after reviewing a lint migration or policy change, run:
 
