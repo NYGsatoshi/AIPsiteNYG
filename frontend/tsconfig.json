@@ -11,6 +11,9 @@
     "isolatedModules": true,
     "experimentalDecorators": true,
     "importHelpers": true,
+    "strict": false,
+    "noUncheckedSideEffectImports": false,
+    "libReplacement": true,
     "target": "ES2022",
     "module": "preserve"
   },
