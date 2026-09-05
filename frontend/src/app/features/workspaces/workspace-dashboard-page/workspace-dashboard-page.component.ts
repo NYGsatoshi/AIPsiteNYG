@@ -9,6 +9,7 @@ import { WorkspacesFacade } from '../workspaces.facade';
 import { WorkspaceCardViewModel, WorkspaceCreateInput } from '../workspaces.types';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-workspace-dashboard-page',
   standalone: true,
   imports: [
@@ -20,7 +21,6 @@ import { WorkspaceCardViewModel, WorkspaceCreateInput } from '../workspaces.type
   ],
   templateUrl: './workspace-dashboard-page.component.html',
   styleUrl: './workspace-dashboard-page.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class WorkspaceDashboardPageComponent {
   private readonly facade = inject(WorkspacesFacade);

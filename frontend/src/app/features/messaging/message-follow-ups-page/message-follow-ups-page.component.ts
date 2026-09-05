@@ -6,6 +6,7 @@ import { LucideBookmarkCheck, LucideCheck, LucideChevronLeft } from '@lucide/ang
 import { MessageFollowUpFacade } from '../message-follow-up.facade';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-message-follow-ups-page',
   standalone: true,
   imports: [DatePipe, LucideBookmarkCheck, LucideCheck, LucideChevronLeft, RouterLink],
@@ -80,7 +81,6 @@ import { MessageFollowUpFacade } from '../message-follow-up.facade';
     </section>
   `,
   styleUrl: './message-follow-ups-page.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class MessageFollowUpsPageComponent {
   readonly facade = inject(MessageFollowUpFacade);

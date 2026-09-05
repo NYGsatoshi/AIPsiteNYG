@@ -5,12 +5,12 @@ import { FileRowComponent } from '../file-row/file-row.component';
 import { FileViewModel } from '../files.types';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-recent-files-list',
   standalone: true,
   imports: [FileRowComponent],
   templateUrl: './recent-files-list.component.html',
   styleUrl: './recent-files-list.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class RecentFilesListComponent {
   readonly i18n = inject(I18nService);

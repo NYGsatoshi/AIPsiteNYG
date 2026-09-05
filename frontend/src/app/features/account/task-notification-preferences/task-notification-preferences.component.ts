@@ -7,6 +7,7 @@ import {
 } from './task-notification-preferences.facade';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-task-notification-preferences',
   standalone: true,
   template: `
@@ -57,7 +58,6 @@ import {
     </section>
   `,
   styleUrl: './task-notification-preferences.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class TaskNotificationPreferencesComponent {
   readonly i18n = inject(I18nService);

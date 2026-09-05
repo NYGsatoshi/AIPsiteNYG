@@ -7,6 +7,7 @@ export interface PageLocalSearchRow {
 }
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-page-local-search',
   standalone: true,
   imports: [FormsModule],
@@ -41,7 +42,6 @@ export interface PageLocalSearchRow {
       }
     `
   ],
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class AppPageLocalSearchComponent implements OnChanges {
   @Input() rows: readonly PageLocalSearchRow[] = [];

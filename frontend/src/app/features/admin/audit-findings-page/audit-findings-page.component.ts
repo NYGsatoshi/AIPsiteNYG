@@ -14,12 +14,12 @@ import {
 } from './audit-findings.types';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-audit-findings-page',
   standalone: true,
   imports: [RouterLink, AuditFindingDecisionPanelComponent],
   templateUrl: './audit-findings-page.component.html',
   styleUrl: './audit-findings-page.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class AuditFindingsPageComponent {
   private readonly facade = inject(AuditFindingsFacade);

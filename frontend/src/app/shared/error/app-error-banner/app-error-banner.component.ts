@@ -4,6 +4,7 @@ import { FrontendApiError, FrontendApiErrorDetail } from '../../../core/api/api-
 import { AppRequestIdComponent } from '../app-request-id/app-request-id.component';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-error-banner',
   standalone: true,
   imports: [AppRequestIdComponent],
@@ -100,7 +101,6 @@ import { AppRequestIdComponent } from '../app-request-id/app-request-id.componen
       }
     `
   ],
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class AppErrorBannerComponent {
   @Input({ required: true }) error!: FrontendApiError;

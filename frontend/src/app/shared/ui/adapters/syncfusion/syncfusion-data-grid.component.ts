@@ -41,13 +41,13 @@ type SyncfusionGridEvent<TData> = {
 };
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-syncfusion-data-grid',
   standalone: true,
   imports: [GridModule],
   providers: [PageService, SortService, FilterService, SelectionService],
   templateUrl: './syncfusion-data-grid.component.html',
   styleUrl: './syncfusion-data-grid.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class SyncfusionDataGridComponent<TData extends object> implements OnChanges {
   @ViewChild('grid') private grid?: GridComponent;

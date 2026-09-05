@@ -21,12 +21,12 @@ import {
 } from '../workspace-research-quick-create.service';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-workspace-research-quick-create-page',
   standalone: true,
   imports: [RouterLink],
   templateUrl: './workspace-research-quick-create-page.component.html',
   styleUrl: './workspace-research-quick-create-page.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class WorkspaceResearchQuickCreatePageComponent {
   @ViewChild('titleInput') private titleInput?: ElementRef<HTMLInputElement>;

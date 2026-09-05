@@ -4,6 +4,7 @@ import { I18nService } from '../../../core/i18n/i18n.service';
 import { FileScanStatus } from '../files.types';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-file-scan-status-badge',
   standalone: true,
   template: `
@@ -12,7 +13,6 @@ import { FileScanStatus } from '../files.types';
     </span>
   `,
   styleUrl: './file-scan-status-badge.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class FileScanStatusBadgeComponent {
   readonly i18n = inject(I18nService);

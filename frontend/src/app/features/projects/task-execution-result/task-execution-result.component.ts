@@ -46,11 +46,11 @@ interface InterventionResponse {
 }
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-task-execution-result',
   standalone: true,
   templateUrl: './task-execution-result.component.html',
   styleUrl: './task-execution-result.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class TaskExecutionResultComponent implements OnChanges, OnDestroy {
   @Input({ required: true }) taskId = '';

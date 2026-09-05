@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-safe-not-found',
   standalone: true,
   template: `
@@ -30,7 +31,6 @@ import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
       }
     `
   ],
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class AppSafeNotFoundComponent {
   @Input() title = '表示できません';

@@ -11,6 +11,7 @@ import { RealtimeFacade } from '../../../core/realtime/realtime.facade';
 import { ThreadPreviewComponent } from '../thread-preview/thread-preview.component';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-dm-page',
   standalone: true,
   imports: [
@@ -22,7 +23,6 @@ import { ThreadPreviewComponent } from '../thread-preview/thread-preview.compone
   ],
   templateUrl: './dm-page.component.html',
   styleUrl: './dm-page.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class DmPageComponent {
   readonly facade = inject(MessagingFacade);

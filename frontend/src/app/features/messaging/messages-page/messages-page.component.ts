@@ -16,6 +16,7 @@ interface RecipientOption {
 }
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-messages-page',
   standalone: true,
   imports: [FormsModule, MessageSearchFiltersComponent, RouterLink],
@@ -171,7 +172,6 @@ interface RecipientOption {
     </section>
   `,
   styleUrl: './messages-page.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class MessagesPageComponent {
   readonly facade = inject(MessagingFacade);

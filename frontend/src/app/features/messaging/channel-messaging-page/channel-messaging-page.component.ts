@@ -14,6 +14,7 @@ import { ActiveWorkspaceFacade } from '../../../core/workspace/active-workspace.
 import { ThreadPreviewComponent } from '../thread-preview/thread-preview.component';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-channel-messaging-page',
   standalone: true,
   imports: [
@@ -26,7 +27,6 @@ import { ThreadPreviewComponent } from '../thread-preview/thread-preview.compone
   ],
   templateUrl: './channel-messaging-page.component.html',
   styleUrl: './channel-messaging-page.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class ChannelMessagingPageComponent {
   readonly facade = inject(MessagingFacade);

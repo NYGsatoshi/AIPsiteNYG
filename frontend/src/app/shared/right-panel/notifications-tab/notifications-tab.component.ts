@@ -4,6 +4,7 @@ import { NotificationItemComponent } from '../notification-item/notification-ite
 import { RightPanelNotification } from '../right-panel.types';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-notifications-tab',
   standalone: true,
   imports: [NotificationItemComponent],
@@ -26,7 +27,6 @@ import { RightPanelNotification } from '../right-panel.types';
     </section>
   `,
   styleUrl: './notifications-tab.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class NotificationsTabComponent {
   @Input({ required: true }) notifications: readonly RightPanelNotification[] = [];

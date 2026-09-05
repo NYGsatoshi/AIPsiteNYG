@@ -10,12 +10,12 @@ import { AnnouncementLocalPreview } from '../announcements.types';
  * analytics data.
  */
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-announcement-local-preview',
   standalone: true,
   imports: [AnnouncementPriorityBadgeComponent],
   templateUrl: './announcement-local-preview.component.html',
   styleUrl: './announcement-local-preview.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class AnnouncementLocalPreviewComponent {
   @Input({ required: true }) preview!: AnnouncementLocalPreview;

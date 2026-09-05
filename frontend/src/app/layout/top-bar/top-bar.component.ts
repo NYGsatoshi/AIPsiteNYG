@@ -8,6 +8,7 @@ import { RightPanelMode } from '../../shared/right-panel/right-panel.types';
 import { WorkspaceSearchComponent } from '../workspace-search/workspace-search.component';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-top-bar',
   standalone: true,
   imports: [RouterLink, WorkspaceSearchComponent],
@@ -129,7 +130,6 @@ import { WorkspaceSearchComponent } from '../workspace-search/workspace-search.c
     </header>
   `,
   styleUrl: './top-bar.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class TopBarComponent {
   readonly i18n = inject(I18nService);

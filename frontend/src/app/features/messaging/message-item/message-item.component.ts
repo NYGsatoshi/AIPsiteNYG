@@ -12,6 +12,7 @@ import { AipDialogComponent } from '../../../shared/ui/aip-dialog/aip-dialog.com
 import { MessagingMessageActionState, MessagingMessageViewModel } from '../messaging.types';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-message-item',
   standalone: true,
   imports: [AipDialogComponent, LucideBookmarkPlus, LucideEllipsis, LucideFlag, LucideMessageSquare, LucidePencil, LucideTrash2],
@@ -196,7 +197,6 @@ import { MessagingMessageActionState, MessagingMessageViewModel } from '../messa
     </app-aip-dialog>
   `,
   styleUrl: './message-item.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class MessageItemComponent implements AfterViewChecked {
   @ViewChild('messageArticle') private messageArticle?: ElementRef<HTMLElement>;

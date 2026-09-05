@@ -20,6 +20,7 @@ import { ActiveWorkspaceFacade } from '../../../core/workspace/active-workspace.
 import { WorkspaceMemberGridRow, WorkspaceMemberRowAction } from '../members.types';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-workspace-members-page',
   standalone: true,
   imports: [
@@ -33,7 +34,6 @@ import { WorkspaceMemberGridRow, WorkspaceMemberRowAction } from '../members.typ
   ],
   templateUrl: './workspace-members-page.component.html',
   styleUrl: './workspace-members-page.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class WorkspaceMembersPageComponent {
   private readonly facade = inject(WorkspaceMembersFacade);

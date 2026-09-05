@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-skeleton',
   standalone: true,
   template: `
@@ -46,7 +47,6 @@ import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
       }
     `
   ],
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class AppSkeletonComponent {
   @Input() lines = 3;

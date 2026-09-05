@@ -48,6 +48,7 @@ interface DrawerReturnContext {
 }
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-audit-log-page',
   standalone: true,
   imports: [
@@ -61,7 +62,6 @@ interface DrawerReturnContext {
   ],
   templateUrl: './audit-log-page.component.html',
   styleUrl: './audit-log-page.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class AuditLogPageComponent {
   private readonly facade = inject(AdminFacade);

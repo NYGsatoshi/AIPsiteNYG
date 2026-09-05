@@ -44,6 +44,7 @@ const MAX_RENDERED_RESULTS = 8;
 const TYPE_PAGE_SIZE = 8;
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-workspace-search',
   standalone: true,
   template: `
@@ -256,7 +257,6 @@ const TYPE_PAGE_SIZE = 8;
       }
     }
   `,
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class WorkspaceSearchComponent implements OnChanges, OnDestroy {
   @Input() workspaceId: string | null = null;

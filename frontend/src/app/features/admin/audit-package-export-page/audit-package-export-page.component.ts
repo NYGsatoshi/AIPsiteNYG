@@ -16,12 +16,12 @@ import {
 } from './audit-package-export-page.models';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-audit-package-export-page',
   standalone: true,
   imports: [RouterLink],
   templateUrl: './audit-package-export-page.component.html',
   styleUrl: './audit-package-export-page.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class AuditPackageExportPageComponent {
   private readonly http = inject(HttpClient);

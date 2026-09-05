@@ -28,6 +28,7 @@ import { TopBarComponent } from '../top-bar/top-bar.component';
 import { AppShellFacade } from './app-shell.facade';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-shell',
   standalone: true,
   imports: [
@@ -42,7 +43,6 @@ import { AppShellFacade } from './app-shell.facade';
   ],
   templateUrl: './app-shell.component.html',
   styleUrl: './app-shell.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class AppShellComponent implements AfterViewChecked {
   private readonly destroyRef = inject(DestroyRef);

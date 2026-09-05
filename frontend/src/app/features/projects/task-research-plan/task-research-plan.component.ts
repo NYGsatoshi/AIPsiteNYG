@@ -93,12 +93,12 @@ const EMPTY_STEP: EditableStep = Object.freeze({
  * draft can be saved as the next immutable revision.
  */
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-task-research-plan',
   standalone: true,
   imports: [FormsModule],
   templateUrl: './task-research-plan.component.html',
   styleUrl: './task-research-plan.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class TaskResearchPlanComponent implements OnChanges, OnDestroy {
   @Input({ required: true }) taskId = '';

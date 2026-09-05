@@ -5,6 +5,7 @@ import { MessageNavigationStateService } from '../message-navigation-state.servi
 import { MessagingConversationListItem } from '../messaging.types';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-conversation-list',
   standalone: true,
   imports: [RouterLink],
@@ -79,7 +80,6 @@ import { MessagingConversationListItem } from '../messaging.types';
     </nav>
   `,
   styleUrl: './conversation-list.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class ConversationListComponent {
   private readonly navigationState = inject(MessageNavigationStateService);

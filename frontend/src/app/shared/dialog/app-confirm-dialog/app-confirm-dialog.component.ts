@@ -13,6 +13,7 @@ import {
 } from '@angular/core';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-confirm-dialog',
   standalone: true,
   imports: [A11yModule],
@@ -98,7 +99,6 @@ import {
       }
     `
   ],
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class AppConfirmDialogComponent implements AfterViewChecked, OnChanges {
   @Input() open = false;

@@ -6,11 +6,11 @@ import {
 } from '../announcements.types';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-announcement-publication-status',
   standalone: true,
   templateUrl: './announcement-publication-status.component.html',
   styleUrl: './announcement-publication-status.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class AnnouncementPublicationStatusComponent {
   @Input({ required: true }) state!: AnnouncementPublicationState;

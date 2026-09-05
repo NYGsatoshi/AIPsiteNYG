@@ -18,6 +18,7 @@ import {
 } from '../messaging.types';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-thread-preview',
   standalone: true,
   imports: [LucideArrowLeft, LucideX],
@@ -158,7 +159,6 @@ import {
     </aside>
   `,
   styleUrl: './thread-preview.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class ThreadPreviewComponent implements AfterViewChecked, OnChanges {
   @ViewChild('panel') private panel?: ElementRef<HTMLElement>;

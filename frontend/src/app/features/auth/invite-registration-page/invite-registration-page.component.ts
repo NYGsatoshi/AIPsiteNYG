@@ -8,12 +8,12 @@ import { InviteRegistrationFormComponent } from '../invite-registration-form/inv
 import { InviteTokenStatePanelComponent } from '../invite-token-state-panel/invite-token-state-panel.component';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-invite-registration-page',
   standalone: true,
   imports: [InviteRegistrationFormComponent, InviteTokenStatePanelComponent],
   templateUrl: './invite-registration-page.component.html',
   styleUrl: './invite-registration-page.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class InviteRegistrationPageComponent {
   private readonly route = inject(ActivatedRoute);

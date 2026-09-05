@@ -8,6 +8,7 @@ interface MemberRoleBadgeCellParams {
 }
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-member-role-badge',
   standalone: true,
   template: `<span [class]="'role-badge role-badge--' + role">{{ label }}</span>`,
@@ -49,7 +50,6 @@ interface MemberRoleBadgeCellParams {
       }
     `
   ],
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class MemberRoleBadgeComponent {
   @Input() role: WorkspaceMemberRole = 'member';

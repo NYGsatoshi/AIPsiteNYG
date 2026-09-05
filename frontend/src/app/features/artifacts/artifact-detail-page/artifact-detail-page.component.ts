@@ -24,6 +24,7 @@ interface ArtifactDetailViewModel {
 }
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-artifact-detail-page',
   standalone: true,
   template: `
@@ -61,7 +62,6 @@ interface ArtifactDetailViewModel {
     dl { display: grid; grid-template-columns: max-content 1fr; gap: .5rem 1rem; }
     dt { font-weight: 600; }
   `],
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class ArtifactDetailPageComponent {
   private readonly http = inject(HttpClient);

@@ -14,12 +14,12 @@ import {
 } from './audit-claims-evidence.types';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-audit-claims-evidence-page',
   standalone: true,
   imports: [AipFilterChipComponent],
   templateUrl: './audit-claims-evidence-page.component.html',
   styleUrl: './audit-claims-evidence-page.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class AuditClaimsEvidencePageComponent {
   private readonly facade = inject(AuditClaimsEvidenceFacade);

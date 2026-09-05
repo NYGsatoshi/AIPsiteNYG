@@ -4,6 +4,7 @@ import { I18nService } from '../../../core/i18n/i18n.service';
 import { FileQuotaViewModel } from '../files.types';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-file-quota-state',
   standalone: true,
   template: `
@@ -16,7 +17,6 @@ import { FileQuotaViewModel } from '../files.types';
     </section>
   `,
   styleUrl: './file-quota-state.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class FileQuotaStateComponent {
   readonly i18n = inject(I18nService);

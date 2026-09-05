@@ -12,6 +12,7 @@ interface DestinationOption {
 }
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-file-move-dialog',
   standalone: true,
   imports: [AipDialogComponent],
@@ -58,7 +59,6 @@ interface DestinationOption {
     .move-dialog select { width: 100%; min-height: 40px; padding: 7px 10px; }
     .move-dialog p { margin: 0; }
   `],
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class FileMoveDialogComponent implements OnChanges {
   @Input() open = false;

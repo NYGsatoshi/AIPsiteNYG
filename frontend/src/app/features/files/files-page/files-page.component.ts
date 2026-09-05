@@ -53,6 +53,7 @@ const TEXT_PREVIEW_MAX_BYTES = 512 * 1024;
 const PREVIEW_OVERLAY_MAX_WIDTH = 860;
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-files-page',
   standalone: true,
   imports: [
@@ -70,7 +71,6 @@ const PREVIEW_OVERLAY_MAX_WIDTH = 860;
   ],
   templateUrl: './files-page.component.html',
   styleUrl: './files-page.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class FilesPageComponent {
   @ViewChild(AppDataGridComponent) private dataGrid?: AppDataGridComponent<FileViewModel>;

@@ -21,6 +21,7 @@ import { AnnouncementReadStateComponent } from '../announcement-read-state/annou
 import { AnnouncementViewModel } from '../announcements.types';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-announcement-detail',
   standalone: true,
   imports: [
@@ -32,7 +33,6 @@ import { AnnouncementViewModel } from '../announcements.types';
   ],
   templateUrl: './announcement-detail.component.html',
   styleUrl: './announcement-detail.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class AnnouncementDetailComponent implements AfterViewChecked {
   private readonly document = inject(DOCUMENT);

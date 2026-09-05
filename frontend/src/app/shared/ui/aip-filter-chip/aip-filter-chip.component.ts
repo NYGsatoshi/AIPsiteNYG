@@ -3,6 +3,7 @@ import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output, inject
 import { I18nService } from '../../../core/i18n/i18n.service';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-aip-filter-chip',
   standalone: true,
   template: `
@@ -57,7 +58,6 @@ import { I18nService } from '../../../core/i18n/i18n.service';
       outline-offset: 1px;
     }
   `,
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class AipFilterChipComponent {
   protected readonly i18n = inject(I18nService);

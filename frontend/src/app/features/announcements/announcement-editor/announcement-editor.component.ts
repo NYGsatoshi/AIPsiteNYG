@@ -40,6 +40,7 @@ import { isSafeAnnouncementUrl } from '../announcements.api';
 import { AipDialogComponent } from '../../../shared/ui/aip-dialog/aip-dialog.component';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-announcement-editor',
   standalone: true,
   imports: [
@@ -50,7 +51,6 @@ import { AipDialogComponent } from '../../../shared/ui/aip-dialog/aip-dialog.com
   ],
   templateUrl: './announcement-editor.component.html',
   styleUrl: './announcement-editor.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy {
   @ViewChild('titleInput') private titleInput?: ElementRef<HTMLInputElement>;

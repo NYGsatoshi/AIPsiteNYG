@@ -4,6 +4,7 @@ import { AppEmptyStateComponent } from '../../../shared/empty-state/app-empty-st
 import { AdminFacade } from '../admin.facade';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-export-diagnostics-page',
   standalone: true,
   imports: [
@@ -11,7 +12,6 @@ import { AdminFacade } from '../admin.facade';
   ],
   templateUrl: './export-diagnostics-page.component.html',
   styleUrl: './export-diagnostics-page.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class ExportDiagnosticsPageComponent {
   private readonly facade = inject(AdminFacade);

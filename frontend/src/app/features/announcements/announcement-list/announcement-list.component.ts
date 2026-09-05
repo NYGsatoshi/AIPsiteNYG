@@ -18,6 +18,7 @@ import { AnnouncementReadStateComponent } from '../announcement-read-state/annou
 import { AnnouncementViewModel } from '../announcements.types';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-announcement-list',
   standalone: true,
   imports: [
@@ -28,7 +29,6 @@ import { AnnouncementViewModel } from '../announcements.types';
   ],
   templateUrl: './announcement-list.component.html',
   styleUrl: './announcement-list.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class AnnouncementListComponent implements AfterViewChecked {
   @Input({ required: true }) announcements: readonly AnnouncementViewModel[] = [];

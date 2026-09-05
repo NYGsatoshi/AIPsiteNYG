@@ -8,6 +8,7 @@ import { MessageNotificationPreferenceDto, MessagingApi } from '../messaging.api
 type GlobalSettingsStatus = 'loading' | 'ready' | 'saving' | 'error';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-message-settings-page',
   standalone: true,
   imports: [RouterLink, AppConfirmDialogComponent],
@@ -156,7 +157,6 @@ type GlobalSettingsStatus = 'loading' | 'ready' | 'saving' | 'error';
     .message-settings :focus-visible { outline: 2px solid var(--aip-color-focus); outline-offset: 3px; }
     @media (max-width: 40rem) { .message-settings__header { flex-direction: column; } .message-settings__setting { align-items: flex-start; } }
   `],
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class MessageSettingsPageComponent {
   readonly settings = inject(MessageGlobalSettingsService);

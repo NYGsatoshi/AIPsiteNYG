@@ -21,10 +21,10 @@ import {
 import { TaskTableComponent } from '../task-table/task-table.component';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-my-tasks-page', standalone: true,
   imports: [AppEmptyStateComponent, AppErrorBannerComponent, AppInlineLoadingComponent, AppPermissionDeniedComponent, TaskTableComponent],
   templateUrl: './my-tasks-page.component.html', styleUrl: './my-tasks-page.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class MyTasksPageComponent {
   @ViewChild('savedFilterNameInput') private savedFilterNameInput?: ElementRef<HTMLInputElement>;

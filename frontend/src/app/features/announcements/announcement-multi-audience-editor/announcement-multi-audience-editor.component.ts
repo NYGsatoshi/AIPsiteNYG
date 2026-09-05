@@ -19,12 +19,12 @@ import {
 } from '../announcements.types';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-announcement-multi-audience-editor',
   standalone: true,
   imports: [AnnouncementEditorComponent, AipDialogComponent],
   templateUrl: './announcement-multi-audience-editor.component.html',
   styleUrl: './announcement-multi-audience-editor.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class AnnouncementMultiAudienceEditorComponent implements OnChanges {
   @Input({ required: true }) draft!: AnnouncementEditorDraft;

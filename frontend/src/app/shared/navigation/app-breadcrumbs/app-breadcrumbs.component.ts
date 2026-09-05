@@ -7,6 +7,7 @@ export interface AppBreadcrumbItem {
 }
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-breadcrumbs',
   standalone: true,
   imports: [RouterLink],
@@ -50,7 +51,6 @@ export interface AppBreadcrumbItem {
       }
     `
   ],
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class AppBreadcrumbsComponent {
   @Input() items: readonly AppBreadcrumbItem[] = [];

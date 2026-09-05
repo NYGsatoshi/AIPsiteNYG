@@ -4,12 +4,12 @@ import { WorkspaceCardComponent } from '../workspace-card/workspace-card.compone
 import { WorkspaceCardViewModel } from '../workspaces.types';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-workspace-summary-list',
   standalone: true,
   imports: [WorkspaceCardComponent],
   templateUrl: './workspace-summary-list.component.html',
   styleUrl: './workspace-summary-list.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class WorkspaceSummaryListComponent {
   @Input() workspaces: readonly WorkspaceCardViewModel[] = [];

@@ -3,6 +3,7 @@ import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { AipThemeService } from '../../../core/theme/aip-theme.service';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-aip-theme-toggle',
   standalone: true,
   template: `
@@ -19,7 +20,6 @@ import { AipThemeService } from '../../../core/theme/aip-theme.service';
     </button>
   `,
   styleUrl: './aip-theme-toggle.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class AipThemeToggleComponent {
   readonly theme = inject(AipThemeService);

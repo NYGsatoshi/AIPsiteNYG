@@ -14,6 +14,7 @@ let mentionInputInstance = 0;
 
 /** Friendly display text is reconciled to canonical @{GUID} tokens at explicit token spans. */
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-mention-input', standalone: true,
   template: `<label [for]="textareaId">Comment</label>
   <textarea #editor [id]="textareaId" [value]="displayValue()" [attr.maxlength]="maxLength ?? null" (input)="onInput($event)" (keydown)="onKeydown($event)" (click)="onCaretChange($event)" (keyup)="onCaretChange($event)"
@@ -24,7 +25,6 @@ let mentionInputInstance = 0;
   </ul> }
   <p [id]="statusId" role="status" aria-live="polite">{{ status() }}</p>`,
   styles: [':host{display:grid;gap:.5rem}textarea{min-height:5rem}ul{margin:0;padding:0;list-style:none}button{width:100%;text-align:left}'],
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class AppMentionInputComponent implements OnChanges {
   @Input({ required: true }) taskId = '';

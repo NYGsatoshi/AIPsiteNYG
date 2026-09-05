@@ -29,6 +29,7 @@ const DEFAULT_RIGHT_PANEL_SCOPE: RightPanelScope = {
 };
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-right-panel',
   standalone: true,
   imports: [A11yModule, MembersTabComponent, NotificationsTabComponent],
@@ -161,7 +162,6 @@ const DEFAULT_RIGHT_PANEL_SCOPE: RightPanelScope = {
     </aside>
   `,
   styleUrl: './right-panel.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class RightPanelComponent implements OnChanges {
   readonly facade = inject(RightPanelFacade);

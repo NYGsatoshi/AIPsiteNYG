@@ -5,12 +5,12 @@ import { AppFieldErrorComponent } from '../../../shared/form/app-field-error/app
 import { InviteRegistrationFormSubmit } from '../invite-registration.types';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-invite-registration-form',
   standalone: true,
   imports: [ReactiveFormsModule, AppFieldErrorComponent],
   templateUrl: './invite-registration-form.component.html',
   styleUrl: './invite-registration-form.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class InviteRegistrationFormComponent {
   @Input({ required: true }) email!: string;

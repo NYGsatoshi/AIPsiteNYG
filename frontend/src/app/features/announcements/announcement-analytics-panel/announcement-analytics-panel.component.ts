@@ -8,11 +8,11 @@ import {
 } from '../announcement-engagement.client';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-announcement-analytics-panel',
   standalone: true,
   templateUrl: './announcement-analytics-panel.component.html',
   styleUrl: './announcement-analytics-panel.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class AnnouncementAnalyticsPanelComponent implements OnChanges, OnDestroy {
   private readonly engagement = inject(AnnouncementEngagementClient);

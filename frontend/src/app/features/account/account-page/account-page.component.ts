@@ -15,6 +15,7 @@ import { SessionListComponent } from '../session-list/session-list.component';
 import { TaskNotificationPreferencesComponent } from '../task-notification-preferences/task-notification-preferences.component';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-account-page',
   standalone: true,
   imports: [
@@ -30,7 +31,6 @@ import { TaskNotificationPreferencesComponent } from '../task-notification-prefe
   ],
   templateUrl: './account-page.component.html',
   styleUrl: './account-page.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class AccountPageComponent {
   private readonly facade = inject(AccountFacade);

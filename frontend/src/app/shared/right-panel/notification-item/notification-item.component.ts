@@ -3,6 +3,7 @@ import { RightPanelNotification } from '../right-panel.types';
 import { isSupportedNotificationTarget, requiresAuthorizedServerOpen } from '../right-panel.facade';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-notification-item',
   standalone: true,
   imports: [],
@@ -46,7 +47,6 @@ import { isSupportedNotificationTarget, requiresAuthorizedServerOpen } from '../
     </article>
   `,
   styleUrl: './notification-item.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class NotificationItemComponent {
   @Input({ required: true }) notification!: RightPanelNotification;

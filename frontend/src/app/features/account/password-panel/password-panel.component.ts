@@ -6,12 +6,12 @@ import { AppFieldErrorComponent } from '../../../shared/form/app-field-error/app
 import { PasswordChangeResult, PasswordChangeSubmit } from '../account.types';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-password-panel',
   standalone: true,
   imports: [ReactiveFormsModule, AppFieldErrorComponent],
   templateUrl: './password-panel.component.html',
   styleUrl: './password-panel.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class PasswordPanelComponent implements OnChanges {
   readonly i18n = inject(I18nService);

@@ -20,6 +20,7 @@ import { FilesFacade } from '../../files/files.facade';
 import { AttachmentPickerDialogComponent } from '../../files/attachment-picker-dialog/attachment-picker-dialog.component';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-task-detail-page',
   standalone: true,
   imports: [
@@ -39,7 +40,6 @@ import { AttachmentPickerDialogComponent } from '../../files/attachment-picker-d
   ],
   templateUrl: './task-detail-page.component.html',
   styleUrl: './task-detail-page.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class TaskDetailPageComponent implements OnDestroy {
   private readonly facade = inject(ProjectsFacade);

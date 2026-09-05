@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-inline-loading',
   standalone: true,
   template: `
@@ -35,7 +36,6 @@ import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
       }
     `
   ],
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class AppInlineLoadingComponent {
   @Input() label = '読み込み中です。';

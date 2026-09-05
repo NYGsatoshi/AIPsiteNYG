@@ -19,6 +19,7 @@ import {
 } from '../announcements.types';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-announcements-page',
   standalone: true,
   imports: [
@@ -30,7 +31,6 @@ import {
   ],
   templateUrl: './announcements-page.component.html',
   styleUrl: './announcements-page.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class AnnouncementsPageComponent implements OnDestroy {
   private readonly facade = inject(AnnouncementsFacade);

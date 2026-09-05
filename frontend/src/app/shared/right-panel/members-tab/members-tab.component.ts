@@ -5,6 +5,7 @@ import { MemberListItemComponent } from '../member-list-item/member-list-item.co
 import { RightPanelMember, RightPanelPermission } from '../right-panel.types';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-members-tab',
   standalone: true,
   imports: [AppPermissionDeniedComponent, MemberListItemComponent],
@@ -27,7 +28,6 @@ import { RightPanelMember, RightPanelPermission } from '../right-panel.types';
     </section>
   `,
   styleUrl: './members-tab.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class MembersTabComponent {
   @Input({ required: true }) members: readonly RightPanelMember[] = [];

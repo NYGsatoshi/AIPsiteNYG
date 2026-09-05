@@ -5,12 +5,12 @@ import { FileScanStatusBadgeComponent } from '../file-scan-status-badge/file-sca
 import { FileViewModel } from '../files.types';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-attachment-picker-dialog',
   standalone: true,
   imports: [FileScanStatusBadgeComponent],
   templateUrl: './attachment-picker-dialog.component.html',
   styleUrl: './attachment-picker-dialog.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class AttachmentPickerDialogComponent {
   readonly i18n = inject(I18nService);

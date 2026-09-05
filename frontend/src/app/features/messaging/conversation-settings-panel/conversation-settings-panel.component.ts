@@ -17,6 +17,7 @@ import { MessagingApi, ParticipantStateDto } from '../messaging.api';
 type ConversationSettingsStatus = 'idle' | 'loading' | 'ready' | 'saving' | 'error';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-conversation-settings-panel',
   standalone: true,
   imports: [RouterLink],
@@ -128,7 +129,6 @@ type ConversationSettingsStatus = 'idle' | 'loading' | 'ready' | 'saving' | 'err
     .conversation-settings__footer a { color: var(--aip-color-action-primary); font-weight: 800; }
     .conversation-settings__panel :focus-visible, .conversation-settings__trigger:focus-visible { outline: 2px solid var(--aip-color-focus); outline-offset: 3px; }
   `],
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class ConversationSettingsPanelComponent implements OnChanges {
   private readonly api = inject(MessagingApi);

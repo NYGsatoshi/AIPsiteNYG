@@ -9,12 +9,12 @@ import {
 } from '../admin.types';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-audit-detail-drawer',
   standalone: true,
   imports: [AuditResultBadgeComponent, AuditSeverityBadgeComponent],
   templateUrl: './audit-detail-drawer.component.html',
   styleUrl: './audit-detail-drawer.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class AuditDetailDrawerComponent implements AfterViewChecked {
   @Input() isOpen = false;

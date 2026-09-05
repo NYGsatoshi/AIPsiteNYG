@@ -70,6 +70,7 @@ const EMPTY_INBOX: MessagingInboxViewModel = {
 };
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-message-search-filters',
   standalone: true,
   imports: [AipFilterChipComponent, ConversationListComponent, RouterLink],
@@ -509,7 +510,6 @@ const EMPTY_INBOX: MessagingInboxViewModel = {
     </section>
   `,
   styleUrl: './message-search-filters.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class MessageSearchFiltersComponent implements OnDestroy {
   private readonly api = inject(MessagingApi);

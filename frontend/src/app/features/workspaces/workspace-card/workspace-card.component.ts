@@ -4,12 +4,12 @@ import { WorkspaceQuickActionsComponent } from '../workspace-quick-actions/works
 import { WorkspaceCardViewModel } from '../workspaces.types';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-workspace-card',
   standalone: true,
   imports: [WorkspaceQuickActionsComponent],
   templateUrl: './workspace-card.component.html',
   styleUrl: './workspace-card.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class WorkspaceCardComponent {
   @Input({ required: true }) workspace!: WorkspaceCardViewModel;

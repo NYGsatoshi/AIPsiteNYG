@@ -42,12 +42,12 @@ import {
 } from '../project-create.facade';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-project-create-dialog',
   standalone: true,
   imports: [ReactiveFormsModule, AipDialogComponent, AppFieldErrorComponent, AppRequestIdComponent],
   templateUrl: './project-create-dialog.component.html',
   styleUrl: './project-create-dialog.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class ProjectCreateDialogComponent implements OnChanges {
   @Input() open = false;

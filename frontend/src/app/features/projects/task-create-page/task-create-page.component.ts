@@ -27,6 +27,7 @@ import {
 import { TaskCreateInput, TaskCreateSourceScopeMode } from '../task-create.api';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-task-create-page',
   standalone: true,
   imports: [
@@ -40,7 +41,6 @@ import { TaskCreateInput, TaskCreateSourceScopeMode } from '../task-create.api';
   ],
   templateUrl: './task-create-page.component.html',
   styleUrl: './task-create-page.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class TaskCreatePageComponent {
   private readonly route = inject(ActivatedRoute);

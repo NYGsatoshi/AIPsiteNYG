@@ -18,6 +18,7 @@ import { ProjectSummaryPanelComponent } from '../project-summary-panel/project-s
 import { FrontendFeatureFlagsService } from '../../../core/feature-flags/frontend-feature-flags.service';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-projects-overview-page',
   standalone: true,
   imports: [
@@ -32,7 +33,6 @@ import { FrontendFeatureFlagsService } from '../../../core/feature-flags/fronten
   ],
   templateUrl: './projects-overview-page.component.html',
   styleUrl: './projects-overview-page.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class ProjectsOverviewPageComponent {
   private readonly facade = inject(ProjectsFacade);

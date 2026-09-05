@@ -3,6 +3,7 @@ import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output } from 
 import { MessagingMessageViewModel } from '../messaging.types';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-failed-message-item',
   standalone: true,
   template: `
@@ -26,7 +27,6 @@ import { MessagingMessageViewModel } from '../messaging.types';
     </article>
   `,
   styleUrl: './failed-message-item.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class FailedMessageItemComponent {
   @Input({ required: true }) message!: MessagingMessageViewModel;

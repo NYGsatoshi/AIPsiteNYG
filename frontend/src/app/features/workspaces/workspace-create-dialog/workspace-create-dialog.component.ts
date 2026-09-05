@@ -45,6 +45,7 @@ const ICON_OPTIONS = [
 ] as const;
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-workspace-create-dialog',
   standalone: true,
   imports: [
@@ -56,7 +57,6 @@ const ICON_OPTIONS = [
   ],
   templateUrl: './workspace-create-dialog.component.html',
   styleUrl: './workspace-create-dialog.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class WorkspaceCreateDialogComponent implements OnChanges {
   @Input() open = false;

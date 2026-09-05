@@ -16,12 +16,12 @@ interface VisibleFolderNode extends FileBrowserFolderNode {
 }
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-file-browser-sidebar',
   standalone: true,
   imports: [LucideChevronLeft, LucideChevronRight, LucideClock3, LucideFolder, LucideFolderOpen, LucideShare2, LucideStar],
   templateUrl: './file-browser-sidebar.component.html',
   styleUrl: './file-browser-sidebar.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class FileBrowserSidebarComponent {
   @Input() folders: readonly FileBrowserFolderNode[] = [];

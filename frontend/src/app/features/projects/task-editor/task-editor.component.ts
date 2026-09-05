@@ -46,6 +46,7 @@ export const integerRangeValidator = (min: number, max: number): ValidatorFn => 
 };
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-task-editor',
   standalone: true,
   imports: [ReactiveFormsModule, TaskBriefFieldsComponent],
@@ -383,7 +384,6 @@ export const integerRangeValidator = (min: number, max: number): ValidatorFn => 
       }
     `
   ],
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class TaskEditorComponent implements OnChanges, OnInit, OnDestroy {
   @Input() task: TaskMockRecord | undefined;

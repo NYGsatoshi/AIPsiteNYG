@@ -9,6 +9,7 @@ import {
 import { I18nService } from '../../core/i18n/i18n.service';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-feature-menu',
   standalone: true,
   imports: [RouterLink, RouterLinkActive],
@@ -167,7 +168,6 @@ import { I18nService } from '../../core/i18n/i18n.service';
     </nav>
   `,
   styleUrl: './feature-menu.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class FeatureMenuComponent {
   readonly i18n = inject(I18nService);

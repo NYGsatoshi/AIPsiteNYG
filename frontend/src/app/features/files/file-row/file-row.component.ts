@@ -5,12 +5,12 @@ import { FileScanStatusBadgeComponent } from '../file-scan-status-badge/file-sca
 import { FileViewModel } from '../files.types';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-file-row',
   standalone: true,
   imports: [FileScanStatusBadgeComponent],
   templateUrl: './file-row.component.html',
   styleUrl: './file-row.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class FileRowComponent {
   readonly i18n = inject(I18nService);

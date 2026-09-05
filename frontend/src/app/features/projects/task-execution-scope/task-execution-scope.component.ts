@@ -95,12 +95,12 @@ const MOCK_POLICY: SourcePolicy = Object.freeze({
 let componentSequence = 0;
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-task-execution-scope',
   standalone: true,
   imports: [TaskExecutionResultComponent],
   templateUrl: './task-execution-scope.component.html',
   styleUrl: './task-execution-scope.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class TaskExecutionScopeComponent implements OnChanges, OnDestroy {
   @Input({ required: true }) projectId = '';

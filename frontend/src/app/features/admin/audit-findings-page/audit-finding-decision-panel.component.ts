@@ -34,11 +34,11 @@ type PanelState =
   | { readonly status: 'permissionDenied' | 'notFound' | 'error'; readonly response: null; readonly message: string };
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager
   selector: 'app-audit-finding-decision-panel',
   standalone: true,
   templateUrl: './audit-finding-decision-panel.component.html',
   styleUrl: './audit-finding-decision-panel.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class AuditFindingDecisionPanelComponent {
   public readonly saveAnnouncement = signal('');
