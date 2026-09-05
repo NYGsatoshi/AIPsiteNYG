@@ -12,7 +12,9 @@ The migration branch installed both Angular workspaces with strict peer dependen
 - `@angular/cli`: 21.2.19 -> 22.1.7 (`frontend` and `aipsite-frontend`)
 - `@angular/cdk`: 21.2.14 -> 22.1.5 (`frontend`)
 
-The core migration generated the compatibility changes in this PR, including explicit change-detection behavior, HTTP/XHR compatibility where required, and compiler-option preservation.
+The retained core-migration changes are limited to explicit `ChangeDetectionStrategy.Eager` compatibility on the 117 migrated components and HTTP/XHR compatibility where required. Migration-only formatting churn was removed before review.
+
+The schematic also proposed `extendedDiagnostics` in the application tsconfigs. That generated setting is not retained because Angular 22 rejects `extendedDiagnostics` when the repository's existing `strictTemplates: false` compatibility mode is active (`NG4003`). The pre-migration compiler settings therefore remain unchanged in this lane; enabling strict template checking or extended diagnostics belongs in a separate, deliberate migration.
 
 Optional CLI migrations are intentionally not applied here:
 
@@ -40,4 +42,4 @@ There is no v21 -> v22 source migration to apply. An attempted generic `ng updat
 
 ## Acceptance
 
-The generated source/configuration changes are validated by the normal repository build, Angular unit, Storybook, Playwright, static-analysis, security, and supply-chain gates before this migration is accepted into the Angular 22 integration branch.
+The retained compatibility changes are validated by the normal repository build, Angular unit, Storybook, Playwright, static-analysis, security, and supply-chain gates before this migration is accepted into the Angular 22 integration branch.
