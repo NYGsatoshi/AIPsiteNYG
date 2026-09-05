@@ -19,8 +19,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Use repository npm baseline
-        run: npm install --global npm@11.17.0
+      - name: Report repository npm baseline
+        run: npm exec --yes --package=npm@11.17.0 -- npm --version
 
       - name: Generate deterministic inspection toolchain lockfile
         shell: bash
@@ -30,7 +30,8 @@ jobs:
           NPM_CONFIG_ALLOW_REMOTE: none
         run: |
           set -euo pipefail
-          npm --prefix tools/frontend-inspections install \
+          npm exec --yes --package=npm@11.17.0 -- npm \
+            --prefix tools/frontend-inspections install \
             --package-lock-only \
             --ignore-scripts \
             --no-audit \
