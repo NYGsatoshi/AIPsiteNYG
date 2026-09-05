@@ -1,0 +1,37 @@
+name: ANG22 migration normalization
+
+on:
+  push:
+    branches:
+      - chore/ang22-05-official-migrations
+
+permissions:
+  contents: write
+
+jobs:
+  normalize:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout migration branch
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: chore/ang22-05-official-migrations
+      - name: Normalize Angular 22 migration diff
+        run: node scripts/ci/ang22-normalize.mjs
+      - name: Validate generated diff
+        run: |
+          git diff --check
+          test "$(git grep -l 'ChangeDetectionStrategy.Eager' -- frontend/src aipsite-frontend/src | wc -l)" -eq 117
+          ! git grep -n '"extendedDiagnostics"' -- frontend/tsconfig.app.json aipsite-frontend/tsconfig.app.json
+      - name: Commit normalized migration
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No normalization changes to commit."
+            exit 0
+          fi
+          git commit -m "fix(angular): retain compatibility migrations without format churn"
+          git push origin HEAD:chore/ang22-05-official-migrations
