@@ -4,6 +4,8 @@ import test from 'node:test';
 
 const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
 const angularJson = JSON.parse(await readFile(new URL('../angular.json', import.meta.url), 'utf8'));
+const aipsitePackageJson = JSON.parse(await readFile(new URL('../../aipsite-frontend/package.json', import.meta.url), 'utf8'));
+const aipsitePackageLock = JSON.parse(await readFile(new URL('../../aipsite-frontend/package-lock.json', import.meta.url), 'utf8'));
 
 const expectedDependencies = {
   '@lucide/angular': '1.27.0',
@@ -33,6 +35,11 @@ test('keeps the reviewed Angular 22 third-party versions pinned', () => {
   for (const [name, version] of Object.entries(expectedDevDependencies)) {
     assert.equal(packageJson.devDependencies[name], version, `${name} drifted from the ANG22-06 reviewed version`);
   }
+});
+
+test('keeps the sibling Storybook documentation workspace on Compodoc 2.x', () => {
+  assert.equal(aipsitePackageJson.devDependencies['@compodoc/compodoc'], '^2.0.0');
+  assert.equal(aipsitePackageLock.packages['node_modules/@compodoc/compodoc'].version, '2.0.0');
 });
 
 test('retains the Angular Storybook browser builder and zone.js runtime', () => {
