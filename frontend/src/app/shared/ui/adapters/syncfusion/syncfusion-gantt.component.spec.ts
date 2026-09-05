@@ -37,7 +37,7 @@ describe('SyncfusionGanttComponent adapter boundary', () => {
   it('keeps theme, density, focus, and reduced-motion policy scoped to the adapter', () => {
     const styles = (SyncfusionGanttComponent as unknown as {
       ɵcmp: { styles: readonly string[] };
-    }).ɵcmp.styles.join('\n');
+    }).ɵcmp.styles.join('\n').replaceAll('%NS%', '');
 
     expect(styles).toContain('.aip-syncfusion-gantt');
     expect(styles).toContain('--aip-color-bg-surface');
