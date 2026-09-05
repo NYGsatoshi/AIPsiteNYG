@@ -1,9 +1,10 @@
 name: ANG22 temporary lockfile generation
 
 on:
-  push:
+  pull_request:
     branches:
-      - chore/ang22-02-03-framework-ngrx-baseline
+      - integration/angular-22-migration
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: write
@@ -16,6 +17,7 @@ jobs:
       - name: Checkout migration branch
         uses: actions/checkout@v6
         with:
+          ref: ${{ github.head_ref }}
           persist-credentials: true
 
       - name: Set up supported Node.js
@@ -51,4 +53,4 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git commit -m 'chore(angular): regenerate Angular 22 lockfiles'
-          git push origin HEAD:${GITHUB_REF_NAME}
+          git push origin HEAD:${GITHUB_HEAD_REF}
