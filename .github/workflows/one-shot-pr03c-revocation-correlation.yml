@@ -1,0 +1,119 @@
+name: One-shot PR03C revocation correlation fix
+
+on:
+  push:
+    branches:
+      - integration/angular-22-migration
+    paths:
+      - ".github/workflows/one-shot-pr03c-revocation-correlation.yml"
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: one-shot-pr03c-revocation-correlation
+  cancel-in-progress: false
+
+jobs:
+  patch-and-dispatch:
+    if: github.repository == 'NYGsatoshi/AIPsiteNYG' && github.ref == 'refs/heads/integration/angular-22-migration'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout integration candidate
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Verify staged commit parent
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "5975efd2c2aab941d678f618b2e1532735a29180"
+
+      - name: Apply exact PR03C failure-correlation fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('tests/ui/real-backend-smoke.spec.ts')
+          text = path.read_text()
+          old = """      // Revocation can race with stale project task-list refreshes already queued by the SPA.\n      // They must fail closed, and are expected only after this scenario removes Workspace access.\n      const expectedRevocationRefreshFailures = evidence.failedApiResponses\n        .slice(postRevocationFailureStart)\n        .filter((failure) => {\n          const method = failure.method.toUpperCase();\n          const { pathname } = new URL(failure.path, 'http://localhost');\n          return failure.status === 400 &&\n            method === 'GET' &&\n            /^\\/api\\/projects\\/[^/]+\\/tasks$/u.test(pathname);\n        });\n"""
+          new = """      // Revocation can race with stale project task-list and task execution-scope refreshes already queued by the SPA.\n      // They must fail closed, and are expected only after this scenario removes Workspace access.\n      const expectedRevocationRefreshFailures = evidence.failedApiResponses\n        .slice(postRevocationFailureStart)\n        .filter((failure) => {\n          const method = failure.method.toUpperCase();\n          const { pathname } = new URL(failure.path, 'http://localhost');\n          const staleProjectTaskList =\n            failure.status === 400 &&\n            method === 'GET' &&\n            /^\\/api\\/projects\\/[^/]+\\/tasks$/u.test(pathname);\n          const revokedTaskExecutionScope =\n            failure.status === 404 &&\n            method === 'GET' &&\n            pathname === `/api/tasks/${taskId}/execution-scope`;\n          return staleProjectTaskList || revokedTaskExecutionScope;\n        });\n"""
+          if text.count(old) != 1:
+              raise SystemExit('Expected exactly one PR03C correlation block; refusing broad/ambiguous edit.')
+          path.write_text(text.replace(old, new, 1))
+          PY
+          rm .github/workflows/one-shot-pr03c-revocation-correlation.yml
+          git diff --check
+          grep -F 'pathname === `/api/tasks/${taskId}/execution-scope`' tests/ui/real-backend-smoke.spec.ts
+          test ! -e .github/workflows/one-shot-pr03c-revocation-correlation.yml
+
+      - name: Commit and push harness fix
+        id: patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'test(real-backend): correlate revoked execution-scope refresh'
+          patch_sha="$(git rev-parse HEAD)"
+          echo "patch_sha=$patch_sha" >> "$GITHUB_OUTPUT"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+
+      - name: Wait for final coordinator commit
+        id: final
+        shell: bash
+        env:
+          PATCH_SHA: ${{ steps.patch.outputs.patch_sha }}
+        run: |
+          set -euo pipefail
+          final_sha=''
+          for _ in $(seq 1 120); do
+            candidate="$(git ls-remote origin "refs/heads/${GITHUB_REF_NAME}" | cut -f1)"
+            if [[ -n "$candidate" && "$candidate" != "$PATCH_SHA" ]]; then
+              final_sha="$candidate"
+              break
+            fi
+            sleep 5
+          done
+          test -n "$final_sha"
+          git fetch --no-tags origin "$GITHUB_REF_NAME"
+          git merge-base --is-ancestor "$PATCH_SHA" "$final_sha"
+          git show "$final_sha:tests/ui/real-backend-smoke.spec.ts" | grep -F 'pathname === `/api/tasks/${taskId}/execution-scope`'
+          if git cat-file -e "$final_sha:.github/workflows/one-shot-pr03c-revocation-correlation.yml" 2>/dev/null; then
+            echo 'One-shot workflow still exists in final candidate.' >&2
+            exit 1
+          fi
+          echo "final_sha=$final_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch protected suite=all on final candidate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FINAL_SHA: ${{ steps.final.outputs.final_sha }}
+        run: |
+          set -euo pipefail
+          remote_head="$(git ls-remote origin "refs/heads/${GITHUB_REF_NAME}" | cut -f1)"
+          test "$remote_head" = "$FINAL_SHA"
+          payload="$(printf '{\"ref\":\"%s\",\"inputs\":{\"suite\":\"all\"}}' "$GITHUB_REF_NAME")"
+          code="$(curl --silent --show-error --output "$RUNNER_TEMP/dispatch-response.txt" --write-out '%{http_code}' \
+            --request POST \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header 'Accept: application/vnd.github+json' \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/licensed-real-backend-acceptance.yml/dispatches" \
+            --data "$payload")"
+          if [[ "$code" != '204' ]]; then
+            cat "$RUNNER_TEMP/dispatch-response.txt" >&2 || true
+            echo "workflow_dispatch returned HTTP $code" >&2
+            exit 1
+          fi
+          echo "Protected suite=all dispatched for $FINAL_SHA"
