@@ -14,8 +14,8 @@ import { SYNCFUSION_GANTT_THEME_ASSETS, SyncfusionGanttComponent } from './syncf
 @Component({
   changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-angular22-third-party-compat-host',
-  standalone: true,
   imports: [DialogModule, LucideCircle, UploaderModule],
+  standalone: true,
   template: `
     <svg lucideCircle aria-hidden="true" data-testid="lucide-circle"></svg>
     <ejs-uploader [autoUpload]="false" [multiple]="true" />
