@@ -37,13 +37,15 @@ describe('Angular 22 third-party compatibility', () => {
     fixture.detectChanges();
     await fixture.whenStable();
 
-    const uploader = fixture.debugElement.query(By.directive(UploaderComponent)).injector.get(UploaderComponent),
-      dialog = fixture.debugElement.query(By.directive(DialogComponent)).injector.get(DialogComponent),
-      icon = fixture.debugElement.query(By.directive(LucideCircle)).injector.get(LucideCircle);
+    {
+      const dialog = fixture.debugElement.query(By.directive(DialogComponent)).injector.get(DialogComponent),
+        icon = fixture.debugElement.query(By.directive(LucideCircle)).injector.get(LucideCircle),
+        uploader = fixture.debugElement.query(By.directive(UploaderComponent)).injector.get(UploaderComponent);
 
-    expect(uploader).toBeInstanceOf(UploaderComponent);
-    expect(dialog).toBeInstanceOf(DialogComponent);
-    expect(icon).toBeInstanceOf(LucideCircle);
+      expect(uploader).toBeInstanceOf(UploaderComponent);
+      expect(dialog).toBeInstanceOf(DialogComponent);
+      expect(icon).toBeInstanceOf(LucideCircle);
+    }
   });
 
   it('loads the production Gantt, Syncfusion Grid, and AG Grid Angular integration classes', () => {
@@ -56,12 +58,12 @@ describe('Angular 22 third-party compatibility', () => {
   it('builds the SignalR client and preserves RxJS execution in the jsdom test runtime', async () => {
     const connection = new HubConnectionBuilder()
       .withUrl('https://example.invalid/hubs/realtime')
-      .build();
-    const sourceValue = Number('21');
-    const doubledValue = await firstValueFrom(of(sourceValue).pipe(map((value) => value + value)));
+      .build(),
+      inputValue = Number('21'),
+      outputValue = await firstValueFrom(of(inputValue).pipe(map((value) => value + value)));
 
     expect(connection.state).toBe(HubConnectionState.Disconnected);
-    expect(doubledValue).toBe(Number('42'));
+    expect(outputValue).toBe(Number('42'));
     expect(window.document).toBe(document);
     expect(document.createElement('div')).toBeInstanceOf(HTMLElement);
   });
