@@ -19,7 +19,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          EXPECTED_SHA: 6d94e6224ef033cd032ae2b120b213b649dee316
+          EXPECTED_SHA: 45ed4aa383fe0feb4c05330a8aa551795d1901db
         run: |
           set -euo pipefail
           candidate_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/integration/angular-22-migration" --jq '.object.sha')"
