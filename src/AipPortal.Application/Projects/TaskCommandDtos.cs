@@ -177,7 +177,7 @@ public sealed record TaskClaimRequest(long ExpectedVersion);
 public sealed record TaskRestoreRequest(long ExpectedVersion);
 public sealed record TaskDeleteRequest(long ExpectedVersion);
 public sealed record TaskWatchStateResponse(bool IsWatching, bool IsExplicitOptOut, string[] AutomaticSources, long Version);
-public sealed record TaskWatchRequest(long ExpectedVersion);
+public sealed record TaskWatchRequest([property: System.ComponentModel.DataAnnotations.Range(typeof(long), "0", "9223372036854775807")] long ExpectedVersion);
 
 /// <summary>
 /// Gantt scheduling owns only day-precision planned dates. MilestoneDate is

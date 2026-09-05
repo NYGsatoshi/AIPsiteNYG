@@ -15,7 +15,7 @@ public sealed record RefineArtifactReportRequest(
     ArtifactReportRefinementTargetKind TargetKind,
     Guid TargetLogicalId,
     string? Feedback,
-    long ConfirmedProjectScopeVersion,
+    [property: System.ComponentModel.DataAnnotations.Range(typeof(long), "1", "9223372036854775807")] long ConfirmedProjectScopeVersion,
     long? ConfirmedTaskOverrideVersion,
     Guid? ConfirmedResearchPlanRevisionId,
     long? ConfirmedResearchPlanRevisionNo);

@@ -93,10 +93,6 @@ public sealed class DbArtifactReportRefinementService(
         var feedback = request.Feedback?.Trim();
         if (feedback?.Length > MaxFeedbackLength)
             return Validation<ArtifactReportRefinementResponse>();
-        if (request.ConfirmedProjectScopeVersion <= 0 ||
-            (request.ConfirmedResearchPlanRevisionId.HasValue != request.ConfirmedResearchPlanRevisionNo.HasValue))
-            return Validation<ArtifactReportRefinementResponse>();
-
         var context = await LoadContextAsync(projectId, baseArtifactVersionId, userId, cancellationToken);
         if (context is null)
             return NotFound<ArtifactReportRefinementResponse>();
@@ -112,6 +108,9 @@ public sealed class DbArtifactReportRefinementService(
         var snapshot = await ReadScopeSnapshotAsync(context.Task.Id, cancellationToken);
         if (snapshot is null)
             return Failure<ArtifactReportRefinementResponse>("ReportRefinementUnavailable", "The report refinement scope is unavailable.");
+        if (request.ConfirmedProjectScopeVersion <= 0 ||
+            (request.ConfirmedResearchPlanRevisionId.HasValue != request.ConfirmedResearchPlanRevisionNo.HasValue))
+            return Validation<ArtifactReportRefinementResponse>();
         if (!MatchesConfirmation(snapshot, request))
             return Conflict<ArtifactReportRefinementResponse>("ReportRefinementScopeChanged", "The source scope or Research Plan changed after confirmation. Review the current scope and confirm again.");
 
