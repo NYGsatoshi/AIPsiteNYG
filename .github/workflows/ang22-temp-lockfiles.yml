@@ -1,0 +1,54 @@
+name: ANG22 temporary lockfile generation
+
+on:
+  push:
+    branches:
+      - chore/ang22-02-03-framework-ngrx-baseline
+
+permissions:
+  contents: write
+
+jobs:
+  generate-lockfiles:
+    if: github.actor == 'NYGsatoshi'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout migration branch
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: true
+
+      - name: Set up supported Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24.15.0'
+          package-manager-cache: false
+
+      - name: Use repository npm version
+        run: npm install --global npm@11.17.0
+
+      - name: Resolve frontend lockfile strictly
+        run: npm --prefix frontend install --package-lock-only --ignore-scripts --strict-peer-deps --no-audit --no-fund
+
+      - name: Resolve secondary frontend lockfile strictly
+        run: npm --prefix aipsite-frontend install --package-lock-only --ignore-scripts --strict-peer-deps --no-audit --no-fund
+
+      - name: Verify clean frontend install
+        run: npm --prefix frontend ci --ignore-scripts --strict-peer-deps --no-audit --no-fund
+
+      - name: Verify clean secondary frontend install
+        run: npm --prefix aipsite-frontend ci --ignore-scripts --strict-peer-deps --no-audit --no-fund
+
+      - name: Commit generated lockfiles
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add frontend/package-lock.json aipsite-frontend/package-lock.json
+          if git diff --cached --quiet; then
+            echo 'Lockfiles already current.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'chore(angular): regenerate Angular 22 lockfiles'
+          git push origin HEAD:${GITHUB_REF_NAME}
