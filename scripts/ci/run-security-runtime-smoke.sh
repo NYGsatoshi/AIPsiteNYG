@@ -121,7 +121,7 @@ document = json.load(sys.stdin)
 app = document["services"]["app"]
 if "build" in app:
     raise SystemExit("SEC-03/SEC-04/SEC-05 runtime app must not retain the production Docker build")
-if app.get("image") != "mcr.microsoft.com/dotnet/sdk:10.0.302":
+if app.get("image") != "mcr.microsoft.com/dotnet/sdk:10.0.400":
     raise SystemExit("SEC-03/SEC-04/SEC-05 runtime app must use the pinned .NET SDK image")
 if app.get("ports"):
     raise SystemExit("SEC-03/SEC-04/SEC-05 runtime app must not publish host ports")
