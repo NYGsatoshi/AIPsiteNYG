@@ -21,7 +21,7 @@ services:
       start_period: 5s
 
   migrate:
-    image: mcr.microsoft.com/dotnet/sdk:10.0.302
+    image: mcr.microsoft.com/dotnet/sdk:10.0.400
     working_dir: /src
     restart: "no"
     volumes:
