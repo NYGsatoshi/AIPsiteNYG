@@ -2,23 +2,47 @@ using System.ComponentModel.DataAnnotations;
 
 namespace AipPortal.Application.Auth;
 
-public sealed record RegisterByInviteRequest(
-    [Required, RegularExpression("^[a-f0-9]{64}$")]
-    string InviteToken,
-    [Required]
-    string DisplayName,
-    [Required, EmailAddress]
-    string Email,
-    [Required, MinLength(8)]
-    string Password);
+public sealed record RegisterByInviteRequest
+{
+    public RegisterByInviteRequest(string inviteToken, string displayName, string email, string password)
+    {
+        InviteToken = inviteToken;
+        DisplayName = displayName;
+        Email = email;
+        Password = password;
+    }
 
-public sealed record AcceptInviteRequest(
     [Required, RegularExpression("^[a-f0-9]{64}$")]
-    string Token,
+    public string InviteToken { get; init; }
+
     [Required]
-    string DisplayName,
+    public string DisplayName { get; init; }
+
+    [Required, EmailAddress]
+    public string Email { get; init; }
+
     [Required, MinLength(8)]
-    string Password);
+    public string Password { get; init; }
+}
+
+public sealed record AcceptInviteRequest
+{
+    public AcceptInviteRequest(string token, string displayName, string password)
+    {
+        Token = token;
+        DisplayName = displayName;
+        Password = password;
+    }
+
+    [Required, RegularExpression("^[a-f0-9]{64}$")]
+    public string Token { get; init; }
+
+    [Required]
+    public string DisplayName { get; init; }
+
+    [Required, MinLength(8)]
+    public string Password { get; init; }
+}
 
 public sealed record InviteValidationResponse(
     bool Valid,
