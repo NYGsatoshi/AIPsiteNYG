@@ -13,7 +13,7 @@ const playwrightArgs = [
   ...(userArgs.length > 0
     ? userArgs
     : [
-      'tests/ui/task-execution-golden-path.spec.ts',
+      'tests/functional/project-task/core-golden-journey.spec.ts',
       'tests/ui/real-backend-smoke.spec.ts',
       '--project=chromium-desktop',
       '--retries=0',
