@@ -9,7 +9,7 @@ import {
 import { I18nService } from '../../core/i18n/i18n.service';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-feature-menu',
   standalone: true,
   imports: [RouterLink, RouterLinkActive],

@@ -41,7 +41,7 @@ type SyncfusionGridEvent<TData> = {
 };
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-syncfusion-data-grid',
   standalone: true,
   imports: [GridModule],

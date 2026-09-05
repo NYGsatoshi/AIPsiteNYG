@@ -7,7 +7,7 @@ import {
 } from './task-notification-preferences.facade';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-task-notification-preferences',
   standalone: true,
   template: `

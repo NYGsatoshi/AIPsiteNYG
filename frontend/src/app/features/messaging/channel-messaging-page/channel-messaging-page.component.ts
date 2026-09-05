@@ -14,7 +14,7 @@ import { ActiveWorkspaceFacade } from '../../../core/workspace/active-workspace.
 import { ThreadPreviewComponent } from '../thread-preview/thread-preview.component';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-channel-messaging-page',
   standalone: true,
   imports: [

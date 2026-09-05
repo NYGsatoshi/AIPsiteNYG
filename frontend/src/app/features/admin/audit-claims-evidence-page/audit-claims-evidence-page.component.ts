@@ -14,7 +14,7 @@ import {
 } from './audit-claims-evidence.types';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-audit-claims-evidence-page',
   standalone: true,
   imports: [AipFilterChipComponent],

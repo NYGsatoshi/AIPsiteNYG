@@ -8,7 +8,7 @@ import { RightPanelMode } from '../../shared/right-panel/right-panel.types';
 import { WorkspaceSearchComponent } from '../workspace-search/workspace-search.component';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-top-bar',
   standalone: true,
   imports: [RouterLink, WorkspaceSearchComponent],

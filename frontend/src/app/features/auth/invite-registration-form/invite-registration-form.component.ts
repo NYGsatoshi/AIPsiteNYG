@@ -5,7 +5,7 @@ import { AppFieldErrorComponent } from '../../../shared/form/app-field-error/app
 import { InviteRegistrationFormSubmit } from '../invite-registration.types';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-invite-registration-form',
   standalone: true,
   imports: [ReactiveFormsModule, AppFieldErrorComponent],

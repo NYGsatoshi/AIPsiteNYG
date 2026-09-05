@@ -53,7 +53,7 @@ const TEXT_PREVIEW_MAX_BYTES = 512 * 1024;
 const PREVIEW_OVERLAY_MAX_WIDTH = 860;
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-files-page',
   standalone: true,
   imports: [

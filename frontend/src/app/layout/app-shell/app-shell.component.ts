@@ -28,7 +28,7 @@ import { TopBarComponent } from '../top-bar/top-bar.component';
 import { AppShellFacade } from './app-shell.facade';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-shell',
   standalone: true,
   imports: [

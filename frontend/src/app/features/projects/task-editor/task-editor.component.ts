@@ -46,7 +46,7 @@ export const integerRangeValidator = (min: number, max: number): ValidatorFn => 
 };
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-task-editor',
   standalone: true,
   imports: [ReactiveFormsModule, TaskBriefFieldsComponent],

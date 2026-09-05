@@ -12,7 +12,7 @@ interface DestinationOption {
 }
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-file-move-dialog',
   standalone: true,
   imports: [AipDialogComponent],

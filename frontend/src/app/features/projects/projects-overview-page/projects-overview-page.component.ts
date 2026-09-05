@@ -18,7 +18,7 @@ import { ProjectSummaryPanelComponent } from '../project-summary-panel/project-s
 import { FrontendFeatureFlagsService } from '../../../core/feature-flags/frontend-feature-flags.service';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-projects-overview-page',
   standalone: true,
   imports: [

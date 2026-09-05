@@ -70,7 +70,7 @@ const EMPTY_INBOX: MessagingInboxViewModel = {
 };
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-message-search-filters',
   standalone: true,
   imports: [AipFilterChipComponent, ConversationListComponent, RouterLink],

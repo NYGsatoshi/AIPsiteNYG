@@ -18,7 +18,7 @@ import {
 } from '../messaging.types';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-thread-preview',
   standalone: true,
   imports: [LucideArrowLeft, LucideX],

@@ -9,7 +9,7 @@ import { WorkspacesFacade } from '../workspaces.facade';
 import { WorkspaceCardViewModel, WorkspaceCreateInput } from '../workspaces.types';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-workspace-dashboard-page',
   standalone: true,
   imports: [

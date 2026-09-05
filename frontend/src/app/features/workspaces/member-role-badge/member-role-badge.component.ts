@@ -8,7 +8,7 @@ interface MemberRoleBadgeCellParams {
 }
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-member-role-badge',
   standalone: true,
   template: `<span [class]="'role-badge role-badge--' + role">{{ label }}</span>`,

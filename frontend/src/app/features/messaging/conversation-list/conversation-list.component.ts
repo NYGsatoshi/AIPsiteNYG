@@ -5,7 +5,7 @@ import { MessageNavigationStateService } from '../message-navigation-state.servi
 import { MessagingConversationListItem } from '../messaging.types';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-conversation-list',
   standalone: true,
   imports: [RouterLink],

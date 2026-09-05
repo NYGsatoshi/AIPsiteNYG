@@ -6,7 +6,7 @@ import { RealtimeFacade } from './core/realtime/realtime.facade';
 import { I18nService } from './core/i18n/i18n.service';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-root',
   imports: [RouterOutlet, AipThemeToggleComponent],
   templateUrl: './app.html',

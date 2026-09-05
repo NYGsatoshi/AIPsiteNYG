@@ -8,7 +8,7 @@ import { InviteRegistrationFormComponent } from '../invite-registration-form/inv
 import { InviteTokenStatePanelComponent } from '../invite-token-state-panel/invite-token-state-panel.component';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-invite-registration-page',
   standalone: true,
   imports: [InviteRegistrationFormComponent, InviteTokenStatePanelComponent],

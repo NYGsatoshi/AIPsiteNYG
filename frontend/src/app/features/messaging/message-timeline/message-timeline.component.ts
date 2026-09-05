@@ -10,7 +10,7 @@ import {
 import { NewMessageBannerComponent } from '../new-message-banner/new-message-banner.component';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-message-timeline',
   standalone: true,
   imports: [FailedMessageItemComponent, MessageItemComponent, NewMessageBannerComponent],

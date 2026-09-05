@@ -7,7 +7,7 @@ import {
 } from '../announcements.types';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-announcement-priority-badge',
   standalone: true,
   imports: [LucideCircle, LucideCircleAlert, LucideTriangleAlert],

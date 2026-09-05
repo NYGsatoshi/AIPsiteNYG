@@ -46,7 +46,7 @@ interface InterventionResponse {
 }
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-task-execution-result',
   standalone: true,
   templateUrl: './task-execution-result.component.html',

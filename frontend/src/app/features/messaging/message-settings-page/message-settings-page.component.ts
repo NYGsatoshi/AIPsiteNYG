@@ -8,7 +8,7 @@ import { MessageNotificationPreferenceDto, MessagingApi } from '../messaging.api
 type GlobalSettingsStatus = 'loading' | 'ready' | 'saving' | 'error';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-message-settings-page',
   standalone: true,
   imports: [RouterLink, AppConfirmDialogComponent],

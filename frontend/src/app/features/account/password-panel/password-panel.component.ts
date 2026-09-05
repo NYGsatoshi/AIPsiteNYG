@@ -6,7 +6,7 @@ import { AppFieldErrorComponent } from '../../../shared/form/app-field-error/app
 import { PasswordChangeResult, PasswordChangeSubmit } from '../account.types';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-password-panel',
   standalone: true,
   imports: [ReactiveFormsModule, AppFieldErrorComponent],

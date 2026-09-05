@@ -15,7 +15,7 @@ import { SessionListComponent } from '../session-list/session-list.component';
 import { TaskNotificationPreferencesComponent } from '../task-notification-preferences/task-notification-preferences.component';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-account-page',
   standalone: true,
   imports: [

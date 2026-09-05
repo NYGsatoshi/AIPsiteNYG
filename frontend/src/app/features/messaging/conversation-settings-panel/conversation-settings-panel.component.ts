@@ -17,7 +17,7 @@ import { MessagingApi, ParticipantStateDto } from '../messaging.api';
 type ConversationSettingsStatus = 'idle' | 'loading' | 'ready' | 'saving' | 'error';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-conversation-settings-panel',
   standalone: true,
   imports: [RouterLink],

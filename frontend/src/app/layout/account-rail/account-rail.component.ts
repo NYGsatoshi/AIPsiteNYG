@@ -3,7 +3,7 @@ import { ChangeDetectionStrategy, Component, Input, inject } from '@angular/core
 import { I18nService } from '../../core/i18n/i18n.service';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-account-rail',
   standalone: true,
   template: `

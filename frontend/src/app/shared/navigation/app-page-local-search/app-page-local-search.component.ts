@@ -7,7 +7,7 @@ export interface PageLocalSearchRow {
 }
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-page-local-search',
   standalone: true,
   imports: [FormsModule],

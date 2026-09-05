@@ -4,7 +4,7 @@ import { FormControl, ReactiveFormsModule } from '@angular/forms';
 import { TASK_BRIEF_FIELD_MAX_LENGTH } from '../projects.types';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-task-brief-fields',
   standalone: true,
   imports: [ReactiveFormsModule],

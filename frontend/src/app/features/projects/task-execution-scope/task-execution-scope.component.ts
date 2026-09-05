@@ -95,7 +95,7 @@ const MOCK_POLICY: SourcePolicy = Object.freeze({
 let componentSequence = 0;
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-task-execution-scope',
   standalone: true,
   imports: [TaskExecutionResultComponent],

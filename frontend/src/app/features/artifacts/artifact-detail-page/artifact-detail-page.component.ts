@@ -24,7 +24,7 @@ interface ArtifactDetailViewModel {
 }
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-artifact-detail-page',
   standalone: true,
   template: `

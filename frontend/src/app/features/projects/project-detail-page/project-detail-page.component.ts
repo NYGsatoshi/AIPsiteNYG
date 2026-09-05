@@ -34,7 +34,7 @@ import { TaskGridRow } from '../projects.types';
 import { TaskTableComponent } from '../task-table/task-table.component';
 
 @Component({ selector: 'app-project-detail-page', standalone: true, imports: [AppEmptyStateComponent, AppErrorBannerComponent, AppInlineLoadingComponent, AppPermissionDeniedComponent, AipKanbanComponent, AipGanttComponent, TaskTableComponent], templateUrl: './project-detail-page.component.html', styleUrl: './project-detail-page.component.scss',
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
 })
 export class ProjectDetailPageComponent implements OnDestroy {
   private readonly route = inject(ActivatedRoute);

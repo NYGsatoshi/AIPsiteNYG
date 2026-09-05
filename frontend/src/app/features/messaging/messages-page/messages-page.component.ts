@@ -16,7 +16,7 @@ interface RecipientOption {
 }
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-messages-page',
   standalone: true,
   imports: [FormsModule, MessageSearchFiltersComponent, RouterLink],

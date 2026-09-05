@@ -29,7 +29,7 @@ const DEFAULT_RIGHT_PANEL_SCOPE: RightPanelScope = {
 };
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-right-panel',
   standalone: true,
   imports: [A11yModule, MembersTabComponent, NotificationsTabComponent],

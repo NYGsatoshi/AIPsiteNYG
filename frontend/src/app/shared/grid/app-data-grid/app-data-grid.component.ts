@@ -48,7 +48,7 @@ import type { SyncfusionDataGridComponent } from '../../ui/adapters/syncfusion/s
 ModuleRegistry.registerModules([AllCommunityModule]);
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-data-grid',
   standalone: true,
   imports: [AgGridAngular],

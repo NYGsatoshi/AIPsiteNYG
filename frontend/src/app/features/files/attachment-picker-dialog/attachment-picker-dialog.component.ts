@@ -5,7 +5,7 @@ import { FileScanStatusBadgeComponent } from '../file-scan-status-badge/file-sca
 import { FileViewModel } from '../files.types';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-attachment-picker-dialog',
   standalone: true,
   imports: [FileScanStatusBadgeComponent],

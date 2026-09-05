@@ -5,7 +5,7 @@ import { MemberListItemComponent } from '../member-list-item/member-list-item.co
 import { RightPanelMember, RightPanelPermission } from '../right-panel.types';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-members-tab',
   standalone: true,
   imports: [AppPermissionDeniedComponent, MemberListItemComponent],

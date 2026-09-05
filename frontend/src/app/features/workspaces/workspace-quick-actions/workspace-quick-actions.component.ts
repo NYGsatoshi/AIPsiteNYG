@@ -4,7 +4,7 @@ import { RouterLink } from '@angular/router';
 import { WorkspaceActionCapability } from '../workspaces.types';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-workspace-quick-actions',
   standalone: true,
   imports: [RouterLink],

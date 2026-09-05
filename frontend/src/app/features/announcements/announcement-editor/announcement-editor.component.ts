@@ -40,7 +40,7 @@ import { isSafeAnnouncementUrl } from '../announcements.api';
 import { AipDialogComponent } from '../../../shared/ui/aip-dialog/aip-dialog.component';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-announcement-editor',
   standalone: true,
   imports: [

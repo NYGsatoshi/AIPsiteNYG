@@ -10,7 +10,7 @@ import { AnnouncementLocalPreview } from '../announcements.types';
  * analytics data.
  */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-announcement-local-preview',
   standalone: true,
   imports: [AnnouncementPriorityBadgeComponent],

@@ -3,7 +3,7 @@ import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 import { InviteRegistrationViewModel } from '../invite-registration.types';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-invite-token-state-panel',
   standalone: true,
   templateUrl: './invite-token-state-panel.component.html',

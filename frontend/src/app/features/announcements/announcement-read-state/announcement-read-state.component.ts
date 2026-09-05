@@ -3,7 +3,7 @@ import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 import { AnnouncementReadStateViewModel } from '../announcements.types';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-announcement-read-state',
   standalone: true,
   templateUrl: './announcement-read-state.component.html',

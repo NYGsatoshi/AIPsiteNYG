@@ -4,7 +4,7 @@ import { AppEmptyStateComponent } from '../../../shared/empty-state/app-empty-st
 import { AdminFacade } from '../admin.facade';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-export-diagnostics-page',
   standalone: true,
   imports: [

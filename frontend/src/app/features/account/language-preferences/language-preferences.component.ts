@@ -3,7 +3,7 @@ import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/cor
 import { AppLocale, I18nService } from '../../../core/i18n/i18n.service';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-language-preferences',
   standalone: true,
   templateUrl: './language-preferences.component.html',

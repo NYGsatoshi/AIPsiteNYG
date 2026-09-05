@@ -14,7 +14,7 @@ let mentionInputInstance = 0;
 
 /** Friendly display text is reconciled to canonical @{GUID} tokens at explicit token spans. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-mention-input', standalone: true,
   template: `<label [for]="textareaId">Comment</label>
   <textarea #editor [id]="textareaId" [value]="displayValue()" [attr.maxlength]="maxLength ?? null" (input)="onInput($event)" (keydown)="onKeydown($event)" (click)="onCaretChange($event)" (keyup)="onCaretChange($event)"

@@ -72,7 +72,7 @@ const WORKSPACE_ROLE: Record<WorkspaceRoleName, WorkspaceRoleValue> = {
 };
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-invite-admin-page',
   standalone: true,
   imports: [FormsModule, AipDateTimePickerComponent, AipDialogComponent, AppDataGridComponent, AppEmptyStateComponent, AppInlineLoadingComponent, AppPermissionDeniedComponent],

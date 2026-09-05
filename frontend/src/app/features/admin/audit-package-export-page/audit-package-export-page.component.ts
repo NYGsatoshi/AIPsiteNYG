@@ -16,7 +16,7 @@ import {
 } from './audit-package-export-page.models';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-audit-package-export-page',
   standalone: true,
   imports: [RouterLink],

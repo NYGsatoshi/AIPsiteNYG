@@ -175,7 +175,7 @@ const emptyReport: Report = {
 };
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-report-reader-page',
   imports: [LucideFileText, LucideRefreshCw, LucideX],
   standalone: true,

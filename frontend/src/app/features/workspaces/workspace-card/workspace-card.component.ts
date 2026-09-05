@@ -4,7 +4,7 @@ import { WorkspaceQuickActionsComponent } from '../workspace-quick-actions/works
 import { WorkspaceCardViewModel } from '../workspaces.types';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-workspace-card',
   standalone: true,
   imports: [WorkspaceQuickActionsComponent],

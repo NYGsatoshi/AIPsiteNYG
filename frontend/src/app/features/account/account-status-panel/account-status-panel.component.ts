@@ -4,7 +4,7 @@ import { I18nService } from '../../../core/i18n/i18n.service';
 import { AccountStatusViewModel } from '../account.types';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-account-status-panel',
   standalone: true,
   templateUrl: './account-status-panel.component.html',

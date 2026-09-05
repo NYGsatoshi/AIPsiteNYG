@@ -6,7 +6,7 @@ import { LucideBookmarkCheck, LucideCheck, LucideChevronLeft } from '@lucide/ang
 import { MessageFollowUpFacade } from '../message-follow-up.facade';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-message-follow-ups-page',
   standalone: true,
   imports: [DatePipe, LucideBookmarkCheck, LucideCheck, LucideChevronLeft, RouterLink],

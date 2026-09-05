@@ -42,7 +42,7 @@ import {
 } from '../project-create.facade';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-project-create-dialog',
   standalone: true,
   imports: [ReactiveFormsModule, AipDialogComponent, AppFieldErrorComponent, AppRequestIdComponent],

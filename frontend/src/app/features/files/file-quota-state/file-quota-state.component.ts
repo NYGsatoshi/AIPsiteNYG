@@ -4,7 +4,7 @@ import { I18nService } from '../../../core/i18n/i18n.service';
 import { FileQuotaViewModel } from '../files.types';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-file-quota-state',
   standalone: true,
   template: `

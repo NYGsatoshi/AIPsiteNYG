@@ -11,7 +11,7 @@ import { RealtimeFacade } from '../../../core/realtime/realtime.facade';
 import { ThreadPreviewComponent } from '../thread-preview/thread-preview.component';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-dm-page',
   standalone: true,
   imports: [

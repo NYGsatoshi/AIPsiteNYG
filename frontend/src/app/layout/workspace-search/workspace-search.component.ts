@@ -44,7 +44,7 @@ const MAX_RENDERED_RESULTS = 8;
 const TYPE_PAGE_SIZE = 8;
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-workspace-search',
   standalone: true,
   template: `

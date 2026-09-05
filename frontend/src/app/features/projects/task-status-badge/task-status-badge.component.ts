@@ -3,7 +3,7 @@ import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 import { TaskStatus } from '../projects.types';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-task-status-badge',
   standalone: true,
   template: `<span class="task-status-badge" [attr.data-status]="status">{{ label }}</span>`,

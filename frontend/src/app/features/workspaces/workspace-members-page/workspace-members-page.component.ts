@@ -20,7 +20,7 @@ import { ActiveWorkspaceFacade } from '../../../core/workspace/active-workspace.
 import { WorkspaceMemberGridRow, WorkspaceMemberRowAction } from '../members.types';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-workspace-members-page',
   standalone: true,
   imports: [

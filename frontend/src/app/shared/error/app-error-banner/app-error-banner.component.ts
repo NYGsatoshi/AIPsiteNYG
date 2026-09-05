@@ -4,7 +4,7 @@ import { FrontendApiError, FrontendApiErrorDetail } from '../../../core/api/api-
 import { AppRequestIdComponent } from '../app-request-id/app-request-id.component';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-error-banner',
   standalone: true,
   imports: [AppRequestIdComponent],

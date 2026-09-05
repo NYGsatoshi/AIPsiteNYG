@@ -93,7 +93,7 @@ const EMPTY_STEP: EditableStep = Object.freeze({
  * draft can be saved as the next immutable revision.
  */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-task-research-plan',
   standalone: true,
   imports: [FormsModule],

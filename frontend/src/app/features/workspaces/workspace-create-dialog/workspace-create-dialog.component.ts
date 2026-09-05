@@ -45,7 +45,7 @@ const ICON_OPTIONS = [
 ] as const;
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-workspace-create-dialog',
   standalone: true,
   imports: [

@@ -4,7 +4,7 @@ import { NotificationItemComponent } from '../notification-item/notification-ite
 import { RightPanelNotification } from '../right-panel.types';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-notifications-tab',
   standalone: true,
   imports: [NotificationItemComponent],

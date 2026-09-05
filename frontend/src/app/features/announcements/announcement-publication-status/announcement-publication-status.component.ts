@@ -6,7 +6,7 @@ import {
 } from '../announcements.types';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-announcement-publication-status',
   standalone: true,
   templateUrl: './announcement-publication-status.component.html',

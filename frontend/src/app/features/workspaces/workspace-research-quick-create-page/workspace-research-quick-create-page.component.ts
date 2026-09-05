@@ -21,7 +21,7 @@ import {
 } from '../workspace-research-quick-create.service';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-workspace-research-quick-create-page',
   standalone: true,
   imports: [RouterLink],

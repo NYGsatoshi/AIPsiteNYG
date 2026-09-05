@@ -6,7 +6,7 @@ import { projectWorkStatus } from '../projects.mapper';
 import { ProjectSummaryViewModel } from '../projects.types';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-project-summary-panel',
   standalone: true,
   imports: [RouterLink, WorkStatusBadgeComponent],

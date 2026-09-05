@@ -48,7 +48,7 @@ interface DrawerReturnContext {
 }
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-audit-log-page',
   standalone: true,
   imports: [

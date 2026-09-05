@@ -9,7 +9,7 @@ import {
 } from '../admin.types';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-audit-detail-drawer',
   standalone: true,
   imports: [AuditResultBadgeComponent, AuditSeverityBadgeComponent],

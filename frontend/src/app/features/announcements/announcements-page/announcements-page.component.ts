@@ -19,7 +19,7 @@ import {
 } from '../announcements.types';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-announcements-page',
   standalone: true,
   imports: [

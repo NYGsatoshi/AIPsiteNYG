@@ -13,7 +13,7 @@ import {
 } from '@angular/core';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-confirm-dialog',
   standalone: true,
   imports: [A11yModule],

@@ -8,7 +8,7 @@ import {
 } from '../announcement-engagement.client';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-announcement-analytics-panel',
   standalone: true,
   templateUrl: './announcement-analytics-panel.component.html',

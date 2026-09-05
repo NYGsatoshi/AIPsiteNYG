@@ -14,7 +14,7 @@ import {
 } from './audit-findings.types';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-audit-findings-page',
   standalone: true,
   imports: [RouterLink, AuditFindingDecisionPanelComponent],

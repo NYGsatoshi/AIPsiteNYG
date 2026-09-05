@@ -10,7 +10,7 @@ interface PagePlaceholderViewModel {
 }
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-page-placeholder',
   standalone: true,
   imports: [AsyncPipe],

@@ -18,7 +18,7 @@ import { AnnouncementReadStateComponent } from '../announcement-read-state/annou
 import { AnnouncementViewModel } from '../announcements.types';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-announcement-list',
   standalone: true,
   imports: [

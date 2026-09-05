@@ -16,7 +16,7 @@ interface VisibleFolderNode extends FileBrowserFolderNode {
 }
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-file-browser-sidebar',
   standalone: true,
   imports: [LucideChevronLeft, LucideChevronRight, LucideClock3, LucideFolder, LucideFolderOpen, LucideShare2, LucideStar],

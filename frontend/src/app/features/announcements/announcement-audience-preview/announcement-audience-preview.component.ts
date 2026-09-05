@@ -3,7 +3,7 @@ import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 import { ANNOUNCEMENT_AUDIENCE_LABELS, AnnouncementAudienceScope } from '../announcements.types';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-announcement-audience-preview',
   standalone: true,
   templateUrl: './announcement-audience-preview.component.html',

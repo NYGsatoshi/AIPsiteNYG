@@ -4,7 +4,7 @@ import { WorkspaceCardComponent } from '../workspace-card/workspace-card.compone
 import { WorkspaceCardViewModel } from '../workspaces.types';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-workspace-summary-list',
   standalone: true,
   imports: [WorkspaceCardComponent],

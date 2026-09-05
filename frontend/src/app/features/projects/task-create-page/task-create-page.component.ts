@@ -27,7 +27,7 @@ import {
 import { TaskCreateInput, TaskCreateSourceScopeMode } from '../task-create.api';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-task-create-page',
   standalone: true,
   imports: [

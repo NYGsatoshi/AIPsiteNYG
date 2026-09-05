@@ -5,7 +5,7 @@ import { FileRowComponent } from '../file-row/file-row.component';
 import { FileViewModel } from '../files.types';
 
 @Component({
-  changeDetection: ChangeDetectionStrategy.Eager
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-recent-files-list',
   standalone: true,
   imports: [FileRowComponent],
