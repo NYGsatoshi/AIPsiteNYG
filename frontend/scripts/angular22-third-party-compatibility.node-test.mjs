@@ -20,7 +20,7 @@ const aipsitePackageJson = JSON.parse(await readFile(new URL('../../aipsite-fron
   expectedDevDependencies = {
     '@angular-devkit/build-angular': '22.1.7',
     '@storybook/angular': '10.5.5',
-    jsdom: '28.0.0',
+    jsdom: '30.0.1',
     storybook: '10.5.5',
     vitest: '4.1.10',
   },
