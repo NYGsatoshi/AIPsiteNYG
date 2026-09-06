@@ -1,3 +1,4 @@
+/* eslint-disable sort-vars -- Reporter helper declarations stay dependency-ordered so runtime evidence parsing remains explicit and no-use-before-define safe. */
 import {
   ISSUE_683_PR03C_TITLE,
   ISSUE_683_SMOKE_EVIDENCE_ATTACHMENT,
