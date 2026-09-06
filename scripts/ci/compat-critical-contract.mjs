@@ -141,7 +141,11 @@ export async function verifyCompatCriticalSources(contract, repositoryRoot = pro
       { pattern: /\bMath\.random\s*\(/u, label: 'Math.random/unseeded randomness' },
       { pattern: /\brandomUUID\s*\(/u, label: 'randomUUID/unseeded randomness' },
       { pattern: /\btoHaveScreenshot\s*\(/u, label: 'pixel screenshot assertion' },
-      { pattern: /\btoMatchSnapshot\s*\(/u, label: 'snapshot-only assertion' }
+      { pattern: /\btoMatchSnapshot\s*\(/u, label: 'snapshot-only assertion' },
+      {
+        pattern: /\b(?:test|testInfo)\.(?:skip|fixme|fail)\s*\(/u,
+        label: 'inline skip/fixme/expected-failure exception'
+      }
     ];
     for (const { pattern, label } of unsafePatterns) {
       if (pattern.test(testSource)) {

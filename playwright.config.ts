@@ -9,7 +9,8 @@ const expectTimeout = publicHttpsSmoke || process.env.AIP_REAL_BACKEND_SMOKE ===
 const snapshotPathTemplate = process.env.CI
   ? "{testDir}/__angular_snapshots__/linux/{testFilePath}/{arg}{ext}"
   : "{testDir}/__angular_snapshots__/{testFilePath}/{arg}{ext}";
-const compatCriticalContext = process.env.AIP_COMPAT_CRITICAL === "1"
+const compatCriticalRun = process.env.AIP_COMPAT_CRITICAL === "1";
+const compatCriticalContext = compatCriticalRun
   ? ({
       locale: "en-US",
       timezoneId: "UTC",
@@ -49,6 +50,23 @@ const deterministicUiStorageState = {
     }
   ]
 };
+
+// Keep the regular full static suite on its established Chromium desktop/mobile
+// projects. COMPAT-01 enables the additional desktop engines only through the
+// small COMPAT-04 selection contract, so adding an engine does not multiply the
+// complete browser suite or create a second compatibility taxonomy.
+const compatOnlyDesktopProjects = compatCriticalRun
+  ? [
+      {
+        name: "firefox-desktop",
+        use: { ...devices["Desktop Firefox"] }
+      },
+      {
+        name: "webkit-desktop",
+        use: { ...devices["Desktop Safari"] }
+      }
+    ]
+  : [];
 
 export default defineConfig({
   testDir: "./tests/ui",
@@ -98,6 +116,7 @@ export default defineConfig({
     {
       name: "chromium-mobile",
       use: { ...devices["Pixel 5"] }
-    }
+    },
+    ...compatOnlyDesktopProjects
   ]
 });
