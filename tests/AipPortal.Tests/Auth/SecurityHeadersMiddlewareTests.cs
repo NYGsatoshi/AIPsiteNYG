@@ -1,6 +1,14 @@
+using System.Net;
 using System.Security.Claims;
 using AipPortal.Web.Middleware;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Hosting.Server;
+using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 namespace AipPortal.Tests.Auth;
 
@@ -10,12 +18,9 @@ public sealed class SecurityHeadersMiddlewareTests
     [Trait("Scope", "SEC-13")]
     public async Task ContentSecurityPolicyAllowsOnlyTheCurrentHostForWebSockets()
     {
-        var context = new DefaultHttpContext();
-        context.Request.Host = new HostString("portal.example.test", 8443);
+        using var response = await InvokeAsync(host: "portal.example.test:8443");
 
-        await InvokeAndStartAsync(context);
-
-        var policy = context.Response.Headers["Content-Security-Policy"].ToString();
+        var policy = GetRequiredHeader(response, "Content-Security-Policy");
         Assert.NotEmpty(policy);
         Assert.Contains("connect-src 'self' ws://portal.example.test:8443 wss://portal.example.test:8443;", policy);
         Assert.DoesNotContain("connect-src 'self' https:", policy);
@@ -29,98 +34,121 @@ public sealed class SecurityHeadersMiddlewareTests
     [Trait("Scope", "SEC-13")]
     public async Task ResponseContainsCanonicalBrowserSecurityHeaders()
     {
-        var context = new DefaultHttpContext();
-        context.Request.Host = new HostString("portal.example.test");
+        using var response = await InvokeAsync();
 
-        await InvokeAndStartAsync(context);
-
-        Assert.Equal("nosniff", context.Response.Headers["X-Content-Type-Options"]);
-        Assert.Equal("DENY", context.Response.Headers["X-Frame-Options"]);
-        Assert.Equal("strict-origin-when-cross-origin", context.Response.Headers["Referrer-Policy"]);
-        Assert.Equal("camera=(), microphone=(), geolocation=()", context.Response.Headers["Permissions-Policy"]);
-        Assert.Contains("frame-ancestors 'none'", context.Response.Headers["Content-Security-Policy"].ToString());
+        Assert.Equal("nosniff", GetRequiredHeader(response, "X-Content-Type-Options"));
+        Assert.Equal("DENY", GetRequiredHeader(response, "X-Frame-Options"));
+        Assert.Equal("strict-origin-when-cross-origin", GetRequiredHeader(response, "Referrer-Policy"));
+        Assert.Equal("camera=(), microphone=(), geolocation=()", GetRequiredHeader(response, "Permissions-Policy"));
+        Assert.Contains("frame-ancestors 'none'", GetRequiredHeader(response, "Content-Security-Policy"));
     }
 
     [Fact]
     [Trait("Scope", "SEC-13")]
     public async Task AuthenticatedResponseIsExplicitlyNoStore()
     {
-        var context = new DefaultHttpContext();
-        context.Request.Host = new HostString("portal.example.test");
-        context.User = new ClaimsPrincipal(new ClaimsIdentity(
-            [new Claim(ClaimTypes.NameIdentifier, Guid.NewGuid().ToString())],
-            "test"));
+        using var response = await InvokeAsync(configureContext: context =>
+        {
+            context.User = new ClaimsPrincipal(new ClaimsIdentity(
+                [new Claim(ClaimTypes.NameIdentifier, Guid.NewGuid().ToString())],
+                "test"));
+        });
 
-        await InvokeAndStartAsync(context);
-
-        Assert.Equal("no-store, no-cache, max-age=0", context.Response.Headers["Cache-Control"]);
-        Assert.Equal("no-cache", context.Response.Headers["Pragma"]);
-        Assert.Equal("0", context.Response.Headers["Expires"]);
+        Assert.Equal("no-store, no-cache, max-age=0", GetRequiredHeader(response, "Cache-Control"));
+        Assert.Equal("no-cache", GetRequiredHeader(response, "Pragma"));
+        Assert.Equal("0", GetRequiredHeader(response, "Expires"));
     }
 
     [Fact]
     [Trait("Scope", "SEC-13")]
     public async Task CookieSettingResponseIsExplicitlyNoStore()
     {
-        var context = new DefaultHttpContext();
-        context.Request.Host = new HostString("portal.example.test");
-
-        await InvokeAndStartAsync(context, response =>
+        using var response = await InvokeAsync(configureResponse: httpResponse =>
         {
-            response.Headers["Set-Cookie"] = ".AipPortal.Auth=value; path=/; secure; httponly";
+            httpResponse.Headers["Set-Cookie"] = ".AipPortal.Auth=value; path=/; secure; httponly";
         });
 
-        Assert.Equal("no-store, no-cache, max-age=0", context.Response.Headers["Cache-Control"]);
+        Assert.Equal("no-store, no-cache, max-age=0", GetRequiredHeader(response, "Cache-Control"));
     }
 
     [Fact]
     [Trait("Scope", "SEC-13")]
     public async Task ExternalRedirectIsRejectedBeforeHeadersAreSent()
     {
-        var context = new DefaultHttpContext();
-        context.Request.Host = new HostString("portal.example.test");
-
-        await InvokeAndStartAsync(context, response =>
+        using var response = await InvokeAsync(configureResponse: httpResponse =>
         {
-            response.StatusCode = StatusCodes.Status302Found;
-            response.Headers["Location"] = "https://attacker.example/collect";
+            httpResponse.StatusCode = StatusCodes.Status302Found;
+            httpResponse.Headers.Location = "https://attacker.example/collect";
         });
 
-        Assert.Equal(StatusCodes.Status400BadRequest, context.Response.StatusCode);
-        Assert.False(context.Response.Headers.ContainsKey("Location"));
-        Assert.Equal("no-store, no-cache, max-age=0", context.Response.Headers["Cache-Control"]);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.False(response.Headers.Contains("Location"));
+        Assert.Equal("no-store, no-cache, max-age=0", GetRequiredHeader(response, "Cache-Control"));
     }
 
     [Fact]
     [Trait("Scope", "SEC-13")]
     public async Task SameHostHttpsUpgradeRedirectRemainsAllowed()
     {
-        var context = new DefaultHttpContext();
-        context.Request.Scheme = "http";
-        context.Request.Host = new HostString("portal.example.test", 80);
+        using var response = await InvokeAsync(
+            host: "portal.example.test:80",
+            configureResponse: httpResponse =>
+            {
+                httpResponse.StatusCode = StatusCodes.Status307TemporaryRedirect;
+                httpResponse.Headers.Location = "https://portal.example.test/app/";
+            });
 
-        await InvokeAndStartAsync(context, response =>
-        {
-            response.StatusCode = StatusCodes.Status307TemporaryRedirect;
-            response.Headers["Location"] = "https://portal.example.test/app/";
-        });
-
-        Assert.Equal(StatusCodes.Status307TemporaryRedirect, context.Response.StatusCode);
-        Assert.Equal("https://portal.example.test/app/", context.Response.Headers["Location"]);
+        Assert.Equal(HttpStatusCode.TemporaryRedirect, response.StatusCode);
+        Assert.Equal("https://portal.example.test/app/", GetRequiredHeader(response, "Location"));
     }
 
-    private static async Task InvokeAndStartAsync(
-        DefaultHttpContext context,
+    private static async Task<HttpResponseMessage> InvokeAsync(
+        string host = "portal.example.test",
+        Action<HttpContext>? configureContext = null,
         Action<HttpResponse>? configureResponse = null)
     {
-        context.Response.Body = new MemoryStream();
-        var middleware = new SecurityHeadersMiddleware(_ =>
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+        {
+            EnvironmentName = Environments.Development
+        });
+        builder.WebHost.UseKestrel().UseUrls("http://127.0.0.1:0");
+        builder.Logging.ClearProviders();
+
+        var app = builder.Build();
+        app.Use(async (context, next) =>
+        {
+            configureContext?.Invoke(context);
+            await next(context);
+        });
+        app.UseMiddleware<SecurityHeadersMiddleware>();
+        app.Run(context =>
         {
             configureResponse?.Invoke(context.Response);
             return Task.CompletedTask;
         });
 
-        await middleware.InvokeAsync(context);
-        await context.Response.StartAsync();
+        await app.StartAsync();
+        try
+        {
+            var address = app.Services.GetRequiredService<IServer>()
+                .Features.Get<IServerAddressesFeature>()?.Addresses.Single()
+                ?? throw new InvalidOperationException("Test server address was not available.");
+            using var handler = new HttpClientHandler { AllowAutoRedirect = false };
+            using var client = new HttpClient(handler) { BaseAddress = new Uri(address) };
+            using var request = new HttpRequestMessage(HttpMethod.Get, "/");
+            request.Headers.Host = host;
+
+            return await client.SendAsync(request);
+        }
+        finally
+        {
+            await app.DisposeAsync();
+        }
+    }
+
+    private static string GetRequiredHeader(HttpResponseMessage response, string name)
+    {
+        Assert.True(response.Headers.TryGetValues(name, out var values), $"Missing required header: {name}");
+        return values.Single();
     }
 }
