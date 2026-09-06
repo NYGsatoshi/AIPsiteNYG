@@ -27,9 +27,8 @@ test.describe('Public HTTPS production Golden Path', () => {
     const loginPageResponse = await navigate(page, '/app/login');
     await expect(page.getByTestId('login-page')).toBeVisible();
     expect(isHttpsUrl(page.url())).toBe(true);
-    const loginHeaders = loginPageResponse?.headers() ?? {};
-    expect(hasHsts(loginHeaders)).toBe(true);
-    assertBrowserSecurityHeaders(loginHeaders);
+    expect(hasHsts(loginPageResponse?.headers() ?? {})).toBe(true);
+    assertBrowserSecurityHeaders(loginPageResponse?.headers() ?? {});
 
     await assertInvalidLoginIsDenied(page);
     await loginThroughBrowser(page);
@@ -147,7 +146,7 @@ function assertSecureSessionCookies(cookies: Awaited<ReturnType<BrowserContext['
 async function assertAuthorizedPath(page: Page, path: string): Promise<void> {
   const result = await browserFetch(page, path);
   expect(result.status === 200).toBe(true);
-  expect(result.headers['cache-control']?.includes('no-store') === true).toBe(true);
+  expect(result.headers['cache-control']).toContain('no-store');
 }
 
 async function assertMissingCsrfIsDenied(page: Page): Promise<void> {
@@ -275,8 +274,8 @@ async function browserFetch(
   init: { method?: string; headers?: Record<string, string>; body?: string } = {}
 ): Promise<BrowserFetchResult> {
   return page.evaluate(async ({ path, init }) => {
-    const response = await fetch(path, { credentials: 'include', ...init });
-    const headers: Record<string, string> = {};
+    const response = await fetch(path, { credentials: 'include', ...init }),
+      headers: Record<string, string> = {};
     response.headers.forEach((value, key) => {
       headers[key] = value;
     });
@@ -300,12 +299,12 @@ async function csrfRequest(
       headers[csrf.headerName] = csrf.token;
     }
     const response = await fetch(path, {
-      method,
-      credentials: 'include',
-      headers,
-      ...(body === undefined ? {} : { body: rawBody ? String(body) : JSON.stringify(body) })
-    });
-    const responseHeaders: Record<string, string> = {};
+        method,
+        credentials: 'include',
+        headers,
+        ...(body === undefined ? {} : { body: rawBody ? String(body) : JSON.stringify(body) })
+      }),
+      responseHeaders: Record<string, string> = {};
     response.headers.forEach((value, key) => {
       responseHeaders[key] = value;
     });
@@ -336,17 +335,19 @@ function hasHsts(headers: Record<string, string>): boolean {
   return /max-age=\d+/iu.test(value);
 }
 
-function assertBrowserSecurityHeaders(headers: Record<string, string>): void {
+// eslint-disable-next-line func-style -- Keep the new SEC-13 assertion helper hoisted with the existing Playwright helpers.
+function assertBrowserSecurityHeaders(headers: Readonly<Record<string, string>>): void {
   expect(headers['x-content-type-options']).toBe('nosniff');
   expect(headers['x-frame-options']).toBe('DENY');
   expect(headers['referrer-policy']).toBe('strict-origin-when-cross-origin');
-  expect(headers['permissions-policy']).toContain('camera=()');
-  expect(headers['permissions-policy']).toContain('microphone=()');
+  expect(['camera=()', 'microphone=()'].every((directive) =>
+    headers['permissions-policy'].includes(directive)
+  )).toBe(true);
 
   const csp = headers['content-security-policy'] ?? '';
-  expect(csp).toContain("default-src 'self'");
-  expect(csp).toContain("script-src 'self'");
-  expect(csp).toContain("frame-ancestors 'none'");
+  expect(["default-src 'self'", "script-src 'self'", "frame-ancestors 'none'"].every((directive) =>
+    csp.includes(directive)
+  )).toBe(true);
   expect(csp).not.toContain("script-src 'self' 'unsafe-inline'");
   expect(csp).not.toContain("'unsafe-eval'");
   expect(csp).not.toContain('*');
