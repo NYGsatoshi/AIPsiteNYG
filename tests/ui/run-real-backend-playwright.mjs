@@ -16,7 +16,7 @@ const focusedGrep = process.env.AIP_REAL_BACKEND_SMOKE_GREP?.trim();
 const issue683Evidence = process.env.AIP_ISSUE_683_EVIDENCE === '1';
 const issue683Reporter = './tests/ui/issue-683-race-evidence-reporter.mjs';
 const issue683ReporterArgs = issue683Evidence
-  ? [`--reporter=list,junit,${issue683Reporter}`]
+  ? [`--add-reporter=${issue683Reporter}`]
   : [];
 const playwrightArgs = [
   ...(userArgs.length > 0
@@ -103,14 +103,9 @@ function runPlaywright(baseURL) {
       }
     };
 
-    const environment = { ...process.env, PLAYWRIGHT_BASE_URL: baseURL };
-    if (issue683Evidence) {
-      environment.PLAYWRIGHT_JUNIT_OUTPUT_FILE = 'test-results/playwright-results.xml';
-    }
-
     const child = spawn(process.execPath, [playwrightCli, 'test', ...playwrightArgs], {
       cwd: process.cwd(),
-      env: environment,
+      env: { ...process.env, PLAYWRIGHT_BASE_URL: baseURL },
       stdio: 'inherit'
     });
 
