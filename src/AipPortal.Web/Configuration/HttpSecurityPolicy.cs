@@ -97,7 +97,8 @@ public static class HttpSecurityPolicy
             if (rejection.Lease.TryGetMetadata(MetadataName.RetryAfter, out TimeSpan retryAfter))
             {
                 var seconds = Math.Max(1L, (long)Math.Ceiling(retryAfter.TotalSeconds));
-                rejection.HttpContext.Response.Headers.RetryAfter = seconds.ToString(CultureInfo.InvariantCulture);
+                rejection.HttpContext.Response.Headers["Retry-After"] =
+                    seconds.ToString(CultureInfo.InvariantCulture);
             }
 
             rejection.HttpContext.Response.ContentType = "application/json";
@@ -324,7 +325,7 @@ public static class HttpSecurityPolicy
     {
         origin = null!;
         if (string.IsNullOrWhiteSpace(value) ||
-            value.Contains('*', StringComparison.Ordinal) ||
+            value.Contains('*') ||
             !Uri.TryCreate(value.Trim(), UriKind.Absolute, out var parsed) ||
             (parsed.Scheme != Uri.UriSchemeHttp && parsed.Scheme != Uri.UriSchemeHttps) ||
             string.IsNullOrWhiteSpace(parsed.Host) ||
