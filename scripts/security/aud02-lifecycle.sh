@@ -33,25 +33,49 @@ aud02_fixture_identity_fingerprint() {
   sql="$(cat <<'SQL'
 SELECT identity
 FROM (
-  SELECT 'tenant:security-alpha=' || "Id"::text AS identity FROM tenants WHERE "Slug"='security-alpha'
+  SELECT 'tenant:security-alpha=' || "Id"::text AS identity
+  FROM tenants
+  WHERE "Slug"='security-alpha'
   UNION ALL
-  SELECT 'tenant:security-beta=' || "Id"::text FROM tenants WHERE "Slug"='security-beta'
+  SELECT 'tenant:security-beta=' || "Id"::text
+  FROM tenants
+  WHERE "Slug"='security-beta'
   UNION ALL
-  SELECT 'user:security-alpha-owner@example.test=' || "Id"::text FROM users WHERE lower("Email")='security-alpha-owner@example.test'
+  SELECT 'user:security-alpha-owner@example.test=' || "Id"::text
+  FROM users
+  WHERE lower("Email")='security-alpha-owner@example.test'
   UNION ALL
-  SELECT 'user:security-alpha-member@example.test=' || "Id"::text FROM users WHERE lower("Email")='security-alpha-member@example.test'
+  SELECT 'user:security-alpha-member@example.test=' || "Id"::text
+  FROM users
+  WHERE lower("Email")='security-alpha-member@example.test'
   UNION ALL
-  SELECT 'user:security-alpha-restricted@example.test=' || "Id"::text FROM users WHERE lower("Email")='security-alpha-restricted@example.test'
+  SELECT 'user:security-alpha-restricted@example.test=' || "Id"::text
+  FROM users
+  WHERE lower("Email")='security-alpha-restricted@example.test'
   UNION ALL
-  SELECT 'user:security-beta-owner@example.test=' || "Id"::text FROM users WHERE lower("Email")='security-beta-owner@example.test'
+  SELECT 'user:security-beta-owner@example.test=' || "Id"::text
+  FROM users
+  WHERE lower("Email")='security-beta-owner@example.test'
   UNION ALL
-  SELECT 'workspace:sec02-alpha-workspace=' || "Id"::text FROM workspaces WHERE "Slug"='sec02-alpha-workspace'
+  SELECT 'workspace:sec02-alpha-workspace=' || w."Id"::text
+  FROM workspaces w
+  JOIN tenants t ON t."Id"=w."TenantId"
+  WHERE t."Slug"='security-alpha' AND w."Slug"='sec02-alpha-workspace'
   UNION ALL
-  SELECT 'workspace:sec02-beta-workspace=' || "Id"::text FROM workspaces WHERE "Slug"='sec02-beta-workspace'
+  SELECT 'workspace:sec02-beta-workspace=' || w."Id"::text
+  FROM workspaces w
+  JOIN tenants t ON t."Id"=w."TenantId"
+  WHERE t."Slug"='security-beta' AND w."Slug"='sec02-beta-workspace'
   UNION ALL
-  SELECT 'project:sec02-alpha-project=' || "Id"::text FROM projects WHERE "Slug"='sec02-alpha-project'
+  SELECT 'project:sec02-alpha-project=' || p."Id"::text
+  FROM projects p
+  JOIN tenants t ON t."Id"=p."TenantId"
+  WHERE t."Slug"='security-alpha' AND p."Slug"='sec02-alpha-project'
   UNION ALL
-  SELECT 'project:sec02-beta-project=' || "Id"::text FROM projects WHERE "Slug"='sec02-beta-project'
+  SELECT 'project:sec02-beta-project=' || p."Id"::text
+  FROM projects p
+  JOIN tenants t ON t."Id"=p."TenantId"
+  WHERE t."Slug"='security-beta' AND p."Slug"='sec02-beta-project'
 ) AS fixture_identity
 ORDER BY identity;
 SQL
