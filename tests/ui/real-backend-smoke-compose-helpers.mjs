@@ -97,6 +97,7 @@ export function normalizeExitCode(code) {
  * treats CLI paths as filters inside testDir, so mixing both directories in
  * one invocation silently discovers no migrated owner tests.
  */
+// eslint-disable-next-line func-style -- Keep this public helper consistent with the module's existing exported function declarations while preventing new lint debt.
 export function buildRealBackendPlaywrightPlan(userArgs = [], focusedGrep = '') {
   const grepArgs = [];
   if (focusedGrep.trim()) {

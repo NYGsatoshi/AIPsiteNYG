@@ -12,8 +12,8 @@ import {
   selectComposeInvocation
 } from './real-backend-smoke-compose-helpers.mjs';
 
-const DEFAULT_PLAN_RUN_COUNT = 2;
-const SINGLE_RUN_COUNT = 1;
+const DEFAULT_PLAN_RUN_COUNT = 2,
+  SINGLE_RUN_COUNT = 1;
 
 test('sanitizes Compose project names and keeps them within the Compose limit', () => {
   const name = composeProjectName(['AIP site!', 'RUN/42', 'pid:123', 'x'.repeat(80)]);
