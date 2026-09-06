@@ -1,5 +1,5 @@
 import { AsyncPipe } from '@angular/common';
-import { Component, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 import { map } from 'rxjs';
 
@@ -10,6 +10,7 @@ interface PagePlaceholderViewModel {
 }
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-page-placeholder',
   standalone: true,
   imports: [AsyncPipe],
@@ -66,7 +67,7 @@ interface PagePlaceholderViewModel {
         line-height: 1.7;
       }
     `
-  ]
+  ],
 })
 export class PagePlaceholderComponent {
   private readonly route = inject(ActivatedRoute);

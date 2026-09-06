@@ -1,4 +1,4 @@
-import { Component, Input, Output, EventEmitter } from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output } from '@angular/core';
 import { CommonModule } from '@angular/common';
 
 import { ButtonComponent } from './button.component';
@@ -60,6 +60,7 @@ import type { User } from './user';
   </div>
 </header>`,
   styleUrls: ['./header.css'],
+  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class HeaderComponent {
   @Input()

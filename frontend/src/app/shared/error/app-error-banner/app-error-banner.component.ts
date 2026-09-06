@@ -1,9 +1,10 @@
-import { Component, Input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 
 import { FrontendApiError, FrontendApiErrorDetail } from '../../../core/api/api-error.model';
 import { AppRequestIdComponent } from '../app-request-id/app-request-id.component';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-error-banner',
   standalone: true,
   imports: [AppRequestIdComponent],
@@ -99,7 +100,7 @@ import { AppRequestIdComponent } from '../app-request-id/app-request-id.componen
         overflow-wrap: anywhere;
       }
     `
-  ]
+  ],
 })
 export class AppErrorBannerComponent {
   @Input({ required: true }) error!: FrontendApiError;

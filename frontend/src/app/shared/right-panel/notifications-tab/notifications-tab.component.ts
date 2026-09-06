@@ -1,9 +1,10 @@
-import { Component, EventEmitter, Input, Output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output } from '@angular/core';
 
 import { NotificationItemComponent } from '../notification-item/notification-item.component';
 import { RightPanelNotification } from '../right-panel.types';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-notifications-tab',
   standalone: true,
   imports: [NotificationItemComponent],
@@ -25,7 +26,7 @@ import { RightPanelNotification } from '../right-panel.types';
       }
     </section>
   `,
-  styleUrl: './notifications-tab.component.scss'
+  styleUrl: './notifications-tab.component.scss',
 })
 export class NotificationsTabComponent {
   @Input({ required: true }) notifications: readonly RightPanelNotification[] = [];

@@ -1,6 +1,7 @@
-import { Component } from '@angular/core';
+import { ChangeDetectionStrategy, Component } from '@angular/core';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-session-expired-page',
   standalone: true,
   template: `
@@ -33,6 +34,6 @@ import { Component } from '@angular/core';
         text-align: center;
       }
     `
-  ]
+  ],
 })
 export class SessionExpiredPageComponent {}

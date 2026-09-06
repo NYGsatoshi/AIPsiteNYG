@@ -1,5 +1,6 @@
 import {
   AfterViewChecked,
+  ChangeDetectionStrategy,
   Component,
   ElementRef,
   EventEmitter,
@@ -7,7 +8,7 @@ import {
   OnChanges,
   Output,
   SimpleChanges,
-  ViewChild
+  ViewChild,
 } from '@angular/core';
 import { LucideArrowLeft, LucideX } from '@lucide/angular';
 
@@ -17,6 +18,7 @@ import {
 } from '../messaging.types';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-thread-preview',
   standalone: true,
   imports: [LucideArrowLeft, LucideX],
@@ -156,7 +158,7 @@ import {
       }
     </aside>
   `,
-  styleUrl: './thread-preview.component.scss'
+  styleUrl: './thread-preview.component.scss',
 })
 export class ThreadPreviewComponent implements AfterViewChecked, OnChanges {
   @ViewChild('panel') private panel?: ElementRef<HTMLElement>;

@@ -1,4 +1,4 @@
-import { Component, computed, effect, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 
@@ -16,6 +16,7 @@ interface RecipientOption {
 }
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-messages-page',
   standalone: true,
   imports: [FormsModule, MessageSearchFiltersComponent, RouterLink],
@@ -170,7 +171,7 @@ interface RecipientOption {
       }
     </section>
   `,
-  styleUrl: './messages-page.component.scss'
+  styleUrl: './messages-page.component.scss',
 })
 export class MessagesPageComponent {
   readonly facade = inject(MessagingFacade);

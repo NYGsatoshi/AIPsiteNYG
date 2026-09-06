@@ -1,5 +1,5 @@
 import { HttpClient } from '@angular/common/http';
-import { Component, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 import { LucideFileText, LucideRefreshCw, LucideX } from '@lucide/angular';
 
@@ -175,11 +175,12 @@ const emptyReport: Report = {
 };
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-report-reader-page',
   imports: [LucideFileText, LucideRefreshCw, LucideX],
   standalone: true,
   templateUrl: './report-reader-page.component.html',
-  styleUrl: './report-reader-page.component.scss'
+  styleUrl: './report-reader-page.component.scss',
 })
 export class ReportReaderPageComponent {
   public confirmButtonText = 'Confirm and refine';

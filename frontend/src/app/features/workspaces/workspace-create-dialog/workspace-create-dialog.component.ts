@@ -1,16 +1,17 @@
 import { A11yModule } from '@angular/cdk/a11y';
 import {
-  afterNextRender,
+  ChangeDetectionStrategy,
   Component,
   ElementRef,
   EventEmitter,
-  inject,
   Injector,
   Input,
   OnChanges,
   Output,
   SimpleChanges,
   ViewChild,
+  afterNextRender,
+  inject,
 } from '@angular/core';
 import {
   AbstractControl,
@@ -44,6 +45,7 @@ const ICON_OPTIONS = [
 ] as const;
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-workspace-create-dialog',
   standalone: true,
   imports: [

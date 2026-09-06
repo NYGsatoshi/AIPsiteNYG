@@ -114,15 +114,29 @@ for ((attempt = 1; attempt <= attempts; attempt++)); do
   set -e
 
   if (( status == 0 )); then
-    exit 0
+    echo "Validating installed dependency and peer tree in ${working_directory}."
+    set +e
+    (
+      cd "$working_directory"
+      npm ls --all --json >/dev/null
+    )
+    status=$?
+    set -e
+
+    if (( status == 0 )); then
+      echo "npm ci and dependency tree validation passed in ${working_directory}."
+      exit 0
+    fi
+
+    echo "npm ls reported an invalid or unresolved dependency tree with exit code ${status}." >&2
   fi
 
   if (( attempt == attempts )); then
-    echo "npm ci failed after ${attempts} attempt(s)." >&2
+    echo "npm clean-install policy failed after ${attempts} attempt(s)." >&2
     exit "$status"
   fi
 
-  echo "npm ci failed with exit code ${status}; collecting host diagnostics before retry." >&2
+  echo "npm install/tree validation failed with exit code ${status}; collecting host diagnostics before retry." >&2
   df -h || true
   df -i || true
   free -h || true

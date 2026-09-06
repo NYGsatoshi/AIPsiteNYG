@@ -1,5 +1,5 @@
 import { HttpClient } from '@angular/common/http';
-import { Component, EventEmitter, Input, OnChanges, OnDestroy, Output, SimpleChanges, computed, effect, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, Input, OnChanges, OnDestroy, Output, SimpleChanges, computed, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Subscription } from 'rxjs';
 
@@ -93,11 +93,12 @@ const EMPTY_STEP: EditableStep = Object.freeze({
  * draft can be saved as the next immutable revision.
  */
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-task-research-plan',
   standalone: true,
   imports: [FormsModule],
   templateUrl: './task-research-plan.component.html',
-  styleUrl: './task-research-plan.component.scss'
+  styleUrl: './task-research-plan.component.scss',
 })
 export class TaskResearchPlanComponent implements OnChanges, OnDestroy {
   @Input({ required: true }) taskId = '';

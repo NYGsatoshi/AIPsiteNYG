@@ -1,4 +1,4 @@
-import { Component, EventEmitter, inject, Input, Output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import { AuthSessionStatus } from '../../core/auth/auth-session.facade';
@@ -8,6 +8,7 @@ import { RightPanelMode } from '../../shared/right-panel/right-panel.types';
 import { WorkspaceSearchComponent } from '../workspace-search/workspace-search.component';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-top-bar',
   standalone: true,
   imports: [RouterLink, WorkspaceSearchComponent],
@@ -128,7 +129,7 @@ import { WorkspaceSearchComponent } from '../workspace-search/workspace-search.c
       </div>
     </header>
   `,
-  styleUrl: './top-bar.component.scss'
+  styleUrl: './top-bar.component.scss',
 })
 export class TopBarComponent {
   readonly i18n = inject(I18nService);

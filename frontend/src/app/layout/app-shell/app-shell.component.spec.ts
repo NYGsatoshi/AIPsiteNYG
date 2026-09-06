@@ -8,6 +8,7 @@ import {
 } from '../../core/auth/auth-session.facade';
 import { AIP_WORKSPACES_DASHBOARD_MOCK } from '../../features/workspaces/workspaces.facade';
 import { MEMBER_WORKSPACE } from '../../features/workspaces/workspaces.mock';
+import { AIP_RIGHT_PANEL_MOCK } from '../../shared/right-panel/right-panel.facade';
 import { AppShellComponent } from './app-shell.component';
 
 @Component({
@@ -43,7 +44,8 @@ describe('AppShellComponent', () => {
             workspaces: [MEMBER_WORKSPACE],
             pageCapabilities: []
           }
-        }
+        },
+        { provide: AIP_RIGHT_PANEL_MOCK, useValue: {} }
       ]
     }).compileComponents();
   }

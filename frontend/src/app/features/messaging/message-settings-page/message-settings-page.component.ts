@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import { AppConfirmDialogComponent } from '../../../shared/dialog/app-confirm-dialog/app-confirm-dialog.component';
@@ -8,6 +8,7 @@ import { MessageNotificationPreferenceDto, MessagingApi } from '../messaging.api
 type GlobalSettingsStatus = 'loading' | 'ready' | 'saving' | 'error';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-message-settings-page',
   standalone: true,
   imports: [RouterLink, AppConfirmDialogComponent],
@@ -155,7 +156,7 @@ type GlobalSettingsStatus = 'loading' | 'ready' | 'saving' | 'error';
     .message-settings__error-text { color: var(--aip-color-warning); }
     .message-settings :focus-visible { outline: 2px solid var(--aip-color-focus); outline-offset: 3px; }
     @media (max-width: 40rem) { .message-settings__header { flex-direction: column; } .message-settings__setting { align-items: flex-start; } }
-  `]
+  `],
 })
 export class MessageSettingsPageComponent {
   readonly settings = inject(MessageGlobalSettingsService);

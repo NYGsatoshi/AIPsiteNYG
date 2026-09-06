@@ -1,4 +1,4 @@
-import { AfterViewChecked, Component, ElementRef, EventEmitter, Input, Output, ViewChild } from '@angular/core';
+import { AfterViewChecked, ChangeDetectionStrategy, Component, ElementRef, EventEmitter, Input, Output, ViewChild } from '@angular/core';
 import {
   LucideEllipsis,
   LucideBookmarkPlus,
@@ -12,6 +12,7 @@ import { AipDialogComponent } from '../../../shared/ui/aip-dialog/aip-dialog.com
 import { MessagingMessageActionState, MessagingMessageViewModel } from '../messaging.types';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-message-item',
   standalone: true,
   imports: [AipDialogComponent, LucideBookmarkPlus, LucideEllipsis, LucideFlag, LucideMessageSquare, LucidePencil, LucideTrash2],
@@ -195,7 +196,7 @@ import { MessagingMessageActionState, MessagingMessageViewModel } from '../messa
       }
     </app-aip-dialog>
   `,
-  styleUrl: './message-item.component.scss'
+  styleUrl: './message-item.component.scss',
 })
 export class MessageItemComponent implements AfterViewChecked {
   @ViewChild('messageArticle') private messageArticle?: ElementRef<HTMLElement>;

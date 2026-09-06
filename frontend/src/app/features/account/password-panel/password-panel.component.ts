@@ -1,4 +1,4 @@
-import { Component, EventEmitter, inject, Input, OnChanges, Output, SimpleChanges } from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, Input, OnChanges, Output, SimpleChanges, inject } from '@angular/core';
 import { AbstractControl, FormBuilder, ReactiveFormsModule, ValidationErrors, ValidatorFn, Validators } from '@angular/forms';
 
 import { I18nService } from '../../../core/i18n/i18n.service';
@@ -6,11 +6,12 @@ import { AppFieldErrorComponent } from '../../../shared/form/app-field-error/app
 import { PasswordChangeResult, PasswordChangeSubmit } from '../account.types';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-password-panel',
   standalone: true,
   imports: [ReactiveFormsModule, AppFieldErrorComponent],
   templateUrl: './password-panel.component.html',
-  styleUrl: './password-panel.component.scss'
+  styleUrl: './password-panel.component.scss',
 })
 export class PasswordPanelComponent implements OnChanges {
   readonly i18n = inject(I18nService);

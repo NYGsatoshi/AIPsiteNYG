@@ -1,4 +1,4 @@
-import { provideHttpClient, withInterceptors } from '@angular/common/http';
+import { provideHttpClient, withInterceptors, withXhr } from '@angular/common/http';
 import { ApplicationConfig, provideBrowserGlobalErrorListeners } from '@angular/core';
 import { provideRouter } from '@angular/router';
 
@@ -10,7 +10,7 @@ import { SignalrRealtimeTransport } from './core/realtime/signalr-realtime.trans
 export const appConfig: ApplicationConfig = {
   providers: [
     provideBrowserGlobalErrorListeners(),
-    provideHttpClient(withInterceptors([authSessionInterceptor])),
+    provideHttpClient(withXhr(), withInterceptors([authSessionInterceptor])),
     provideRouter(routes),
     { provide: AIP_REALTIME_TRANSPORT, useExisting: SignalrRealtimeTransport }
   ]

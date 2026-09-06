@@ -1,6 +1,6 @@
 import {
+  ChangeDetectionStrategy,
   Component,
-  computed,
   ElementRef,
   EventEmitter,
   Input,
@@ -8,9 +8,10 @@ import {
   OnDestroy,
   OnInit,
   Output,
-  signal,
   SimpleChanges,
   ViewChild,
+  computed,
+  signal,
 } from '@angular/core';
 import {
   AbstractControl,
@@ -39,6 +40,7 @@ import { isSafeAnnouncementUrl } from '../announcements.api';
 import { AipDialogComponent } from '../../../shared/ui/aip-dialog/aip-dialog.component';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-announcement-editor',
   standalone: true,
   imports: [

@@ -1,9 +1,10 @@
-import { Component, Input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
 
 import { TASK_BRIEF_FIELD_MAX_LENGTH } from '../projects.types';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-task-brief-fields',
   standalone: true,
   imports: [ReactiveFormsModule],
@@ -110,7 +111,7 @@ import { TASK_BRIEF_FIELD_MAX_LENGTH } from '../projects.types';
     .task-brief__review dt { font-weight: 700; }
     .task-brief__review dd { margin: .35rem 0 0; color: var(--aip-color-text-secondary); overflow-wrap: anywhere; white-space: pre-wrap; }
     @media (max-width: 720px) { .task-brief__review dl { grid-template-columns: 1fr; } }
-  `]
+  `],
 })
 export class TaskBriefFieldsComponent {
   @Input({ required: true }) goalControl!: FormControl<string>;
