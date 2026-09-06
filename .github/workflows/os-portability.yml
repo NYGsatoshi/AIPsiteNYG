@@ -129,9 +129,9 @@ jobs:
         id: root_dependencies
         run: npm ci --ignore-scripts --no-audit --no-fund
 
-      - name: Install active frontend dependencies
+      - name: Install active frontend dependencies without lifecycle scripts
         id: frontend_dependencies
-        run: npm --prefix frontend ci --no-audit --no-fund
+        run: npm --prefix frontend ci --ignore-scripts --no-audit --no-fund
 
       - name: Restore .NET solution
         id: dotnet_restore
