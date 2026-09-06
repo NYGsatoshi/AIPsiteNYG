@@ -1,12 +1,12 @@
 /* eslint-disable max-lines, complexity, max-lines-per-function */
 import { randomUUID } from 'node:crypto';
 
-import { expect, type APIRequestContext, type APIResponse, test } from '@playwright/test';
+import { expect, type APIRequestContext, type APIResponse, type Response as PlaywrightResponse, test } from '@playwright/test';
 
 import { functionalMetadata } from '../fixtures/functional-metadata.mjs';
+import { waitForAuthoritativeState } from '../helpers/authoritative-state';
 import { loginViaApi, logoutViaApi } from '../helpers/auth';
 import { csrfAwareRequest } from '../helpers/csrf';
-import { waitForAuthoritativeState } from '../helpers/authoritative-state';
 import { assertSafeResponse } from '../helpers/safe-response';
 
 const smokeEmail = process.env.AIP_BROWSER_SMOKE_EMAIL ?? '';
@@ -123,7 +123,11 @@ test.describe('FCI-06 Announcement real-backend owner journey', () => {
           await expect(review).toContainText(announcementTitle);
           await expect(review).toContainText(workspaceName);
           await editor.getByTestId('announcement-publish-action').click();
-          await expect(page.getByTestId('announcement-publication-confirmation')).toBeVisible();
+          const confirmationDialog = page.getByRole('dialog', {
+            name: 'Confirm publication — Confirm delivery'
+          });
+          await expect(confirmationDialog).toBeVisible();
+          await expect(confirmationDialog.getByTestId('announcement-publication-confirmation')).toBeVisible();
         });
 
         await test.step('FUNC-ANN-001 / ANN-03 confirmation creates a draft and bounded worker publication reaches Published', async () => {
@@ -136,8 +140,10 @@ test.describe('FCI-06 Announcement real-backend owner journey', () => {
             /^\/api\/announcement-drafts\/[0-9a-f-]+\/publish$/iu.test(new URL(response.url()).pathname)
           );
 
-          const confirmation = page.getByTestId('announcement-publication-confirmation').locator('..');
-          const confirmButton = confirmation.getByRole('button', {
+          const confirmationDialog = page.getByRole('dialog', {
+            name: 'Confirm publication — Confirm delivery'
+          });
+          const confirmButton = confirmationDialog.getByRole('button', {
             name: new RegExp(`^Publish to ${recipientCount} recipients now$`, 'u')
           });
           await expect(confirmButton).toBeVisible();
@@ -326,7 +332,7 @@ function readNumber(record: Record<string, unknown>, key: string): number {
   return value;
 }
 
-async function boundedResponsePreview(response: APIResponse | import('@playwright/test').Response): Promise<string> {
+async function boundedResponsePreview(response: APIResponse | PlaywrightResponse): Promise<string> {
   try {
     const text = await response.text();
     return text.length <= 1024 ? text : `${text.slice(0, 1024)}…[TRUNCATED]`;
