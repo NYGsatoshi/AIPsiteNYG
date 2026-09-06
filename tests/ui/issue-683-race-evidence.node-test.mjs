@@ -17,9 +17,12 @@ const EXPECTED_ITERATION_COUNT = 10,
   FIRST_ITERATION_NUMBER = 1,
   HTTP_BAD_REQUEST_STATUS = 400,
   HTTP_NOT_FOUND_STATUS = 404,
+  HTTP_OK_STATUS = 200,
   NON_ZERO_RETRY_COUNT = 1,
   ONE_RACE_OBSERVATION = 1,
   RACE_PATH = '/api/tasks/11111111-1111-1111-1111-111111111111/execution-scope',
+  REVOCATION_PATH = '/api/workspaces/22222222-2222-2222-2222-222222222222/members/33333333-3333-3333-3333-333333333333',
+  REVOCATION_STEP_NAME = 'pr03c-workspace-membership-revoked',
   ZERO_RACE_OBSERVATIONS = 0,
   passingIterations = () =>
     Array.from({ length: ISSUE_683_ITERATION_COUNT }, (_unusedValue, index) => ({
@@ -63,11 +66,30 @@ test('Issue #683 race matcher accepts only the exact GET task execution-scope 40
   );
 });
 
-test('Issue #683 evidence extraction returns only matching race observations', () => {
+test('Issue #683 does not count a matching 404 without successful Workspace revocation evidence', () => {
+  const observations = issue683RaceObservations({
+    failedApiResponses: [
+      { method: 'GET', path: RACE_PATH, status: HTTP_NOT_FOUND_STATUS }
+    ],
+    steps: []
+  });
+
+  assert.deepEqual(observations, []);
+});
+
+test('Issue #683 evidence extraction requires successful revocation and returns only matching race observations', () => {
   const observations = issue683RaceObservations({
     failedApiResponses: [
       { method: 'GET', path: RACE_PATH, status: HTTP_NOT_FOUND_STATUS },
       { method: 'GET', path: '/api/projects/example/tasks', status: HTTP_BAD_REQUEST_STATUS }
+    ],
+    steps: [
+      {
+        method: 'DELETE',
+        name: REVOCATION_STEP_NAME,
+        path: REVOCATION_PATH,
+        status: HTTP_OK_STATUS
+      }
     ]
   });
 
