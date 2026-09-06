@@ -1,21 +1,19 @@
-const COMPOSE_PROJECT_NAME_MAX_LENGTH = 63;
-
-const DEFAULT_FUNCTIONAL_PLAYWRIGHT_ARGS = Object.freeze([
-  '--config',
-  'playwright.functional.config.ts',
-  'project-task/core-golden-journey.spec.ts',
-  'files/files-fast-journey.spec.ts',
-  '--project=functional-chromium',
-  '--retries=0',
-  '--workers=1'
-]);
-
-const DEFAULT_LEGACY_PLAYWRIGHT_ARGS = Object.freeze([
-  'tests/ui/real-backend-smoke.spec.ts',
-  '--project=chromium-desktop',
-  '--retries=0',
-  '--workers=1'
-]);
+const COMPOSE_PROJECT_NAME_MAX_LENGTH = 63,
+  DEFAULT_FUNCTIONAL_PLAYWRIGHT_ARGS = Object.freeze([
+    '--config',
+    'playwright.functional.config.ts',
+    'project-task/core-golden-journey.spec.ts',
+    'files/files-fast-journey.spec.ts',
+    '--project=functional-chromium',
+    '--retries=0',
+    '--workers=1'
+  ]),
+  DEFAULT_LEGACY_PLAYWRIGHT_ARGS = Object.freeze([
+    'tests/ui/real-backend-smoke.spec.ts',
+    '--project=chromium-desktop',
+    '--retries=0',
+    '--workers=1'
+  ]);
 
 export const composeV2Invocation = Object.freeze({
   command: 'docker',
@@ -34,10 +32,9 @@ export function composeProjectName(parts, maxLength = COMPOSE_PROJECT_NAME_MAX_L
     .toLowerCase()
     .replace(/[^a-z0-9_-]+/g, '-')
     .replace(/^[^a-z0-9]+/, '')
-    .replace(/[-_]+$/, '');
-
-  const fallback = 'aipsite-real-backend-smoke';
-  const withinLimit = (normalized || fallback).slice(0, maxLength).replace(/[-_]+$/, '');
+    .replace(/[-_]+$/, ''),
+    fallback = 'aipsite-real-backend-smoke',
+    withinLimit = (normalized || fallback).slice(0, maxLength).replace(/[-_]+$/, '');
   return withinLimit || 'aipsite';
 }
 
@@ -72,8 +69,8 @@ export async function selectComposeInvocation(runVersion) {
 
 export function isStaticAngularServerUrl(value) {
   try {
-    const url = new URL(value);
-    const host = url.hostname.toLowerCase();
+    const url = new URL(value),
+      host = url.hostname.toLowerCase();
     return url.port === '4173' && (host === '127.0.0.1' || host === 'localhost' || host === '::1');
   } catch {
     return false;
@@ -82,8 +79,8 @@ export function isStaticAngularServerUrl(value) {
 
 export function isHstsPreloadedHttpUrl(value) {
   try {
-    const url = new URL(value);
-    const host = url.hostname.toLowerCase();
+    const url = new URL(value),
+      host = url.hostname.toLowerCase();
     return url.protocol === 'http:' && (host === 'app' || host.endsWith('.app'));
   } catch {
     return false;
@@ -126,16 +123,4 @@ export function buildRealBackendPlaywrightPlan(userArgs = [], focusedGrep = '') 
       args: [...DEFAULT_LEGACY_PLAYWRIGHT_ARGS]
     }
   ];
-}
-
-export function redactSecrets(output) {
-  return output
-    .replace(/(POSTGRES_PASSWORD\s*[:=]\s*)[^\r\n]+/gi, '$1[redacted]')
-    .replace(/(AIP_[A-Z0-9_]*PASSWORD\s*[:=]\s*)[^\r\n]+/gi, '$1[redacted]')
-    .replace(/(Password=)[^;\s\r\n]+/gi, '$1[redacted]')
-    .replace(/(Authorization\s*:\s*)[^\r\n]+/gi, '$1[redacted]')
-    .replace(/((?:Cookie|Set-Cookie)\s*:\s*)[^\r\n]+/gi, '$1[redacted]')
-    .replace(/((?:X-CSRF-Token|CSRF(?:Token)?)\s*[:=]\s*)[^\r\n]+/gi, '$1[redacted]')
-    .replace(/((?:Invite|Invitation)[A-Za-z-]*Token\s*[:=]\s*)[^\r\n]+/gi, '$1[redacted]')
-    .replace(/("(?:password|token|authorization|cookie|csrfToken|inviteToken|invitationToken)"\s*:\s*")[^"]*(")/gi, '$1[redacted]$2');
 }
