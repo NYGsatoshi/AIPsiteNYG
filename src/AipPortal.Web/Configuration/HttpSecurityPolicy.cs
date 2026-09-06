@@ -186,7 +186,7 @@ public static class HttpSecurityPolicy
             return false;
         }
 
-        if (location.StartsWith('/', StringComparison.Ordinal))
+        if (location.StartsWith("/", StringComparison.Ordinal))
         {
             return !location.StartsWith("//", StringComparison.Ordinal);
         }
