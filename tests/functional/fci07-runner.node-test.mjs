@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
+
+import yaml from 'js-yaml';
 
 const runnerPath = 'scripts/ci/run-fci07-functional-security.sh';
 const overlayPath = 'docker-compose.fci07-functional-security.yml';
@@ -19,10 +21,13 @@ test('FCI-07 runner is syntactically valid and keeps the security fixture bounda
   assert.match(runner, /docker-compose\.fci07-functional-security\.yml/);
 
   const overlay = readFileSync(overlayPath, 'utf8');
-  assert.match(overlay, /AIP_SECURITY_CI_FIXTURE_ENABLED:\s*"true"/);
-  assert.match(overlay, /AIP_SECURITY_CI_PASSWORD/);
-  assert.match(overlay, /--domain security-negative/);
-  assert.match(overlay, /--negative-authz/);
+  const parsed = yaml.load(overlay);
+  assert.ok(parsed && typeof parsed === 'object' && !Array.isArray(parsed));
+  const service = parsed.services?.['real-backend-playwright'];
+  assert.equal(service?.environment?.AIP_SECURITY_CI_FIXTURE_ENABLED, 'true');
+  assert.match(String(service?.environment?.AIP_SECURITY_CI_PASSWORD ?? ''), /AIP_SECURITY_CI_PASSWORD/);
+  assert.match(String(service?.command ?? ''), /--domain security-negative/);
+  assert.match(String(service?.command ?? ''), /--negative-authz/);
 });
 
 test('FCI-07 owner spec cannot silently turn the negative matrix into skipped green coverage', () => {
