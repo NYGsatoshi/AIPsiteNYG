@@ -4,34 +4,32 @@ on:
   pull_request:
     paths:
       - ".github/workflows/compat-critical-preflight.yml"
+      - "frontend/**"
       - "package.json"
       - "package-lock.json"
       - "playwright.config.ts"
-      - "scripts/ci/compat-critical.contract.json"
-      - "scripts/ci/compat-critical-contract.mjs"
+      - "scripts/ci/compat-critical*"
       - "scripts/ci/build-compat-critical-grep.mjs"
       - "scripts/ci/run-compat-critical.mjs"
       - "scripts/ci/verify-compat-critical.mjs"
-      - "tests/ui/compat-critical-contract.node-test.mjs"
-      - "tests/ui/angular-smoke.spec.ts"
-      - "tests/ui/real-backend-smoke.spec.ts"
+      - "tests/ui/**"
       - "docs/ci/compat-critical-suite.md"
+      - "docs/TESTING.md"
   push:
     branches: ["main"]
     paths:
       - ".github/workflows/compat-critical-preflight.yml"
+      - "frontend/**"
       - "package.json"
       - "package-lock.json"
       - "playwright.config.ts"
-      - "scripts/ci/compat-critical.contract.json"
-      - "scripts/ci/compat-critical-contract.mjs"
+      - "scripts/ci/compat-critical*"
       - "scripts/ci/build-compat-critical-grep.mjs"
       - "scripts/ci/run-compat-critical.mjs"
       - "scripts/ci/verify-compat-critical.mjs"
-      - "tests/ui/compat-critical-contract.node-test.mjs"
-      - "tests/ui/angular-smoke.spec.ts"
-      - "tests/ui/real-backend-smoke.spec.ts"
+      - "tests/ui/**"
       - "docs/ci/compat-critical-suite.md"
+      - "docs/TESTING.md"
 
 concurrency:
   group: compat-critical-preflight-${{ github.event.pull_request.number || github.ref }}
@@ -47,12 +45,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: "24"
 
@@ -60,7 +58,10 @@ jobs:
         run: npm ci --prefer-offline --ignore-scripts --no-audit --no-fund
 
       - name: Self-test compat-critical contract
-        run: node --test tests/ui/compat-critical-contract.node-test.mjs
+        run: >-
+          node --test
+          tests/ui/compat-critical-contract.node-test.mjs
+          tests/ui/compat-browser-engine-workflow.node-test.mjs
 
       - name: Check compat-critical runner syntax
         shell: bash
@@ -70,11 +71,23 @@ jobs:
           node --check scripts/ci/run-compat-critical.mjs
           node --check scripts/ci/verify-compat-critical.mjs
 
-      - name: Verify browser-engine selection against Playwright discovery
+      - name: Verify Chromium browser-engine selection
         run: >-
           node scripts/ci/verify-compat-critical.mjs
           --profile browser-engine
           --project chromium-desktop
+
+      - name: Verify Firefox browser-engine selection
+        run: >-
+          node scripts/ci/verify-compat-critical.mjs
+          --profile browser-engine
+          --project firefox-desktop
+
+      - name: Verify WebKit browser-engine selection
+        run: >-
+          node scripts/ci/verify-compat-critical.mjs
+          --profile browser-engine
+          --project webkit-desktop
 
       - name: Verify mobile selection against Playwright discovery
         run: >-
@@ -103,7 +116,77 @@ jobs:
             echo "- Manifest schema and fail-closed invariants self-tested"
             echo "- Selected source tests resolved by exact title"
             echo "- Browser-engine, mobile, OS-portability, and real-backend profiles discovered by Playwright"
+            echo "- Chromium, Firefox, and WebKit desktop projects select the same browser-engine profile"
             echo "- Zero-test, missing-category, obsolete/superseded, and quarantine-only states fail closed"
             echo "- Selected tests reject arbitrary sleep, unseeded randomness, and pixel-only snapshot assertions"
+            echo "- Selected tests reject inline skip, fixme, and expected-failure exceptions"
             echo "- Compatibility execution forces retries=0"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  compat-browser-engine:
+    needs: compat-critical-preflight
+    name: compat-${{ matrix.engine }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - engine: chromium
+            project: chromium-desktop
+            browser: chromium
+          - engine: firefox
+            project: firefox-desktop
+            browser: firefox
+          - engine: webkit
+            project: webkit-desktop
+            browser: webkit
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24"
+
+      - name: Install repository Playwright dependencies
+        run: npm ci --prefer-offline --ignore-scripts --no-audit --no-fund
+
+      - name: Install Angular dependencies
+        run: npm --prefix frontend ci --prefer-offline --no-audit --no-fund
+
+      - name: Install ${{ matrix.engine }} browser and system dependencies
+        run: npx playwright install --with-deps "${{ matrix.browser }}"
+
+      - name: Run compat-critical on ${{ matrix.engine }} with zero retries
+        run: npm run test:ui:compat-critical -- --profile browser-engine -- --project=${{ matrix.project }}
+
+      - name: Summarize engine evidence
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### COMPAT-01 ${{ matrix.engine }} evidence"
+            echo
+            echo "- Project: \`${{ matrix.project }}\`"
+            echo "- Selection source: \`compat-critical/browser-engine\`"
+            echo "- Playwright retries: \`0\`"
+            if [ "${{ matrix.engine }}" = "webkit" ]; then
+              echo "- WebKit coverage is engine compatibility evidence, not real Safari-device certification."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload ${{ matrix.engine }} compatibility evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: compat-${{ matrix.engine }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: error
+          retention-days: 14
