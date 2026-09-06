@@ -1,4 +1,4 @@
-/* eslint-disable max-lines, complexity, max-lines-per-function */
+/* eslint-disable max-lines, max-lines-per-function, require-atomic-updates -- FCI-06 keeps one canonical Announcement owner and bounded evidence together; test.step hand-offs intentionally assign captured resource IDs after awaits. */
 import { randomUUID } from 'node:crypto';
 
 import { expect, type APIRequestContext, type APIResponse, type Response as PlaywrightResponse, test } from '@playwright/test';
@@ -28,6 +28,11 @@ interface AnnouncementEvidence {
   recipientReadPersisted?: boolean;
   recipientAcknowledged?: boolean;
   usedScheduledWallClockWait: false;
+}
+
+interface SyntheticCredentials {
+  email: string;
+  password: string;
 }
 
 test.describe('FCI-06 Announcement real-backend owner journey', () => {
@@ -223,11 +228,11 @@ test.describe('FCI-06 Announcement real-backend owner journey', () => {
   );
 });
 
-function actorACredentials() {
+function actorACredentials(): SyntheticCredentials {
   return { email: smokeEmail, password: smokePassword };
 }
 
-function actorBCredentials() {
+function actorBCredentials(): SyntheticCredentials {
   return { email: recipientEmail, password: `${smokePassword}:recipient` };
 }
 
