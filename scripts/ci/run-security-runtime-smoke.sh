@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-: "${AIP_SECURITY_CI_PASSWORD:?AIP_SECURITY_CI_PASSWORD is required for the SEC-03/SEC-04/SEC-05/AUD-02 runtime gate}"
+: "${AIP_SECURITY_CI_PASSWORD:?AIP_SECURITY_CI_PASSWORD is required for the SEC-03/SEC-04/SEC-05/SEC-06/AUD-02 runtime gate}"
 
 project="${AIP_SECURITY_CI_PROJECT:-aipsite-security-runtime-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-0}}"
 compose=(
@@ -13,8 +13,10 @@ compose=(
 )
 state_dir="$(mktemp -d)"
 network="${project}_default"
+zap_network="${project}_sec06_zap"
 curl_image="curlimages/curl:8.21.0"
 base_url="http://app:8080"
+app_container=""
 
 # shellcheck source=scripts/security/scanner-harness.sh
 source scripts/security/scanner-harness.sh
@@ -22,6 +24,8 @@ source scripts/security/scanner-harness.sh
 source scripts/security/authorization-negative-matrix.sh
 # shellcheck source=scripts/security/schemathesis-runner.sh
 source scripts/security/schemathesis-runner.sh
+# shellcheck source=scripts/security/zap-runner.sh
+source scripts/security/zap-runner.sh
 # shellcheck source=scripts/security/aud02-lifecycle.sh
 source scripts/security/aud02-lifecycle.sh
 
@@ -29,19 +33,23 @@ cleanup() {
   status=$?
   trap - EXIT
   if (( status != 0 )); then
-    echo "SEC-03/SEC-04/SEC-05/AUD-02 runtime gate failed; dumping redacted Compose state." >&2
+    echo "SEC-03/SEC-04/SEC-05/SEC-06/AUD-02 runtime gate failed; dumping redacted Compose state." >&2
     "${compose[@]}" ps 2>&1 | security_scan_redact_stream >&2 || true
     "${compose[@]}" logs --no-color postgres migrate app 2>&1 | security_scan_redact_stream >&2 || true
   fi
   security_scan_cleanup >/dev/null 2>&1 || true
+  if [[ -n "${app_container:-}" ]]; then
+    docker network disconnect -f "$zap_network" "$app_container" >/dev/null 2>&1 || true
+  fi
   "${compose[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || true
+  docker network rm "$zap_network" >/dev/null 2>&1 || true
   rm -rf "$state_dir"
   exit "$status"
 }
 trap cleanup EXIT
 
 fail() {
-  echo "SEC-03/SEC-04/SEC-05/AUD-02 runtime gate failed: $*" >&2
+  echo "SEC-03/SEC-04/SEC-05/SEC-06/AUD-02 runtime gate failed: $*" >&2
   return 1
 }
 
@@ -62,12 +70,12 @@ security_scan_curl() {
 # is running and attached to the exact isolated network used by scanner curl and
 # the SEC-04 Schemathesis container.
 security_scan_transport_guard() {
-  local target=$1 app_container
+  local target=$1 current_app_container
   [[ "$target" == "$base_url" ]] || return 1
   docker network inspect "$network" >/dev/null 2>&1 || return 1
-  app_container="$("${compose[@]}" ps -q app)"
-  [[ -n "$app_container" ]] || return 1
-  docker inspect "$app_container" --format '{{json .NetworkSettings.Networks}}' |
+  current_app_container="$("${compose[@]}" ps -q app)"
+  [[ -n "$current_app_container" ]] || return 1
+  docker inspect "$current_app_container" --format '{{json .NetworkSettings.Networks}}' |
     python3 -c '
 import json
 import sys
@@ -110,6 +118,34 @@ warm_up_sessions() {
   done
 }
 
+prepare_zap_network() {
+  # ZAP is deliberately denied ordinary Docker bridge egress. The app remains on
+  # the Compose network for PostgreSQL, while this second internal network exposes
+  # only the `app` alias to the active scanner. Redirects or OAST callbacks cannot
+  # reach public origins even if a future rule/config drifts.
+  [[ -z "$app_container" ]] || fail "SEC-06 scanner network is already prepared" || return 1
+  if docker network inspect "$zap_network" >/dev/null 2>&1; then
+    fail "residual SEC-06 scanner network exists before setup"
+    return 1
+  fi
+  app_container="$("${compose[@]}" ps -q app)"
+  [[ -n "$app_container" ]] || fail "SEC-02 app container is unavailable for SEC-06" || return 1
+  docker network create \
+    --driver bridge \
+    --internal \
+    --label aip.security.control=SEC-06 \
+    --label "aip.security.project=$project" \
+    "$zap_network" >/dev/null
+  docker network connect --alias app "$zap_network" "$app_container"
+}
+
+release_zap_network() {
+  [[ -n "$app_container" ]] || return 0
+  docker network disconnect "$zap_network" "$app_container"
+  docker network rm "$zap_network" >/dev/null
+  app_container=""
+}
+
 db_scalar() {
   local sql=$1
   "${compose[@]}" exec -T postgres \
@@ -143,6 +179,10 @@ assert_fresh_start() {
     fail "fresh-start check found residual Compose networks"
     return 1
   fi
+  if docker network inspect "$zap_network" >/dev/null 2>&1; then
+    fail "fresh-start check found residual SEC-06 internal scanner network"
+    return 1
+  fi
 }
 
 "${compose[@]}" config --quiet
@@ -153,16 +193,16 @@ import sys
 document = json.load(sys.stdin)
 app = document["services"]["app"]
 if "build" in app:
-    raise SystemExit("SEC-03/SEC-04/SEC-05/AUD-02 runtime app must not retain the production Docker build")
+    raise SystemExit("SEC-03/SEC-04/SEC-05/SEC-06/AUD-02 runtime app must not retain the production Docker build")
 if app.get("image") != "mcr.microsoft.com/dotnet/sdk:10.0.400":
-    raise SystemExit("SEC-03/SEC-04/SEC-05/AUD-02 runtime app must use the pinned .NET SDK image")
+    raise SystemExit("SEC-03/SEC-04/SEC-05/SEC-06/AUD-02 runtime app must use the pinned .NET SDK image")
 if app.get("ports"):
-    raise SystemExit("SEC-03/SEC-04/SEC-05/AUD-02 runtime app must not publish host ports")
+    raise SystemExit("SEC-03/SEC-04/SEC-05/SEC-06/AUD-02 runtime app must not publish host ports")
 environment = app.get("environment", {})
 if str(environment.get("AIP_SECURITY_CI_FIXTURE_ENABLED", "")).lower() != "true":
-    raise SystemExit("SEC-03/SEC-04/SEC-05/AUD-02 runtime fixture must remain enabled")
+    raise SystemExit("SEC-03/SEC-04/SEC-05/SEC-06/AUD-02 runtime fixture must remain enabled")
 if str(environment.get("ASPNETCORE_ENVIRONMENT", "")).lower() != "test":
-    raise SystemExit("SEC-03/SEC-04/SEC-05/AUD-02 runtime app must remain Test-only")
+    raise SystemExit("SEC-03/SEC-04/SEC-05/SEC-06/AUD-02 runtime app must remain Test-only")
 '
 
 assert_fresh_start
@@ -184,7 +224,7 @@ aud02_advance login warm-up
 
 # SEC-05 runs first while the deterministic SEC-03 fixture is pristine. The
 # matrix restores every temporary membership/role mutation before returning, so
-# the same authenticated sessions can be reused by SEC-04 without re-login.
+# the same authenticated sessions can be reused by SEC-04 and SEC-06.
 security_authorization_negative_matrix_run
 
 # Claims/Evidence and Finding are implemented admin surfaces too. Both authorize
@@ -208,6 +248,15 @@ fi
 # and restored its temporary authorization mutations. The runner re-verifies the
 # SEC-01 contract and the isolated Compose transport before fuzz traffic begins.
 security_schemathesis_run_matrix "$network" "$state_dir"
+
+# SEC-06 reuses the same verified SEC-03 sessions, but its active scanner is put
+# on a second Docker `internal` network. It can reach the app alias only; it has no
+# route to public origins. The runner separately validates toolchain, policy,
+# OpenAPI non-zero coverage, session continuity, High-risk blockers, and evidence.
+prepare_zap_network
+security_zap_run_matrix "$zap_network" "$state_dir" "$app_container"
+release_zap_network
+
 aud02_capture_fixture_evidence
 security_scan_teardown
 aud02_advance fixture-evidence teardown
@@ -242,4 +291,4 @@ assert_db_count 2 \
   "SEC-05 announcement canaries"
 
 aud02_write_summary
-echo "SEC-03 scanner boundary, SEC-05 authorization negative matrix, SEC-04 Schemathesis contract fuzzing, and AUD-02 restart identity verified on disposable PostgreSQL."
+echo "SEC-03 scanner boundary, SEC-05 authorization negative matrix, SEC-04 Schemathesis contract fuzzing, SEC-06 authenticated ZAP API DAST, and AUD-02 restart identity verified on disposable PostgreSQL."
