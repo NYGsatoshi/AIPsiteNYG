@@ -52,6 +52,44 @@ npm run test:ui:compat-critical -- --profile browser-engine -- --project=chromiu
 
 The runner forces `--retries=0`; a retry is not part of the compatibility success definition.
 
+## COMPAT-01 browser-engine matrix
+
+Issue #587 adds `firefox-desktop` and `webkit-desktop` beside the existing
+`chromium-desktop` Playwright project. The extra projects are enabled only when
+`AIP_COMPAT_CRITICAL=1`; the ordinary full static suite remains on its existing
+Chromium desktop/mobile projects. This keeps the engine matrix bounded to the
+single COMPAT-04 `browser-engine` selection contract.
+
+`.github/workflows/compat-critical-preflight.yml` runs the profile as three
+independent PR jobs:
+
+| Job | Playwright project | Browser installed |
+| --- | --- | --- |
+| `compat-chromium` | `chromium-desktop` | Chromium |
+| `compat-firefox` | `firefox-desktop` | Firefox |
+| `compat-webkit` | `webkit-desktop` | WebKit |
+
+The matrix uses `fail-fast: false` and has no `continue-on-error`. A Firefox or
+WebKit failure therefore remains an explicit failed job even if Chromium
+passes, while all three jobs still finish and preserve their own evidence.
+Each job uploads its HTML/JUnit/failure attachments under an artifact name
+starting with its engine. The common runner validates the manifest and source,
+fails when selection is empty or partial, and appends `--retries=0` after all
+caller-supplied Playwright arguments.
+
+The workflow has read-only repository permissions, persists no checkout
+credential, references no protected secret or licensed build activation, and
+can run for an untrusted pull request. Selected critical tests may not contain
+inline `skip`, `fixme`, or expected-failure exceptions. The only existing
+quarantine mechanism is the reviewed contract entry described below, including
+its reason, owner, tracking Issue, and expiry. There are currently no
+engine-specific exceptions; one cannot be introduced as an unexplained inline
+skip.
+
+Playwright WebKit is evidence about this WebKit engine configuration. It is not
+evidence of real Safari on Apple hardware, Safari release integration, iOS, or
+device-specific behavior, and must not be represented as Safari certification.
+
 ## Fail-closed enforcement
 
 `.github/workflows/compat-critical-preflight.yml` validates the contract on pull requests and on `main`. The validator rejects the contract when any of these conditions occurs:
@@ -65,6 +103,7 @@ The runner forces `--retries=0`; a retry is not part of the compatibility succes
 - a selected test contains arbitrary `waitForTimeout`/`setTimeout` sleeps;
 - a selected test directly uses unseeded `Math.random`/`randomUUID` values;
 - a selected test is reduced to `toHaveScreenshot`/`toMatchSnapshot` pixel-only evidence;
+- a selected test contains an inline `skip`, `fixme`, or expected-failure exception;
 - Playwright `--list` discovers zero, partial, duplicate, or unexpected selected tests.
 
 The preflight runs actual Playwright discovery for every profile. Therefore a filename/title rename cannot silently turn the compatibility suite into a successful zero-test run.
