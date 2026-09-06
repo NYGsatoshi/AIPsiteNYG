@@ -13,7 +13,7 @@ on:
       - 'scripts/ci/compat-critical-contract.mjs'
       - 'scripts/ci/run-compat-critical.mjs'
       - 'scripts/ci/verify-compat-critical.mjs'
-      - 'scripts/ci/npm-ci-retry.sh'
+      - 'scripts/ci/verify-npm-lockfile.mjs'
       - 'tests/ui/angular-smoke.spec.ts'
       - 'tests/ui/mobile-compatibility.spec.ts'
       - 'tests/ui/serve-static.mjs'
@@ -29,7 +29,7 @@ on:
       - 'scripts/ci/compat-critical-contract.mjs'
       - 'scripts/ci/run-compat-critical.mjs'
       - 'scripts/ci/verify-compat-critical.mjs'
-      - 'scripts/ci/npm-ci-retry.sh'
+      - 'scripts/ci/verify-npm-lockfile.mjs'
       - 'tests/ui/angular-smoke.spec.ts'
       - 'tests/ui/mobile-compatibility.spec.ts'
       - 'tests/ui/serve-static.mjs'
@@ -72,23 +72,30 @@ jobs:
           node-version: '24'
           package-manager-cache: false
 
-      - name: Use repository npm version
-        run: npm install --global npm@11.17.0
-
       - name: Verify candidate identity
         shell: bash
         env:
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
 
-      - name: Clean-install compatibility dependencies
+      - name: Verify compatibility lockfiles
         shell: bash
         run: |
-          bash scripts/ci/npm-ci-retry.sh .
-          bash scripts/ci/npm-ci-retry.sh frontend
+          node scripts/ci/verify-npm-lockfile.mjs .
+          node scripts/ci/verify-npm-lockfile.mjs frontend
+
+      - name: Clean-install compatibility dependencies without lifecycle scripts
+        shell: bash
+        run: |
+          npm ci --prefer-offline --ignore-scripts --no-audit --no-fund
+          npm --prefix frontend ci --prefer-offline --ignore-scripts --no-audit --no-fund
+          npm ls --all --json >/dev/null
+          npm --prefix frontend ls --all --json >/dev/null
 
       - name: Install ${{ matrix.browser }} runtime
-        run: npx playwright install --with-deps "${{ matrix.browser }}"
+        run: >-
+          node node_modules/@playwright/test/cli.js install
+          --with-deps "${{ matrix.browser }}"
 
       - name: Run mobile compatibility profile
         env:

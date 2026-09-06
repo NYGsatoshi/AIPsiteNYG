@@ -61,9 +61,6 @@ jobs:
           node-version: "24"
           package-manager-cache: false
 
-      - name: Use repository npm version
-        run: npm install --global npm@11.17.0
-
       - name: Install repository Playwright dependencies
         run: npm ci --prefer-offline --ignore-scripts --no-audit --no-fund
 

@@ -75,9 +75,11 @@ form/list flow at 320 CSS pixels, an Audit overlay/list flow at 320 CSS pixels,
 touch navigation and right-panel controls, and document/component horizontal
 overflow separation. The touch case uses Playwright `tap()` in a touch-enabled
 context and completes the representative critical flow without any hover
-action. The overflow case fails on document/body overflow while
-allowing only the component-scoped `[data-testid="app-data-grid"]` region to
-own intentional horizontal scrolling.
+action. The overflow case first fails on any document/body or nested horizontal
+scroll at each configured mobile viewport, including 320 CSS pixels. It then
+reflows the same representative list to a constrained desktop layout and
+allows only the component-scoped `[data-testid="app-data-grid"]` region to own
+intentional horizontal scrolling.
 
 Run any cell locally with, for example:
 

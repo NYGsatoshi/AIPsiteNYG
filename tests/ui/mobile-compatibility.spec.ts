@@ -69,12 +69,18 @@ test.describe('COMPAT-03 mobile compatibility', () => {
   }, testInfo) => {
     const profile = requireMobileProfile(testInfo.project.name);
     expect(browserName).toBe(profile.browserName);
+    expect(page.viewportSize()).toEqual(profile.viewport);
 
-    await page.setViewportSize({ width: 900, height: 900 });
     await installWorkspaceMembersApi(page);
     await page.goto('/app/workspaces/static-workspace-1/members');
 
     await expect(page.getByTestId('workspace-members-page')).toBeVisible();
+    await expect(page.locator('.workspace-members__desktop-grid')).toBeHidden();
+    await expect(page.getByTestId('workspace-members-mobile-list')).toBeVisible();
+    await expectOnlyAllowlistedHorizontalScroll(page, []);
+    await expectNoDocumentHorizontalOverflow(page);
+
+    await page.setViewportSize({ width: 900, height: 900 });
     await expect(page.locator('.workspace-members__desktop-grid')).toBeVisible();
     await expect(page.locator('.workspace-members__mobile-list')).toBeHidden();
 
