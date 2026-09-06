@@ -2,6 +2,7 @@ using AipPortal.Application.Files;
 
 namespace AipPortal.Tests.Files;
 
+[Trait("Portability", "CrossPlatform")]
 public sealed class FileNameSanitizerTests
 {
     [Theory]

@@ -2,6 +2,7 @@ using AipPortal.Application.Common;
 
 namespace AipPortal.Tests;
 
+[Trait("Portability", "CrossPlatform")]
 public sealed class SkeletonTests
 {
     [Fact]

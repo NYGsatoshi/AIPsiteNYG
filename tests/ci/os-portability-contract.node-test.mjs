@@ -1,0 +1,105 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import test from 'node:test';
+
+import {
+  findCaseInsensitiveCollisions,
+  loadOsPortabilityContract,
+  validateOsPortabilityContract,
+  validateWorkflowText,
+  verifyRepositoryOsPortability
+} from '../../scripts/ci/os-portability-contract.mjs';
+import {
+  readTrxCounters,
+  verifyTrxCounters
+} from '../../scripts/ci/verify-os-portability-results.mjs';
+
+test('repository OS portability contract is complete and source-resolvable', async () => {
+  const result = await verifyRepositoryOsPortability(process.cwd());
+
+  assert.deepEqual(result.matrix, ['ubuntu-latest', 'windows-latest', 'macos-latest']);
+  assert.equal(result.portableTestClasses, 5);
+  assert.equal(result.minimumDotnetTests, 25);
+  assert.ok(result.trackedPaths > 0);
+  assert.equal(result.runtimeValidated, false);
+});
+
+test('contract rejects a missing OS and a browser execution Cartesian product', async () => {
+  const source = await loadOsPortabilityContract();
+  const missingWindows = structuredClone(source);
+  missingWindows.matrix = ['ubuntu-latest', 'macos-latest'];
+  assert.throws(() => validateOsPortabilityContract(missingWindows), /matrix must be exactly/u);
+
+  const browserProduct = structuredClone(source);
+  browserProduct.compatCritical.executeBrowserInMatrix = true;
+  assert.throws(() => validateOsPortabilityContract(browserProduct), /must not execute browsers/u);
+});
+
+test('workflow rejects ignored OS failures, services, shell overrides, and mutable action refs', async () => {
+  const contract = await loadOsPortabilityContract();
+  const workflow = await readFile(contract.workflow, 'utf8');
+  const allowlist = JSON.parse(await readFile('governance/github-actions-allowlist.json', 'utf8'));
+
+  const mutations = [
+    ['continue-on-error', `${workflow}\ncontinue-on-error: true\n`],
+    ['services', `${workflow}\nservices:\n  postgres:\n`],
+    ['explicit shell override', `${workflow}\nshell: bash\n`],
+    ['immutable actions/checkout reference', workflow.replace(allowlist.actions['actions/checkout'].sha, 'v7')]
+  ];
+  for (const [message, candidate] of mutations) {
+    assert.throws(() => validateWorkflowText(contract, candidate, allowlist), new RegExp(message, 'u'));
+  }
+});
+
+test('case-insensitive path collisions fail even when exact paths differ', () => {
+  assert.deepEqual(findCaseInsensitiveCollisions(['src/App.cs', 'src/app.cs', 'README.md']), [
+    ['src/App.cs', 'src/app.cs']
+  ]);
+  assert.deepEqual(findCaseInsensitiveCollisions(['src/App.cs', 'README.md']), []);
+});
+
+test('portable TRX verifier rejects zero, skipped, and failed selections', () => {
+  const passing = counters({ total: 25, executed: 25, passed: 25 });
+  assert.deepEqual(verifyTrxCounters(passing, 25), passing);
+
+  assert.throws(() => verifyTrxCounters(counters({}), 25), /below required minimum/u);
+  assert.throws(
+    () => verifyTrxCounters(counters({ total: 25, executed: 24, passed: 24, notExecuted: 1 }), 25),
+    /notExecuted is non-zero/u
+  );
+  assert.throws(
+    () => verifyTrxCounters(counters({ total: 25, executed: 25, passed: 24, failed: 1 }), 25),
+    /failed is non-zero/u
+  );
+});
+
+test('portable TRX parser requires the complete counter shape', () => {
+  const complete = `<TestRun><ResultSummary><Counters ${Object.entries(counters({ total: 25, executed: 25, passed: 25 }))
+    .map(([name, value]) => `${name}="${value}"`)
+    .join(' ')} /></ResultSummary></TestRun>`;
+  assert.equal(readTrxCounters(complete).total, 25);
+  assert.throws(() => readTrxCounters('<TestRun />'), /Counters element is missing/u);
+  assert.throws(() => readTrxCounters('<Counters total="25" />'), /attribute is missing/u);
+});
+
+function counters(overrides) {
+  return {
+    total: 0,
+    executed: 0,
+    passed: 0,
+    failed: 0,
+    error: 0,
+    timeout: 0,
+    aborted: 0,
+    inconclusive: 0,
+    notRunnable: 0,
+    notExecuted: 0,
+    disconnected: 0,
+    warning: 0,
+    completed: 0,
+    inProgress: 0,
+    pending: 0,
+    passedButRunAborted: 0,
+    ...overrides
+  };
+}

@@ -1,0 +1,132 @@
+{
+  "schemaVersion": 1,
+  "name": "os-portability",
+  "issue": 590,
+  "workflow": ".github/workflows/os-portability.yml",
+  "matrix": [
+    "ubuntu-latest",
+    "windows-latest",
+    "macos-latest"
+  ],
+  "toolchain": {
+    "dotnetGlobalJson": "global.json",
+    "nodeMajor": 24,
+    "npmVersion": "11.17.0",
+    "packageManagerManifests": [
+      "package.json",
+      "frontend/package.json"
+    ]
+  },
+  "dependencyRoots": [
+    ".",
+    "frontend"
+  ],
+  "dotnet": {
+    "solution": "AipPortal.slnx",
+    "configuration": "Release",
+    "testProject": "tests/AipPortal.Tests/AipPortal.Tests.csproj",
+    "testFilter": "Portability=CrossPlatform",
+    "minimumTests": 25,
+    "trait": {
+      "name": "Portability",
+      "value": "CrossPlatform"
+    },
+    "testClasses": [
+      {
+        "path": "tests/AipPortal.Tests/SkeletonTests.cs",
+        "className": "SkeletonTests"
+      },
+      {
+        "path": "tests/AipPortal.Tests/Files/FileNameSanitizerTests.cs",
+        "className": "FileNameSanitizerTests"
+      },
+      {
+        "path": "tests/AipPortal.Tests/Performance/PaginationSafetyTests.cs",
+        "className": "PaginationSafetyTests"
+      },
+      {
+        "path": "tests/AipPortal.Tests/Security/CanonicalRedactionServiceTests.cs",
+        "className": "CanonicalRedactionServiceTests"
+      },
+      {
+        "path": "tests/AipPortal.Tests/Web/AngularSpaFallbackTests.cs",
+        "className": "AngularSpaFallbackTests"
+      }
+    ]
+  },
+  "frontend": {
+    "workspace": "frontend",
+    "buildScript": "build",
+    "testScript": "test",
+    "helperScripts": [
+      "test:architecture"
+    ]
+  },
+  "compatCritical": {
+    "contract": "scripts/ci/compat-critical.contract.json",
+    "profile": "os-portability",
+    "discoveryProject": "chromium-desktop",
+    "executeBrowserInMatrix": false
+  },
+  "boundaries": {
+    "databaseIntegration": {
+      "matrixMode": "excluded",
+      "ownerWorkflow": ".github/workflows/ci.yml",
+      "reason": "PostgreSQL integration remains in the canonical Ubuntu CI lane."
+    },
+    "realBrowser": {
+      "matrixMode": "excluded",
+      "ownerIssue": 587,
+      "reason": "Browser engines are an independent compatibility dimension."
+    },
+    "docker": {
+      "matrixMode": "excluded",
+      "ownerWorkflow": ".github/workflows/ci.yml",
+      "reason": "Hosted Windows and macOS Docker assumptions are outside toolchain portability."
+    }
+  },
+  "assumptions": [
+    {
+      "id": "shell",
+      "matrixHandling": "portable",
+      "repositoryHandling": "Bash and PowerShell entry points remain explicitly platform-owned and are not called by this matrix.",
+      "enforcement": "The matrix invokes only node, npm, and dotnet commands and contains no explicit shell override."
+    },
+    {
+      "id": "gnu-tools",
+      "matrixHandling": "portable",
+      "repositoryHandling": "GNU-only helpers remain Linux-owned.",
+      "enforcement": "The matrix does not invoke sed, grep, awk, chmod, or GNU-specific flags."
+    },
+    {
+      "id": "temporary-paths",
+      "matrixHandling": "portable",
+      "repositoryHandling": "Hard-coded /tmp paths remain Linux-only outside this matrix.",
+      "enforcement": "Portable tests use Path.GetTempPath and Node path APIs; the workflow contains no /tmp path."
+    },
+    {
+      "id": "path-separators",
+      "matrixHandling": "portable",
+      "repositoryHandling": "Portable helpers use platform path APIs and normalize repository identifiers to forward slashes.",
+      "enforcement": "The selected file-name and Angular fallback tests cover both slash forms and native temporary paths."
+    },
+    {
+      "id": "executable-bits",
+      "matrixHandling": "portable",
+      "repositoryHandling": "Executable-bit-dependent shell scripts remain Linux-owned.",
+      "enforcement": "Every portable helper is invoked through node, npm, or dotnet rather than by filesystem executable bit."
+    },
+    {
+      "id": "case-sensitivity",
+      "matrixHandling": "portable",
+      "repositoryHandling": "Tracked paths must remain unique under case-insensitive normalization.",
+      "enforcement": "Static contract validation rejects case-colliding tracked paths."
+    },
+    {
+      "id": "line-endings",
+      "matrixHandling": "portable",
+      "repositoryHandling": "Linux-only shell scripts are excluded; portable parsers accept LF and CRLF.",
+      "enforcement": "Portable helpers read UTF-8 text and split lines with CRLF-safe parsing without direct script execution."
+    }
+  ]
+}

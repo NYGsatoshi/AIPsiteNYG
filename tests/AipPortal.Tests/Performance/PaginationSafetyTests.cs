@@ -6,6 +6,7 @@ using AipPortal.Application.Projects;
 
 namespace AipPortal.Tests.Performance;
 
+[Trait("Portability", "CrossPlatform")]
 public sealed class PaginationSafetyTests
 {
     [Fact]
