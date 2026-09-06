@@ -60,11 +60,10 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
           if [[ "$EVENT_NAME" == "pull_request" ]]; then
-            python3 scripts/ci/verify-performance-baseline-updates.py --base-ref "$PR_BASE_SHA" --head-sha "$PR_HEAD_SHA"
+            python3 scripts/ci/verify-performance-baseline-updates.py --base-ref "$PR_BASE_SHA"
           elif git rev-parse --verify HEAD^ >/dev/null 2>&1; then
             python3 scripts/ci/verify-performance-baseline-updates.py --base-ref HEAD^
           else
