@@ -84,6 +84,12 @@ updates:
       docker-image-updates:
         patterns:
           - "*"
+    ignore:
+      # Node 24 is the repository's current LTS baseline. Promote to a new Node
+      # major only through an explicit toolchain migration and acceptance pass.
+      - dependency-name: "node"
+        update-types:
+          - "version-update:semver-major"
     commit-message:
       prefix: "chore(docker)"
 
