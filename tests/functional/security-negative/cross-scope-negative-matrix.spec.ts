@@ -331,7 +331,7 @@ test.describe('FCI-07 real-stack authorization negative matrix', () => {
         expect(taskDetailResponse.status()).toBe(200);
         const taskDetailHeaders = taskDetailResponse.headers();
         expect(taskDetailHeaders['cache-control'] ?? '').toContain('no-store');
-        expect(taskDetailHeaders.pragma ?? '').toContain('no-cache');
+        expect(taskDetailHeaders.pragma).toContain('no-cache');
         expect(taskDetailHeaders.expires).toBe('0');
         evidence.taskDetailNoStore = true;
         await expect(page.getByTestId('task-detail-page')).toBeVisible();
