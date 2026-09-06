@@ -1,3 +1,4 @@
+/* eslint-disable func-style, no-await-in-loop, no-console, no-magic-numbers, no-shadow, no-ternary, no-use-before-define, one-var, require-unicode-regexp, sort-imports, sort-keys -- Issue #683 evidence is intentionally sequential and imperative so every fresh Compose run is fully captured before the next run starts. */
 import { spawnSync, execFileSync } from 'node:child_process';
 import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
@@ -64,11 +65,14 @@ for (
 
   const reporterOutput = await readJsonFile(raceEvidencePath);
   const records = Array.isArray(reporterOutput?.records) ? reporterOutput.records : [];
+  const playwrightRetries = Array.isArray(reporterOutput?.retries) ? reporterOutput.retries : [];
   const parseErrors = records
     .map((record) => record?.parseError)
     .filter((error) => typeof error === 'string' && error.length > ZERO_COUNT);
   if (!reporterOutput) {
     parseErrors.push(`Issue ${ISSUE_ID} race evidence reporter output is missing or unreadable.`);
+  } else if (!Array.isArray(reporterOutput.retries)) {
+    parseErrors.push(`Issue ${ISSUE_ID} reporter did not record Playwright retry values.`);
   }
 
   const raceObservationCount = records.reduce(
@@ -78,6 +82,7 @@ for (
   const iterationSummary = {
     iteration,
     exitCode,
+    playwrightRetries,
     pr03cResultCount: records.length,
     pr03cRetries: records.map((record) => record?.retry),
     pr03cStatuses: records.map((record) => record?.status),
