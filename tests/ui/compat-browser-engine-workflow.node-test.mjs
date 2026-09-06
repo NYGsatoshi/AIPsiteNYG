@@ -56,7 +56,7 @@ test('COMPAT-01 remains secretless, retry-free, and emits engine-scoped evidence
 
   const passthroughPosition = runner.indexOf('...passthrough');
   const retryPosition = runner.indexOf("'--retries=0'");
-  assert.ok(passthroughPosition >= 0, 'compat runner must forward explicit Playwright arguments');
+  assert.ok(runner.includes('...passthrough'), 'compat runner must forward explicit Playwright arguments');
   assert.ok(retryPosition > passthroughPosition, 'the final runner argument must force retries=0');
   assert.match(runner, /AIP_COMPAT_CRITICAL: '1'/u);
 });
