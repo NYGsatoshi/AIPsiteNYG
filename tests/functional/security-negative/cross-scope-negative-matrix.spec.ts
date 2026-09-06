@@ -184,11 +184,17 @@ test.describe('FCI-07 real-stack authorization negative matrix', () => {
         foreignProjectStatus: null,
         foreignTaskStatus: null,
         foreignFileStatus: null,
+        sameTenantWorkspaceStatus: null,
+        sameTenantProjectStatus: null,
+        sameTenantTaskStatus: null,
+        sameTenantFileStatus: null,
         foreignDirectRouteDenied: false,
         notificationOpenStatus: null,
         existenceOracleStatusAligned: null,
+        taskDetailNoStore: false,
         revokeStatus: null,
         postRevokeTaskStatus: null,
+        backForwardCacheCleared: false,
         staleUiCleared: false,
       };
 
@@ -209,6 +215,9 @@ test.describe('FCI-07 real-stack authorization negative matrix', () => {
           taskTitle: BETA_TASK_TITLE,
           fileName: BETA_FILE_NAME,
         });
+        const sameTenant = await createSameTenantRestrictedGraph(alphaOwnerApi);
+        const sameTenantMembers = await readManagedWorkspaceMembers(alphaOwnerApi, sameTenant.workspaceId);
+        expect(sameTenantMembers.some((member) => readString(member, 'email', 'Email') === ALPHA_MEMBER_EMAIL)).toBe(false);
 
         const foreignWorkspace = await alphaMemberApi.get(`/api/workspaces/${beta.workspaceId}`);
         evidence.foreignWorkspaceStatus = (
@@ -245,6 +254,42 @@ test.describe('FCI-07 real-stack authorization negative matrix', () => {
           })
         ).status;
 
+        const sameTenantWorkspace = await alphaMemberApi.get(`/api/workspaces/${sameTenant.workspaceId}`);
+        evidence.sameTenantWorkspaceStatus = (
+          await assertSafeDenial(sameTenantWorkspace, {
+            label: 'FCI-07 same-Tenant cross-Workspace ID swap',
+            expectedStatus: [403, 404],
+            forbiddenMarkers: sameTenant.protectedMarkers,
+          })
+        ).status;
+
+        const sameTenantProject = await alphaMemberApi.get(`/api/projects/${sameTenant.projectId}`);
+        evidence.sameTenantProjectStatus = (
+          await assertSafeDenial(sameTenantProject, {
+            label: 'FCI-07 same-Tenant cross-Workspace Project ID swap',
+            expectedStatus: [403, 404],
+            forbiddenMarkers: sameTenant.protectedMarkers,
+          })
+        ).status;
+
+        const sameTenantTask = await alphaMemberApi.get(`/api/tasks/${sameTenant.taskId}`);
+        evidence.sameTenantTaskStatus = (
+          await assertSafeDenial(sameTenantTask, {
+            label: 'FCI-07 same-Tenant cross-Workspace Task ID swap',
+            expectedStatus: [403, 404],
+            forbiddenMarkers: sameTenant.protectedMarkers,
+          })
+        ).status;
+
+        const sameTenantFile = await alphaMemberApi.get(`/api/files/${sameTenant.fileId}`);
+        evidence.sameTenantFileStatus = (
+          await assertSafeDenial(sameTenantFile, {
+            label: 'FCI-07 same-Tenant cross-Workspace File ID swap',
+            expectedStatus: [403, 404],
+            forbiddenMarkers: sameTenant.protectedMarkers,
+          })
+        ).status;
+
         await page.setExtraHTTPHeaders(singleHeader('X-Tenant-Slug', ALPHA_TENANT));
         await loginViaUi(page, { email: ALPHA_MEMBER_EMAIL, password: securityPassword });
 
@@ -277,9 +322,23 @@ test.describe('FCI-07 real-stack authorization negative matrix', () => {
           evidence.existenceOracleStatusAligned = true;
         }
 
+        const taskDetailResponsePromise = page.waitForResponse((response) =>
+          response.request().method() === 'GET' &&
+          new URL(response.url()).pathname === `/api/tasks/${alpha.taskId}`,
+        );
         await page.goto(`/app/projects/${alpha.projectId}/tasks/${alpha.taskId}`);
+        const taskDetailResponse = await taskDetailResponsePromise;
+        expect(taskDetailResponse.status()).toBe(200);
+        const taskDetailHeaders = taskDetailResponse.headers();
+        expect(taskDetailHeaders['cache-control'] ?? '').toContain('no-store');
+        expect(taskDetailHeaders['pragma'] ?? '').toContain('no-cache');
+        expect(taskDetailHeaders['expires']).toBe('0');
+        evidence.taskDetailNoStore = true;
         await expect(page.getByTestId('task-detail-page')).toBeVisible();
         await expect(page.getByRole('heading', { name: ALPHA_TASK_TITLE })).toBeVisible();
+
+        await page.goto(`/app/projects/${beta.projectId}/tasks/${beta.taskId}`);
+        await expect(page.getByTestId('permission-denied-state')).toBeVisible();
 
         const members = await readManagedWorkspaceMembers(alphaOwnerApi, alpha.workspaceId);
         const alphaMember = members.find((member) => readString(member, 'email', 'Email') === ALPHA_MEMBER_EMAIL);
@@ -303,6 +362,12 @@ test.describe('FCI-07 real-stack authorization negative matrix', () => {
             forbiddenMarkers: [ALPHA_TASK_TITLE, ALPHA_PROJECT_TITLE, ALPHA_FILE_NAME],
           })
         ).status;
+
+        await page.goBack();
+        await expect(page).toHaveURL(new RegExp(`/app/projects/${alpha.projectId}/tasks/${alpha.taskId}$`));
+        await expect(page.getByTestId('permission-denied-state')).toBeVisible();
+        await expect(page.getByRole('heading', { name: ALPHA_TASK_TITLE })).toHaveCount(0);
+        evidence.backForwardCacheCleared = true;
 
         await page.reload();
         await expect(page.getByTestId('permission-denied-state')).toBeVisible();
@@ -330,11 +395,89 @@ interface CoreFixtureGraph {
   fileId: string;
 }
 
+interface SameTenantRestrictedGraph extends CoreFixtureGraph {
+  protectedMarkers: readonly string[];
+}
+
 async function createTenantApi(tenantSlug: string): Promise<APIRequestContext> {
   return request.newContext({
     baseURL,
     extraHTTPHeaders: singleHeader('X-Tenant-Slug', tenantSlug),
   });
+}
+
+async function createSameTenantRestrictedGraph(api: APIRequestContext): Promise<SameTenantRestrictedGraph> {
+  const token = randomUUID();
+  const marker = token.slice(0, 8);
+  const workspaceTitle = `FCI-07 Alpha Restricted Workspace ${marker}`;
+  const projectTitle = `FCI-07 Alpha Restricted Project ${marker}`;
+  const taskTitle = `FCI-07 ALPHA RESTRICTED TASK ${marker}`;
+  const fileName = `fci07-alpha-restricted-${marker}.txt`;
+  const fileBody = `FCI07_ALPHA_RESTRICTED_FILE_${marker}_DO_NOT_LEAK`;
+
+  const workspaceCreate = await csrfAwareRequest(api, 'POST', '/api/workspaces', {
+    headers: singleHeader('Idempotency-Key', `fci07-workspace-${token}`),
+    data: {
+      name: workspaceTitle,
+      description: 'FCI-07 isolated same-Tenant authorization boundary.',
+      icon: null,
+    },
+  });
+  await assertSafeResponse(workspaceCreate, { label: 'FCI-07 same-Tenant Workspace create', expectedStatus: 201 });
+  const workspaceData = readEnvelopeData(await workspaceCreate.json(), 'same-Tenant Workspace create');
+  const workspaceId = requireString(workspaceData, 'id', 'Id');
+
+  const projectCreate = await csrfAwareRequest(api, 'POST', `/api/workspaces/${workspaceId}/projects`, {
+    headers: singleHeader('Idempotency-Key', `fci07-project-${token}`),
+    data: {
+      title: projectTitle,
+      description: null,
+      groupId: null,
+      visibility: 1,
+      startDate: null,
+      endDate: null,
+    },
+  });
+  await assertSafeResponse(projectCreate, { label: 'FCI-07 same-Tenant Project create', expectedStatus: 201 });
+  const projectData = readEnvelopeData(await projectCreate.json(), 'same-Tenant Project create');
+  const projectId = requireString(projectData, 'id', 'Id');
+  const projectVersion = requireNumber(projectData, 'versionNo', 'VersionNo');
+
+  const activation = await csrfAwareRequest(api, 'POST', `/api/projects/${projectId}/activate`, {
+    data: { expectedVersion: projectVersion },
+  });
+  await assertSafeResponse(activation, { label: 'FCI-07 same-Tenant Project activation', expectedStatus: 200 });
+
+  const taskCreate = await csrfAwareRequest(api, 'POST', `/api/projects/${projectId}/tasks/create`, {
+    headers: singleHeader('Idempotency-Key', `fci07-task-${token}`),
+    data: {
+      title: taskTitle,
+      priority: 1,
+      sourceScopeMode: 'Inherit',
+    },
+  });
+  await assertSafeResponse(taskCreate, { label: 'FCI-07 same-Tenant Task create', expectedStatus: 201 });
+  const taskData = readEnvelopeData(await taskCreate.json(), 'same-Tenant Task create');
+  const taskId = requireString(taskData, 'taskId', 'TaskId');
+
+  const fileCreate = await csrfAwareRequest(api, 'POST', '/api/files', {
+    multipart: Object.fromEntries([
+      ['OwnerType', 'Workspace'],
+      ['OwnerId', workspaceId],
+      ['File', { name: fileName, mimeType: 'text/plain', buffer: Buffer.from(fileBody, 'utf8') }],
+    ]),
+  });
+  await assertSafeResponse(fileCreate, { label: 'FCI-07 same-Tenant File create', expectedStatus: 200 });
+  const fileData = asRecord(await fileCreate.json(), 'same-Tenant File create');
+  const fileId = requireString(fileData, 'fileObjectId', 'FileObjectId', 'id', 'Id');
+
+  return {
+    workspaceId,
+    projectId,
+    taskId,
+    fileId,
+    protectedMarkers: [workspaceTitle, projectTitle, taskTitle, fileName, fileBody],
+  };
 }
 
 async function resolveCoreGraph(
@@ -397,6 +540,11 @@ async function resolveNotificationId(api: APIRequestContext, title: string): Pro
   return requireString(notification, 'id', 'Id');
 }
 
+function readEnvelopeData(value: unknown, label: string): Record<string, unknown> {
+  const envelope = asRecord(value, `${label} envelope`);
+  return asRecord(envelope.data ?? envelope.Data, `${label} data`);
+}
+
 function asArray(value: unknown, label: string): Record<string, unknown>[] {
   if (!Array.isArray(value)) {
     throw new Error(`${label} was not an array.`);
@@ -433,6 +581,16 @@ function requireString(record: Record<string, unknown>, ...keys: string[]): stri
     throw new Error(`FCI-07 required string field was missing: ${keys.join(' / ')}.`);
   }
   return value;
+}
+
+function requireNumber(record: Record<string, unknown>, ...keys: string[]): number {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+  }
+  throw new Error(`FCI-07 required numeric field was missing: ${keys.join(' / ')}.`);
 }
 
 function singleHeader(name: string, value: string): Record<string, string> {
