@@ -103,7 +103,7 @@ const assertScrollEvidence = function assertScrollEvidence(evidence: ScrollEvide
     await expect(page.locator('.workspace-members__desktop-grid')).toBeHidden();
     await expect(page.getByTestId('workspace-members-mobile-list')).toBeVisible();
   },
-  verifyMobileNavigation = async function verifyMobileNavigation(page: Page): Promise<void> {
+  verifyMobileNavigation = async function verifyMobileNavigation(page: Readonly<Page>): Promise<void> {
     const mobileNavigation = page.getByTestId('mobile-navigation'),
       navigationToggle = page.getByTestId('mobile-nav-toggle'),
       workspaceLink = mobileNavigation.locator('a[href="/app/workspaces"]').first();
@@ -116,7 +116,7 @@ const assertScrollEvidence = function assertScrollEvidence(evidence: ScrollEvide
     await expect(mobileNavigation).toHaveAttribute('aria-hidden', 'true');
     await expect(navigationToggle).toHaveAttribute('aria-expanded', 'false');
   },
-  verifyRightPanel = async function verifyRightPanel(page: Page): Promise<void> {
+  verifyRightPanel = async function verifyRightPanel(page: Readonly<Page>): Promise<void> {
     const panel = page.getByTestId('right-panel'),
       panelClose = page.getByTestId('right-panel-close'),
       panelToggle = page.getByTestId('right-panel-toggle');
@@ -163,7 +163,7 @@ test.describe('COMPAT-03 mobile compatibility', () => {
   });
 });
 
-async function installWorkspaceMembersApi(page: Page): Promise<void> {
+async function installWorkspaceMembersApi(page: Readonly<Page>): Promise<void> {
   await page.route('**/api/workspaces/static-workspace-1/members', async (route) => {
     await route.fulfill({
       body: JSON.stringify([
