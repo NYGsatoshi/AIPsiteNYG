@@ -5,12 +5,12 @@ import { defineConfig, devices } from "@playwright/test";
 const port = Number(process.env.PLAYWRIGHT_PORT ?? 4173);
 const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? `http://127.0.0.1:${port}`;
 const publicHttpsSmoke = process.env.AIP_PUBLIC_HTTPS_SMOKE === "1";
-const compatCritical = process.env.AIP_COMPAT_CRITICAL === "1";
 const expectTimeout = publicHttpsSmoke || process.env.AIP_REAL_BACKEND_SMOKE === "1" ? 15_000 : 5_000;
 const snapshotPathTemplate = process.env.CI
   ? "{testDir}/__angular_snapshots__/linux/{testFilePath}/{arg}{ext}"
   : "{testDir}/__angular_snapshots__/{testFilePath}/{arg}{ext}";
-const compatCriticalContext = compatCritical
+const compatCriticalRun = process.env.AIP_COMPAT_CRITICAL === "1";
+const compatCriticalContext = compatCriticalRun
   ? ({
       locale: "en-US",
       timezoneId: "UTC",
@@ -51,10 +51,27 @@ const deterministicUiStorageState = {
   ]
 };
 
+// Keep the regular full static suite on its established Chromium desktop/mobile
+// projects. COMPAT-01 enables the additional desktop engines only through the
+// small COMPAT-04 selection contract, so adding an engine does not multiply the
+// complete browser suite or create a second compatibility taxonomy.
+const compatOnlyDesktopProjects = compatCriticalRun
+  ? [
+      {
+        name: "firefox-desktop",
+        use: { ...devices["Desktop Firefox"] }
+      },
+      {
+        name: "webkit-desktop",
+        use: { ...devices["Desktop Safari"] }
+      }
+    ]
+  : [];
+
 // WebKit mobile and the explicit 320 CSS-pixel contract are compatibility-only
 // projects. Keeping them behind the compat-critical runner prevents the normal
 // two-project functional suite from becoming a full browser/profile matrix.
-const mobileCompatibilityProjects = compatCritical
+const mobileCompatibilityProjects = compatCriticalRun
   ? [
       {
         name: "webkit-mobile",
@@ -123,6 +140,7 @@ export default defineConfig({
       name: "chromium-mobile",
       use: { ...devices["Pixel 5"] }
     },
+    ...compatOnlyDesktopProjects,
     ...mobileCompatibilityProjects
   ]
 });
