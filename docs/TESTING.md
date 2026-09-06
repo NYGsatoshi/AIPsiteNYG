@@ -605,6 +605,29 @@ execution-scope scenario is included in
 projects. Their API responses are mocked. They intentionally do not discover
 or execute `real-backend-smoke.spec.ts`.
 
+### Issue #587 browser-engine compatibility
+
+The ordinary static Angular suite remains Chromium desktop/mobile coverage.
+The separate COMPAT-01 PR matrix enables `chromium-desktop`,
+`firefox-desktop`, and `webkit-desktop` only for the small COMPAT-04
+`browser-engine` profile:
+
+```bash
+npm run test:ui:compat-critical -- --profile browser-engine -- --project=firefox-desktop
+npm run test:ui:compat-critical -- --profile browser-engine -- --project=webkit-desktop
+```
+
+The common runner forces `TZ=UTC`, the deterministic compatibility browser
+context, and `--retries=0`. GitHub Actions executes each engine as an
+independent job and stores an engine-named Playwright HTML/JUnit artifact. A
+successful Chromium job cannot override a Firefox or WebKit failure. These
+static browser runs use mocked API contracts and require no protected secret or
+Syncfusion license activation; they do not establish ASP.NET Core/PostgreSQL
+integration.
+
+WebKit coverage is engine compatibility evidence only. It is not real Safari,
+Apple-device, or iOS certification.
+
 ### MVP0 real-backend browser smoke
 
 Run the self-contained real-host smoke with:
