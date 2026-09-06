@@ -40,6 +40,26 @@ public sealed class SecurityHeadersMiddleware(RequestDelegate next)
             return Task.CompletedTask;
         });
 
+        if (IsTaskDetailRead(context.Request))
+        {
+            var headers = context.Response.Headers;
+            headers["Cache-Control"] = "no-store, max-age=0";
+            headers["Pragma"] = "no-cache";
+            headers["Expires"] = "0";
+        }
+
         await next(context);
+    }
+
+    private static bool IsTaskDetailRead(HttpRequest request)
+    {
+        if (!HttpMethods.IsGet(request.Method) ||
+            !request.Path.StartsWithSegments("/api/tasks", out var remaining))
+        {
+            return false;
+        }
+
+        var taskIdSegment = remaining.Value?.Trim('/');
+        return Guid.TryParse(taskIdSegment, out _);
     }
 }
