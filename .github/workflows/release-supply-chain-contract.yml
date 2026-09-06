@@ -1,0 +1,47 @@
+name: Release Supply Chain Contract
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/release-supply-chain.yml"
+      - ".github/workflows/release-supply-chain-contract.yml"
+      - "scripts/ci/generate-sbom.sh"
+      - "scripts/ci/install-cosign.sh"
+      - "scripts/ci/release_supply_chain.py"
+      - "tests/ci/test_release_supply_chain.py"
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/release-supply-chain.yml"
+      - ".github/workflows/release-supply-chain-contract.yml"
+      - "scripts/ci/generate-sbom.sh"
+      - "scripts/ci/install-cosign.sh"
+      - "scripts/ci/release_supply_chain.py"
+      - "tests/ci/test_release_supply_chain.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sec11-contract:
+    name: sec11-release-supply-chain-contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout reviewed commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Validate SEC-11 scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n scripts/ci/install-cosign.sh
+          bash -n scripts/ci/generate-sbom.sh
+          python3 -m py_compile scripts/ci/release_supply_chain.py
+
+      - name: Run SEC-11 fail-closed contract tests
+        run: python3 -m unittest discover -s tests/ci -p 'test_release_supply_chain.py'
