@@ -10,6 +10,7 @@ on:
         type: choice
         options:
           - p0
+          - issue683
           - authz
           - my-tasks
           - mbj01
@@ -71,6 +72,10 @@ jobs:
       - name: Run P0 acceptance
         if: github.event_name == 'push' || inputs.suite == 'p0' || inputs.suite == 'all'
         run: node tests/ui/run-real-backend-p0.mjs
+
+      - name: Run Issue 683 fixed-SHA repeated race evidence
+        if: github.event_name == 'workflow_dispatch' && inputs.suite == 'issue683'
+        run: node tests/ui/run-issue-683-real-backend-evidence.mjs
 
       - name: Run MVP-A authorization boundary acceptance
         if: github.event_name == 'push' || inputs.suite == 'authz' || inputs.suite == 'all'
@@ -136,6 +141,16 @@ jobs:
       - name: Run MBJ-03 session acceptance
         if: github.event_name == 'push' || inputs.suite == 'mbj03' || inputs.suite == 'all'
         run: bash scripts/ci/run-mbj03-session-acceptance.sh
+
+      - name: Upload Issue 683 fixed-SHA evidence
+        if: always() && github.event_name == 'workflow_dispatch' && inputs.suite == 'issue683'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: issue-683-real-backend-${{ github.sha }}
+          path: issue-683-evidence/
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Upload sanitized diagnostic artifacts on failure
         if: failure()

@@ -23,6 +23,10 @@ const playwrightArgs = [
   ...(focusedGrep ? ['--grep', focusedGrep] : [])
 ];
 
+if (process.env.AIP_ISSUE_683_EVIDENCE === '1') {
+  playwrightArgs.push('--add-reporter=./tests/ui/issue-683-race-evidence-reporter.mjs');
+}
+
 let exitCode = 1;
 
 try {
