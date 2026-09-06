@@ -1,12 +1,15 @@
 using AipPortal.Application.Admin;
 using AipPortal.Application.Common;
+using AipPortal.Web.Configuration;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace AipPortal.Web.Controllers;
 
 [ApiController]
 [Authorize(Roles = "PlatformAdmin,SystemAdmin")]
+[EnableRateLimiting(HttpSecurityPolicy.AdminRateLimitPolicy)]
 [Route("api/admin")]
 public sealed class AdminController(IAdminService adminService) : ControllerBase
 {
