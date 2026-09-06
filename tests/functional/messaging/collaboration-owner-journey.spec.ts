@@ -1,4 +1,4 @@
-/* eslint-disable max-lines, max-lines-per-function, require-atomic-updates -- FCI-06 keeps one canonical multi-step collaboration owner and its bounded evidence together; test.step hand-offs intentionally assign captured resource IDs after awaits. */
+/* eslint-disable max-lines, max-lines-per-function -- FCI-06 keeps one canonical multi-step collaboration owner and its bounded evidence together. */
 import { randomUUID } from 'node:crypto';
 
 import { expect, type APIRequestContext, type APIResponse, type Response as PlaywrightResponse, test } from '@playwright/test';
