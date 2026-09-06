@@ -646,7 +646,6 @@ public sealed class TaskCommandService(
         var result = await AuthorizedTaskAsync(taskId, false, cancellationToken: cancellationToken);
         if (result.Error is not null) return Fail<TaskWatchStateResponse>(result.Error.Value.Code, result.Error.Value.Message);
         var task = result.Value!;
-        if (request.ExpectedVersion < 0) return Fail<TaskWatchStateResponse>("TASK_INVALID_EXPECTED_VERSION", "Expected watch state version must not be negative.");
         var state = await projects.GetWatchStateAsync(taskId, Actor(), cancellationToken);
         var created = false;
         if (state is null)

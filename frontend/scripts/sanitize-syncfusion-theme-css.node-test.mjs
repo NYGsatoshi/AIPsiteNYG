@@ -12,9 +12,10 @@ test('removes unquoted Google Fonts imports without changing local theme rules',
 
   const sanitized = stripExternalGoogleFontImports(source);
 
-  assert.equal(sanitized.includes('fonts.googleapis.com'), false);
-  assert.equal(sanitized.includes('@import "./local-overrides.css";'), true);
-  assert.equal(sanitized.includes('font-family: Roboto, sans-serif'), true);
+  assert.equal(
+    sanitized,
+    ['', '@import "./local-overrides.css";', '.e-control { font-family: Roboto, sans-serif; }'].join('\n')
+  );
 });
 
 test('removes every quoted Google Fonts import in a minified theme', () => {
