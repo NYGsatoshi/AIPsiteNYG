@@ -1,4 +1,4 @@
-/* eslint-disable max-lines, complexity, max-lines-per-function */
+/* eslint-disable max-lines, max-lines-per-function, require-atomic-updates -- FCI-06 keeps one canonical multi-step collaboration owner and its bounded evidence together; test.step hand-offs intentionally assign captured resource IDs after awaits. */
 import { randomUUID } from 'node:crypto';
 
 import { expect, type APIRequestContext, type APIResponse, type Response as PlaywrightResponse, test } from '@playwright/test';
@@ -14,6 +14,7 @@ const smokeEmail = process.env.AIP_BROWSER_SMOKE_EMAIL ?? '';
 const smokePassword = process.env.AIP_BROWSER_SMOKE_PASSWORD ?? '';
 const recipientEmail = 'browser-smoke-recipient@example.test';
 const recipientName = 'Browser Smoke Recipient';
+const restrictedEmail = 'browser-smoke-pr05-manager@example.test';
 
 interface JourneyEvidence {
   journeyId: string;
@@ -28,6 +29,9 @@ interface JourneyEvidence {
   actorBStateAfterRead?: ParticipantStateSummary;
   uiMessageCount?: number;
   persistedMessageCount?: number;
+  realtimeConnected?: boolean;
+  realtimeRecipientRenderedCount?: number;
+  restrictedSendStatus?: number;
   notificationReadPersisted?: boolean;
   notificationOpenOutcome?: string;
   foreignNotificationOpenStatus?: number;
@@ -40,6 +44,11 @@ interface ParticipantStateSummary {
   lastReadMessageId: string | null;
   lastReadAt: string | null;
   unreadCount: number;
+}
+
+interface SyntheticCredentials {
+  email: string;
+  password: string;
 }
 
 test.describe('FCI-06 collaboration owner journeys', () => {
@@ -79,14 +88,16 @@ test.describe('FCI-06 collaboration owner journeys', () => {
       backend: 'real',
       polarity: 'positive'
     }),
-    async ({ page }, testInfo) => {
+    async ({ page, browser }, testInfo) => {
       const api = page.context().request;
       const runToken = randomUUID().slice(0, 12);
       const messageBody = `FCI-06 direct collaboration ${runToken}`;
       const editedBody = `FCI-06 edited collaboration ${runToken}`;
+      const realtimeBody = `FCI-06 realtime reconciliation ${runToken}`;
       const evidence: JourneyEvidence = { journeyId: 'FUNC-MSG-001' };
       let conversationId = '';
       let messageId = '';
+      let realtimeMessageId = '';
 
       try {
         await test.step('FUNC-MSG-001 / MSG-01 actor A creates a direct conversation and sends', async () => {
@@ -198,6 +209,79 @@ test.describe('FCI-06 collaboration owner journeys', () => {
 
         if (functionalFullExpansionEnabled()) {
           evidence.fullExpansion = true;
+
+          await test.step('FUNC-MSG-001 / MSG-FULL realtime reconciliation keeps one recipient UI entity', async () => {
+            const baseURL = process.env.PLAYWRIGHT_BASE_URL;
+            if (!baseURL) {
+              throw new Error('PLAYWRIGHT_BASE_URL is required for the recipient realtime context.');
+            }
+
+            const recipientContext = await browser.newContext({
+              baseURL,
+              storageState: {
+                cookies: [],
+                origins: [
+                  {
+                    origin: new URL(baseURL).origin,
+                    localStorage: [{ name: 'aip.locale', value: 'en' }]
+                  }
+                ]
+              }
+            });
+            try {
+              await loginViaApi(recipientContext.request, actorBCredentials());
+              const recipientPage = await recipientContext.newPage();
+              await recipientPage.goto(`/app/dm/${conversationId}`);
+              await expect(recipientPage.getByTestId('dm-page')).toBeVisible();
+              await expect(recipientPage.getByTestId('realtime-connection-state')).toContainText(
+                'Realtime updates connected.',
+                { timeout: 30_000 }
+              );
+              evidence.realtimeConnected = true;
+
+              const realtimeSend = await csrfAwareRequest(api, 'POST', `/api/conversations/${conversationId}/messages`, {
+                data: { body: realtimeBody, clientRequestId: randomUUID() }
+              });
+              await assertSafeResponse(realtimeSend, { label: 'realtime reconciliation message send', expectedStatus: 200 });
+              const realtimeMessage = asRecord(await realtimeSend.json(), 'realtime reconciliation message response');
+              realtimeMessageId = requireStringField(realtimeMessage, 'id');
+
+              const rendered = recipientPage.getByTestId('message-timeline').getByText(realtimeBody, { exact: true });
+              await expect(rendered).toHaveCount(1, { timeout: 15_000 });
+              const persisted = await waitForAuthoritativeState(
+                () => readMessages(api, conversationId),
+                {
+                  label: 'realtime message authoritative persistence',
+                  isReady: (messages) => messages.some((message) => readOptionalString(message, 'id') === realtimeMessageId)
+                }
+              );
+              expect(
+                persisted.filter((message) => readOptionalString(message, 'id') === realtimeMessageId)
+              ).toHaveLength(1);
+              await expect(rendered).toHaveCount(1);
+              evidence.realtimeRecipientRenderedCount = await rendered.count();
+            } finally {
+              await recipientContext.close();
+            }
+          });
+
+          await test.step('FUNC-MSG-001 / MSG-NEG non-member sender is denied without protected metadata', async () => {
+            await logoutViaApi(api);
+            await loginViaApi(api, restrictedCredentials());
+            const denied = await csrfAwareRequest(api, 'POST', `/api/conversations/${conversationId}/messages`, {
+              data: { body: `FCI-06 denied sender probe ${runToken}`, clientRequestId: randomUUID() }
+            });
+            evidence.restrictedSendStatus = denied.status();
+            expect(denied.status(), await safeResponsePreview(denied)).toBe(400);
+            const denialText = await denied.text();
+            expect(denialText).not.toContain(messageBody);
+            expect(denialText).not.toContain(realtimeBody);
+            expect(denialText).not.toContain(recipientEmail);
+
+            await logoutViaApi(api);
+            await loginViaApi(api, actorACredentials());
+          });
+
           await test.step('FUNC-MSG-001 / MSG-FULL current edit and delete semantics remain durable', async () => {
             const update = await csrfAwareRequest(api, 'PATCH', `/api/messages/${messageId}`, {
               data: { body: editedBody }
@@ -206,9 +290,11 @@ test.describe('FCI-06 collaboration owner journeys', () => {
 
             const afterEdit = await readMessages(api, conversationId);
             const edited = afterEdit.find((message) => readOptionalString(message, 'id') === messageId);
-            expect(edited, 'edited message remains addressable').toBeDefined();
-            expect(readOptionalString(edited!, 'body')).toBe(editedBody);
-            expect(readOptionalString(edited!, 'editedAt')).not.toBeNull();
+            if (!edited) {
+              throw new Error('Edited message disappeared from the authoritative timeline.');
+            }
+            expect(readOptionalString(edited, 'body')).toBe(editedBody);
+            expect(readOptionalString(edited, 'editedAt')).not.toBeNull();
 
             await logoutViaApi(api);
             await loginViaApi(api, actorBCredentials());
@@ -231,6 +317,11 @@ test.describe('FCI-06 collaboration owner journeys', () => {
             if (deletedProjection) {
               expect(deletedProjection.isDeleted).toBe(true);
               expect(readOptionalString(deletedProjection, 'body')).toBeNull();
+            }
+
+            if (realtimeMessageId) {
+              const removeRealtime = await csrfAwareRequest(api, 'DELETE', `/api/messages/${realtimeMessageId}`);
+              await assertSafeResponse(removeRealtime, { label: 'realtime message cleanup', expectedStatus: 200 });
             }
           });
         }
@@ -302,10 +393,13 @@ test.describe('FCI-06 collaboration owner journeys', () => {
               isReady: (candidate) => candidate !== null
             }
           );
-          notificationId = requireStringField(notification!, 'id');
+          if (!notification) {
+            throw new Error('Recipient notification was not available after authoritative polling.');
+          }
+          notificationId = requireStringField(notification, 'id');
           evidence.notificationId = notificationId;
-          expect(readOptionalString(notification!, 'title')).toBe('New direct message');
-          expect(readOptionalString(notification!, 'body')).toBe('You have a new message.');
+          expect(readOptionalString(notification, 'title')).toBe('New direct message');
+          expect(readOptionalString(notification, 'body')).toBe('You have a new message.');
           expect(JSON.stringify(notification)).not.toContain(privateMessageBody);
         });
 
@@ -376,12 +470,16 @@ test.describe('FCI-06 collaboration owner journeys', () => {
   );
 });
 
-function actorACredentials() {
+function actorACredentials(): SyntheticCredentials {
   return { email: smokeEmail, password: smokePassword };
 }
 
-function actorBCredentials() {
+function actorBCredentials(): SyntheticCredentials {
   return { email: recipientEmail, password: `${smokePassword}:recipient` };
+}
+
+function restrictedCredentials(): SyntheticCredentials {
+  return { email: restrictedEmail, password: smokePassword };
 }
 
 async function resolveRecipientUserId(api: APIRequestContext): Promise<string> {
