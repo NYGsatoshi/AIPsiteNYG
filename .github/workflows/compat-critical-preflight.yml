@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - ".github/workflows/compat-critical-preflight.yml"
+      - ".github/workflows/mobile-compatibility.yml"
       - "package.json"
       - "package-lock.json"
       - "playwright.config.ts"
@@ -14,12 +15,14 @@ on:
       - "scripts/ci/verify-compat-critical.mjs"
       - "tests/ui/compat-critical-contract.node-test.mjs"
       - "tests/ui/angular-smoke.spec.ts"
+      - "tests/ui/mobile-compatibility.spec.ts"
       - "tests/ui/real-backend-smoke.spec.ts"
       - "docs/ci/compat-critical-suite.md"
   push:
     branches: ["main"]
     paths:
       - ".github/workflows/compat-critical-preflight.yml"
+      - ".github/workflows/mobile-compatibility.yml"
       - "package.json"
       - "package-lock.json"
       - "playwright.config.ts"
@@ -30,6 +33,7 @@ on:
       - "scripts/ci/verify-compat-critical.mjs"
       - "tests/ui/compat-critical-contract.node-test.mjs"
       - "tests/ui/angular-smoke.spec.ts"
+      - "tests/ui/mobile-compatibility.spec.ts"
       - "tests/ui/real-backend-smoke.spec.ts"
       - "docs/ci/compat-critical-suite.md"
 
@@ -47,14 +51,18 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: "24"
+          package-manager-cache: false
+
+      - name: Use repository npm version
+        run: npm install --global npm@11.17.0
 
       - name: Install repository Playwright dependencies
         run: npm ci --prefer-offline --ignore-scripts --no-audit --no-fund
@@ -76,11 +84,23 @@ jobs:
           --profile browser-engine
           --project chromium-desktop
 
-      - name: Verify mobile selection against Playwright discovery
+      - name: Verify Chromium mobile selection against Playwright discovery
         run: >-
           node scripts/ci/verify-compat-critical.mjs
           --profile mobile
           --project chromium-mobile
+
+      - name: Verify WebKit mobile selection against Playwright discovery
+        run: >-
+          node scripts/ci/verify-compat-critical.mjs
+          --profile mobile
+          --project webkit-mobile
+
+      - name: Verify narrow 320 selection against Playwright discovery
+        run: >-
+          node scripts/ci/verify-compat-critical.mjs
+          --profile mobile
+          --project narrow-320
 
       - name: Verify OS-portability selection against Playwright discovery
         run: >-
@@ -102,7 +122,7 @@ jobs:
             echo
             echo "- Manifest schema and fail-closed invariants self-tested"
             echo "- Selected source tests resolved by exact title"
-            echo "- Browser-engine, mobile, OS-portability, and real-backend profiles discovered by Playwright"
+            echo "- Browser-engine, all three mobile projects, OS-portability, and real-backend profiles discovered by Playwright"
             echo "- Zero-test, missing-category, obsolete/superseded, and quarantine-only states fail closed"
             echo "- Selected tests reject arbitrary sleep, unseeded randomness, and pixel-only snapshot assertions"
             echo "- Compatibility execution forces retries=0"

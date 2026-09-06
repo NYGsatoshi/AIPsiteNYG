@@ -15,7 +15,9 @@ The contract requires active, non-quarantined coverage for these categories:
 | `form` | browser form input, keyboard submit, and validation/error interaction |
 | `overlay-focus` | dialog/drawer open-close, Escape handling, focus containment/return |
 | `table-list` | representative list/grid interaction and state updates |
-| `responsive` | narrow viewport behavior and page-wide overflow protection |
+| `responsive` | narrow viewport layout and interaction behavior |
+| `touch` | coarse-pointer tap activation and absence of hover-only critical controls |
+| `horizontal-overflow` | document-wide containment while an explicitly allowlisted component owns bounded horizontal scrolling |
 | `fetch-error` | representative fetch/API failure and recovery path |
 | `realtime` | minimum real SignalR negotiate/reconnect coverage when the realtime transport is enabled |
 
@@ -52,6 +54,43 @@ npm run test:ui:compat-critical -- --profile browser-engine -- --project=chromiu
 
 The runner forces `--retries=0`; a retry is not part of the compatibility success definition.
 
+## Mobile execution contract
+
+`.github/workflows/mobile-compatibility.yml` runs the canonical `mobile`
+profile in three isolated matrix cells:
+
+| Playwright project | Engine/device contract | CSS viewport |
+| --- | --- | --- |
+| `chromium-mobile` | existing Pixel 5 emulation on Chromium | `393 x 727` |
+| `webkit-mobile` | iPhone 13 emulation on WebKit | `390 x 664` |
+| `narrow-320` | explicit Chromium touch context, independent of a named device preset | `320 x 800` |
+
+The two additional projects are enabled only when
+`AIP_COMPAT_CRITICAL=1`, which the canonical runner sets. This keeps the normal
+functional Playwright suite on its existing desktop/mobile Chromium pair while
+preventing compatibility CI from maintaining a separate test-title list.
+
+The selected mobile profile covers shell boot, direct navigation, a My Tasks
+form/list flow at 320 CSS pixels, an Audit overlay/list flow at 320 CSS pixels,
+touch navigation and right-panel controls, and document/component horizontal
+overflow separation. The touch case uses Playwright `tap()` with an emulated
+coarse pointer and asserts that the representative critical controls work when
+hover is unavailable. The overflow case fails on document/body overflow while
+allowing only the component-scoped `[data-testid="app-data-grid"]` region to
+own intentional horizontal scrolling.
+
+Run any cell locally with, for example:
+
+```bash
+npm run test:ui:compat-critical -- --profile mobile -- --project=webkit-mobile
+```
+
+Playwright WebKit plus an iPhone device descriptor is an engine/emulation check,
+not certification of real iPhone hardware or Apple Safari. Release confidence
+for device input, browser chrome, OS integration, and Safari-specific behavior
+still requires testing on supported physical devices or an external real-device
+service.
+
 ## Fail-closed enforcement
 
 `.github/workflows/compat-critical-preflight.yml` validates the contract on pull requests and on `main`. The validator rejects the contract when any of these conditions occurs:
@@ -67,7 +106,10 @@ The runner forces `--retries=0`; a retry is not part of the compatibility succes
 - a selected test is reduced to `toHaveScreenshot`/`toMatchSnapshot` pixel-only evidence;
 - Playwright `--list` discovers zero, partial, duplicate, or unexpected selected tests.
 
-The preflight runs actual Playwright discovery for every profile. Therefore a filename/title rename cannot silently turn the compatibility suite into a successful zero-test run.
+The preflight runs actual Playwright discovery for every profile and for all
+three mobile projects. Therefore a filename/title rename or missing mobile
+project cannot silently turn the compatibility suite into a successful
+zero-test run.
 
 ## Determinism
 

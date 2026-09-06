@@ -5,11 +5,12 @@ import { defineConfig, devices } from "@playwright/test";
 const port = Number(process.env.PLAYWRIGHT_PORT ?? 4173);
 const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? `http://127.0.0.1:${port}`;
 const publicHttpsSmoke = process.env.AIP_PUBLIC_HTTPS_SMOKE === "1";
+const compatCritical = process.env.AIP_COMPAT_CRITICAL === "1";
 const expectTimeout = publicHttpsSmoke || process.env.AIP_REAL_BACKEND_SMOKE === "1" ? 15_000 : 5_000;
 const snapshotPathTemplate = process.env.CI
   ? "{testDir}/__angular_snapshots__/linux/{testFilePath}/{arg}{ext}"
   : "{testDir}/__angular_snapshots__/{testFilePath}/{arg}{ext}";
-const compatCriticalContext = process.env.AIP_COMPAT_CRITICAL === "1"
+const compatCriticalContext = compatCritical
   ? ({
       locale: "en-US",
       timezoneId: "UTC",
@@ -49,6 +50,29 @@ const deterministicUiStorageState = {
     }
   ]
 };
+
+// WebKit mobile and the explicit 320 CSS-pixel contract are compatibility-only
+// projects. Keeping them behind the compat-critical runner prevents the normal
+// two-project functional suite from becoming a full browser/profile matrix.
+const mobileCompatibilityProjects = compatCritical
+  ? [
+      {
+        name: "webkit-mobile",
+        use: { ...devices["iPhone 13"] }
+      },
+      {
+        name: "narrow-320",
+        use: {
+          browserName: "chromium" as const,
+          viewport: { width: 320, height: 800 },
+          screen: { width: 320, height: 800 },
+          deviceScaleFactor: 1,
+          isMobile: true,
+          hasTouch: true
+        }
+      }
+    ]
+  : [];
 
 export default defineConfig({
   testDir: "./tests/ui",
@@ -98,6 +122,7 @@ export default defineConfig({
     {
       name: "chromium-mobile",
       use: { ...devices["Pixel 5"] }
-    }
+    },
+    ...mobileCompatibilityProjects
   ]
 });

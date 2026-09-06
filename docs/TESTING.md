@@ -605,6 +605,30 @@ execution-scope scenario is included in
 projects. Their API responses are mocked. They intentionally do not discover
 or execute `real-backend-smoke.spec.ts`.
 
+### Mobile compatibility profile
+
+Issue #594 adds three isolated executions of the canonical COMPAT-04 `mobile`
+profile: the existing Chromium Pixel 5 project, WebKit with iPhone 13
+emulation, and an explicit `320 x 800` Chromium touch project. Run a lane with:
+
+```bash
+npm run test:ui:compat-critical -- --profile mobile -- --project=chromium-mobile
+npm run test:ui:compat-critical -- --profile mobile -- --project=webkit-mobile
+npm run test:ui:compat-critical -- --profile mobile -- --project=narrow-320
+```
+
+The compatibility-only cases use real Playwright `tap()` input, require coarse
+pointer/no-hover capabilities, and exercise representative navigation and
+right-panel overlay controls. Existing selected cases retain form and list
+coverage at 320 CSS pixels. The overflow assertion treats document/body
+horizontal overflow as a failure and separately proves that the shared data
+grid can own intentional component-scoped horizontal scrolling.
+
+These runs use mocked static Angular API responses. WebKit device emulation is
+not real iPhone/Safari certification and does not establish physical-device,
+browser-chrome, operating-system integration, backend, or authorization
+compatibility.
+
 ### MVP0 real-backend browser smoke
 
 Run the self-contained real-host smoke with:
