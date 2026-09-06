@@ -44,4 +44,20 @@ jobs:
           python3 -m py_compile scripts/ci/release_supply_chain.py
 
       - name: Run SEC-11 fail-closed contract tests
-        run: python3 -m unittest discover -s tests/ci -p 'test_release_supply_chain.py'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import sys
+          import unittest
+
+          suite = unittest.defaultTestLoader.discover(
+              "tests/ci", pattern="test_release_supply_chain.py"
+          )
+          count = suite.countTestCases()
+          if count == 0:
+              raise SystemExit("SEC-11 contract collected zero tests")
+          print(f"SEC-11 contract collected {count} tests")
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          sys.exit(0 if result.wasSuccessful() else 1)
+          PY
