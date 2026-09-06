@@ -5,9 +5,17 @@ using AipPortal.Infrastructure.Files;
 using AipPortal.Web.Configuration;
 using AipPortal.Web.Middleware;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Hosting.Server;
+using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.HttpsPolicy;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace AipPortal.Tests.Auth;
@@ -72,6 +80,55 @@ public sealed class HttpSecurityPolicyTests
         var key = HttpSecurityPolicy.GetRateLimitPartitionKey(context);
 
         Assert.Equal($"user:{userId:D}", key);
+    }
+
+    [Fact]
+    [Trait("Scope", "SEC-13")]
+    public async Task LoginPolicyRejectsEleventhAnonymousRequestWithRetryAfter()
+    {
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+        {
+            EnvironmentName = Environments.Development
+        });
+        builder.WebHost.UseKestrel().UseUrls("http://127.0.0.1:0");
+        builder.Logging.ClearProviders();
+        builder.Services.AddRateLimiter(options => HttpSecurityPolicy.ConfigureRateLimiting(options));
+
+        var app = builder.Build();
+        app.UseRouting();
+        app.UseRateLimiter();
+        app.MapGet("/limited-login", () => Results.Ok(new { status = "OK" }))
+            .RequireRateLimiting(HttpSecurityPolicy.LoginRateLimitPolicy);
+
+        await app.StartAsync();
+        try
+        {
+            var address = app.Services.GetRequiredService<IServer>()
+                .Features.Get<IServerAddressesFeature>()?.Addresses.Single()
+                ?? throw new InvalidOperationException("Test server address was not available.");
+            using var client = new HttpClient { BaseAddress = new Uri(address) };
+
+            for (var requestIndex = 0; requestIndex < 10; requestIndex++)
+            {
+                using var accepted = await client.GetAsync("/limited-login");
+                Assert.Equal(HttpStatusCode.OK, accepted.StatusCode);
+            }
+
+            using var rejected = await client.GetAsync("/limited-login");
+            Assert.Equal(HttpStatusCode.TooManyRequests, rejected.StatusCode);
+            Assert.True(rejected.Headers.TryGetValues("Retry-After", out var retryAfter));
+            Assert.True(int.TryParse(retryAfter.Single(), out var retryAfterSeconds));
+            Assert.InRange(retryAfterSeconds, 1, 60);
+
+            var body = await rejected.Content.ReadAsStringAsync();
+            Assert.Contains("RateLimitExceeded", body, StringComparison.Ordinal);
+            Assert.DoesNotContain("ip:", body, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("user:", body, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            await app.DisposeAsync();
+        }
     }
 
     [Fact]
