@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
+import yaml from 'js-yaml';
 
 const DEFAULT_CONTRACT = 'scripts/ci/os-portability.contract.json';
 const TRUST_REGISTRY = 'governance/workflow-trust-policy.json';
@@ -181,68 +182,184 @@ export async function verifyRepositoryOsPortability(repositoryRoot = process.cwd
 }
 
 export function validateWorkflowText(contract, workflowText, allowlist) {
+  const workflow = parseWorkflowDocument(workflowText, contract.workflow);
+  assertPlainObject(workflow.jobs, `${contract.workflow}.jobs`);
+  const portability = workflow.jobs.portability;
+  assertPlainObject(portability, `${contract.workflow}.jobs.portability`);
   const failures = [];
-  const expectedMatrix = `os: [${contract.matrix.join(', ')}]`;
-  requireText(workflowText, expectedMatrix, 'workflow matrix', failures);
-  requirePattern(workflowText, /^\s*fail-fast:\s*false\s*$/mu, 'matrix fail-fast: false', failures);
-  requirePattern(workflowText, /^\s*max-parallel:\s*3\s*$/mu, 'bounded matrix max-parallel', failures);
-  requireText(workflowText, `runs-on: ${BOUNDED_RUNS_ON}`, 'bounded matrix runner routing', failures);
-  requireText(workflowText, 'name: OS portability (${{ matrix.os }})', 'OS-specific job identity', failures);
-  requirePattern(workflowText, /^\s*timeout-minutes:\s*(?:[1-9]|[1-5]\d|60)\s*$/mu, 'bounded timeout at or below 60 minutes', failures);
+
+  if (workflow.permissions?.contents !== 'read') {
+    failures.push('Top-level permissions.contents must be read.');
+  }
+  for (const forbiddenRootKey of ['continue-on-error', 'services', 'container', 'shell']) {
+    if (hasOwn(workflow, forbiddenRootKey)) {
+      failures.push(`Workflow root must not declare ${forbiddenRootKey}.`);
+    }
+  }
+
+  const strategy = portability.strategy;
+  assertPlainObject(strategy, 'jobs.portability.strategy');
+  const matrix = strategy.matrix;
+  assertPlainObject(matrix, 'jobs.portability.strategy.matrix');
+  if (!sameStringArray(matrix.os, contract.matrix)) {
+    failures.push(`workflow matrix must be exactly: ${contract.matrix.join(', ')}.`);
+  }
+  if (strategy['fail-fast'] !== false) {
+    failures.push('matrix fail-fast must be false.');
+  }
+  if (strategy['max-parallel'] !== 3) {
+    failures.push('matrix max-parallel must be 3.');
+  }
+  if (portability['runs-on'] !== BOUNDED_RUNS_ON) {
+    failures.push('bounded matrix runner routing is missing or changed.');
+  }
+  if (portability.name !== 'OS portability (${{ matrix.os }})') {
+    failures.push('OS-specific job identity is missing or changed.');
+  }
+  if (!Number.isInteger(portability['timeout-minutes']) || portability['timeout-minutes'] < 1 || portability['timeout-minutes'] > 60) {
+    failures.push('bounded timeout must be an integer from 1 through 60 minutes.');
+  }
+  for (const forbiddenJobKey of ['continue-on-error', 'services', 'container', 'shell']) {
+    if (hasOwn(portability, forbiddenJobKey)) {
+      failures.push(`jobs.portability must not declare ${forbiddenJobKey}.`);
+    }
+  }
+
+  if (!Array.isArray(portability.steps)) {
+    throw new Error('jobs.portability.steps must be an array.');
+  }
+  const stepsById = new Map();
+  for (const [index, step] of portability.steps.entries()) {
+    assertPlainObject(step, `jobs.portability.steps[${index}]`);
+    const id = readNonEmptyString(step.id, `jobs.portability.steps[${index}].id`);
+    if (stepsById.has(id)) {
+      failures.push(`Duplicate portability step id: ${id}.`);
+    }
+    stepsById.set(id, step);
+    if (hasOwn(step, 'continue-on-error')) {
+      failures.push(`Portability step ${id} must not declare continue-on-error.`);
+    }
+    if (hasOwn(step, 'shell')) {
+      failures.push(`Portability step ${id} must not override shell.`);
+    }
+  }
+
+  const requiredStepIds = [
+    'checkout',
+    'setup_dotnet',
+    'setup_node',
+    'npm_toolchain',
+    'contract',
+    'root_dependencies',
+    'frontend_dependencies',
+    'dotnet_restore',
+    'dotnet_build',
+    'dotnet_tests',
+    'dotnet_results',
+    'frontend_build',
+    'frontend_tests',
+    'frontend_helpers',
+    'compat_critical',
+    'evidence',
+    'upload_evidence'
+  ];
+  for (const id of requiredStepIds) {
+    if (!stepsById.has(id)) {
+      failures.push(`Missing required portability step id: ${id}.`);
+    }
+  }
 
   const actions = allowlist?.actions;
   if (!actions || typeof actions !== 'object') {
     failures.push('GitHub Action allowlist is missing actions.');
   } else {
+    const actionSteps = new Map([
+      ['actions/checkout', 'checkout'],
+      ['actions/setup-dotnet', 'setup_dotnet'],
+      ['actions/setup-node', 'setup_node'],
+      ['actions/upload-artifact', 'upload_evidence']
+    ]);
     for (const action of REQUIRED_ACTIONS) {
       const entry = actions[action];
+      const stepId = actionSteps.get(action);
+      const step = stepId ? stepsById.get(stepId) : null;
       if (!entry || typeof entry !== 'object') {
         failures.push(`Required action is not allowlisted: ${action}.`);
-      } else {
-        requireText(workflowText, `uses: ${action}@${entry.sha} # ${entry.version}`, `immutable ${action} reference`, failures);
+      } else if (!step || step.uses !== `${action}@${entry.sha}`) {
+        failures.push(`Portability step ${stepId ?? '<unknown>'} must use immutable ${action}@${entry.sha}.`);
       }
     }
   }
 
-  const requiredCommands = [
-    `npm install --global npm@${contract.toolchain.npmVersion} --no-audit --no-fund`,
-    'node scripts/ci/os-portability-contract.mjs --runtime',
-    'npm ci --ignore-scripts --no-audit --no-fund',
-    'npm --prefix frontend ci --no-audit --no-fund',
-    `dotnet restore ${contract.dotnet.solution}`,
-    `dotnet build ${contract.dotnet.solution} --configuration Release --no-restore`,
-    `dotnet test ${contract.dotnet.testProject} --configuration Release --no-build`,
-    `--filter "${contract.dotnet.testFilter}"`,
-    'node scripts/ci/verify-os-portability-results.mjs',
-    'npm --prefix frontend run build',
-    'npm --prefix frontend test',
-    ...contract.frontend.helperScripts.map((script) => `npm --prefix frontend run ${script}`),
-    `node scripts/ci/verify-compat-critical.mjs --profile ${contract.compatCritical.profile} --project ${contract.compatCritical.discoveryProject}`,
-    'node scripts/ci/write-os-portability-evidence.mjs',
-    'name: os-portability-${{ matrix.os }}-${{ github.run_attempt }}',
-    'if-no-files-found: error'
-  ];
-  for (const required of requiredCommands) {
-    requireText(workflowText, required, required, failures);
+  const requiredCommands = new Map([
+    ['npm_toolchain', [`npm install --global npm@${contract.toolchain.npmVersion} --no-audit --no-fund`]],
+    ['contract', ['node scripts/ci/os-portability-contract.mjs --runtime']],
+    ['root_dependencies', ['npm ci --ignore-scripts --no-audit --no-fund']],
+    ['frontend_dependencies', ['npm --prefix frontend ci --ignore-scripts --no-audit --no-fund']],
+    ['dotnet_restore', [`dotnet restore ${contract.dotnet.solution}`]],
+    ['dotnet_build', [`dotnet build ${contract.dotnet.solution} --configuration Release --no-restore`]],
+    ['dotnet_tests', [
+      `dotnet test ${contract.dotnet.testProject} --configuration Release --no-build`,
+      `--filter "${contract.dotnet.testFilter}"`
+    ]],
+    ['dotnet_results', ['node scripts/ci/verify-os-portability-results.mjs']],
+    ['frontend_build', ['npm --prefix frontend run build']],
+    ['frontend_tests', ['npm --prefix frontend test']],
+    ['frontend_helpers', contract.frontend.helperScripts.map((script) => `npm --prefix frontend run ${script}`)],
+    ['compat_critical', [
+      `node scripts/ci/verify-compat-critical.mjs --profile ${contract.compatCritical.profile} --project ${contract.compatCritical.discoveryProject}`
+    ]],
+    ['evidence', ['node scripts/ci/write-os-portability-evidence.mjs']]
+  ]);
+  for (const [stepId, expectedCommands] of requiredCommands.entries()) {
+    const step = stepsById.get(stepId);
+    const run = typeof step?.run === 'string' ? step.run : '';
+    for (const expected of expectedCommands) {
+      if (!run.includes(expected)) {
+        failures.push(`Portability step ${stepId} is missing required command: ${expected}.`);
+      }
+    }
   }
 
-  const alwaysCount = (workflowText.match(/^\s*if:\s*always\(\)\s*$/gmu) ?? []).length;
-  if (alwaysCount < 2) {
-    failures.push('Evidence creation and upload must both run with if: always().');
+  const checkout = stepsById.get('checkout');
+  if (checkout?.with?.['persist-credentials'] !== false) {
+    failures.push('Checkout must set persist-credentials: false.');
   }
-  const forbidden = [
-    [/^\s*continue-on-error\s*:/mu, 'continue-on-error'],
-    [/^\s*services\s*:/mu, 'services'],
-    [/^\s*container\s*:/mu, 'container'],
+  const setupDotnet = stepsById.get('setup_dotnet');
+  if (setupDotnet?.with?.['global-json-file'] !== contract.toolchain.dotnetGlobalJson) {
+    failures.push(`setup-dotnet must use ${contract.toolchain.dotnetGlobalJson}.`);
+  }
+  const setupNode = stepsById.get('setup_node');
+  if (String(setupNode?.with?.['node-version'] ?? '') !== String(contract.toolchain.nodeMajor)) {
+    failures.push(`setup-node must use Node ${contract.toolchain.nodeMajor}.`);
+  }
+  const evidence = stepsById.get('evidence');
+  if (evidence?.if !== 'always()') {
+    failures.push('Evidence creation must run with if: always().');
+  }
+  const uploadEvidence = stepsById.get('upload_evidence');
+  if (uploadEvidence?.if !== 'always()') {
+    failures.push('Evidence upload must run with if: always().');
+  }
+  if (uploadEvidence?.with?.name !== 'os-portability-${{ matrix.os }}-${{ github.run_attempt }}') {
+    failures.push('Evidence artifact name must remain OS- and attempt-specific.');
+  }
+  if (uploadEvidence?.with?.['if-no-files-found'] !== 'error') {
+    failures.push('Evidence upload must fail when no files are found.');
+  }
+
+  const forbiddenRunPatterns = [
     [/\bdocker(?:-compose|\s+compose|\s+run|\s+build)\b/iu, 'Docker execution'],
     [/\bplaywright\s+(?:install|test)\b/iu, 'browser execution'],
-    [/^\s*shell\s*:/mu, 'explicit shell override'],
     [/(?:^|[\s"'])\/tmp(?:\/|[\s"']|$)/mu, 'hard-coded /tmp path'],
     [/\b(?:sed|grep|awk|chmod)\s+/iu, 'GNU or executable-bit command']
   ];
-  for (const [pattern, label] of forbidden) {
-    if (pattern.test(workflowText)) {
-      failures.push(`OS portability workflow must not contain ${label}.`);
+  for (const [stepId, step] of stepsById.entries()) {
+    const run = typeof step.run === 'string' ? step.run : '';
+    for (const [pattern, label] of forbiddenRunPatterns) {
+      if (pattern.test(run)) {
+        failures.push(`Portability step ${stepId} must not contain ${label}.`);
+      }
     }
   }
 
@@ -339,9 +456,31 @@ async function validateCompatibilityProfile(root, contract) {
 }
 
 async function validateLinuxOwnedBoundaries(root, contract) {
-  const ciWorkflow = await readUtf8(root, contract.boundaries.databaseIntegration.ownerWorkflow);
-  if (!/^\s*runs-on:\s*ubuntu-latest\s*$/mu.test(ciWorkflow) || !/^\s*services:\s*$/mu.test(ciWorkflow) || !/postgres:/u.test(ciWorkflow)) {
-    throw new Error('Canonical CI must retain an Ubuntu PostgreSQL service owner for DB integration.');
+  const ownerWorkflowPath = contract.boundaries.databaseIntegration.ownerWorkflow;
+  const workflow = parseWorkflowDocument(await readUtf8(root, ownerWorkflowPath), ownerWorkflowPath);
+  assertPlainObject(workflow.jobs, `${ownerWorkflowPath}.jobs`);
+  const postgresOwners = Object.entries(workflow.jobs).filter(([, candidate]) => {
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+      return false;
+    }
+    if (candidate['runs-on'] !== 'ubuntu-latest') {
+      return false;
+    }
+    const services = candidate.services;
+    if (!services || typeof services !== 'object' || Array.isArray(services)) {
+      return false;
+    }
+    const postgres = services.postgres;
+    return Boolean(
+      postgres
+      && typeof postgres === 'object'
+      && !Array.isArray(postgres)
+      && typeof postgres.image === 'string'
+      && postgres.image.startsWith('postgres:')
+    );
+  });
+  if (postgresOwners.length < 1) {
+    throw new Error('Canonical CI must retain one Ubuntu job that directly owns a PostgreSQL service for DB integration.');
   }
 }
 
@@ -393,23 +532,32 @@ function listTrackedPaths(root) {
   return result.stdout.split('\0').filter(Boolean);
 }
 
+function parseWorkflowDocument(source, label) {
+  let document;
+  try {
+    document = yaml.load(source, { json: true });
+  } catch (error) {
+    throw new Error(`Unable to parse workflow YAML ${label}: ${errorMessage(error)}`);
+  }
+  assertPlainObject(document, label);
+  return document;
+}
+
+function sameStringArray(actual, expected) {
+  return Array.isArray(actual)
+    && actual.length === expected.length
+    && actual.every((entry, index) => entry === expected[index]);
+}
+
+function hasOwn(value, key) {
+  return Boolean(value) && Object.prototype.hasOwnProperty.call(value, key);
+}
+
 async function readUtf8(root, relativePath) {
   try {
     return await readFile(path.resolve(root, relativePath), 'utf8');
   } catch (error) {
     throw new Error(`Unable to read ${relativePath}: ${errorMessage(error)}`);
-  }
-}
-
-function requireText(source, expected, label, failures) {
-  if (!source.includes(expected)) {
-    failures.push(`Missing ${label}.`);
-  }
-}
-
-function requirePattern(source, pattern, label, failures) {
-  if (!pattern.test(source)) {
-    failures.push(`Missing ${label}.`);
   }
 }
 
