@@ -148,7 +148,12 @@ public sealed class SecurityHeadersMiddlewareTests
 
     private static string GetRequiredHeader(HttpResponseMessage response, string name)
     {
-        Assert.True(response.Headers.TryGetValues(name, out var values), $"Missing required header: {name}");
+        if (response.Headers.TryGetValues(name, out var values))
+        {
+            return values.Single();
+        }
+
+        Assert.True(response.Content.Headers.TryGetValues(name, out values), $"Missing required header: {name}");
         return values.Single();
     }
 }
