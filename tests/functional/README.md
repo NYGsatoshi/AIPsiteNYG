@@ -72,6 +72,16 @@ node scripts/ci/run-functional-playwright.mjs --domain security-negative --negat
 
 `build-functional-grep.mjs` ANDs dimensions and ORs repeated/comma-separated values within one dimension. It matches exact tag tokens, not accidental title substrings.
 
+The runner also exports its explicit gate selection to the owner process as
+`AIP_FUNCTIONAL_SELECTED_GATES`. This lets one canonical owner test keep a
+bounded `functional-fast` path and add its `functional-full`/extended steps
+without duplicating the stable journey ID. A direct journey invocation with no
+gate selection exercises the complete owner path.
+
+The Functional list reporter prints `test.step` entries. Owner steps should
+include both the stable journey ID and a stable step ID so console failures
+identify the broken segment without requiring a trace artifact.
+
 ## Backend classification
 
 `backend: 'real'` means the journey reaches the real application HTTP surface and authoritative persisted state for the behavior under test. A test that intercepts or fabricates success for core auth/business API routes must use `backend: 'mock'` and cannot satisfy required real Functional coverage.

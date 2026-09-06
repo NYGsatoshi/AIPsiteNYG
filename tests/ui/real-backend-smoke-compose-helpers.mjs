@@ -1,4 +1,19 @@
-const COMPOSE_PROJECT_NAME_MAX_LENGTH = 63;
+const COMPOSE_PROJECT_NAME_MAX_LENGTH = 63,
+  DEFAULT_FUNCTIONAL_PLAYWRIGHT_ARGS = Object.freeze([
+    '--config',
+    'playwright.functional.config.ts',
+    'project-task/core-golden-journey.spec.ts',
+    'files/files-fast-journey.spec.ts',
+    '--project=functional-chromium',
+    '--retries=0',
+    '--workers=1'
+  ]),
+  DEFAULT_LEGACY_PLAYWRIGHT_ARGS = Object.freeze([
+    'tests/ui/real-backend-smoke.spec.ts',
+    '--project=chromium-desktop',
+    '--retries=0',
+    '--workers=1'
+  ]);
 
 export const composeV2Invocation = Object.freeze({
   command: 'docker',
@@ -11,16 +26,15 @@ export const legacyComposeInvocation = Object.freeze({
 });
 
 export function composeProjectName(parts, maxLength = COMPOSE_PROJECT_NAME_MAX_LENGTH) {
-  const normalized = parts
-    .filter((part) => part !== undefined && part !== null && String(part).trim().length > 0)
-    .join('-')
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]+/g, '-')
-    .replace(/^[^a-z0-9]+/, '')
-    .replace(/[-_]+$/, '');
-
-  const fallback = 'aipsite-real-backend-smoke';
-  const withinLimit = (normalized || fallback).slice(0, maxLength).replace(/[-_]+$/, '');
+  const fallback = 'aipsite-real-backend-smoke',
+    normalized = parts
+      .filter((part) => part !== undefined && part !== null && String(part).trim().length > 0)
+      .join('-')
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, '-')
+      .replace(/^[^a-z0-9]+/, '')
+      .replace(/[-_]+$/, ''),
+    withinLimit = (normalized || fallback).slice(0, maxLength).replace(/[-_]+$/, '');
   return withinLimit || 'aipsite';
 }
 
@@ -75,6 +89,40 @@ export function isHstsPreloadedHttpUrl(value) {
 
 export function normalizeExitCode(code) {
   return Number.isInteger(code) && code >= 0 ? code : 1;
+}
+
+/**
+ * Keep the migrated Functional owners on their own Playwright config while
+ * retaining the legacy smoke suite on the root tests/ui config. Playwright
+ * treats CLI paths as filters inside testDir, so mixing both directories in
+ * one invocation silently discovers no migrated owner tests.
+ */
+export function buildRealBackendPlaywrightPlan(userArgs = [], focusedGrep = '') {
+  const grepArgs = [];
+  if (focusedGrep.trim()) {
+    grepArgs.push('--grep', focusedGrep.trim());
+  }
+  if (userArgs.length) {
+    return [{ name: 'custom', args: [...userArgs, ...grepArgs] }];
+  }
+
+  if (grepArgs.length) {
+    return [{
+      name: 'focused legacy real-backend suite',
+      args: [...DEFAULT_LEGACY_PLAYWRIGHT_ARGS, ...grepArgs]
+    }];
+  }
+
+  return [
+    {
+      name: 'Functional real-backend owners',
+      args: [...DEFAULT_FUNCTIONAL_PLAYWRIGHT_ARGS]
+    },
+    {
+      name: 'legacy real-backend regression',
+      args: [...DEFAULT_LEGACY_PLAYWRIGHT_ARGS]
+    }
+  ];
 }
 
 export function redactSecrets(output) {
