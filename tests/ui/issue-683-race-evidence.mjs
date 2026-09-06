@@ -1,9 +1,11 @@
 export const ISSUE_683_ITERATION_COUNT = 10;
 export const ISSUE_683_MIN_RACE_OBSERVATION_ITERATIONS = 1;
 export const ISSUE_683_REQUIRED_PLAYWRIGHT_RETRY_COUNT = 0;
+export const ISSUE_683_REQUIRED_RETRY_ARGUMENT_COUNT = 1;
 export const ISSUE_683_REQUIRED_PR03C_RESULT_COUNT = 1;
 export const ISSUE_683_REQUIRED_EXIT_CODE = 0;
 export const ISSUE_683_RETRY_ARGUMENT = '--retries=0';
+export const ISSUE_683_PASSED_STATUS = 'passed';
 export const ISSUE_683_PR03C_TITLE =
   'TASK-V1-PR03C uses the real backend for task detail, mutations, revocation, and File grant reauthorization';
 export const ISSUE_683_SMOKE_EVIDENCE_ATTACHMENT = 'real-backend-smoke-evidence.json';
@@ -11,7 +13,6 @@ export const ISSUE_683_SMOKE_EVIDENCE_ATTACHMENT = 'real-backend-smoke-evidence.
 const ISSUE_683_HTTP_NOT_FOUND_STATUS = 404;
 const ISSUE_683_HTTP_GET_METHOD = 'GET';
 const ISSUE_683_TASK_EXECUTION_SCOPE_PATH = /^\/api\/tasks\/[^/]+\/execution-scope$/;
-const ISSUE_683_PASSED_STATUS = 'passed';
 
 export function isIssue683RaceObservation(failure) {
   if (!failure || typeof failure !== 'object') {
@@ -43,7 +44,7 @@ export function validateIssue683RetryArguments(playwrightArgs) {
     typeof argument === 'string' && argument.startsWith('--retries')
   );
   if (
-    retryArguments.length !== ISSUE_683_REQUIRED_PR03C_RESULT_COUNT ||
+    retryArguments.length !== ISSUE_683_REQUIRED_RETRY_ARGUMENT_COUNT ||
     retryArguments[0] !== ISSUE_683_RETRY_ARGUMENT
   ) {
     throw new Error(
@@ -52,19 +53,22 @@ export function validateIssue683RetryArguments(playwrightArgs) {
   }
 }
 
+export function isPassingIssue683Iteration(iteration) {
+  return (
+    iteration.exitCode === ISSUE_683_REQUIRED_EXIT_CODE &&
+    iteration.pr03cResultCount === ISSUE_683_REQUIRED_PR03C_RESULT_COUNT &&
+    iteration.pr03cRetries.length === ISSUE_683_REQUIRED_PR03C_RESULT_COUNT &&
+    iteration.pr03cRetries.every((retry) => retry === ISSUE_683_REQUIRED_PLAYWRIGHT_RETRY_COUNT) &&
+    iteration.pr03cStatuses.length === ISSUE_683_REQUIRED_PR03C_RESULT_COUNT &&
+    iteration.pr03cStatuses.every((status) => status === ISSUE_683_PASSED_STATUS) &&
+    iteration.parseErrors.length === 0
+  );
+}
+
 export function summarizeIssue683Iterations(iterations) {
   const raceObservedIterations = iterations.filter((iteration) => iteration.raceObservationCount > 0).length;
   const allIterationsPassed =
-    iterations.length === ISSUE_683_ITERATION_COUNT &&
-    iterations.every((iteration) =>
-      iteration.exitCode === ISSUE_683_REQUIRED_EXIT_CODE &&
-      iteration.pr03cResultCount === ISSUE_683_REQUIRED_PR03C_RESULT_COUNT &&
-      iteration.pr03cRetries.length === ISSUE_683_REQUIRED_PR03C_RESULT_COUNT &&
-      iteration.pr03cRetries.every((retry) => retry === ISSUE_683_REQUIRED_PLAYWRIGHT_RETRY_COUNT) &&
-      iteration.pr03cStatuses.length === ISSUE_683_REQUIRED_PR03C_RESULT_COUNT &&
-      iteration.pr03cStatuses.every((status) => status === ISSUE_683_PASSED_STATUS) &&
-      iteration.parseErrors.length === 0
-    );
+    iterations.length === ISSUE_683_ITERATION_COUNT && iterations.every(isPassingIssue683Iteration);
   const raceConditionSatisfied =
     raceObservedIterations >= ISSUE_683_MIN_RACE_OBSERVATION_ITERATIONS;
 
