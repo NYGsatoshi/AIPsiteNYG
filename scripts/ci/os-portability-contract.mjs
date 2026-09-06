@@ -535,7 +535,7 @@ function listTrackedPaths(root) {
 function parseWorkflowDocument(source, label) {
   let document;
   try {
-    document = yaml.load(source, { json: true });
+    document = yaml.load(source);
   } catch (error) {
     throw new Error(`Unable to parse workflow YAML ${label}: ${errorMessage(error)}`);
   }
@@ -550,7 +550,7 @@ function sameStringArray(actual, expected) {
 }
 
 function hasOwn(value, key) {
-  return Boolean(value) && Object.prototype.hasOwnProperty.call(value, key);
+  return Boolean(value) && Object.hasOwn(value, key);
 }
 
 async function readUtf8(root, relativePath) {
