@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """SEC-11 release signing evidence and policy helpers.
 
-The release workflow deliberately keeps cryptographic operations in Cosign.
-This module validates the digest-bound evidence that is passed between jobs,
-constructs a minimal SLSA v1 provenance predicate, and emits Rego policies that
-make Cosign verification fail closed when the attested predicate or subject
-does not match the release evidence.
+Cryptographic operations stay in Cosign. This module validates the digest-bound
+artifacts crossing job boundaries, constructs a minimal SLSA v1 provenance
+predicate, emits exact-predicate Rego policies for Cosign verification, and only
+finalizes retained evidence when explicit verification markers exist.
 """
 
 from __future__ import annotations
@@ -16,10 +15,11 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 EVIDENCE_SCHEMA = "aipsite-release-signing-evidence-v1"
 SBOM_EVIDENCE_SCHEMA = "aipsite-sbom-evidence-v1"
+VERIFICATION_SCHEMA = "aipsite-release-signing-verification-v1"
 OIDC_ISSUER = "https://token.actions.githubusercontent.com"
 GIT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -41,7 +41,7 @@ class ReleaseEvidenceError(ValueError):
     """Raised when release supply-chain evidence is inconsistent."""
 
 
-def fail(message: str) -> "NoReturn":
+def fail(message: str) -> NoReturn:
     raise ReleaseEvidenceError(message)
 
 
@@ -66,6 +66,8 @@ def write_json(path: Path, value: dict[str, Any]) -> None:
 
 
 def sha256_file(path: Path) -> str:
+    if not path.is_file() or path.stat().st_size == 0:
+        fail(f"artifact is missing or empty: {path}")
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
@@ -145,9 +147,7 @@ def validate_sbom_binding(
         fail("SBOM repository commit does not match the release commit")
     if metadata.get("imageOrReleaseDigest") != subject_digest:
         fail("SBOM image digest does not match the final release subject digest")
-    cyclonedx_hash = _validate_sbom_format(
-        metadata, "cyclonedx-json", cyclonedx_path
-    )
+    cyclonedx_hash = _validate_sbom_format(metadata, "cyclonedx-json", cyclonedx_path)
     spdx_hash = _validate_sbom_format(metadata, "spdx-json", spdx_path)
     return subject_digest, cyclonedx_hash, spdx_hash
 
@@ -183,6 +183,7 @@ def build_provenance(
     workflow_ref: str,
     run_identity: str,
     release_tag: str,
+    subject_digest: str,
 ) -> dict[str, Any]:
     source_uri = f"git+https://github.com/{repository}@{repository_sha}"
     return {
@@ -193,8 +194,8 @@ def build_provenance(
                 "commit": repository_sha,
                 "ref": workflow_ref.rsplit("@", 1)[-1],
                 "releaseTag": release_tag,
+                "subjectDigest": subject_digest,
             },
-            "internalParameters": {},
             "resolvedDependencies": [
                 {
                     "uri": source_uri,
@@ -216,37 +217,26 @@ def build_evidence_command(args: argparse.Namespace) -> None:
     subject = subject_path.read_text(encoding="utf-8").strip()
     repository_name, subject_digest = parse_subject(subject)
     if repository_name != f"ghcr.io/{args.repository.lower()}":
-        fail(
-            "release subject repository does not match the GitHub repository "
-            "after lower-casing"
-        )
+        fail("release subject repository does not match the GitHub repository after lower-casing")
     require_git_sha(args.repository_sha)
     expected_ref = f"refs/tags/{args.release_tag}"
     if args.github_ref != expected_ref:
-        fail(
-            f"release workflow ref mismatch: expected {expected_ref}, got {args.github_ref}"
-        )
+        fail(f"release workflow ref mismatch: expected {expected_ref}, got {args.github_ref}")
 
     metadata_path = Path(args.sbom_metadata).resolve()
     cyclonedx_path = Path(args.cyclonedx).resolve()
     spdx_path = Path(args.spdx).resolve()
-    (
-        metadata_subject_digest,
-        cyclonedx_hash,
-        spdx_hash,
-    ) = validate_sbom_binding(
+    metadata_digest, cyclonedx_hash, spdx_hash = validate_sbom_binding(
         subject=subject,
         repository_sha=args.repository_sha,
         metadata_path=metadata_path,
         cyclonedx_path=cyclonedx_path,
         spdx_path=spdx_path,
     )
-    if metadata_subject_digest != subject_digest:
+    if metadata_digest != subject_digest:
         fail("internal digest consistency check failed")
 
-    workflow_identity = expected_workflow_identity(
-        args.repository, args.workflow_ref
-    )
+    workflow_identity = expected_workflow_identity(args.repository, args.workflow_ref)
     if not args.workflow_ref.endswith(f"@{args.github_ref}"):
         fail("workflow identity is not bound to the release tag ref")
     run_identity = (
@@ -261,6 +251,7 @@ def build_evidence_command(args: argparse.Namespace) -> None:
         workflow_ref=args.workflow_ref,
         run_identity=run_identity,
         release_tag=args.release_tag,
+        subject_digest=subject_digest,
     )
 
     out_dir = Path(args.out_dir).resolve()
@@ -283,41 +274,45 @@ def build_evidence_command(args: argparse.Namespace) -> None:
         "workflowIdentity": args.workflow_ref,
         "runIdentity": run_identity,
         "sbom": {
-            "cyclonedx": {
-                "file": cyclonedx_path.name,
-                "sha256": cyclonedx_hash,
-            },
-            "spdx": {
-                "file": spdx_path.name,
-                "sha256": spdx_hash,
-            },
+            "cyclonedx": {"file": cyclonedx_path.name, "sha256": cyclonedx_hash},
+            "spdx": {"file": spdx_path.name, "sha256": spdx_hash},
         },
-        "provenance": {
-            "file": provenance_path.name,
-            "sha256": provenance_hash,
-        },
+        "provenance": {"file": provenance_path.name, "sha256": provenance_hash},
     }
     scan_forbidden_evidence(evidence)
     write_json(out_dir / "release-signing-evidence.json", evidence)
 
 
-def verify_evidence_values(
-    *,
-    evidence: dict[str, Any],
-    evidence_dir: Path,
-) -> None:
+def verify_evidence_values(*, evidence: dict[str, Any], evidence_dir: Path) -> None:
     if evidence.get("schema") != EVIDENCE_SCHEMA:
         fail("release signing evidence has an unexpected schema")
+    repository = _required_string(evidence, "repository", "release signing evidence")
+    release_tag = _required_string(evidence, "releaseTag", "release signing evidence")
     subject = _required_string(evidence, "subject", "release signing evidence")
-    _, subject_digest = parse_subject(subject)
+    subject_repository, subject_digest = parse_subject(subject)
+    if subject_repository != f"ghcr.io/{repository.lower()}":
+        fail("release evidence subject repository does not match repository")
     if evidence.get("subjectDigest") != subject_digest:
         fail("release evidence subjectDigest does not match the subject")
-    repository_sha = _required_string(
-        evidence, "repositoryCommit", "release signing evidence"
-    )
+    repository_sha = _required_string(evidence, "repositoryCommit", "release signing evidence")
     require_git_sha(repository_sha)
     if evidence.get("oidcIssuer") != OIDC_ISSUER:
         fail("release signing evidence has an unexpected OIDC issuer")
+
+    workflow_ref = _required_string(evidence, "workflowRef", "release signing evidence")
+    if workflow_ref != f"refs/tags/{release_tag}":
+        fail("release signing evidence workflowRef is not the release tag ref")
+    workflow_identity_ref = _required_string(
+        evidence, "workflowIdentity", "release signing evidence"
+    )
+    certificate_identity = _required_string(
+        evidence, "certificateIdentity", "release signing evidence"
+    )
+    if expected_workflow_identity(repository, workflow_identity_ref) != certificate_identity:
+        fail("certificate identity does not match the release workflow identity")
+    if not workflow_identity_ref.endswith(f"@{workflow_ref}"):
+        fail("workflow identity is not bound to workflowRef")
+    run_identity = _required_string(evidence, "runIdentity", "release signing evidence")
 
     sbom = evidence.get("sbom")
     if not isinstance(sbom, dict):
@@ -331,24 +326,20 @@ def verify_evidence_values(
         if Path(file_name).name != file_name or not SHA256_RE.fullmatch(expected_hash):
             fail(f"{label} SBOM evidence contains an unsafe file name or hash")
         path = evidence_dir / file_name
-        if not path.is_file() or sha256_file(path) != expected_hash:
+        if sha256_file(path) != expected_hash:
             fail(f"{label} SBOM evidence payload hash does not match")
 
     provenance = evidence.get("provenance")
     if not isinstance(provenance, dict):
         fail("release signing evidence has no provenance entry")
-    provenance_name = _required_string(
-        provenance, "file", "release provenance evidence"
-    )
-    provenance_hash = _required_string(
-        provenance, "sha256", "release provenance evidence"
-    )
+    provenance_name = _required_string(provenance, "file", "release provenance evidence")
+    provenance_hash = _required_string(provenance, "sha256", "release provenance evidence")
     if Path(provenance_name).name != provenance_name:
         fail("provenance evidence contains an unsafe file name")
     if not SHA256_RE.fullmatch(provenance_hash):
         fail("provenance evidence contains an invalid SHA-256")
     provenance_path = evidence_dir / provenance_name
-    if not provenance_path.is_file() or sha256_file(provenance_path) != provenance_hash:
+    if sha256_file(provenance_path) != provenance_hash:
         fail("provenance payload hash does not match release evidence")
 
     provenance_payload = read_json(provenance_path)
@@ -356,20 +347,27 @@ def verify_evidence_values(
     run_details = provenance_payload.get("runDetails")
     if not isinstance(build_definition, dict) or not isinstance(run_details, dict):
         fail("provenance payload is missing required SLSA v1 sections")
+    if build_definition.get("buildType") != certificate_identity:
+        fail("provenance buildType does not match release workflow identity")
     external_parameters = build_definition.get("externalParameters")
-    builder = run_details.get("builder")
-    metadata = run_details.get("metadata")
     if not isinstance(external_parameters, dict):
         fail("provenance externalParameters are missing")
-    if external_parameters.get("commit") != repository_sha:
-        fail("provenance commit does not match release evidence")
-    if not isinstance(builder, dict) or builder.get("id") != evidence.get(
-        "certificateIdentity"
-    ):
+    expected_external = {
+        "repository": repository,
+        "commit": repository_sha,
+        "ref": workflow_ref,
+        "releaseTag": release_tag,
+        "subjectDigest": subject_digest,
+    }
+    for key, expected in expected_external.items():
+        if external_parameters.get(key) != expected:
+            fail(f"provenance {key} does not match release evidence")
+
+    builder = run_details.get("builder")
+    metadata = run_details.get("metadata")
+    if not isinstance(builder, dict) or builder.get("id") != certificate_identity:
         fail("provenance builder identity does not match release evidence")
-    if not isinstance(metadata, dict) or metadata.get("invocationId") != evidence.get(
-        "runIdentity"
-    ):
+    if not isinstance(metadata, dict) or metadata.get("invocationId") != run_identity:
         fail("provenance run identity does not match release evidence")
     scan_forbidden_evidence(evidence)
     scan_forbidden_evidence(provenance_payload)
@@ -377,15 +375,11 @@ def verify_evidence_values(
 
 def verify_evidence_command(args: argparse.Namespace) -> None:
     evidence_path = Path(args.evidence).resolve()
-    evidence = read_json(evidence_path)
-    verify_evidence_values(evidence=evidence, evidence_dir=evidence_path.parent)
+    verify_evidence_values(evidence=read_json(evidence_path), evidence_dir=evidence_path.parent)
 
 
 def build_rego_policy(
-    *,
-    subject_digest: str,
-    predicate_type: str,
-    predicate: dict[str, Any],
+    *, subject_digest: str, predicate_type: str, predicate: dict[str, Any]
 ) -> str:
     if not re.fullmatch(r"sha256:[0-9a-f]{64}", subject_digest):
         fail("policy subject digest must be an immutable sha256 digest")
@@ -411,15 +405,12 @@ def build_rego_policy(
 
 
 def write_policy_command(args: argparse.Namespace) -> None:
-    evidence = read_json(Path(args.evidence).resolve())
-    verify_evidence_values(
-        evidence=evidence, evidence_dir=Path(args.evidence).resolve().parent
-    )
+    evidence_path = Path(args.evidence).resolve()
+    evidence = read_json(evidence_path)
+    verify_evidence_values(evidence=evidence, evidence_dir=evidence_path.parent)
     predicate = read_json(Path(args.predicate).resolve())
     policy = build_rego_policy(
-        subject_digest=_required_string(
-            evidence, "subjectDigest", "release signing evidence"
-        ),
+        subject_digest=_required_string(evidence, "subjectDigest", "release signing evidence"),
         predicate_type=args.predicate_type,
         predicate=predicate,
     )
@@ -446,37 +437,54 @@ def verify_statement_values(
     if not isinstance(subjects, list) or not subjects:
         fail("attestation has no subject")
     expected_hex = subject_digest.split(":", 1)[1]
-    matched = False
-    for subject in subjects:
-        if not isinstance(subject, dict):
-            continue
-        digest = subject.get("digest")
-        if isinstance(digest, dict) and digest.get("sha256") == expected_hex:
-            matched = True
-            break
-    if not matched:
+    if not any(
+        isinstance(subject, dict)
+        and isinstance(subject.get("digest"), dict)
+        and subject["digest"].get("sha256") == expected_hex
+        for subject in subjects
+    ):
         fail("attestation subject digest does not match")
     if statement.get("predicate") != expected_predicate:
         fail("attestation predicate content does not match the expected artifact")
 
 
 def verify_statement_command(args: argparse.Namespace) -> None:
-    statement = read_json(Path(args.statement).resolve())
-    expected_predicate = read_json(Path(args.predicate).resolve())
     verify_statement_values(
-        statement=statement,
+        statement=read_json(Path(args.statement).resolve()),
         subject_digest=args.subject_digest,
         predicate_type=args.predicate_type,
-        expected_predicate=expected_predicate,
+        expected_predicate=read_json(Path(args.predicate).resolve()),
     )
+
+
+def _verified_marker(path_value: str, label: str) -> str:
+    path = Path(path_value).resolve()
+    if not path.is_file() or path.stat().st_size == 0:
+        fail(f"{label} verification marker is missing or empty: {path}")
+    if path.read_text(encoding="utf-8").strip() != "verified":
+        fail(f"{label} verification marker is not verified")
+    return "verified"
 
 
 def finalize_command(args: argparse.Namespace) -> None:
     evidence_path = Path(args.evidence).resolve()
     evidence = read_json(evidence_path)
     verify_evidence_values(evidence=evidence, evidence_dir=evidence_path.parent)
+    results = {
+        "signature": _verified_marker(args.signature_result, "signature"),
+        "cyclonedxAttestation": _verified_marker(
+            args.cyclonedx_result, "CycloneDX attestation"
+        ),
+        "spdxAttestation": _verified_marker(args.spdx_result, "SPDX attestation"),
+        "provenanceAttestation": _verified_marker(
+            args.provenance_result, "provenance attestation"
+        ),
+        "mutableTagDigestRecheck": _verified_marker(
+            args.mutable_tag_result, "mutable tag digest recheck"
+        ),
+    }
     verification = {
-        "schema": "aipsite-release-signing-verification-v1",
+        "schema": VERIFICATION_SCHEMA,
         "subject": evidence["subject"],
         "subjectDigest": evidence["subjectDigest"],
         "cosignVersion": evidence["cosignVersion"],
@@ -488,13 +496,7 @@ def finalize_command(args: argparse.Namespace) -> None:
         "releaseTag": evidence["releaseTag"],
         "sbom": evidence["sbom"],
         "provenance": evidence["provenance"],
-        "results": {
-            "signature": "verified",
-            "cyclonedxAttestation": "verified",
-            "spdxAttestation": "verified",
-            "provenanceAttestation": "verified",
-            "mutableTagDigestRecheck": "verified",
-        },
+        "results": results,
     }
     scan_forbidden_evidence(verification)
     write_json(Path(args.output).resolve(), verification)
@@ -527,11 +529,7 @@ def build_parser() -> argparse.ArgumentParser:
     policy = subparsers.add_parser("write-policy")
     policy.add_argument("--evidence", required=True)
     policy.add_argument("--predicate", required=True)
-    policy.add_argument(
-        "--predicate-type",
-        required=True,
-        choices=tuple(PREDICATE_TYPES),
-    )
+    policy.add_argument("--predicate-type", required=True, choices=tuple(PREDICATE_TYPES))
     policy.add_argument("--output", required=True)
     policy.set_defaults(func=write_policy_command)
 
@@ -539,15 +537,16 @@ def build_parser() -> argparse.ArgumentParser:
     statement.add_argument("--statement", required=True)
     statement.add_argument("--predicate", required=True)
     statement.add_argument("--subject-digest", required=True)
-    statement.add_argument(
-        "--predicate-type",
-        required=True,
-        choices=tuple(PREDICATE_TYPES),
-    )
+    statement.add_argument("--predicate-type", required=True, choices=tuple(PREDICATE_TYPES))
     statement.set_defaults(func=verify_statement_command)
 
     finalize = subparsers.add_parser("finalize")
     finalize.add_argument("--evidence", required=True)
+    finalize.add_argument("--signature-result", required=True)
+    finalize.add_argument("--cyclonedx-result", required=True)
+    finalize.add_argument("--spdx-result", required=True)
+    finalize.add_argument("--provenance-result", required=True)
+    finalize.add_argument("--mutable-tag-result", required=True)
     finalize.add_argument("--output", required=True)
     finalize.set_defaults(func=finalize_command)
 
