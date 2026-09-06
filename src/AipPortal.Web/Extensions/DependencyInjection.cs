@@ -14,6 +14,7 @@ using AipPortal.Web.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authorization.Policy;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 
@@ -23,6 +24,7 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddWebServices(this IServiceCollection services, IConfiguration configuration)
     {
+        var security = configuration.GetSection("Security").Get<SecurityOptions>() ?? new SecurityOptions();
         services.Configure<TenancyOptions>(configuration.GetSection("Tenancy"));
         services.Configure<SecurityOptions>(configuration.GetSection("Security"));
         services.Configure<AuditPackageExportWorkerOptions>(configuration.GetSection("AuditPackageExport"));
@@ -32,15 +34,13 @@ public static class DependencyInjection
         services.Configure<FeatureOptions>(configuration.GetSection("Features"));
         services.AddSingleton(provider => provider.GetRequiredService<IOptions<TenancyOptions>>().Value);
         services.AddSingleton<CsrfProtectionState>();
-        services.AddAntiforgery(options =>
+        services.AddCors(options => HttpSecurityPolicy.ConfigureCors(options, security));
+        services.AddHsts(options => HttpSecurityPolicy.ConfigureHsts(options));
+        services.Configure<FormOptions>(options =>
         {
-            var security = configuration.GetSection("Security").Get<SecurityOptions>() ?? new SecurityOptions();
-            options.HeaderName = SecurityOptions.CsrfHeaderName;
-            options.Cookie.Name = ".AipPortal.Csrf";
-            options.Cookie.HttpOnly = true;
-            options.Cookie.SameSite = SameSiteMode.Lax;
-            options.Cookie.SecurePolicy = security.CookieSecurePolicy;
+            options.MultipartBodyLengthLimit = security.MaxMultipartBodySizeBytes;
         });
+        services.AddAntiforgery(options => HttpSecurityPolicy.ConfigureAntiforgery(options, security));
         services.AddHostedService<StartupConfigurationValidator>();
         services.AddHostedService<AuditPackageExportWorker>();
         services.AddHttpContextAccessor();
