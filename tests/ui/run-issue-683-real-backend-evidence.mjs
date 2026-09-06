@@ -4,6 +4,7 @@ import { join, relative } from 'node:path';
 import {
   ISSUE_683_ITERATION_COUNT,
   ISSUE_683_MIN_RACE_OBSERVATION_ITERATIONS,
+  ISSUE_683_REQUIRED_EXIT_CODE,
   ISSUE_683_REQUIRED_PLAYWRIGHT_RETRY_COUNT,
   isPassingIssue683Iteration,
   summarizeIssue683Iterations
@@ -57,7 +58,7 @@ for (
   });
   const exitCode = Number.isInteger(result.status) ? result.status : FALLBACK_FAILURE_EXIT_CODE;
 
-  if (await fileExists(JUNIT_SOURCE)) {
+  if (exitCode === ISSUE_683_REQUIRED_EXIT_CODE && await fileExists(JUNIT_SOURCE)) {
     await copyFile(JUNIT_SOURCE, join(iterationDirectory, 'playwright-results.xml'));
   }
 
