@@ -189,6 +189,10 @@ security_schemathesis_run_role() {
   rm -f "$raw_host" "$safe_report" "$metadata"
   mkdir -p "$artifact_dir"
 
+  # SEC-03 owns authentication lifecycle verification. Excluding login from the
+  # high-volume API fuzz lanes prevents shared auth/rate-limit state from being
+  # mutated between principals while preserving dedicated login negative tests.
+  operation_filters+=(--exclude-path /api/auth/login)
   if [[ "$role" != "anonymous" ]]; then
     operation_filters+=(--exclude-path /api/auth/logout)
     operation_filters+=(--exclude-path /api/auth/change-password)
