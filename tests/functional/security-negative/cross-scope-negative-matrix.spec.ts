@@ -511,14 +511,14 @@ async function resolveCoreGraph(
   }
   const taskId = requireString(task, 'id', 'Id');
 
-  const filesResponse = await api.get(`/api/files?workspaceId=${workspaceId}&page=1&pageSize=100`);
-  await assertSafeResponse(filesResponse, { label: 'FCI-07 File fixture list', expectedStatus: 200 });
-  const files = readItems(await filesResponse.json(), 'File list');
-  const file = files.find((item) => readString(item, 'originalFileName', 'OriginalFileName') === expected.fileName);
+  const taskFilesResponse = await api.get(`/api/tasks/${taskId}/files?page=1&pageSize=100`);
+  await assertSafeResponse(taskFilesResponse, { label: 'FCI-07 Task File fixture list', expectedStatus: 200 });
+  const taskFiles = readItems(await taskFilesResponse.json(), 'Task File fixture list');
+  const file = taskFiles.find((item) => readString(item, 'fileName', 'FileName') === expected.fileName);
   if (!file) {
-    throw new Error('FCI-07 expected File fixture was not found.');
+    throw new Error('FCI-07 expected Task File fixture was not found.');
   }
-  const fileId = requireString(file, 'fileObjectId', 'FileObjectId', 'id', 'Id');
+  const fileId = requireString(file, 'fileObjectId', 'FileObjectId');
 
   return { workspaceId, projectId, taskId, fileId };
 }
