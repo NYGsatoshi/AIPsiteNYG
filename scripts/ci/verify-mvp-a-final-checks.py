@@ -84,14 +84,11 @@ def fetch_check_runs(repository: str, sha: str, token: str, api_url: str) -> lis
     )
 
 
-def check_timestamp(check: dict[str, object]) -> str:
-    completed = check.get("completed_at")
-    started = check.get("started_at")
-    if isinstance(completed, str) and completed:
-        return completed
-    if isinstance(started, str) and started:
-        return started
-    return ""
+def check_run_id(check: dict[str, object]) -> int | None:
+    raw_id = check.get("id")
+    if isinstance(raw_id, bool) or not isinstance(raw_id, int) or raw_id <= 0:
+        return None
+    return raw_id
 
 
 def check_app_identity(check: dict[str, object]) -> tuple[int | None, str]:
@@ -120,13 +117,9 @@ def is_green_required_check(check: dict[str, object]) -> bool:
     return check.get("status") == "completed" and check.get("conclusion") == "success"
 
 
-def main() -> int:
-    repository = required_env("GITHUB_REPOSITORY")
-    sha = required_env("GITHUB_SHA")
-    token = required_env("GITHUB_TOKEN")
-    api_url = os.environ.get("GITHUB_API_URL", "https://api.github.com").strip()
-    check_runs = fetch_check_runs(repository, sha, token, api_url)
-
+def evaluate_required_checks(
+    check_runs: list[dict[str, object]], sha: str
+) -> tuple[list[str], list[tuple[str, bool]]]:
     failures: list[str] = []
     summary: list[tuple[str, bool]] = []
 
@@ -135,18 +128,34 @@ def main() -> int:
         trusted_matches = [
             check for check in named_matches if is_trusted_required_check(check, sha)
         ]
-        trusted_matches.sort(key=check_timestamp, reverse=True)
 
         if not trusted_matches:
             failures.append(f"{name}: no trusted GitHub Actions check run exists for exact candidate")
             summary.append((name, False))
             continue
 
-        latest = trusted_matches[0]
+        invalid_ids = [check for check in trusted_matches if check_run_id(check) is None]
+        if invalid_ids:
+            failures.append(f"{name}: trusted check run has an invalid or missing id")
+            summary.append((name, False))
+            continue
+
+        latest = max(trusted_matches, key=lambda check: check_run_id(check) or 0)
         green = is_green_required_check(latest)
         summary.append((name, green))
         if not green:
-            failures.append(f"{name}: trusted check is not completed successfully")
+            failures.append(f"{name}: latest trusted check is not completed successfully")
+
+    return failures, summary
+
+
+def main() -> int:
+    repository = required_env("GITHUB_REPOSITORY")
+    sha = required_env("GITHUB_SHA")
+    token = required_env("GITHUB_TOKEN")
+    api_url = os.environ.get("GITHUB_API_URL", "https://api.github.com").strip()
+    check_runs = fetch_check_runs(repository, sha, token, api_url)
+    failures, summary = evaluate_required_checks(check_runs, sha)
 
     print("MVP-A final check evidence:")
     for name, green in summary:
