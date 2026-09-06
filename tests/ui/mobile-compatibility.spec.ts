@@ -18,14 +18,14 @@ type ScrollEvidence = Readonly<{
   scrollWidth: number;
 }>;
 
-const assertScrollEvidence = function (evidence: ScrollEvidence | null): void {
+const assertScrollEvidence = function assertScrollEvidence(evidence: ScrollEvidence | null): void {
     if (evidence === null) {
       throw new Error('Expected the allowlisted data grid to expose one horizontal scroll region.');
     }
     expect(evidence.after).toBeGreaterThan(evidence.before);
     expect(evidence.scrollWidth).toBeGreaterThan(evidence.clientWidth);
   },
-  expectMinimumTouchTarget = async function (locator: Locator): Promise<void> {
+  expectMinimumTouchTarget = async function expectMinimumTouchTarget(locator: Readonly<Locator>): Promise<void> {
     const bounds = await locator.boundingBox();
     if (bounds === null) {
       throw new Error('Touch target must have a rendered bounding box.');
@@ -33,23 +33,23 @@ const assertScrollEvidence = function (evidence: ScrollEvidence | null): void {
     expect(bounds.width).toBeGreaterThanOrEqual(44);
     expect(bounds.height).toBeGreaterThanOrEqual(44);
   },
-  expectProjectProfile = function (
+  expectProjectProfile = function expectProjectProfile(
     browserName: string,
-    page: Page,
+    page: Readonly<Page>,
     projectName: string,
   ): void {
     const profile = requireMobileProfile(projectName);
     expect(browserName).toBe(profile.browserName);
     expect(page.viewportSize()).toEqual(profile.viewport);
   },
-  findHorizontalScrollRegions = async function (
-    root: Locator,
+  findHorizontalScrollRegions = async function findHorizontalScrollRegions(
+    root: Readonly<Locator>,
   ): Promise<readonly HorizontalRegionEvidence[]> {
     return root.evaluate((element) => {
       const candidates = [element as HTMLElement, ...element.querySelectorAll<HTMLElement>('*')];
       return candidates
         .filter((candidate) => {
-          const overflowX = getComputedStyle(candidate).overflowX;
+          const { overflowX } = getComputedStyle(candidate);
           return (
             candidate.clientWidth > 0 &&
             candidate.scrollWidth > candidate.clientWidth + 1 &&
@@ -83,14 +83,14 @@ const assertScrollEvidence = function (evidence: ScrollEvidence | null): void {
       },
     ],
   ]),
-  requireMobileProfile = function (projectName: string): MobileProfile {
+  requireMobileProfile = function requireMobileProfile(projectName: string): MobileProfile {
     const profile = mobileProfileContract.get(projectName);
     if (profile === undefined) {
       throw new Error(`Unexpected COMPAT-03 Playwright project: ${projectName}`);
     }
     return profile;
   },
-  verifyDesktopGridScroll = async function (page: Page): Promise<void> {
+  verifyDesktopGridScroll = async function verifyDesktopGridScroll(page: Readonly<Page>): Promise<void> {
     const allowlistedGrid = page.getByTestId('app-data-grid');
     await expect(allowlistedGrid).toBeVisible();
     await expect
@@ -98,12 +98,12 @@ const assertScrollEvidence = function (evidence: ScrollEvidence | null): void {
       .toBeGreaterThan(0);
     assertScrollEvidence(await scrollFirstHorizontalRegion(allowlistedGrid));
   },
-  verifyMobileMembersLayout = async function (page: Page): Promise<void> {
+  verifyMobileMembersLayout = async function verifyMobileMembersLayout(page: Readonly<Page>): Promise<void> {
     await expect(page.getByTestId('workspace-members-page')).toBeVisible();
     await expect(page.locator('.workspace-members__desktop-grid')).toBeHidden();
     await expect(page.getByTestId('workspace-members-mobile-list')).toBeVisible();
   },
-  verifyMobileNavigation = async function (page: Page): Promise<void> {
+  verifyMobileNavigation = async function verifyMobileNavigation(page: Page): Promise<void> {
     const mobileNavigation = page.getByTestId('mobile-navigation'),
       navigationToggle = page.getByTestId('mobile-nav-toggle'),
       workspaceLink = mobileNavigation.locator('a[href="/app/workspaces"]').first();
@@ -116,7 +116,7 @@ const assertScrollEvidence = function (evidence: ScrollEvidence | null): void {
     await expect(mobileNavigation).toHaveAttribute('aria-hidden', 'true');
     await expect(navigationToggle).toHaveAttribute('aria-expanded', 'false');
   },
-  verifyRightPanel = async function (page: Page): Promise<void> {
+  verifyRightPanel = async function verifyRightPanel(page: Page): Promise<void> {
     const panel = page.getByTestId('right-panel'),
       panelClose = page.getByTestId('right-panel-close'),
       panelToggle = page.getByTestId('right-panel-toggle');
@@ -185,7 +185,7 @@ async function scrollFirstHorizontalRegion(root: Locator): Promise<ScrollEvidenc
   return root.evaluate((element) => {
     const candidates = [element as HTMLElement, ...element.querySelectorAll<HTMLElement>('*')],
       region = candidates.find((candidate) => {
-        const overflowX = getComputedStyle(candidate).overflowX;
+        const { overflowX } = getComputedStyle(candidate);
         return (
           candidate.clientWidth > 0 &&
           candidate.scrollWidth > candidate.clientWidth + 1 &&
@@ -219,7 +219,7 @@ async function expectOnlyAllowlistedHorizontalScroll(
     (selectors) =>
       Array.from(document.querySelectorAll<HTMLElement>('body *'))
         .filter((element) => {
-          const overflowX = getComputedStyle(element).overflowX,
+          const { overflowX } = getComputedStyle(element),
             scrollable =
               element.clientWidth > 0 &&
               element.scrollWidth > element.clientWidth + 1 &&
