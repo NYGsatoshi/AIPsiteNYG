@@ -1,13 +1,16 @@
 using AipPortal.Application.Common;
 using AipPortal.Application.TenantAdministration;
 using AipPortal.Application.Tenancy;
+using AipPortal.Web.Configuration;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace AipPortal.Web.Controllers;
 
 [ApiController]
 [Authorize]
+[EnableRateLimiting(HttpSecurityPolicy.AdminRateLimitPolicy)]
 public sealed class TenantAdministrationController(
     ITenantAdministrationService tenantAdministration,
     ITenantService tenantService) : ControllerBase

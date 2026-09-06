@@ -16,6 +16,14 @@ public sealed class GlobalExceptionHandlingMiddleware(
         {
             throw;
         }
+        catch (BadHttpRequestException exception) when (
+            exception.StatusCode == StatusCodes.Status413PayloadTooLarge)
+        {
+            logger.LogWarning(
+                "Rejected oversized request body. TraceId: {TraceId}",
+                context.TraceIdentifier);
+            await RequestBodyLimitMiddleware.WriteTooLargeResponseAsync(context);
+        }
         catch (Exception exception)
         {
             logger.LogError(exception, "Unhandled request exception. TraceId: {TraceId}", context.TraceIdentifier);
