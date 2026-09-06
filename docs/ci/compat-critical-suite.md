@@ -54,44 +54,80 @@ npm run test:ui:compat-critical -- --profile browser-engine -- --project=chromiu
 
 The runner forces `--retries=0`; a retry is not part of the compatibility success definition.
 
-## Mobile execution contract
+## COMPAT-01 browser-engine matrix
 
-`.github/workflows/mobile-compatibility.yml` runs the canonical `mobile`
-profile in three isolated matrix cells:
+Issue #587 adds `firefox-desktop` and `webkit-desktop` beside the existing
+`chromium-desktop` Playwright project. The extra projects are enabled only when
+`AIP_COMPAT_CRITICAL=1`; the ordinary full static suite remains on its existing
+Chromium desktop/mobile projects. This keeps the engine matrix bounded to the
+single COMPAT-04 `browser-engine` selection contract.
+
+`.github/workflows/compat-critical-preflight.yml` runs the profile as three
+independent PR jobs:
+
+| Job | Playwright project | Browser installed |
+| --- | --- | --- |
+| `compat-chromium` | `chromium-desktop` | Chromium |
+| `compat-firefox` | `firefox-desktop` | Firefox |
+| `compat-webkit` | `webkit-desktop` | WebKit |
+
+The matrix uses `fail-fast: false` and has no `continue-on-error`. A Firefox or
+WebKit failure therefore remains an explicit failed job even if Chromium
+passes, while all three jobs still finish and preserve their own evidence.
+Each job uploads its HTML/JUnit/failure attachments under an artifact name
+starting with its engine. The common runner validates the manifest and source,
+fails when selection is empty or partial, and appends `--retries=0` after all
+caller-supplied Playwright arguments.
+
+The workflow has read-only repository permissions, persists no checkout
+credential, references no protected secret or licensed build activation, and
+can run for an untrusted pull request. Selected critical tests may not contain
+inline `skip`, `fixme`, or expected-failure exceptions. The only existing
+quarantine mechanism is the reviewed contract entry described below, including
+its reason, owner, tracking Issue, and expiry. There are currently no
+engine-specific exceptions; one cannot be introduced as an unexplained inline
+skip.
+
+Playwright WebKit is evidence about this WebKit engine configuration. It is not
+evidence of real Safari on Apple hardware, Safari release integration, iOS, or
+device-specific behavior, and must not be represented as Safari certification.
+
+## COMPAT-03 mobile execution contract
+
+Issue #594 runs the canonical `mobile` profile in three isolated matrix cells:
 
 | Playwright project | Engine/device contract | CSS viewport |
 | --- | --- | --- |
 | `chromium-mobile` | existing Pixel 5 emulation on Chromium | `393 x 727` |
 | `webkit-mobile` | iPhone 13 emulation on WebKit | `390 x 664` |
-| `narrow-320` | explicit Chromium touch context, independent of a named device preset | `320 x 800` |
+| `narrow-320` | explicit Chromium touch context independent of a named device preset | `320 x 800` |
 
-The two additional projects are enabled only when
-`AIP_COMPAT_CRITICAL=1`, which the canonical runner sets. This keeps the normal
-functional Playwright suite on its existing desktop/mobile Chromium pair while
-preventing compatibility CI from maintaining a separate test-title list.
+The two additional projects are enabled only when `AIP_COMPAT_CRITICAL=1`, so
+the ordinary functional/static suite keeps its established Chromium pair. The
+matrix therefore reuses one COMPAT-04 `mobile` selection contract instead of
+maintaining a second title list or multiplying the full browser suite.
 
-The selected mobile profile covers shell boot, direct navigation, a My Tasks
-form/list flow at 320 CSS pixels, an Audit overlay/list flow at 320 CSS pixels,
-touch navigation and right-panel controls, and document/component horizontal
-overflow separation. The touch case uses Playwright `tap()` in a touch-enabled
-context and completes the representative critical flow without any hover
-action. The overflow case first fails on any document/body or nested horizontal
-scroll at each configured mobile viewport, including 320 CSS pixels. It then
-reflows the same representative list to a constrained desktop layout and
-allows only the component-scoped `[data-testid="app-data-grid"]` region to own
-intentional horizontal scrolling.
+The mobile profile covers shell boot, navigation, representative form/list and
+overlay behavior, touch activation, and horizontal-overflow containment. The
+touch case uses Playwright `tap()` in a touch-enabled context and completes its
+critical flow without a hover action. The overflow case rejects page-wide or
+unexpected nested horizontal scrolling at every configured mobile viewport and
+separately permits intentional component-scoped horizontal scrolling only in
+the allowlisted shared data grid.
 
-Run any cell locally with, for example:
+Run individual cells with:
 
 ```bash
+npm run test:ui:compat-critical -- --profile mobile -- --project=chromium-mobile
 npm run test:ui:compat-critical -- --profile mobile -- --project=webkit-mobile
+npm run test:ui:compat-critical -- --profile mobile -- --project=narrow-320
 ```
 
-Playwright WebKit plus an iPhone device descriptor is an engine/emulation check,
-not certification of real iPhone hardware or Apple Safari. Release confidence
-for device input, browser chrome, OS integration, and Safari-specific behavior
-still requires testing on supported physical devices or an external real-device
-service.
+These are secretless static Angular runs with mocked API responses. Playwright
+WebKit plus an iPhone descriptor is engine/emulation evidence, not certification
+of real iPhone hardware or Apple Safari. Physical-device input, browser chrome,
+OS integration, and Safari-specific behavior require separate real-device
+validation.
 
 ## Fail-closed enforcement
 
@@ -106,12 +142,10 @@ service.
 - a selected test contains arbitrary `waitForTimeout`/`setTimeout` sleeps;
 - a selected test directly uses unseeded `Math.random`/`randomUUID` values;
 - a selected test is reduced to `toHaveScreenshot`/`toMatchSnapshot` pixel-only evidence;
+- a selected test contains an inline `skip`, `fixme`, or expected-failure exception;
 - Playwright `--list` discovers zero, partial, duplicate, or unexpected selected tests.
 
-The preflight runs actual Playwright discovery for every profile and for all
-three mobile projects. Therefore a filename/title rename or missing mobile
-project cannot silently turn the compatibility suite into a successful
-zero-test run.
+The preflight runs actual Playwright discovery for every profile and all configured browser/mobile projects. Therefore a filename/title rename or a missing project cannot silently turn the compatibility suite into a successful zero-test run.
 
 ## Determinism
 
