@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using AipPortal.Application.Auth;
+using AipPortal.Web.Configuration;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
@@ -13,7 +14,7 @@ namespace AipPortal.Web.Controllers;
 public sealed class AuthController(IAuthService authService) : ControllerBase
 {
     [HttpPost("login")]
-    [EnableRateLimiting("login")]
+    [EnableRateLimiting(HttpSecurityPolicy.LoginRateLimitPolicy)]
     public async Task<ActionResult<LoginResponse>> Login(
         LoginRequest request,
         CancellationToken cancellationToken)
@@ -30,6 +31,7 @@ public sealed class AuthController(IAuthService authService) : ControllerBase
 
     [HttpPost("logout")]
     [Authorize]
+    [EnableRateLimiting(HttpSecurityPolicy.AuthenticationMutationRateLimitPolicy)]
     public async Task<IActionResult> Logout(CancellationToken cancellationToken)
     {
         await authService.LogoutAsync(cancellationToken);
@@ -38,7 +40,7 @@ public sealed class AuthController(IAuthService authService) : ControllerBase
     }
 
     [HttpPost("register-by-invite")]
-    [EnableRateLimiting("invite")]
+    [EnableRateLimiting(HttpSecurityPolicy.InviteRateLimitPolicy)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<LoginResponse>> RegisterByInvite(
         RegisterByInviteRequest request,
@@ -59,6 +61,7 @@ public sealed class AuthController(IAuthService authService) : ControllerBase
 
     [HttpPost("change-password")]
     [Authorize]
+    [EnableRateLimiting(HttpSecurityPolicy.AuthenticationMutationRateLimitPolicy)]
     public async Task<IActionResult> ChangePassword(
         ChangePasswordRequest request,
         CancellationToken cancellationToken)
