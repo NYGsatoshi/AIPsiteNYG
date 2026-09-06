@@ -10,6 +10,18 @@ Pull-request creation is intended to be restricted to collaborators explicitly
 authorized by the repository owner. Authorization to open a pull request does
 not itself authorize use of repository-owned code outside this repository.
 
+## Project language
+
+English is the canonical language for engineering and project collaboration in
+this repository. Authorized contributions should use English for source
+identifiers, code comments, docstrings, test names and descriptions,
+repository documentation, configuration documentation, commit messages, pull
+requests, and issues.
+
+Intentional end-user localization and i18n resources are exempt. Localized
+product content should remain in the language required by the product rather
+than being rewritten solely to satisfy this engineering-language policy.
+
 ## Authorized collaborators
 
 Before submitting code, an authorized collaborator must:

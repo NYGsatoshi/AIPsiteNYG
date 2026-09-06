@@ -9,6 +9,14 @@
 - Keep public APIs REST-first.
 - Use async I/O for database and file operations.
 
+## Project Language
+
+- English is the canonical engineering/project language.
+- Use English for source identifiers, code comments, docstrings, test names and descriptions, repository documentation, configuration documentation, commit messages, pull requests, and issues.
+- Do not introduce new non-English engineering prose when adding or materially editing repository artifacts.
+- Intentional product localization/i18n resources are exempt and should use the language required by the product.
+- Do not rewrite localized end-user content solely to satisfy the engineering-language policy.
+
 ## Project References
 
 Allowed direction:
