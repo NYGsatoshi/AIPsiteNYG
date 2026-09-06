@@ -20,6 +20,25 @@ public sealed class SecurityHeadersMiddleware(RequestDelegate next)
             "Content-Security-Policy",
             $"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https:{websocketSources}; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; form-action 'self'");
 
+        if (IsTaskDetailRead(context.Request))
+        {
+            headers.CacheControl = "no-store, max-age=0";
+            headers.Pragma = "no-cache";
+            headers.Expires = "0";
+        }
+
         await next(context);
+    }
+
+    private static bool IsTaskDetailRead(HttpRequest request)
+    {
+        if (!HttpMethods.IsGet(request.Method) ||
+            !request.Path.StartsWithSegments("/api/tasks", out var remaining))
+        {
+            return false;
+        }
+
+        var taskIdSegment = remaining.Value?.Trim('/');
+        return Guid.TryParse(taskIdSegment, out _);
     }
 }
