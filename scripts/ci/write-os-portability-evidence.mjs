@@ -44,8 +44,10 @@ export async function buildOsPortabilityEvidence(repositoryRoot = process.cwd())
   const steps = Object.fromEntries(
     Object.entries(STEP_ENVIRONMENT).map(([name, environmentName]) => [name, normalizeOutcome(process.env[environmentName])])
   );
-  const trackedPaths = listTrackedPaths(root);
-  const caseCollisions = findCaseInsensitiveCollisions(trackedPaths);
+  const trackedPathInventory = listTrackedPaths(root);
+  const caseCollisions = trackedPathInventory.available
+    ? findCaseInsensitiveCollisions(trackedPathInventory.paths)
+    : null;
   const npmCommand = npmVersionCommand();
   const lineEndings = {};
   for (const relativePath of PORTABLE_TEXT_FILES) {
@@ -88,7 +90,9 @@ export async function buildOsPortabilityEvidence(repositoryRoot = process.cwd())
       platform: process.platform,
       architecture: process.arch,
       gitCoreAutocrlf: commandVersion('git', ['config', '--get', 'core.autocrlf'], 'unset'),
-      trackedPathCount: trackedPaths.length,
+      trackedPathInventoryAvailable: trackedPathInventory.available,
+      trackedPathInventoryError: trackedPathInventory.error,
+      trackedPathCount: trackedPathInventory.available ? trackedPathInventory.paths.length : null,
       caseInsensitiveCollisions: caseCollisions,
       portableTextLineEndings: lineEndings
     },
@@ -139,7 +143,18 @@ function listTrackedPaths(root) {
     encoding: 'utf8',
     windowsHide: true
   });
-  return result.status === 0 ? result.stdout.split('\0').filter(Boolean) : [];
+  if (result.status !== 0) {
+    return {
+      available: false,
+      paths: [],
+      error: result.stderr?.trim() || 'git ls-files failed'
+    };
+  }
+  return {
+    available: true,
+    paths: result.stdout.split('\0').filter(Boolean),
+    error: null
+  };
 }
 
 function detectLineEndings(contents) {
@@ -189,9 +204,12 @@ try {
   const evidence = await writeOsPortabilityEvidence(output);
   console.log(`OS portability evidence written: ${output}; result=${evidence.result}; os=${evidence.identity.matrixOs ?? process.platform}.`);
   if (process.env.GITHUB_STEP_SUMMARY) {
+    const collisionSummary = evidence.filesystem.caseInsensitiveCollisions === null
+      ? 'unavailable'
+      : String(evidence.filesystem.caseInsensitiveCollisions.length);
     await appendFile(
       process.env.GITHUB_STEP_SUMMARY,
-      `### OS portability: ${evidence.identity.matrixOs ?? process.platform}\n\n- result: ${evidence.result}\n- Node: ${evidence.toolchain.observed.node}\n- npm: ${evidence.toolchain.observed.npm ?? 'unavailable'}\n- .NET SDK: ${evidence.toolchain.observed.dotnetSdk ?? 'unavailable'}\n- portable .NET TRX: ${evidence.dotnetTests.available ? `${evidence.dotnetTests.counters.passed}/${evidence.dotnetTests.counters.total} passed` : 'unavailable'}\n- case-insensitive tracked-path collisions: ${evidence.filesystem.caseInsensitiveCollisions.length}\n`,
+      `### OS portability: ${evidence.identity.matrixOs ?? process.platform}\n\n- result: ${evidence.result}\n- Node: ${evidence.toolchain.observed.node}\n- npm: ${evidence.toolchain.observed.npm ?? 'unavailable'}\n- .NET SDK: ${evidence.toolchain.observed.dotnetSdk ?? 'unavailable'}\n- portable .NET TRX: ${evidence.dotnetTests.available ? `${evidence.dotnetTests.counters.passed}/${evidence.dotnetTests.counters.total} passed` : 'unavailable'}\n- tracked-path inventory: ${evidence.filesystem.trackedPathInventoryAvailable ? 'available' : 'unavailable'}\n- case-insensitive tracked-path collisions: ${collisionSummary}\n`,
       'utf8'
     );
   }
