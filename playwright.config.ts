@@ -68,6 +68,29 @@ const compatOnlyDesktopProjects = compatCriticalRun
     ]
   : [];
 
+// WebKit mobile and the explicit 320 CSS-pixel contract are compatibility-only
+// projects. Keeping them behind the compat-critical runner prevents the normal
+// two-project functional suite from becoming a full browser/profile matrix.
+const mobileCompatibilityProjects = compatCriticalRun
+  ? [
+      {
+        name: "webkit-mobile",
+        use: { ...devices["iPhone 13"] }
+      },
+      {
+        name: "narrow-320",
+        use: {
+          browserName: "chromium" as const,
+          viewport: { width: 320, height: 800 },
+          screen: { width: 320, height: 800 },
+          deviceScaleFactor: 1,
+          isMobile: true,
+          hasTouch: true
+        }
+      }
+    ]
+  : [];
+
 export default defineConfig({
   testDir: "./tests/ui",
   snapshotPathTemplate,
@@ -117,6 +140,7 @@ export default defineConfig({
       name: "chromium-mobile",
       use: { ...devices["Pixel 5"] }
     },
-    ...compatOnlyDesktopProjects
+    ...compatOnlyDesktopProjects,
+    ...mobileCompatibilityProjects
   ]
 });

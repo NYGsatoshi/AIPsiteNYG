@@ -17,8 +17,8 @@
 
 .mobile-header__menu {
   display: grid;
-  width: 40px;
-  height: 40px;
+  width: var(--shell-touch-target, 44px);
+  height: var(--shell-touch-target, 44px);
   place-items: center;
   border: 1px solid var(--aip-color-border-default);
   border-radius: var(--shell-radius-md, 6px);
