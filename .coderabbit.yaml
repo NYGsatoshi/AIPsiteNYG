@@ -1,0 +1,48 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+
+language: "en-US"
+early_access: false
+
+tone_instructions: >-
+  Keep reviews concise and technical. Prioritize issues with real behavioral,
+  security, architectural, or maintainability impact, and suppress minor findings
+  that existing deterministic CI can already detect reliably. English is the
+  canonical engineering/project language: flag newly introduced non-English
+  engineering prose in source comments, docstrings, tests, repository docs,
+  configuration docs, PR/Issue-facing text, or similar artifacts. Do not flag
+  intentional end-user localization/i18n resources solely for being non-English.
+
+reviews:
+  profile: "chill"
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  review_details: false
+  in_progress_fortune: false
+
+  auto_review:
+    enabled: true
+    drafts: false
+    auto_incremental_review: true
+    auto_pause_after_reviewed_commits: 5
+    ignore_title_keywords:
+      - "WIP"
+      - "[skip review]"
+    ignore_usernames:
+      - "dependabot[bot]"
+      - "github-actions[bot]"
+
+  path_filters:
+    - "!src/AipPortal.Web/wwwroot/**"
+    - "!frontend/dist/**"
+    - "!**/node_modules/**"
+    - "!**/package-lock.json"
+    - "!**/*.Designer.cs"
+
+knowledge_base:
+  code_guidelines:
+    enabled: true
+
+chat:
+  auto_reply: true
