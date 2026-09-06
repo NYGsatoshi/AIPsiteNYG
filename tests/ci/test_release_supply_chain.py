@@ -4,9 +4,11 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[2] if "__file__" in globals() else Path.cwd()
 SCRIPT = ROOT / "scripts" / "ci" / "release_supply_chain.py"
@@ -28,6 +30,19 @@ class ReleaseSupplyChainTests(unittest.TestCase):
         self.digest = "sha256:" + ("a" * 64)
         self.subject = f"ghcr.io/nygsatoshi/aipsitenyg@{self.digest}"
         self.sha = "b" * 40
+        self.repository = "NYGsatoshi/AIPsiteNYG"
+        self.release_tag = "v1.2.3"
+        self.github_ref = f"refs/tags/{self.release_tag}"
+        self.workflow_ref = (
+            f"{self.repository}/.github/workflows/release-supply-chain.yml@"
+            f"{self.github_ref}"
+        )
+        self.certificate_identity = release.expected_workflow_identity(
+            self.repository, self.workflow_ref
+        )
+        self.run_identity = (
+            f"https://github.com/{self.repository}/actions/runs/123/attempts/1"
+        )
         self.cdx = self.root / "sbom.cyclonedx.json"
         self.spdx = self.root / "sbom.spdx.json"
         self.provenance = self.root / "provenance.json"
@@ -75,6 +90,49 @@ class ReleaseSupplyChainTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
+
+    def write_complete_evidence(self) -> Path:
+        provenance = release.build_provenance(
+            repository=self.repository,
+            repository_sha=self.sha,
+            workflow_identity=self.certificate_identity,
+            workflow_ref=self.workflow_ref,
+            run_identity=self.run_identity,
+            release_tag=self.release_tag,
+            subject_digest=self.digest,
+        )
+        release.write_json(self.provenance, provenance)
+        evidence = {
+            "schema": release.EVIDENCE_SCHEMA,
+            "repository": self.repository,
+            "repositoryCommit": self.sha,
+            "releaseTag": self.release_tag,
+            "subject": self.subject,
+            "subjectDigest": self.digest,
+            "cosignVersion": "3.1.3",
+            "oidcIssuer": release.OIDC_ISSUER,
+            "certificateIdentity": self.certificate_identity,
+            "workflowRef": self.github_ref,
+            "workflowIdentity": self.workflow_ref,
+            "runIdentity": self.run_identity,
+            "sbom": {
+                "cyclonedx": {
+                    "file": self.cdx.name,
+                    "sha256": digest_file(self.cdx),
+                },
+                "spdx": {
+                    "file": self.spdx.name,
+                    "sha256": digest_file(self.spdx),
+                },
+            },
+            "provenance": {
+                "file": self.provenance.name,
+                "sha256": digest_file(self.provenance),
+            },
+        }
+        evidence_path = self.root / "release-signing-evidence.json"
+        release.write_json(evidence_path, evidence)
+        return evidence_path
 
     def test_good_digest_and_sbom_binding_succeeds(self) -> None:
         digest, cdx_hash, spdx_hash = release.validate_sbom_binding(
@@ -125,12 +183,16 @@ class ReleaseSupplyChainTests(unittest.TestCase):
                 expected_predicate=json.loads(self.cdx.read_text(encoding="utf-8")),
             )
 
-
     def test_provenance_subject_mismatch_fails(self) -> None:
-        provenance = {
-            "buildDefinition": {"buildType": "https://example.invalid/workflow"},
-            "runDetails": {"builder": {"id": "https://example.invalid/workflow"}},
-        }
+        provenance = release.build_provenance(
+            repository=self.repository,
+            repository_sha=self.sha,
+            workflow_identity=self.certificate_identity,
+            workflow_ref=self.workflow_ref,
+            run_identity=self.run_identity,
+            release_tag=self.release_tag,
+            subject_digest=self.digest,
+        )
         statement = {
             "_type": "https://in-toto.io/Statement/v0.1",
             "predicateType": release.PREDICATE_TYPES["slsaprovenance1"],
@@ -180,6 +242,61 @@ class ReleaseSupplyChainTests(unittest.TestCase):
         self.assertIn(release.PREDICATE_TYPES["cyclonedx"], policy)
         self.assertIn("input.predicate == expected_predicate", policy)
 
+    def test_verify_evidence_values_accepts_complete_bound_evidence(self) -> None:
+        evidence_path = self.write_complete_evidence()
+        release.verify_evidence_values(
+            evidence=release.read_json(evidence_path), evidence_dir=self.root
+        )
+
+    def test_verify_evidence_rejects_tampered_provenance_hash(self) -> None:
+        evidence_path = self.write_complete_evidence()
+        self.provenance.write_text(
+            self.provenance.read_text(encoding="utf-8") + "\n", encoding="utf-8"
+        )
+        with self.assertRaises(release.ReleaseEvidenceError):
+            release.verify_evidence_values(
+                evidence=release.read_json(evidence_path), evidence_dir=self.root
+            )
+
+    def test_verify_evidence_rejects_mismatched_builder_identity(self) -> None:
+        evidence_path = self.write_complete_evidence()
+        provenance = release.read_json(self.provenance)
+        provenance["runDetails"]["builder"]["id"] = "https://example.invalid/builder"
+        release.write_json(self.provenance, provenance)
+        evidence = release.read_json(evidence_path)
+        evidence["provenance"]["sha256"] = digest_file(self.provenance)
+        release.write_json(evidence_path, evidence)
+        with self.assertRaises(release.ReleaseEvidenceError):
+            release.verify_evidence_values(evidence=evidence, evidence_dir=self.root)
+
+    def test_finalize_requires_explicit_verified_markers(self) -> None:
+        evidence_path = self.write_complete_evidence()
+        result_dir = self.root / "results"
+        result_dir.mkdir()
+        markers = {}
+        for name in ("signature", "cyclonedx", "spdx", "provenance", "mutable-tag"):
+            path = result_dir / f"{name}.txt"
+            path.write_text("verified\n", encoding="utf-8")
+            markers[name] = path
+        output = self.root / "release-verification.json"
+        args = SimpleNamespace(
+            evidence=str(evidence_path),
+            signature_result=str(markers["signature"]),
+            cyclonedx_result=str(markers["cyclonedx"]),
+            spdx_result=str(markers["spdx"]),
+            provenance_result=str(markers["provenance"]),
+            mutable_tag_result=str(markers["mutable-tag"]),
+            output=str(output),
+        )
+        release.finalize_command(args)
+        finalized = release.read_json(output)
+        self.assertEqual(release.VERIFICATION_SCHEMA, finalized["schema"])
+        self.assertTrue(all(value == "verified" for value in finalized["results"].values()))
+
+        markers["signature"].unlink()
+        with self.assertRaises(release.ReleaseEvidenceError):
+            release.finalize_command(args)
+
     def test_evidence_rejects_token_or_private_key_material(self) -> None:
         with self.assertRaises(release.ReleaseEvidenceError):
             release.scan_forbidden_evidence({"githubToken": "not-even-a-real-token"})
@@ -188,28 +305,41 @@ class ReleaseSupplyChainTests(unittest.TestCase):
                 {"material": "-----BEGIN PRIVATE KEY-----\nredacted"}
             )
 
-    def test_release_workflow_does_not_grant_oidc_to_pr_paths(self) -> None:
-        workflow = (
-            ROOT / ".github" / "workflows" / "release-supply-chain.yml"
-        ).read_text(encoding="utf-8")
-        self.assertNotIn("pull_request_target:", workflow)
-        self.assertNotIn("pull_request:", workflow)
-        sign_marker = "  sign-release-subject:\n"
-        verify_marker = "  verify-release-subject:\n"
-        promote_marker = "  promote-release-tag:\n"
-        self.assertIn(sign_marker, workflow)
-        self.assertIn(verify_marker, workflow)
-        self.assertIn(promote_marker, workflow)
-        sign_block = workflow.split(sign_marker, 1)[1].split(verify_marker, 1)[0]
-        verify_block = workflow.split(verify_marker, 1)[1].split(promote_marker, 1)[0]
-        publish_block = workflow.split("  publish-release-image:\n", 1)[1].split(
-            sign_marker, 1
-        )[0]
-        promote_block = workflow.split(promote_marker, 1)[1]
-        self.assertIn("id-token: write", sign_block)
-        self.assertNotIn("id-token: write", publish_block)
-        self.assertNotIn("id-token: write", verify_block)
-        self.assertNotIn("id-token: write", promote_block)
+    def test_release_workflow_only_signing_job_has_oidc_write(self) -> None:
+        workflow_path = ROOT / ".github" / "workflows" / "release-supply-chain.yml"
+        workflow_text = workflow_path.read_text(encoding="utf-8")
+        self.assertNotIn("pull_request_target:", workflow_text)
+        self.assertNotIn("pull_request:", workflow_text)
+
+        ruby = subprocess.run(
+            [
+                "ruby",
+                "-rpsych",
+                "-rjson",
+                "-e",
+                (
+                    "doc=Psych.safe_load_file(ARGV[0], aliases: false); "
+                    "puts JSON.generate(doc.fetch('jobs'))"
+                ),
+                str(workflow_path),
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(ruby.returncode, 0, ruby.stderr)
+        jobs = json.loads(ruby.stdout)
+        self.assertIn("sign-release-subject", jobs)
+        for job_name, job in jobs.items():
+            permissions = job.get("permissions") or {}
+            if job_name == "sign-release-subject":
+                self.assertEqual("write", permissions.get("id-token"))
+            else:
+                self.assertNotEqual(
+                    "write",
+                    permissions.get("id-token"),
+                    f"unexpected OIDC write authority on job {job_name}",
+                )
 
 
 if __name__ == "__main__":
