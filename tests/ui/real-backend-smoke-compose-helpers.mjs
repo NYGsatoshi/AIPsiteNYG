@@ -101,12 +101,15 @@ export function normalizeExitCode(code) {
  * one invocation silently discovers no migrated owner tests.
  */
 export function buildRealBackendPlaywrightPlan(userArgs = [], focusedGrep = '') {
-  const grepArgs = focusedGrep.trim().length > 0 ? ['--grep', focusedGrep.trim()] : [];
-  if (userArgs.length > 0) {
+  const grepArgs = [];
+  if (focusedGrep.trim()) {
+    grepArgs.push('--grep', focusedGrep.trim());
+  }
+  if (userArgs.length) {
     return [{ name: 'custom', args: [...userArgs, ...grepArgs] }];
   }
 
-  if (grepArgs.length > 0) {
+  if (grepArgs.length) {
     return [{
       name: 'focused legacy real-backend suite',
       args: [...DEFAULT_LEGACY_PLAYWRIGHT_ARGS, ...grepArgs]

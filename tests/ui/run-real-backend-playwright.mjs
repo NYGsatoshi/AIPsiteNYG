@@ -7,10 +7,10 @@ import {
   isStaticAngularServerUrl
 } from './real-backend-smoke-compose-helpers.mjs';
 
-const playwrightCli = fileURLToPath(new URL('../../node_modules/@playwright/test/cli.js', import.meta.url));
-const userArgs = process.argv.slice(2);
-const focusedGrep = process.env.AIP_REAL_BACKEND_SMOKE_GREP?.trim();
-const playwrightPlan = buildRealBackendPlaywrightPlan(userArgs, focusedGrep);
+const focusedGrep = process.env.AIP_REAL_BACKEND_SMOKE_GREP?.trim(),
+  playwrightCli = fileURLToPath(new URL('../../node_modules/@playwright/test/cli.js', import.meta.url)),
+  playwrightPlan = buildRealBackendPlaywrightPlan(process.argv.slice(2), focusedGrep),
+  successExitCode = 0;
 
 if (process.env.AIP_ISSUE_683_EVIDENCE === '1') {
   for (const run of playwrightPlan.filter((entry) => entry.name !== 'Functional real-backend owners')) {
@@ -26,14 +26,14 @@ try {
   if (process.env.AIP_REAL_BACKEND_P0_SETUP === '1') {
     await prepareRealBackendP0State(configuration);
   }
-  exitCode = 0;
-  for (const run of playwrightPlan) {
-    console.log(`Running ${run.name}.`);
-    exitCode = await runPlaywright(configuration.baseURL, run.args);
-    if (exitCode !== 0) {
-      break;
+  exitCode = await playwrightPlan.reduce(async (previousCodePromise, run) => {
+    const previousCode = await previousCodePromise;
+    if (previousCode !== successExitCode) {
+      return previousCode;
     }
-  }
+    console.log(`Running ${run.name}.`);
+    return runPlaywright(configuration.baseURL, run.args);
+  }, Promise.resolve(successExitCode));
 } catch (error) {
   console.error(error instanceof Error ? error.message : error);
 }

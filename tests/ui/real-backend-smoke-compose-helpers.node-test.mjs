@@ -12,6 +12,9 @@ import {
   selectComposeInvocation
 } from './real-backend-smoke-compose-helpers.mjs';
 
+const DEFAULT_PLAN_RUN_COUNT = 2;
+const SINGLE_RUN_COUNT = 1;
+
 test('sanitizes Compose project names and keeps them within the Compose limit', () => {
   const name = composeProjectName(['AIP site!', 'RUN/42', 'pid:123', 'x'.repeat(80)]);
 
@@ -82,23 +85,28 @@ test('rejects the static Angular server URL and preserves child exit codes', () 
 
 test('runs migrated Functional owners with their config before legacy regression', () => {
   const plan = buildRealBackendPlaywrightPlan();
+  const [functionalRun, legacyRun] = plan;
   assert.deepEqual(plan.map((entry) => entry.name), [
     'Functional real-backend owners',
     'legacy real-backend regression'
   ]);
-  assert.deepEqual(plan[0].args.slice(0, 2), ['--config', 'playwright.functional.config.ts']);
-  assert.ok(plan[0].args.includes('project-task/core-golden-journey.spec.ts'));
-  assert.ok(plan[0].args.includes('--project=functional-chromium'));
-  assert.equal(plan[0].args.includes('--pass-with-no-tests'), false);
-  assert.ok(plan[1].args.includes('tests/ui/real-backend-smoke.spec.ts'));
-  assert.ok(plan[1].args.includes('--project=chromium-desktop'));
+  assert.equal(plan.length, DEFAULT_PLAN_RUN_COUNT);
+  const [configFlag, configPath] = functionalRun.args;
+  assert.deepEqual([configFlag, configPath], ['--config', 'playwright.functional.config.ts']);
+  assert.ok(functionalRun.args.includes('project-task/core-golden-journey.spec.ts'));
+  assert.ok(functionalRun.args.includes('--project=functional-chromium'));
+  assert.equal(functionalRun.args.includes('--pass-with-no-tests'), false);
+  assert.ok(legacyRun.args.includes('tests/ui/real-backend-smoke.spec.ts'));
+  assert.ok(legacyRun.args.includes('--project=chromium-desktop'));
 });
 
 test('keeps manifest-focused and custom runs on the legacy-compatible single invocation', () => {
   const focused = buildRealBackendPlaywrightPlan([], 'required title');
-  assert.equal(focused.length, 1);
-  assert.deepEqual(focused[0].args.slice(-2), ['--grep', 'required title']);
-  assert.ok(focused[0].args.includes('tests/ui/real-backend-smoke.spec.ts'));
+  const [focusedRun] = focused;
+  const grepIndex = focusedRun.args.indexOf('--grep');
+  assert.equal(focused.length, SINGLE_RUN_COUNT);
+  assert.deepEqual(focusedRun.args.slice(grepIndex), ['--grep', 'required title']);
+  assert.ok(focusedRun.args.includes('tests/ui/real-backend-smoke.spec.ts'));
 
   const custom = buildRealBackendPlaywrightPlan(['custom.spec.ts'], 'focused');
   assert.deepEqual(custom, [{

@@ -83,11 +83,12 @@ export function runFunctionalPlaywright(args = process.argv.slice(2)) {
  * no gate was requested, so a direct journey run exercises its complete path.
  */
 export function functionalRunnerEnvironment(filters, environment = process.env) {
-  const gates = Array.isArray(filters.gates)
-    ? filters.gates
-    : filters.gates
-      ? [filters.gates]
-      : [];
+  const gates = [];
+  if (Array.isArray(filters.gates)) {
+    gates.push(...filters.gates);
+  } else if (filters.gates) {
+    gates.push(filters.gates);
+  }
   return {
     ...environment,
     AIP_FUNCTIONAL_SELECTED_GATES: gates.join(',')

@@ -8,6 +8,66 @@ import {
 } from '../fixtures/functional-gate-selection.mjs';
 import { functionalMetadata } from '../fixtures/functional-metadata.mjs';
 
+interface CleanupState {
+  originalTaskDetail: TaskDetail | null;
+  originalTaskScope: TaskExecutionScope | null;
+  scopeRestored: boolean;
+  taskDetailsRestored: boolean;
+}
+
+interface TaskBriefField {
+  value?: unknown;
+}
+
+interface TaskDetail {
+  task: {
+    brief?: {
+      constraints?: TaskBriefField;
+      deliverable?: TaskBriefField;
+      goal?: TaskBriefField;
+    };
+    description?: unknown;
+    dueDate?: unknown;
+    id?: unknown;
+    plannedEndDate?: unknown;
+    plannedStartDate?: unknown;
+    priority?: unknown;
+    progressPercent?: unknown;
+    startDate?: unknown;
+    title?: unknown;
+    uiPermissions?: { canUpdate?: unknown };
+    version?: unknown;
+  };
+}
+
+interface TaskExecutionResult {
+  report?: {
+    bodyMarkdown?: unknown;
+    contentSha256?: unknown;
+    title?: unknown;
+  };
+  runId?: unknown;
+  status?: unknown;
+}
+
+interface TaskExecutionRun {
+  id?: unknown;
+  snapshotProjectFilesEnabled?: unknown;
+  snapshotScopeOrigin?: unknown;
+  snapshotWebEnabled?: unknown;
+  status?: unknown;
+}
+
+interface TaskExecutionScope {
+  canManage?: unknown;
+  origin?: unknown;
+  taskOverridePolicy?: {
+    projectFilesEnabled: boolean;
+    webEnabled: boolean;
+  };
+  taskOverrideVersion?: unknown;
+}
+
 const smokeEmail = process.env.AIP_BROWSER_SMOKE_EMAIL ?? '';
 const smokePassword = process.env.AIP_BROWSER_SMOKE_PASSWORD ?? '';
 const smokeWorkspaceTitle = 'Browser Smoke Workspace';
@@ -54,7 +114,7 @@ test.describe('FCI-04 core real-backend golden journey', () => {
     }),
     async ({ page }, testInfo) => {
       const fullExpansionEnabled = functionalFullExpansionEnabled();
-      const evidence: Record<string, any> = {
+      const evidence: Record<string, unknown> = {
         journeyId: 'FUNC-TASK-001',
         selectedGates: selectedFunctionalGates(),
         fullExpansionEnabled,
@@ -76,12 +136,14 @@ test.describe('FCI-04 core real-backend golden journey', () => {
       let projectId = '';
       let taskId = '';
       let idempotencyKey = '';
-      let acceptedRun: Record<string, any> | null = null;
-      let durableResult: Record<string, any> | null = null;
-      let originalTaskScope: Record<string, any> | null = null;
-      let originalTaskDetail: Record<string, any> | null = null;
-      let taskDetailsRestored = true;
-      let scopeRestored = false;
+      let acceptedRunId = '';
+      let durableContentSha256 = 'never-match';
+      const cleanupState: CleanupState = {
+        originalTaskDetail: null,
+        originalTaskScope: null,
+        scopeRestored: false,
+        taskDetailsRestored: true,
+      };
 
       try {
         await test.step('FUNC-TASK-001 / STEP-01 authenticate', async () => {
@@ -126,8 +188,8 @@ test.describe('FCI-04 core real-backend golden journey', () => {
           taskId = String(task.id);
           expect(task.hasArtifact, 'the seeded Task has a real attached Project file').toBe(true);
 
-          const taskScope = await expectJsonOk(page, `/api/tasks/${taskId}/execution-scope`) as Record<string, any>;
-          originalTaskScope = taskScope;
+          const taskScope = await expectJsonOk(page, `/api/tasks/${taskId}/execution-scope`) as TaskExecutionScope;
+          cleanupState.originalTaskScope = taskScope;
           expect(taskScope.canManage, 'the seeded owner may configure and run the Task').toBe(true);
         });
 
@@ -143,9 +205,9 @@ test.describe('FCI-04 core real-backend golden journey', () => {
           });
 
           await test.step('FUNC-TASK-001 / STEP-04 persist a Task update through fresh read and reload', async () => {
-            const taskDetail = await expectJsonOk(page, `/api/tasks/${taskId}`) as Record<string, any>;
-            originalTaskDetail = taskDetail;
-            const originalTask = taskDetail.task as Record<string, any>;
+            const taskDetail = await expectJsonOk(page, `/api/tasks/${taskId}`) as TaskDetail;
+            cleanupState.originalTaskDetail = taskDetail;
+            const originalTask = taskDetail.task;
             expect(originalTask.id).toBe(taskId);
             expect(originalTask.uiPermissions?.canUpdate, 'the seeded owner may update the Task').toBe(true);
 
@@ -153,7 +215,7 @@ test.describe('FCI-04 core real-backend golden journey', () => {
             const originalVersion = Number(originalTask.version);
             const patchResponsePromise = waitForApiResponse(page, 'PATCH', `/api/tasks/${taskId}`);
             await page.getByTestId('task-description-input').fill(durableDescription);
-            taskDetailsRestored = false;
+            cleanupState.taskDetailsRestored = false;
             await page.getByTestId('task-save-button').click();
             const patchResponse = await patchResponsePromise;
             const patchText = await patchResponse.text();
@@ -184,7 +246,7 @@ test.describe('FCI-04 core real-backend golden journey', () => {
             };
 
             await restoreTaskDetails(page, taskId, taskDetail);
-            taskDetailsRestored = true;
+            cleanupState.taskDetailsRestored = true;
           });
         }
 
@@ -249,7 +311,8 @@ test.describe('FCI-04 core real-backend golden journey', () => {
             expect(JSON.stringify(requestBody)).not.toContain(forbidden);
           }
 
-          acceptedRun = parseJson(startText) as Record<string, any>;
+          const acceptedRun = parseJson(startText) as TaskExecutionRun;
+          acceptedRunId = String(acceptedRun.id);
           expect(acceptedRun.id).toMatch(/^[0-9a-f-]{36}$/i);
           expect(acceptedRun.status).toBe('Succeeded');
           expect(acceptedRun.snapshotScopeOrigin).toBe('TaskOverride');
@@ -264,8 +327,8 @@ test.describe('FCI-04 core real-backend golden journey', () => {
         });
 
         await test.step('FUNC-TASK-001 / STEP-08 read the durable result and prove idempotent replay', async () => {
-          expect(acceptedRun, 'accepted execution run').toBeTruthy();
-          const runId = String(acceptedRun!.id);
+          expect(acceptedRunId, 'accepted execution run id').toMatch(/^[0-9a-f-]{36}$/i);
+          const runId = acceptedRunId;
           const scopePanel = page.getByTestId('task-execution-scope');
           await expect(scopePanel.getByTestId('task-execution-result-status')).toHaveText('Succeeded', { timeout: 30_000 });
           const report = scopePanel.getByTestId('task-execution-report');
@@ -282,12 +345,15 @@ test.describe('FCI-04 core real-backend golden journey', () => {
             `/api/tasks/${taskId}/execution-runs/${runId}/result`,
           );
           expect(durableResultResponse.status, durableResultResponse.text).toBe(200);
-          durableResult = parseJson(durableResultResponse.text) as Record<string, any>;
+          const durableResult = parseJson(durableResultResponse.text) as TaskExecutionResult;
           expect(durableResult.runId).toBe(runId);
           expect(durableResult.status).toBe('Succeeded');
           expect(durableResult.report?.title).toBe('Project Files Analysis Report');
           expect(durableResult.report?.bodyMarkdown).toMatch(/Authorized sources consumed: [1-9]/);
           expect(durableResult.report?.bodyMarkdown).not.toContain(smokeTaskFileName);
+          if (typeof durableResult.report?.contentSha256 === 'string') {
+            durableContentSha256 = durableResult.report.contentSha256;
+          }
           evidence.durableResult = durableResult;
 
           const replay = await requestWithCsrf(
@@ -299,7 +365,7 @@ test.describe('FCI-04 core real-backend golden journey', () => {
           );
           expect(replay.csrfHeaderPresent).toBe(true);
           expect(replay.status, replay.text).toBe(201);
-          const replayedRun = parseJson(replay.text) as Record<string, any>;
+          const replayedRun = parseJson(replay.text) as TaskExecutionRun;
           expect(replayedRun.id).toBe(runId);
           expect(replayedRun.status).toBe('Succeeded');
           evidence.replayedRun = replayedRun;
@@ -311,23 +377,26 @@ test.describe('FCI-04 core real-backend golden journey', () => {
           await expect(page.getByTestId('task-execution-result-status')).toHaveText('Succeeded', { timeout: 30_000 });
           await expect(page.getByTestId('task-execution-report-body')).toContainText(/Authorized sources consumed: [1-9]/);
 
-          expect(acceptedRun, 'accepted execution run').toBeTruthy();
           const reloadedResult = await expectJsonOk(
             page,
-            `/api/tasks/${taskId}/execution-runs/${acceptedRun!.id}/result`,
+            `/api/tasks/${taskId}/execution-runs/${acceptedRunId}/result`,
           );
-          expect(reloadedResult.runId).toBe(acceptedRun!.id);
+          expect(reloadedResult.runId).toBe(acceptedRunId);
           expect(reloadedResult.status).toBe('Succeeded');
 
-          await restoreTaskScope(page, taskId, originalTaskScope!);
-          scopeRestored = true;
+          const { originalTaskScope } = cleanupState;
+          if (!originalTaskScope) {
+            throw new Error('FCI-04 cannot restore a Task scope that was not captured.');
+          }
+          await restoreTaskScope(page, taskId, originalTaskScope);
+          Object.assign(cleanupState, { scopeRestored: true });
         });
 
         await test.step('FUNC-TASK-001 / STEP-10 logout and deny protected result access', async () => {
           const logout = await requestWithCsrf(page, 'POST', '/api/auth/logout');
           expect(logout.status, logout.text).toBe(200);
 
-          const runId = String(acceptedRun!.id);
+          const runId = acceptedRunId;
           const deniedRead = await fetchFromPage(page, `/api/tasks/${taskId}/execution-runs/${runId}/result`);
           const deniedStart = await requestWithCsrf(
             page,
@@ -344,7 +413,7 @@ test.describe('FCI-04 core real-backend golden journey', () => {
           expect(deniedText).not.toContain(smokeTaskTitle);
           expect(deniedText).not.toContain(smokeTaskFileName);
           expect(deniedText).not.toContain('Project Files Analysis Report');
-          expect(deniedText).not.toContain(String(durableResult?.report?.contentSha256 ?? 'never-match'));
+          expect(deniedText).not.toContain(durableContentSha256);
           evidence.unauthorizedStatuses = { read: deniedRead.status, start: deniedStart.status };
         });
 
@@ -352,23 +421,24 @@ test.describe('FCI-04 core real-backend golden journey', () => {
           await login(page);
           const reauthorizedRead = await fetchFromPage(
             page,
-            `/api/tasks/${taskId}/execution-runs/${acceptedRun!.id}/result`,
+            `/api/tasks/${taskId}/execution-runs/${acceptedRunId}/result`,
           );
           expect(reauthorizedRead.status, reauthorizedRead.text).toBe(200);
           const reauthorizedResult = parseJson(reauthorizedRead.text) as Record<string, unknown>;
-          expect(reauthorizedResult.runId).toBe(acceptedRun!.id);
+          expect(reauthorizedResult.runId).toBe(acceptedRunId);
           expect(reauthorizedResult.status).toBe('Succeeded');
           evidence.reauthorizedResult = reauthorizedResult;
         });
       } finally {
-        if ((!taskDetailsRestored && originalTaskDetail) || (!scopeRestored && originalTaskScope)) {
+        if ((!cleanupState.taskDetailsRestored && cleanupState.originalTaskDetail)
+          || (!cleanupState.scopeRestored && cleanupState.originalTaskScope)) {
           try {
             await ensureAuthenticated(page);
-            if (!taskDetailsRestored && originalTaskDetail) {
-              await restoreTaskDetails(page, taskId, originalTaskDetail);
+            if (!cleanupState.taskDetailsRestored && cleanupState.originalTaskDetail) {
+              await restoreTaskDetails(page, taskId, cleanupState.originalTaskDetail);
             }
-            if (!scopeRestored && originalTaskScope) {
-              await restoreTaskScope(page, taskId, originalTaskScope);
+            if (!cleanupState.scopeRestored && cleanupState.originalTaskScope) {
+              await restoreTaskScope(page, taskId, cleanupState.originalTaskScope);
             }
           } catch {
             // Preserve the primary assertion. Compose discards this isolated database after the job.
@@ -462,7 +532,7 @@ async function runFullNavigation(
   const myTasksResponse = await myTasksResponsePromise;
   const myTasksText = await myTasksResponse.text();
   expect(myTasksResponse.status(), myTasksText).toBe(200);
-  const myTasks = parseJson(myTasksText) as Record<string, any>;
+  const myTasks = parseJson(myTasksText) as { items?: unknown[] };
   expect(myTasks.items).toEqual(expect.arrayContaining([
     expect.objectContaining({ taskId, projectId, title: smokeTaskTitle }),
   ]));
@@ -500,11 +570,11 @@ async function clickTaskOpenDetail(page: Page, taskRow: Locator): Promise<void> 
 async function restoreTaskDetails(
   page: Page,
   taskId: string,
-  originalDetail: Record<string, any>,
+  originalDetail: TaskDetail,
 ): Promise<void> {
-  const original = originalDetail.task as Record<string, any>;
-  const currentDetail = await expectJsonOk(page, `/api/tasks/${taskId}`);
-  const current = currentDetail.task as Record<string, any>;
+  const original = originalDetail.task;
+  const currentDetail = await expectJsonOk(page, `/api/tasks/${taskId}`) as TaskDetail;
+  const current = currentDetail.task;
   if (current.description === original.description) {
     return;
   }
@@ -524,20 +594,23 @@ async function restoreTaskDetails(
   expect(response.csrfHeaderPresent).toBe(true);
   expect(response.status, response.text).toBe(200);
 
-  const restored = await expectJsonOk(page, `/api/tasks/${taskId}`);
+  const restored = await expectJsonOk(page, `/api/tasks/${taskId}`) as TaskDetail;
   expect(restored.task.description).toBe(original.description);
 }
 
 function taskPriorityValue(priority: unknown): number {
-  const normalized = String(priority ?? '').trim().toLowerCase();
-  const values: Readonly<Record<string, number>> = {
-    low: 0,
-    medium: 1,
-    high: 2,
-    critical: 3,
-    urgent: 3,
-  };
-  const value = values[normalized];
+  if (typeof priority !== 'string') {
+    throw new Error('FCI-04 cannot restore a non-string Task priority.');
+  }
+  const normalized = priority.trim().toLowerCase();
+  const values = new Map<string, number>([
+    ['low', 0],
+    ['medium', 1],
+    ['high', 2],
+    ['critical', 3],
+    ['urgent', 3],
+  ]);
+  const value = values.get(normalized);
   if (value === undefined) {
     throw new Error(`FCI-04 cannot restore unsupported Task priority ${normalized || '<empty>'}.`);
   }
@@ -547,9 +620,9 @@ function taskPriorityValue(priority: unknown): number {
 async function restoreTaskScope(
   page: Page,
   taskId: string,
-  original: Record<string, any>,
+  original: TaskExecutionScope,
 ): Promise<void> {
-  const current = await expectJsonOk(page, `/api/tasks/${taskId}/execution-scope`);
+  const current = await expectJsonOk(page, `/api/tasks/${taskId}/execution-scope`) as TaskExecutionScope;
   if (original.origin === 'ProjectDefault') {
     if (current.taskOverrideVersion !== null) {
       const response = await requestWithCsrf(
@@ -563,7 +636,10 @@ async function restoreTaskScope(
     return;
   }
 
-  const originalPolicy = original.taskOverridePolicy as Record<string, boolean>;
+  const originalPolicy = original.taskOverridePolicy;
+  if (!originalPolicy) {
+    throw new Error('FCI-04 cannot restore a Task override without its captured policy.');
+  }
   const response = await requestWithCsrf(
     page,
     'PUT',
