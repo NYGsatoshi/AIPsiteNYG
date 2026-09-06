@@ -84,6 +84,12 @@ updates:
       docker-image-updates:
         patterns:
           - "*"
+    ignore:
+      # Node 24 is the repository's current LTS baseline. Promote to a new Node
+      # major only through an explicit toolchain migration and acceptance pass.
+      - dependency-name: "node"
+        update-types:
+          - "version-update:semver-major"
     commit-message:
       prefix: "chore(docker)"
 
@@ -101,5 +107,11 @@ updates:
       docker-compose-image-updates:
         patterns:
           - "*"
+    ignore:
+      # Keep Docker Compose service images on the same Node LTS-major policy as
+      # Dockerfiles; remove this hold only as part of the explicit Node migration.
+      - dependency-name: "node"
+        update-types:
+          - "version-update:semver-major"
     commit-message:
       prefix: "chore(compose)"
