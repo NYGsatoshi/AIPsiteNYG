@@ -617,9 +617,9 @@ npm run test:ui:compat-critical -- --profile mobile -- --project=webkit-mobile
 npm run test:ui:compat-critical -- --profile mobile -- --project=narrow-320
 ```
 
-The compatibility-only cases use real Playwright `tap()` input, require coarse
-pointer/no-hover capabilities, and exercise representative navigation and
-right-panel overlay controls. Existing selected cases retain form and list
+The compatibility-only cases require a touch-enabled Playwright context, use
+real `tap()` input without a hover action, and exercise representative
+navigation and right-panel overlay controls. Existing selected cases retain form and list
 coverage at 320 CSS pixels. The overflow assertion treats document/body
 horizontal overflow as a failure and separately proves that the shared data
 grid can own intentional component-scoped horizontal scrolling.

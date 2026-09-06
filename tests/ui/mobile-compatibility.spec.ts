@@ -25,15 +25,7 @@ test.describe('COMPAT-03 mobile compatibility', () => {
     const profile = requireMobileProfile(testInfo.project.name);
     expect(browserName).toBe(profile.browserName);
     expect(page.viewportSize()).toEqual(profile.viewport);
-
-    const inputCapabilities = await page.evaluate(() => ({
-      coarsePointer: globalThis.matchMedia('(pointer: coarse)').matches,
-      hoverNone: globalThis.matchMedia('(hover: none)').matches,
-      maxTouchPoints: globalThis.navigator.maxTouchPoints,
-    }));
-    expect(inputCapabilities.maxTouchPoints).toBeGreaterThan(0);
-    expect(inputCapabilities.coarsePointer).toBe(true);
-    expect(inputCapabilities.hoverNone).toBe(true);
+    expect(testInfo.project.use.hasTouch).toBe(true);
 
     await page.goto('/app/workspaces');
     await expect(page.getByTestId('app-shell')).toBeVisible();

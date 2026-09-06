@@ -16,7 +16,7 @@ The contract requires active, non-quarantined coverage for these categories:
 | `overlay-focus` | dialog/drawer open-close, Escape handling, focus containment/return |
 | `table-list` | representative list/grid interaction and state updates |
 | `responsive` | narrow viewport layout and interaction behavior |
-| `touch` | coarse-pointer tap activation and absence of hover-only critical controls |
+| `touch` | touch-enabled tap activation and absence of hover-only critical controls |
 | `horizontal-overflow` | document-wide containment while an explicitly allowlisted component owns bounded horizontal scrolling |
 | `fetch-error` | representative fetch/API failure and recovery path |
 | `realtime` | minimum real SignalR negotiate/reconnect coverage when the realtime transport is enabled |
@@ -73,9 +73,9 @@ preventing compatibility CI from maintaining a separate test-title list.
 The selected mobile profile covers shell boot, direct navigation, a My Tasks
 form/list flow at 320 CSS pixels, an Audit overlay/list flow at 320 CSS pixels,
 touch navigation and right-panel controls, and document/component horizontal
-overflow separation. The touch case uses Playwright `tap()` with an emulated
-coarse pointer and asserts that the representative critical controls work when
-hover is unavailable. The overflow case fails on document/body overflow while
+overflow separation. The touch case uses Playwright `tap()` in a touch-enabled
+context and completes the representative critical flow without any hover
+action. The overflow case fails on document/body overflow while
 allowing only the component-scoped `[data-testid="app-data-grid"]` region to
 own intentional horizontal scrolling.
 
