@@ -4,17 +4,23 @@ import { join, relative } from 'node:path';
 import {
   ISSUE_683_ITERATION_COUNT,
   ISSUE_683_MIN_RACE_OBSERVATION_ITERATIONS,
-  ISSUE_683_REQUIRED_EXIT_CODE,
   ISSUE_683_REQUIRED_PLAYWRIGHT_RETRY_COUNT,
+  isPassingIssue683Iteration,
   summarizeIssue683Iterations
 } from './issue-683-race-evidence.mjs';
 
+const ISSUE_ID = '#683';
 const EVIDENCE_ROOT = 'issue-683-evidence';
 const JUNIT_SOURCE = join('test-results', 'playwright-results.xml');
 const ITERATION_PAD_WIDTH = 2;
 const ITERATION_PAD_CHARACTER = '0';
 const FULL_COMMIT_SHA = /^[0-9a-f]{40}$/;
 const FALLBACK_FAILURE_EXIT_CODE = 1;
+const FIRST_ITERATION = 1;
+const ITERATION_INCREMENT = 1;
+const ZERO_COUNT = 0;
+const NO_ITERATION_RETRIES = 0;
+const ENABLED_ENVIRONMENT_VALUE = '1';
 
 const candidateSha = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
 const expectedSha = process.env.GITHUB_SHA?.trim() ?? '';
@@ -26,21 +32,25 @@ await mkdir(EVIDENCE_ROOT, { recursive: true });
 const iterations = [];
 let terminalError = null;
 
-for (let iteration = 1; iteration <= ISSUE_683_ITERATION_COUNT; iteration += 1) {
+for (
+  let iteration = FIRST_ITERATION;
+  iteration <= ISSUE_683_ITERATION_COUNT;
+  iteration += ITERATION_INCREMENT
+) {
   const iterationName = `iteration-${String(iteration).padStart(ITERATION_PAD_WIDTH, ITERATION_PAD_CHARACTER)}`;
   const iterationDirectory = join(EVIDENCE_ROOT, iterationName);
   const raceEvidencePath = join(iterationDirectory, 'race-evidence.json');
   await mkdir(iterationDirectory, { recursive: true });
 
   console.log(
-    `Issue #683 evidence ${iterationName}/${ISSUE_683_ITERATION_COUNT}: fixed SHA ${candidateSha}, Playwright retries=${ISSUE_683_REQUIRED_PLAYWRIGHT_RETRY_COUNT}.`
+    `Issue ${ISSUE_ID} evidence ${iterationName}/${ISSUE_683_ITERATION_COUNT}: fixed SHA ${candidateSha}, Playwright retries=${ISSUE_683_REQUIRED_PLAYWRIGHT_RETRY_COUNT}.`
   );
 
   const result = spawnSync(process.execPath, ['tests/ui/run-real-backend-p0.mjs'], {
     cwd: process.cwd(),
     env: {
       ...process.env,
-      AIP_ISSUE_683_EVIDENCE: '1',
+      AIP_ISSUE_683_EVIDENCE: ENABLED_ENVIRONMENT_VALUE,
       AIP_ISSUE_683_EVIDENCE_FILE: relative(process.cwd(), raceEvidencePath)
     },
     stdio: 'inherit'
@@ -55,14 +65,14 @@ for (let iteration = 1; iteration <= ISSUE_683_ITERATION_COUNT; iteration += 1) 
   const records = Array.isArray(reporterOutput?.records) ? reporterOutput.records : [];
   const parseErrors = records
     .map((record) => record?.parseError)
-    .filter((error) => typeof error === 'string' && error.length > 0);
+    .filter((error) => typeof error === 'string' && error.length > ZERO_COUNT);
   if (!reporterOutput) {
-    parseErrors.push('Issue #683 race evidence reporter output is missing or unreadable.');
+    parseErrors.push(`Issue ${ISSUE_ID} race evidence reporter output is missing or unreadable.`);
   }
 
   const raceObservationCount = records.reduce(
-    (count, record) => count + (Array.isArray(record?.raceObservations) ? record.raceObservations.length : 0),
-    0
+    (count, record) => count + (Array.isArray(record?.raceObservations) ? record.raceObservations.length : ZERO_COUNT),
+    ZERO_COUNT
   );
   const iterationSummary = {
     iteration,
@@ -76,24 +86,23 @@ for (let iteration = 1; iteration <= ISSUE_683_ITERATION_COUNT; iteration += 1) 
   iterations.push(iterationSummary);
   await writeJsonFile(join(iterationDirectory, 'summary.json'), iterationSummary);
 
-  const policy = summarizeIssue683IterationsWithPartialAllowance(iterations);
-  if (!policy.currentIterationPassed) {
+  if (!isPassingIssue683Iteration(iterationSummary)) {
     terminalError = new Error(
-      `Issue #683 evidence failed in ${iterationName}; no iteration retry is permitted. See ${iterationDirectory}/summary.json.`
+      `Issue ${ISSUE_ID} evidence failed in ${iterationName}; no iteration retry is permitted. See ${iterationDirectory}/summary.json.`
     );
     break;
   }
 }
 
 const summary = {
-  issue: 683,
+  issue: ISSUE_ID,
   candidateSha,
   fixedShaMatchesGithubSha: candidateSha === expectedSha,
   iterationPolicy: {
     planned: ISSUE_683_ITERATION_COUNT,
     minimumRaceObservationIterations: ISSUE_683_MIN_RACE_OBSERVATION_ITERATIONS,
     playwrightRetries: ISSUE_683_REQUIRED_PLAYWRIGHT_RETRY_COUNT,
-    iterationRetries: 0
+    iterationRetries: NO_ITERATION_RETRIES
   },
   ...summarizeIssue683Iterations(iterations),
   iterations
@@ -106,39 +115,24 @@ if (terminalError) {
 }
 if (!summary.accepted) {
   throw new Error(
-    `Issue #683 evidence conditions were not met: completed=${summary.completedIterations}/${summary.plannedIterations}, race-observed=${summary.raceObservedIterations}/${summary.minimumRaceObservationIterations}. No retries were used.`
+    `Issue ${ISSUE_ID} evidence conditions were not met: completed=${summary.completedIterations}/${summary.plannedIterations}, race-observed=${summary.raceObservedIterations}/${summary.minimumRaceObservationIterations}. No retries were used.`
   );
 }
 
 console.log(
-  `Issue #683 evidence accepted for ${candidateSha}: ${summary.completedIterations} clean iterations, retries=0, race observed in ${summary.raceObservedIterations} iteration(s).`
+  `Issue ${ISSUE_ID} evidence accepted for ${candidateSha}: ${summary.completedIterations} clean iterations, retries=0, race observed in ${summary.raceObservedIterations} iteration(s).`
 );
 
 function validateFixedSha(actualSha, workflowSha) {
   if (!FULL_COMMIT_SHA.test(actualSha)) {
-    throw new Error(`Issue #683 evidence requires a full 40-hex checkout SHA; received ${actualSha || '<empty>'}.`);
+    throw new Error(`Issue ${ISSUE_ID} evidence requires a full 40-hex checkout SHA; received ${actualSha || '<empty>'}.`);
   }
   if (!FULL_COMMIT_SHA.test(workflowSha)) {
-    throw new Error(`Issue #683 evidence requires GITHUB_SHA to be a full 40-hex SHA; received ${workflowSha || '<empty>'}.`);
+    throw new Error(`Issue ${ISSUE_ID} evidence requires GITHUB_SHA to be a full 40-hex SHA; received ${workflowSha || '<empty>'}.`);
   }
   if (actualSha !== workflowSha) {
-    throw new Error(`Issue #683 fixed-SHA mismatch: checkout=${actualSha}, GITHUB_SHA=${workflowSha}.`);
+    throw new Error(`Issue ${ISSUE_ID} fixed-SHA mismatch: checkout=${actualSha}, GITHUB_SHA=${workflowSha}.`);
   }
-}
-
-function summarizeIssue683IterationsWithPartialAllowance(currentIterations) {
-  const latest = currentIterations.at(-1);
-  const currentIterationPassed = Boolean(
-    latest &&
-    latest.exitCode === ISSUE_683_REQUIRED_EXIT_CODE &&
-    latest.pr03cResultCount === 1 &&
-    latest.pr03cRetries.length === 1 &&
-    latest.pr03cRetries.every((retry) => retry === ISSUE_683_REQUIRED_PLAYWRIGHT_RETRY_COUNT) &&
-    latest.pr03cStatuses.length === 1 &&
-    latest.pr03cStatuses.every((status) => status === 'passed') &&
-    latest.parseErrors.length === 0
-  );
-  return { currentIterationPassed };
 }
 
 async function readJsonFile(path) {
@@ -165,14 +159,14 @@ async function fileExists(path) {
 function renderMarkdownSummary(summary) {
   const result = summary.accepted ? 'PASS' : 'FAIL';
   return [
-    '# Issue #683 real-browser/backend evidence',
+    `# Issue ${ISSUE_ID} real-browser/backend evidence`,
     '',
     `- Candidate SHA: \`${summary.candidateSha}\``,
     `- Fixed SHA matches \`GITHUB_SHA\`: ${summary.fixedShaMatchesGithubSha}`,
     `- Planned clean iterations: ${summary.plannedIterations}`,
     `- Completed clean iterations: ${summary.completedIterations}`,
     `- Playwright retries: ${summary.requiredPlaywrightRetries}`,
-    '- Iteration retries after failure: 0',
+    `- Iteration retries after failure: ${NO_ITERATION_RETRIES}`,
     `- Race observation condition: exact \`GET /api/tasks/{taskId}/execution-scope -> 404\` in at least ${summary.minimumRaceObservationIterations} passing iteration(s)`,
     `- Race-observed iterations: ${summary.raceObservedIterations}`,
     `- Result: **${result}**`,
