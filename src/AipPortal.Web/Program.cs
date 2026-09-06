@@ -18,7 +18,6 @@ using AipPortal.Web.Testing;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
-using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using System.Text.Json;
@@ -59,12 +58,7 @@ builder.Services
     .AddCookie(options =>
     {
         var security = builder.Configuration.GetSection("Security").Get<SecurityOptions>() ?? new SecurityOptions();
-        options.Cookie.Name = ".AipPortal.Auth";
-        options.Cookie.HttpOnly = true;
-        options.Cookie.SameSite = SameSiteMode.Lax;
-        options.Cookie.SecurePolicy = security.CookieSecurePolicy;
-        options.ExpireTimeSpan = TimeSpan.FromHours(8);
-        options.SlidingExpiration = true;
+        HttpSecurityPolicy.ConfigureAuthenticationCookie(options, security);
         options.EventsType = typeof(DbSessionCookieAuthenticationEvents);
     });
 
@@ -85,40 +79,7 @@ builder.Services.AddScoped<IRealtimeDispatchAuthorizer, RealtimeDispatchAuthoriz
 builder.Services.AddHostedService<OutboxDispatcher>();
 builder.Services.AddHostedService<TaskDeadlineDigestWorker>();
 builder.Services.AddHostedService<AnnouncementPublisherWorker>();
-builder.Services.AddRateLimiter(options =>
-{
-    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-    options.AddFixedWindowLimiter("login", limiter =>
-    {
-        limiter.PermitLimit = 10;
-        limiter.Window = TimeSpan.FromMinutes(1);
-        limiter.QueueLimit = 0;
-    });
-    options.AddFixedWindowLimiter("invite", limiter =>
-    {
-        limiter.PermitLimit = 10;
-        limiter.Window = TimeSpan.FromMinutes(1);
-        limiter.QueueLimit = 0;
-    });
-    options.AddFixedWindowLimiter("file-upload", limiter =>
-    {
-        limiter.PermitLimit = 20;
-        limiter.Window = TimeSpan.FromMinutes(1);
-        limiter.QueueLimit = 0;
-    });
-    options.AddFixedWindowLimiter("api-token", limiter =>
-    {
-        limiter.PermitLimit = 30;
-        limiter.Window = TimeSpan.FromMinutes(1);
-        limiter.QueueLimit = 0;
-    });
-    options.AddFixedWindowLimiter("search", limiter =>
-    {
-        limiter.PermitLimit = 60;
-        limiter.Window = TimeSpan.FromMinutes(1);
-        limiter.QueueLimit = 0;
-    });
-});
+builder.Services.AddRateLimiter(options => HttpSecurityPolicy.ConfigureRateLimiting(options));
 
 if (ForwardedHeadersConfiguration.ShouldTrustForwardedHeaders(builder.Configuration))
 {
@@ -136,6 +97,7 @@ if (ForwardedHeadersConfiguration.ShouldTrustForwardedHeaders(app.Configuration)
 app.UseMiddleware<GlobalExceptionHandlingMiddleware>();
 app.UseMiddleware<WpcApiContractMiddleware>();
 app.UseMiddleware<SecurityHeadersMiddleware>();
+app.UseMiddleware<RequestBodyLimitMiddleware>();
 
 var tenancyOptions = app.Services.GetRequiredService<TenancyOptions>();
 var seedAdminEnabled = builder.Configuration.GetValue<bool>("AIP_SEED_ADMIN_ENABLED");
@@ -294,16 +256,18 @@ app.UseStaticFiles(new StaticFileOptions
         AngularSpaFallback.ApplyStaticFileHeaders(context.Context.Response, context.Context.Request.Path)
 });
 
+app.UseRouting();
+app.UseCors(HttpSecurityPolicy.CorsPolicyName);
 app.UseMiddleware<TenantResolutionMiddleware>();
 // SignalR upgrades its same-origin transport to WebSockets. Register the
 // WebSocket middleware before authentication and endpoint execution so the
 // Hub can establish the upgrade after a successful negotiate request.
 app.UseWebSockets();
+app.UseAuthentication();
 if (securityOptions.EnableRateLimiting)
 {
     app.UseRateLimiter();
 }
-app.UseAuthentication();
 if (securityOptions.EnableCsrfProtection)
 {
     app.Services.GetRequiredService<CsrfProtectionState>().MarkMiddlewareActive();

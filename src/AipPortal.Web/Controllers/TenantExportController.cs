@@ -1,8 +1,10 @@
 using AipPortal.Application.Security.Redaction;
 using AipPortal.Application.TenantExports;
+using AipPortal.Web.Configuration;
 using AipPortal.Web.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace AipPortal.Web.Controllers;
 
@@ -11,6 +13,7 @@ namespace AipPortal.Web.Controllers;
 public sealed class TenantExportController(ITenantExportService tenantExports) : ControllerBase
 {
     [HttpPost("api/tenant/export")]
+    [EnableRateLimiting(HttpSecurityPolicy.TenantExportRateLimitPolicy)]
     public async Task<IActionResult> Export(TenantExportRequest request, CancellationToken cancellationToken)
     {
         var result = await tenantExports.ExportAsync(request, cancellationToken);
