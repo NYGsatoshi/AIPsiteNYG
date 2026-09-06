@@ -9,6 +9,8 @@
     "overlay-focus",
     "table-list",
     "responsive",
+    "touch",
+    "horizontal-overflow",
     "fetch-error",
     "realtime"
   ],
@@ -19,7 +21,7 @@
     },
     "mobile": {
       "description": "Secretless static Angular compatibility coverage reused by mobile and explicit narrow-viewport projects.",
-      "requiredCategories": ["boot", "navigation", "form", "overlay-focus", "table-list", "responsive", "fetch-error"]
+      "requiredCategories": ["boot", "navigation", "form", "overlay-focus", "table-list", "responsive", "touch", "horizontal-overflow", "fetch-error"]
     },
     "os-portability": {
       "description": "Small UI discovery subset suitable for cross-OS toolchain and build portability checks.",
@@ -62,6 +64,22 @@
       "title": "keeps the redacted audit drawer deep-linkable, focus-safe, and accessible at 320px",
       "categories": ["navigation", "overlay-focus", "table-list", "responsive"],
       "profiles": ["browser-engine", "mobile"],
+      "status": "active"
+    },
+    {
+      "id": "COMPAT-TOUCH-001",
+      "file": "tests/ui/mobile-compatibility.spec.ts",
+      "title": "uses touch navigation and overlay controls without hover-only behavior",
+      "categories": ["navigation", "overlay-focus", "responsive", "touch"],
+      "profiles": ["mobile"],
+      "status": "active"
+    },
+    {
+      "id": "COMPAT-OVERFLOW-001",
+      "file": "tests/ui/mobile-compatibility.spec.ts",
+      "title": "keeps page overflow closed while an allowlisted data grid owns horizontal scrolling",
+      "categories": ["table-list", "responsive", "horizontal-overflow"],
+      "profiles": ["mobile"],
       "status": "active"
     },
     {

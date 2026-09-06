@@ -15,7 +15,9 @@ The contract requires active, non-quarantined coverage for these categories:
 | `form` | browser form input, keyboard submit, and validation/error interaction |
 | `overlay-focus` | dialog/drawer open-close, Escape handling, focus containment/return |
 | `table-list` | representative list/grid interaction and state updates |
-| `responsive` | narrow viewport behavior and page-wide overflow protection |
+| `responsive` | narrow viewport layout and interaction behavior |
+| `touch` | touch-enabled tap activation and absence of hover-only critical controls |
+| `horizontal-overflow` | document-wide containment while an explicitly allowlisted component owns bounded horizontal scrolling |
 | `fetch-error` | representative fetch/API failure and recovery path |
 | `realtime` | minimum real SignalR negotiate/reconnect coverage when the realtime transport is enabled |
 
@@ -90,6 +92,43 @@ Playwright WebKit is evidence about this WebKit engine configuration. It is not
 evidence of real Safari on Apple hardware, Safari release integration, iOS, or
 device-specific behavior, and must not be represented as Safari certification.
 
+## COMPAT-03 mobile execution contract
+
+Issue #594 runs the canonical `mobile` profile in three isolated matrix cells:
+
+| Playwright project | Engine/device contract | CSS viewport |
+| --- | --- | --- |
+| `chromium-mobile` | existing Pixel 5 emulation on Chromium | `393 x 727` |
+| `webkit-mobile` | iPhone 13 emulation on WebKit | `390 x 664` |
+| `narrow-320` | explicit Chromium touch context independent of a named device preset | `320 x 800` |
+
+The two additional projects are enabled only when `AIP_COMPAT_CRITICAL=1`, so
+the ordinary functional/static suite keeps its established Chromium pair. The
+matrix therefore reuses one COMPAT-04 `mobile` selection contract instead of
+maintaining a second title list or multiplying the full browser suite.
+
+The mobile profile covers shell boot, navigation, representative form/list and
+overlay behavior, touch activation, and horizontal-overflow containment. The
+touch case uses Playwright `tap()` in a touch-enabled context and completes its
+critical flow without a hover action. The overflow case rejects page-wide or
+unexpected nested horizontal scrolling at every configured mobile viewport and
+separately permits intentional component-scoped horizontal scrolling only in
+the allowlisted shared data grid.
+
+Run individual cells with:
+
+```bash
+npm run test:ui:compat-critical -- --profile mobile -- --project=chromium-mobile
+npm run test:ui:compat-critical -- --profile mobile -- --project=webkit-mobile
+npm run test:ui:compat-critical -- --profile mobile -- --project=narrow-320
+```
+
+These are secretless static Angular runs with mocked API responses. Playwright
+WebKit plus an iPhone descriptor is engine/emulation evidence, not certification
+of real iPhone hardware or Apple Safari. Physical-device input, browser chrome,
+OS integration, and Safari-specific behavior require separate real-device
+validation.
+
 ## Fail-closed enforcement
 
 `.github/workflows/compat-critical-preflight.yml` validates the contract on pull requests and on `main`. The validator rejects the contract when any of these conditions occurs:
@@ -106,7 +145,7 @@ device-specific behavior, and must not be represented as Safari certification.
 - a selected test contains an inline `skip`, `fixme`, or expected-failure exception;
 - Playwright `--list` discovers zero, partial, duplicate, or unexpected selected tests.
 
-The preflight runs actual Playwright discovery for every profile. Therefore a filename/title rename cannot silently turn the compatibility suite into a successful zero-test run.
+The preflight runs actual Playwright discovery for every profile and all configured browser/mobile projects. Therefore a filename/title rename or a missing project cannot silently turn the compatibility suite into a successful zero-test run.
 
 ## Determinism
 

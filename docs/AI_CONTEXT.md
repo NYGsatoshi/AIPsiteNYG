@@ -53,6 +53,8 @@ Do not infer that an entity, configuration property, controller route, or archiv
 - Angular browser UI source: `frontend/`; hosted build artifacts are copied to `src/AipPortal.Web/wwwroot/`.
 - xUnit tests: `tests/AipPortal.Tests/`.
 - Playwright and axe UI tests: `tests/ui/`, with static Angular/mock coverage,
+  a canonical mobile compatibility matrix across Chromium device emulation,
+  WebKit device emulation, and an explicit 320-CSS-pixel touch context,
   an isolated Compose-backed MVP0 real-backend smoke for cookie, CSRF, and
   seeded workflow compatibility, and an Issue #481 protected public-HTTPS
   deployment gate. The latter requires target-environment fixture configuration

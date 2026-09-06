@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - ".github/workflows/compat-critical-preflight.yml"
+      - ".github/workflows/mobile-compatibility.yml"
       - "frontend/**"
       - "package.json"
       - "package-lock.json"
@@ -19,6 +20,7 @@ on:
     branches: ["main"]
     paths:
       - ".github/workflows/compat-critical-preflight.yml"
+      - ".github/workflows/mobile-compatibility.yml"
       - "frontend/**"
       - "package.json"
       - "package-lock.json"
@@ -53,6 +55,7 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: "24"
+          package-manager-cache: false
 
       - name: Install repository Playwright dependencies
         run: npm ci --prefer-offline --ignore-scripts --no-audit --no-fund
@@ -89,11 +92,23 @@ jobs:
           --profile browser-engine
           --project webkit-desktop
 
-      - name: Verify mobile selection against Playwright discovery
+      - name: Verify Chromium mobile selection against Playwright discovery
         run: >-
           node scripts/ci/verify-compat-critical.mjs
           --profile mobile
           --project chromium-mobile
+
+      - name: Verify WebKit mobile selection against Playwright discovery
+        run: >-
+          node scripts/ci/verify-compat-critical.mjs
+          --profile mobile
+          --project webkit-mobile
+
+      - name: Verify narrow 320 selection against Playwright discovery
+        run: >-
+          node scripts/ci/verify-compat-critical.mjs
+          --profile mobile
+          --project narrow-320
 
       - name: Verify OS-portability selection against Playwright discovery
         run: >-
@@ -115,7 +130,7 @@ jobs:
             echo
             echo "- Manifest schema and fail-closed invariants self-tested"
             echo "- Selected source tests resolved by exact title"
-            echo "- Browser-engine, mobile, OS-portability, and real-backend profiles discovered by Playwright"
+            echo "- Browser-engine, all three mobile projects, OS-portability, and real-backend profiles discovered by Playwright"
             echo "- Chromium, Firefox, and WebKit desktop projects select the same browser-engine profile"
             echo "- Zero-test, missing-category, obsolete/superseded, and quarantine-only states fail closed"
             echo "- Selected tests reject arbitrary sleep, unseeded randomness, and pixel-only snapshot assertions"
@@ -156,8 +171,8 @@ jobs:
       - name: Install repository Playwright dependencies
         run: npm ci --prefer-offline --ignore-scripts --no-audit --no-fund
 
-      - name: Install Angular dependencies
-        run: npm --prefix frontend ci --prefer-offline --no-audit --no-fund
+      - name: Install Angular dependencies without lifecycle scripts
+        run: npm --prefix frontend ci --prefer-offline --ignore-scripts --no-audit --no-fund
 
       - name: Install ${{ matrix.engine }} browser and system dependencies
         run: npx playwright install --with-deps "${{ matrix.browser }}"
