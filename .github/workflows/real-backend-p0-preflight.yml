@@ -14,6 +14,7 @@ on:
       - "scripts/ci/verify-playwright-required-tests.mjs"
       - "tests/ui/build-playwright-grep.node-test.mjs"
       - "tests/ui/verify-playwright-required-tests.node-test.mjs"
+      - "tests/ui/real-backend-pr03c-failure-correlation.node-test.mjs"
       - "tests/ui/real-backend-smoke-compose-helpers.mjs"
       - "tests/ui/real-backend-smoke-compose-helpers.node-test.mjs"
       - "tests/ui/real-backend-smoke.spec.ts"
@@ -35,6 +36,7 @@ on:
       - "scripts/ci/verify-playwright-required-tests.mjs"
       - "tests/ui/build-playwright-grep.node-test.mjs"
       - "tests/ui/verify-playwright-required-tests.node-test.mjs"
+      - "tests/ui/real-backend-pr03c-failure-correlation.node-test.mjs"
       - "tests/ui/real-backend-smoke-compose-helpers.mjs"
       - "tests/ui/real-backend-smoke-compose-helpers.node-test.mjs"
       - "tests/ui/real-backend-smoke.spec.ts"
@@ -72,6 +74,7 @@ jobs:
           tests/ui/build-playwright-grep.node-test.mjs
           tests/ui/real-backend-smoke-compose-helpers.node-test.mjs
           tests/ui/verify-playwright-required-tests.node-test.mjs
+          tests/ui/real-backend-pr03c-failure-correlation.node-test.mjs
 
       - name: Check P0 and Functional harness syntax
         shell: bash
