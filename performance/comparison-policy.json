@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "resultSchemaVersion": 1,
+  "statistics": {
+    "percentileMethod": "linear-interpolation"
+  },
+  "variability": {
+    "defaultIndicator": "relative-mad",
+    "defaultRelativeMadMax": 0.2,
+    "ratioIndicator": "range",
+    "ratioRangeMax": 0.05
+  },
+  "rerun": {
+    "maxReruns": 1,
+    "preserveAttempts": true,
+    "secondAttemptRequiresPreviousArtifact": true
+  },
+  "baseline": {
+    "approvedSourceRef": "refs/heads/main",
+    "rejectHeadAsBaseline": true,
+    "requireEnvironmentCompatibility": true,
+    "requireFixtureCompatibility": true
+  }
+}
