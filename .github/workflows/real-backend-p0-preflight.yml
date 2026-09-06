@@ -14,6 +14,10 @@ on:
       - "scripts/ci/verify-playwright-required-tests.mjs"
       - "tests/ui/build-playwright-grep.node-test.mjs"
       - "tests/ui/verify-playwright-required-tests.node-test.mjs"
+      - "tests/ui/issue-683-race-evidence.mjs"
+      - "tests/ui/issue-683-race-evidence.node-test.mjs"
+      - "tests/ui/issue-683-race-evidence-reporter.mjs"
+      - "tests/ui/run-issue-683-real-backend-evidence.mjs"
       - "tests/ui/real-backend-pr03c-failure-correlation.node-test.mjs"
       - "tests/ui/real-backend-smoke-compose-helpers.mjs"
       - "tests/ui/real-backend-smoke-compose-helpers.node-test.mjs"
@@ -36,6 +40,10 @@ on:
       - "scripts/ci/verify-playwright-required-tests.mjs"
       - "tests/ui/build-playwright-grep.node-test.mjs"
       - "tests/ui/verify-playwright-required-tests.node-test.mjs"
+      - "tests/ui/issue-683-race-evidence.mjs"
+      - "tests/ui/issue-683-race-evidence.node-test.mjs"
+      - "tests/ui/issue-683-race-evidence-reporter.mjs"
+      - "tests/ui/run-issue-683-real-backend-evidence.mjs"
       - "tests/ui/real-backend-pr03c-failure-correlation.node-test.mjs"
       - "tests/ui/real-backend-smoke-compose-helpers.mjs"
       - "tests/ui/real-backend-smoke-compose-helpers.node-test.mjs"
@@ -59,12 +67,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: "24"
 
@@ -75,6 +83,7 @@ jobs:
           tests/ui/real-backend-smoke-compose-helpers.node-test.mjs
           tests/ui/verify-playwright-required-tests.node-test.mjs
           tests/ui/real-backend-pr03c-failure-correlation.node-test.mjs
+          tests/ui/issue-683-race-evidence.node-test.mjs
 
       - name: Check P0 and Functional harness syntax
         shell: bash
@@ -83,6 +92,9 @@ jobs:
           bash -n scripts/ci/verify-functional-trust-boundary.sh
           node --check tests/ui/prepare-real-backend-p0-state.mjs
           node --check tests/ui/real-backend-smoke-compose-helpers.mjs
+          node --check tests/ui/issue-683-race-evidence.mjs
+          node --check tests/ui/issue-683-race-evidence-reporter.mjs
+          node --check tests/ui/run-issue-683-real-backend-evidence.mjs
           node --check tests/ui/run-real-backend-p0.mjs
           node --check tests/ui/run-real-backend-playwright.mjs
           node --check tests/ui/run-real-backend-smoke-compose.mjs
@@ -107,6 +119,7 @@ jobs:
             echo "- Manifest titles verified against the real-backend Playwright spec"
             echo "- Focused grep generated successfully"
             echo "- Required JUnit result verifier unit-tested"
+            echo "- Issue #683 fixed-SHA/retry/race-observation policy unit-tested"
             echo "- Functional Compose isolation, fixture-profile, redaction, cleanup-command, and failure-classification invariants self-tested"
             echo "- Protected Syncfusion license lane verified as push/dispatch-only with exact-SHA checkout"
             echo "- Existing P0 JavaScript and Functional shell syntax checked"
