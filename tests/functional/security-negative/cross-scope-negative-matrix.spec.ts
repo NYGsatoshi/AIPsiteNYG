@@ -31,7 +31,6 @@ const ALPHA_TASK_TITLE = 'SEC02 ALPHA PRIVATE TASK CANARY';
 const BETA_TASK_TITLE = 'SEC02 BETA PRIVATE TASK CANARY';
 const ALPHA_FILE_NAME = 'sec02-alpha-private.txt';
 const BETA_FILE_NAME = 'sec02-beta-private.txt';
-const ALPHA_NOTIFICATION_TITLE = 'SEC05 ALPHA NOTIFICATION CANARY';
 const BETA_NOTIFICATION_TITLE = 'SEC05 BETA NOTIFICATION CANARY';
 const BETA_PROTECTED_MARKERS = [
   BETA_WORKSPACE_TITLE,
@@ -113,7 +112,7 @@ test.describe('FCI-07 real-stack authorization negative matrix', () => {
           taskTitle: ALPHA_TASK_TITLE,
           fileName: ALPHA_FILE_NAME,
         });
-        const membersBefore = await readWorkspaceMembers(ownerApi, alpha.workspaceId);
+        const membersBefore = await readManagedWorkspaceMembers(ownerApi, alpha.workspaceId);
         const alphaMember = membersBefore.find((member) => readString(member, 'email', 'Email') === ALPHA_MEMBER_EMAIL);
         if (!alphaMember) {
           throw new Error('FCI-07 Alpha member fixture was not visible to the Workspace owner.');
@@ -129,7 +128,7 @@ test.describe('FCI-07 real-stack authorization negative matrix', () => {
             expectedStatus: 403,
           })
         ).status;
-        expect((await readWorkspaceMembers(ownerApi, alpha.workspaceId)).length).toBe(membersBefore.length);
+        expect((await readManagedWorkspaceMembers(ownerApi, alpha.workspaceId)).length).toBe(membersBefore.length);
 
         if (functionalFullExpansionEnabled()) {
           const invalidCsrf = await ownerApi.post(`/api/workspaces/${alpha.workspaceId}/members`, {
@@ -142,7 +141,7 @@ test.describe('FCI-07 real-stack authorization negative matrix', () => {
               expectedStatus: 403,
             })
           ).status;
-          expect((await readWorkspaceMembers(ownerApi, alpha.workspaceId)).length).toBe(membersBefore.length);
+          expect((await readManagedWorkspaceMembers(ownerApi, alpha.workspaceId)).length).toBe(membersBefore.length);
         }
 
         await logoutViaApi(memberApi);
@@ -259,7 +258,6 @@ test.describe('FCI-07 real-stack authorization negative matrix', () => {
             alphaOwnerApi,
             'POST',
             `/api/notifications/${betaNotificationId}/open`,
-            { data: {} },
           );
           const notificationDenial = await assertSafeDenial(foreignNotificationOpen, {
             label: 'FCI-07 foreign Notification deep-link open',
@@ -282,7 +280,7 @@ test.describe('FCI-07 real-stack authorization negative matrix', () => {
         await expect(page.getByTestId('task-detail-page')).toBeVisible();
         await expect(page.getByRole('heading', { name: ALPHA_TASK_TITLE })).toBeVisible();
 
-        const members = await readWorkspaceMembers(alphaOwnerApi, alpha.workspaceId);
+        const members = await readManagedWorkspaceMembers(alphaOwnerApi, alpha.workspaceId);
         const alphaMember = members.find((member) => readString(member, 'email', 'Email') === ALPHA_MEMBER_EMAIL);
         if (!alphaMember) {
           throw new Error('FCI-07 could not resolve the Alpha member before revocation.');
@@ -381,10 +379,10 @@ async function resolveCoreGraph(
   return { workspaceId, projectId, taskId, fileId };
 }
 
-async function readWorkspaceMembers(api: APIRequestContext, workspaceId: string): Promise<Record<string, unknown>[]> {
-  const response = await api.get(`/api/workspaces/${workspaceId}/members`);
-  await assertSafeResponse(response, { label: 'FCI-07 Workspace member list', expectedStatus: 200 });
-  return asArray(await response.json(), 'Workspace member list');
+async function readManagedWorkspaceMembers(api: APIRequestContext, workspaceId: string): Promise<Record<string, unknown>[]> {
+  const response = await api.get(`/api/workspaces/${workspaceId}/members/management`);
+  await assertSafeResponse(response, { label: 'FCI-07 managed Workspace member list', expectedStatus: 200 });
+  return asArray(await response.json(), 'Managed Workspace member list');
 }
 
 async function resolveNotificationId(api: APIRequestContext, title: string): Promise<string> {
