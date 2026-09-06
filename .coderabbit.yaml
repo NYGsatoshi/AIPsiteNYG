@@ -1,10 +1,12 @@
 # yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
 
-language: "ja-JP"
+language: "en-US"
 early_access: false
 
 tone_instructions: >-
-  簡潔かつ技術的にレビューし、実害のある問題を優先する。既存CIで機械的に検出できる軽微な指摘は抑制する。
+  Keep reviews concise and technical. Prioritize issues with real behavioral,
+  security, architectural, or maintainability impact, and suppress minor findings
+  that existing deterministic CI can already detect reliably.
 
 reviews:
   profile: "chill"
