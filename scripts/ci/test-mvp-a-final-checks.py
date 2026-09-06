@@ -80,6 +80,32 @@ class LatestRequiredCheckTests(unittest.TestCase):
         self.assertFalse(summary["build-test"])
         self.assertTrue(any("build-test: latest trusted check" in failure for failure in failures))
 
+    def test_newer_in_progress_check_cannot_be_masked_by_old_success_finishing_later(self) -> None:
+        checks = successful_evidence()
+        old = next(check for check in checks if check["name"] == "frontend-static-analysis")
+        old["id"] = 2500
+        old["completed_at"] = "2026-09-06T06:20:00Z"
+        checks.append(
+            check_run(
+                "frontend-static-analysis",
+                2501,
+                status="in_progress",
+                conclusion=None,
+                started_at="2026-09-06T06:10:00Z",
+                completed_at=None,
+            )
+        )
+
+        failures, summary = self.evaluate(checks)
+
+        self.assertFalse(summary["frontend-static-analysis"])
+        self.assertTrue(
+            any(
+                "frontend-static-analysis: latest trusted check" in failure
+                for failure in failures
+            )
+        )
+
     def test_newer_failure_cannot_be_masked_by_old_success_with_later_timestamp(self) -> None:
         checks = successful_evidence()
         old = next(check for check in checks if check["name"] == "security-scan")
