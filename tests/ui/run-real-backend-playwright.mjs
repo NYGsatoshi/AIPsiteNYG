@@ -1,5 +1,9 @@
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import {
+  ISSUE_683_RETRY_ARGUMENT,
+  validateIssue683RetryArguments
+} from './issue-683-race-evidence.mjs';
 import { prepareRealBackendP0State } from './prepare-real-backend-p0-state.mjs';
 import {
   isHstsPreloadedHttpUrl,
@@ -9,6 +13,11 @@ import {
 const playwrightCli = fileURLToPath(new URL('../../node_modules/@playwright/test/cli.js', import.meta.url));
 const userArgs = process.argv.slice(2);
 const focusedGrep = process.env.AIP_REAL_BACKEND_SMOKE_GREP?.trim();
+const issue683Evidence = process.env.AIP_ISSUE_683_EVIDENCE === '1';
+const issue683Reporter = './tests/ui/issue-683-race-evidence-reporter.mjs';
+const issue683ReporterArgs = issue683Evidence
+  ? [`--reporter=list,junit,${issue683Reporter}`]
+  : [];
 const playwrightArgs = [
   ...(userArgs.length > 0
     ? userArgs
@@ -17,16 +26,20 @@ const playwrightArgs = [
       'tests/functional/files/files-fast-journey.spec.ts',
       'tests/ui/real-backend-smoke.spec.ts',
       '--project=chromium-desktop',
-      '--retries=0',
+      ISSUE_683_RETRY_ARGUMENT,
       '--workers=1'
     ]),
-  ...(focusedGrep ? ['--grep', focusedGrep] : [])
+  ...(focusedGrep ? ['--grep', focusedGrep] : []),
+  ...issue683ReporterArgs
 ];
 
 let exitCode = 1;
 
 try {
   const configuration = validateConfiguration(process.env);
+  if (issue683Evidence) {
+    validateIssue683RetryArguments(playwrightArgs);
+  }
   await waitForReady(configuration.baseURL);
   if (process.env.AIP_REAL_BACKEND_P0_SETUP === '1') {
     await prepareRealBackendP0State(configuration);
@@ -90,9 +103,14 @@ function runPlaywright(baseURL) {
       }
     };
 
+    const environment = { ...process.env, PLAYWRIGHT_BASE_URL: baseURL };
+    if (issue683Evidence) {
+      environment.PLAYWRIGHT_JUNIT_OUTPUT_FILE = 'test-results/playwright-results.xml';
+    }
+
     const child = spawn(process.execPath, [playwrightCli, 'test', ...playwrightArgs], {
       cwd: process.cwd(),
-      env: { ...process.env, PLAYWRIGHT_BASE_URL: baseURL },
+      env: environment,
       stdio: 'inherit'
     });
 
