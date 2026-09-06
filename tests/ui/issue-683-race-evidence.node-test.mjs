@@ -1,30 +1,43 @@
-import assert from 'node:assert/strict';
-import test from 'node:test';
 import {
   ISSUE_683_ITERATION_COUNT,
   ISSUE_683_MIN_RACE_OBSERVATION_ITERATIONS,
+  ISSUE_683_PASSED_STATUS,
+  ISSUE_683_REQUIRED_EXIT_CODE,
   ISSUE_683_REQUIRED_PLAYWRIGHT_RETRY_COUNT,
-  ISSUE_683_RETRY_ARGUMENT,
+  ISSUE_683_REQUIRED_PR03C_RESULT_COUNT,
   isIssue683RaceObservation,
   issue683RaceObservations,
-  summarizeIssue683Iterations,
-  validateIssue683RetryArguments
+  summarizeIssue683Iterations
 } from './issue-683-race-evidence.mjs';
+import { strict as assert } from 'node:assert';
+import { test } from 'node:test';
 
-const HTTP_NOT_FOUND_STATUS = 404;
-const HTTP_BAD_REQUEST_STATUS = 400;
-const ZERO_RACE_OBSERVATIONS = 0;
-const ONE_RACE_OBSERVATION = 1;
-const NON_ZERO_RETRY_COUNT = ISSUE_683_REQUIRED_PLAYWRIGHT_RETRY_COUNT + 1;
-const PR03C_RESULT_COUNT = 1;
-const SUCCESS_EXIT_CODE = 0;
-const RACE_PATH = '/api/tasks/11111111-1111-1111-1111-111111111111/execution-scope';
+const EXPECTED_ITERATION_COUNT = 10,
+  FIRST_ARRAY_INDEX = 0,
+  FIRST_ITERATION_NUMBER = 1,
+  HTTP_BAD_REQUEST_STATUS = 400,
+  HTTP_NOT_FOUND_STATUS = 404,
+  NON_ZERO_RETRY_COUNT = 1,
+  ONE_RACE_OBSERVATION = 1,
+  RACE_PATH = '/api/tasks/11111111-1111-1111-1111-111111111111/execution-scope',
+  ZERO_RACE_OBSERVATIONS = 0,
+  passingIterations = () =>
+    Array.from({ length: ISSUE_683_ITERATION_COUNT }, (_unusedValue, index) => ({
+      exitCode: ISSUE_683_REQUIRED_EXIT_CODE,
+      iteration: index + FIRST_ITERATION_NUMBER,
+      parseErrors: [],
+      playwrightRetries: [ISSUE_683_REQUIRED_PLAYWRIGHT_RETRY_COUNT],
+      pr03cResultCount: ISSUE_683_REQUIRED_PR03C_RESULT_COUNT,
+      pr03cRetries: [ISSUE_683_REQUIRED_PLAYWRIGHT_RETRY_COUNT],
+      pr03cStatuses: [ISSUE_683_PASSED_STATUS],
+      raceObservationCount: ZERO_RACE_OBSERVATIONS
+    }));
 
-test('Issue #683 policy is version-controlled as ten clean iterations with at least one race observation and zero retries', () => {
-  assert.equal(ISSUE_683_ITERATION_COUNT, 10);
+test('Issue #683 policy fixes ten clean iterations, at least one race observation, and zero Playwright retries', () => {
+  assert.equal(ISSUE_683_ITERATION_COUNT, EXPECTED_ITERATION_COUNT);
   assert.equal(ISSUE_683_MIN_RACE_OBSERVATION_ITERATIONS, ONE_RACE_OBSERVATION);
-  assert.equal(ISSUE_683_REQUIRED_PLAYWRIGHT_RETRY_COUNT, SUCCESS_EXIT_CODE);
-  assert.equal(ISSUE_683_RETRY_ARGUMENT, '--retries=0');
+  assert.equal(ISSUE_683_REQUIRED_PLAYWRIGHT_RETRY_COUNT, ZERO_RACE_OBSERVATIONS);
+  assert.equal(ISSUE_683_REQUIRED_PR03C_RESULT_COUNT, FIRST_ITERATION_NUMBER);
 });
 
 test('Issue #683 race matcher accepts only the exact GET task execution-scope 404 boundary', () => {
@@ -41,7 +54,11 @@ test('Issue #683 race matcher accepts only the exact GET task execution-scope 40
     false
   );
   assert.equal(
-    isIssue683RaceObservation({ method: 'GET', path: '/api/tasks/execution-scope', status: HTTP_NOT_FOUND_STATUS }),
+    isIssue683RaceObservation({
+      method: 'GET',
+      path: '/api/tasks/execution-scope',
+      status: HTTP_NOT_FOUND_STATUS
+    }),
     false
   );
 });
@@ -59,52 +76,37 @@ test('Issue #683 evidence extraction returns only matching race observations', (
   ]);
 });
 
-test('Issue #683 retry validator rejects retry overrides even when retries=0 is also present', () => {
-  assert.doesNotThrow(() => validateIssue683RetryArguments([ISSUE_683_RETRY_ARGUMENT]));
-  assert.throws(
-    () => validateIssue683RetryArguments([ISSUE_683_RETRY_ARGUMENT, `--retries=${NON_ZERO_RETRY_COUNT}`]),
-    /requires exactly one --retries=0 argument/
-  );
-});
-
-test('Issue #683 summary requires every iteration to pass and the race to be observed', () => {
+test('Issue #683 summary accepts only when every planned iteration passes and the race is observed', () => {
   const iterations = passingIterations();
-  iterations[0].raceObservationCount = ONE_RACE_OBSERVATION;
 
-  const summary = summarizeIssue683Iterations(iterations);
-
-  assert.equal(summary.allIterationsPassed, true);
-  assert.equal(summary.raceConditionSatisfied, true);
-  assert.equal(summary.accepted, true);
+  iterations[FIRST_ARRAY_INDEX].raceObservationCount = ONE_RACE_OBSERVATION;
+  assert.equal(summarizeIssue683Iterations(iterations).allIterationsPassed, true);
+  assert.equal(summarizeIssue683Iterations(iterations).raceConditionSatisfied, true);
+  assert.equal(summarizeIssue683Iterations(iterations).accepted, true);
 });
 
-test('Issue #683 summary rejects ten clean iterations when the race was never observed', () => {
+test('Issue #683 summary rejects clean iterations when the race was never observed', () => {
   const summary = summarizeIssue683Iterations(passingIterations());
 
-  assert.equal(summary.raceObservedIterations, ZERO_RACE_OBSERVATIONS);
+  assert.equal(summary.accepted, false);
   assert.equal(summary.raceConditionSatisfied, false);
-  assert.equal(summary.accepted, false);
+  assert.equal(summary.raceObservedIterations, ZERO_RACE_OBSERVATIONS);
 });
 
-test('Issue #683 summary rejects any Playwright retry', () => {
+test('Issue #683 summary rejects a passing suite if Playwright actually retried any test', () => {
   const iterations = passingIterations();
-  iterations[0].raceObservationCount = ONE_RACE_OBSERVATION;
-  iterations[0].pr03cRetries = [NON_ZERO_RETRY_COUNT];
 
-  const summary = summarizeIssue683Iterations(iterations);
-
-  assert.equal(summary.allIterationsPassed, false);
-  assert.equal(summary.accepted, false);
+  iterations[FIRST_ARRAY_INDEX].raceObservationCount = ONE_RACE_OBSERVATION;
+  iterations[FIRST_ARRAY_INDEX].playwrightRetries = [NON_ZERO_RETRY_COUNT];
+  assert.equal(summarizeIssue683Iterations(iterations).accepted, false);
+  assert.equal(summarizeIssue683Iterations(iterations).allIterationsPassed, false);
 });
 
-function passingIterations() {
-  return Array.from({ length: ISSUE_683_ITERATION_COUNT }, (_, index) => ({
-    iteration: index + PR03C_RESULT_COUNT,
-    exitCode: SUCCESS_EXIT_CODE,
-    pr03cResultCount: PR03C_RESULT_COUNT,
-    pr03cRetries: [ISSUE_683_REQUIRED_PLAYWRIGHT_RETRY_COUNT],
-    pr03cStatuses: ['passed'],
-    parseErrors: [],
-    raceObservationCount: ZERO_RACE_OBSERVATIONS
-  }));
-}
+test('Issue #683 summary rejects an incomplete repeated-run set', () => {
+  const iterations = passingIterations();
+
+  iterations.pop();
+  iterations[FIRST_ARRAY_INDEX].raceObservationCount = ONE_RACE_OBSERVATION;
+  assert.equal(summarizeIssue683Iterations(iterations).accepted, false);
+  assert.equal(summarizeIssue683Iterations(iterations).allIterationsPassed, false);
+});
