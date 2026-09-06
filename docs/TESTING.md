@@ -605,30 +605,28 @@ execution-scope scenario is included in
 projects. Their API responses are mocked. They intentionally do not discover
 or execute `real-backend-smoke.spec.ts`.
 
-### Mobile compatibility profile
+### Issue #587 browser-engine compatibility
 
-Issue #594 adds three isolated executions of the canonical COMPAT-04 `mobile`
-profile: the existing Chromium Pixel 5 project, WebKit with iPhone 13
-emulation, and an explicit `320 x 800` Chromium touch project. Run a lane with:
+The ordinary static Angular suite remains Chromium desktop/mobile coverage.
+The separate COMPAT-01 PR matrix enables `chromium-desktop`,
+`firefox-desktop`, and `webkit-desktop` only for the small COMPAT-04
+`browser-engine` profile:
 
 ```bash
-npm run test:ui:compat-critical -- --profile mobile -- --project=chromium-mobile
-npm run test:ui:compat-critical -- --profile mobile -- --project=webkit-mobile
-npm run test:ui:compat-critical -- --profile mobile -- --project=narrow-320
+npm run test:ui:compat-critical -- --profile browser-engine -- --project=firefox-desktop
+npm run test:ui:compat-critical -- --profile browser-engine -- --project=webkit-desktop
 ```
 
-The compatibility-only cases require a touch-enabled Playwright context, use
-real `tap()` input without a hover action, and exercise representative
-navigation and right-panel overlay controls. Existing selected cases retain form and list
-coverage at 320 CSS pixels. The overflow assertion first rejects document/body
-and nested horizontal scrolling at each project's configured mobile viewport,
-then reflows the same list and separately proves that the shared data grid can
-own intentional component-scoped horizontal scrolling.
+The common runner forces `TZ=UTC`, the deterministic compatibility browser
+context, and `--retries=0`. GitHub Actions executes each engine as an
+independent job and stores an engine-named Playwright HTML/JUnit artifact. A
+successful Chromium job cannot override a Firefox or WebKit failure. These
+static browser runs use mocked API contracts and require no protected secret or
+Syncfusion license activation; they do not establish ASP.NET Core/PostgreSQL
+integration.
 
-These runs use mocked static Angular API responses. WebKit device emulation is
-not real iPhone/Safari certification and does not establish physical-device,
-browser-chrome, operating-system integration, backend, or authorization
-compatibility.
+WebKit coverage is engine compatibility evidence only. It is not real Safari,
+Apple-device, or iOS certification.
 
 ### MVP0 real-backend browser smoke
 
