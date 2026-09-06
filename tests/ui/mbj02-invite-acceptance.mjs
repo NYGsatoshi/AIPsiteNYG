@@ -123,7 +123,7 @@ try {
       headers: { [reuseCsrf.headerName]: reuseCsrf.token }
     });
     record('used-invite-rejected', 'POST', '/api/invites/accept', reused.status(), '[invite token and password redacted]');
-    requireStatus(reused, 400, 'used invite reuse rejection');
+    requireStatus(reused, 404, 'used invite reuse rejection');
   } finally {
     await reuse.dispose();
   }
@@ -168,14 +168,14 @@ try {
   try {
     const validateRevoked = await revokedAnonymous.get(`/api/invites/validate?token=${encodeURIComponent(revokedToken)}`);
     record('revoked-validate-rejected', 'GET', '/api/invites/validate?token=[redacted]', validateRevoked.status());
-    requireStatus(validateRevoked, 400, 'revoked invite validation rejection');
+    requireStatus(validateRevoked, 404, 'revoked invite validation rejection');
     const revokedCsrf = await getCsrf(revokedAnonymous, 'revoked-accept-csrf');
     const acceptRevoked = await revokedAnonymous.post('/api/invites/accept', {
       data: { token: revokedToken, displayName: 'Revoked User', password: inviteePassword },
       headers: { [revokedCsrf.headerName]: revokedCsrf.token }
     });
     record('revoked-accept-rejected', 'POST', '/api/invites/accept', acceptRevoked.status(), '[invite token and password redacted]');
-    requireStatus(acceptRevoked, 400, 'revoked invite acceptance rejection');
+    requireStatus(acceptRevoked, 404, 'revoked invite acceptance rejection');
   } finally {
     await revokedAnonymous.dispose();
   }
@@ -198,7 +198,7 @@ try {
     while (Date.now() < deadline) {
       const response = await expiredAnonymous.get(`/api/invites/validate?token=${encodeURIComponent(expiredToken)}`);
       finalValidationStatus = response.status();
-      if (finalValidationStatus === 400) {
+      if (finalValidationStatus === 404) {
         break;
       }
       if (finalValidationStatus !== 200) {
@@ -207,7 +207,7 @@ try {
       await delay(500);
     }
     record('expired-validate-rejected', 'GET', '/api/invites/validate?token=[redacted]', finalValidationStatus);
-    if (finalValidationStatus !== 400) {
+    if (finalValidationStatus !== 404) {
       throw new Error('Invite did not transition to expired state within the bounded acceptance window.');
     }
 
@@ -217,7 +217,7 @@ try {
       headers: { [expiredCsrf.headerName]: expiredCsrf.token }
     });
     record('expired-accept-rejected', 'POST', '/api/invites/accept', acceptExpired.status(), '[invite token and password redacted]');
-    requireStatus(acceptExpired, 400, 'expired invite acceptance rejection');
+    requireStatus(acceptExpired, 404, 'expired invite acceptance rejection');
   } finally {
     await expiredAnonymous.dispose();
   }
@@ -244,7 +244,7 @@ try {
       headers: { [mismatchCsrf.headerName]: mismatchCsrf.token }
     });
     record('mismatched-email-rejected', 'POST', '/api/auth/register-by-invite', mismatch.status(), '[invite token, email and password body redacted]');
-    requireStatus(mismatch, 400, 'mismatched email invite registration rejection');
+    requireStatus(mismatch, 404, 'mismatched email invite registration rejection');
 
     const stillValid = await mismatchAnonymous.get(`/api/invites/validate?token=${encodeURIComponent(mismatchToken)}`);
     record('mismatch-invite-remains-unused', 'GET', '/api/invites/validate?token=[redacted]', stillValid.status());
@@ -270,7 +270,7 @@ try {
   try {
     const crossValidate = await crossTenantAnonymous.get(`/api/invites/validate?token=${encodeURIComponent(crossTenantToken)}`);
     record('cross-tenant-validate-rejected', 'GET', '/api/invites/validate?token=[redacted]', crossValidate.status());
-    requireStatus(crossValidate, 400, 'cross-tenant invite validation rejection');
+    requireStatus(crossValidate, 404, 'cross-tenant invite validation rejection');
 
     const crossCsrf = await getCsrf(crossTenantAnonymous, 'cross-tenant-accept-csrf');
     const crossAccept = await crossTenantAnonymous.post('/api/invites/accept', {
@@ -278,7 +278,7 @@ try {
       headers: { [crossCsrf.headerName]: crossCsrf.token }
     });
     record('cross-tenant-accept-rejected', 'POST', '/api/invites/accept', crossAccept.status(), '[invite token and password redacted]');
-    requireStatus(crossAccept, 400, 'cross-tenant invite acceptance rejection');
+    requireStatus(crossAccept, 404, 'cross-tenant invite acceptance rejection');
   } finally {
     await crossTenantAnonymous.dispose();
   }
