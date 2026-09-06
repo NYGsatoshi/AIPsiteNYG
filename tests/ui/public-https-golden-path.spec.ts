@@ -274,8 +274,8 @@ async function browserFetch(
   init: { method?: string; headers?: Record<string, string>; body?: string } = {}
 ): Promise<BrowserFetchResult> {
   return page.evaluate(async ({ path, init }) => {
-    const response = await fetch(path, { credentials: 'include', ...init }),
-      headers: Record<string, string> = {};
+    const headers: Record<string, string> = {},
+      response = await fetch(path, { credentials: 'include', ...init });
     response.headers.forEach((value, key) => {
       headers[key] = value;
     });
