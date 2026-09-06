@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [[ $# -ne 3 ]]; then
-  echo "usage: $0 <source-kind: dir|docker> <target> <output-directory>" >&2
+  echo "usage: $0 <source-kind: dir|docker|registry> <target> <output-directory>" >&2
   exit 2
 fi
 
@@ -11,7 +11,7 @@ target="$2"
 out_dir="$3"
 
 case "$source_kind" in
-  dir|docker) ;;
+  dir|docker|registry) ;;
   *) echo "unsupported Syft source kind: $source_kind" >&2; exit 2 ;;
 esac
 
