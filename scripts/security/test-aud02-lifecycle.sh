@@ -5,12 +5,14 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # shellcheck source=scripts/security/aud02-lifecycle.sh
 source "$repo_root/scripts/security/aud02-lifecycle.sh"
 
+# Log a test failure message and exit with non-zero status.
 fail() {
   printf 'AUD-02 lifecycle contract test failed: %s\n' "$*" >&2
   exit 1
 }
 
 fixture_variant=baseline
+# Mock db_scalar function that returns fixture identity rows based on the current variant.
 db_scalar() {
   cat <<EOF_ROWS
 project:sec02-alpha-project=00000000-0000-0000-0000-000000000009

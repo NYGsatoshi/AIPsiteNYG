@@ -10,6 +10,11 @@ import { dirname } from 'node:path';
 const EMPTY_TEXT = '',
   JSON_INDENT = 2,
   UTF8_ENCODING = 'utf8',
+  /**
+   * Read attachment body from either inline data or file path.
+   * @param {object} attachment - Playwright attachment object with body or path
+   * @returns {string} The attachment body as UTF-8 text
+   */
   readAttachmentBody = (attachment) => {
     let body = EMPTY_TEXT;
 
@@ -21,6 +26,11 @@ const EMPTY_TEXT = '',
 
     return body;
   },
+  /**
+   * Parse race condition evidence from a test attachment.
+   * @param {object} attachment - Playwright attachment containing smoke evidence JSON
+   * @returns {object} Outcome with parseError (string or null) and raceObservations array
+   */
   parseRaceEvidence = (attachment) => {
     const outcome = {
       parseError: null,
@@ -50,6 +60,12 @@ const EMPTY_TEXT = '',
 
     return outcome;
   },
+  /**
+   * Build a PR03C test record from test case and result data.
+   * @param {object} testCase - Playwright test case object
+   * @param {object} result - Playwright test result object
+   * @returns {object} Record with attachment status, parse errors, race observations, retry count, and test status
+   */
   buildPr03cRecord = (testCase, result) => {
     const attachment = result.attachments.find(
         (candidate) => candidate.name === ISSUE_683_SMOKE_EVIDENCE_ATTACHMENT
@@ -65,6 +81,12 @@ const EMPTY_TEXT = '',
       title: testCase.title
     };
   },
+  /**
+   * Write collected evidence records and retries to a JSON file.
+   * @param {string} outputPath - File path where evidence will be written
+   * @param {Array<object>} records - Array of test records
+   * @param {Array<number>} retries - Array of retry counts
+   */
   writeEvidence = (outputPath, records, retries) => {
     const serialized = `${JSON.stringify({ records, retries }, null, JSON_INDENT)}\n`;
 
@@ -72,11 +94,19 @@ const EMPTY_TEXT = '',
     writeFileSync(outputPath, serialized, UTF8_ENCODING);
   };
 
+/**
+ * Playwright reporter that collects Issue 683 race condition evidence from PR03C test results.
+ */
 export default class Issue683RaceEvidenceReporter {
   records = [];
 
   retries = [];
 
+  /**
+   * Handle test end event by recording retry count and PR03C test details.
+   * @param {object} testCase - The test case that ended
+   * @param {object} result - The test result
+   */
   onTestEnd(testCase, result) {
     this.retries.push(result.retry);
     if (testCase.title === ISSUE_683_PR03C_TITLE) {
@@ -84,6 +114,9 @@ export default class Issue683RaceEvidenceReporter {
     }
   }
 
+  /**
+   * Handle test run completion by writing evidence to the configured output file.
+   */
   onEnd() {
     const outputPath = process.env.AIP_ISSUE_683_EVIDENCE_FILE?.trim();
 

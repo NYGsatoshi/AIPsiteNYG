@@ -156,6 +156,12 @@ console.log(
   `Issue ${ISSUE_ID} evidence accepted for ${candidateSha}: ${summary.completedIterations} clean iterations, retries=0, race observed in ${summary.raceObservedIterations} iteration(s).`
 );
 
+/**
+ * Validate that the checked-out commit SHA matches the workflow SHA and both are full 40-character hex values.
+ * @param {string} actualSha - The checked-out commit SHA from git
+ * @param {string} workflowSha - The GITHUB_SHA environment variable value
+ * @throws {Error} If either SHA is invalid or they don't match
+ */
 function validateFixedSha(actualSha, workflowSha) {
   if (!FULL_COMMIT_SHA.test(actualSha)) {
     throw new Error(`Issue ${ISSUE_ID} evidence requires a full 40-hex checkout SHA; received ${actualSha || '<empty>'}.`);
@@ -168,6 +174,11 @@ function validateFixedSha(actualSha, workflowSha) {
   }
 }
 
+/**
+ * Read and parse a JSON file, returning null if the file doesn't exist or parsing fails.
+ * @param {string} path - Path to the JSON file
+ * @returns {Promise<object|null>} Parsed JSON object or null on error
+ */
 async function readJsonFile(path) {
   try {
     return JSON.parse(await readFile(path, 'utf8'));
@@ -176,10 +187,21 @@ async function readJsonFile(path) {
   }
 }
 
+/**
+ * Write a value to a file as formatted JSON with a trailing newline.
+ * @param {string} path - Path where JSON file will be written
+ * @param {any} value - Value to serialize as JSON
+ * @returns {Promise<void>}
+ */
 async function writeJsonFile(path, value) {
   await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
 }
 
+/**
+ * Check if a file exists by attempting to read it.
+ * @param {string} path - Path to the file
+ * @returns {Promise<boolean>} True if file exists and is readable, false otherwise
+ */
 async function fileExists(path) {
   try {
     await readFile(path);
@@ -189,6 +211,11 @@ async function fileExists(path) {
   }
 }
 
+/**
+ * Render a markdown summary of Issue 683 evidence results.
+ * @param {object} summary - The evidence summary object
+ * @returns {string} Formatted markdown text
+ */
 function renderMarkdownSummary(summary) {
   const result = summary.accepted ? 'PASS' : 'FAIL';
   return [

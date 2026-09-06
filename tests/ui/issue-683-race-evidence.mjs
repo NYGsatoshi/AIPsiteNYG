@@ -15,6 +15,11 @@ const ISSUE_683_HTTP_DELETE_METHOD = 'DELETE',
   ISSUE_683_TASK_EXECUTION_SCOPE_PATH = /^\/api\/tasks\/[^/]+\/execution-scope$/u,
   ISSUE_683_WORKSPACE_MEMBERSHIP_PATH = /^\/api\/workspaces\/[^/]+\/members\/[^/]+$/u,
   ZERO_COUNT = 0,
+  /**
+   * Check if smoke evidence contains a successful workspace membership revocation.
+   * @param {object} smokeEvidence - The smoke test evidence object
+   * @returns {boolean} True if evidence contains a successful DELETE revocation step
+   */
   hasSuccessfulIssue683Revocation = (smokeEvidence) =>
     Array.isArray(smokeEvidence?.steps) &&
     smokeEvidence.steps.some(
@@ -28,6 +33,11 @@ const ISSUE_683_HTTP_DELETE_METHOD = 'DELETE',
         ISSUE_683_WORKSPACE_MEMBERSHIP_PATH.test(step.path) &&
         step.status === ISSUE_683_HTTP_OK_STATUS
     ),
+  /**
+   * Determine if an API failure matches the Issue 683 race condition pattern.
+   * @param {object} failure - An API response failure object
+   * @returns {boolean} True if the failure is a GET 404 on task execution-scope
+   */
   isIssue683RaceObservation = (failure) => {
     if (!failure || typeof failure !== 'object') {
       return false;
@@ -41,6 +51,11 @@ const ISSUE_683_HTTP_DELETE_METHOD = 'DELETE',
       ISSUE_683_TASK_EXECUTION_SCOPE_PATH.test(failure.path)
     );
   },
+  /**
+   * Check if a test iteration meets all passing criteria for Issue 683 verification.
+   * @param {object} iteration - An iteration object with exit code, retries, and results
+   * @returns {boolean} True if the iteration passed all requirements
+   */
   isPassingIssue683Iteration = (iteration) => {
     const hasPlaywrightResults = iteration.playwrightRetries.length > ZERO_COUNT;
 
@@ -60,6 +75,11 @@ const ISSUE_683_HTTP_DELETE_METHOD = 'DELETE',
       iteration.parseErrors.length === ZERO_COUNT
     );
   },
+  /**
+   * Extract race condition observations from smoke evidence after successful revocation.
+   * @param {object} smokeEvidence - The smoke test evidence object
+   * @returns {Array<object>} Array of race observation objects with method, path, and status
+   */
   issue683RaceObservations = (smokeEvidence) => {
     const failures = [];
 
@@ -80,6 +100,11 @@ const ISSUE_683_HTTP_DELETE_METHOD = 'DELETE',
       status: failure.status
     }));
   },
+  /**
+   * Summarize Issue 683 test iterations to determine if acceptance criteria are met.
+   * @param {Array<object>} iterations - Array of iteration objects to summarize
+   * @returns {object} Summary with acceptance status, iteration counts, and race observations
+   */
   summarizeIssue683Iterations = (iterations) => {
     const allIterationsPassed =
         iterations.length === ISSUE_683_ITERATION_COUNT && iterations.every(isPassingIssue683Iteration),
