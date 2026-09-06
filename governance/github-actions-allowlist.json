@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "requiredWorkflows": [
+    ".github/workflows/ci.yml",
+    ".github/workflows/publication-readiness.yml"
+  ],
+  "actions": {
+    "actions/checkout": {
+      "sha": "3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "version": "v7",
+      "purpose": "Repository checkout",
+      "privilegedAllowed": true
+    },
+    "actions/setup-node": {
+      "sha": "820762786026740c76f36085b0efc47a31fe5020",
+      "version": "v7",
+      "purpose": "Node.js toolchain bootstrap",
+      "privilegedAllowed": true
+    },
+    "actions/setup-dotnet": {
+      "sha": "a98b56852c35b8e3190ac28c8c2271da59106c68",
+      "version": "v6",
+      "purpose": ".NET SDK bootstrap",
+      "privilegedAllowed": true
+    },
+    "actions/upload-artifact": {
+      "sha": "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+      "version": "v7",
+      "purpose": "Bounded CI evidence upload",
+      "privilegedAllowed": true
+    },
+    "actions/dependency-review-action": {
+      "sha": "a1d282b36b6f3519aa1f3fc636f609c47dddb294",
+      "version": "v5",
+      "purpose": "Pull-request dependency review",
+      "privilegedAllowed": false
+    },
+    "github/codeql-action": {
+      "sha": "cdf488f595d80d6e07e03d4674febd5ab45fa938",
+      "version": "v4",
+      "purpose": "CodeQL initialization and SARIF publication",
+      "privilegedAllowed": true
+    },
+    "JetBrains/qodana-action": {
+      "sha": "10be11607eb323a180e2b76b26c9c5cdceac3e77",
+      "version": "v2026.2.1",
+      "purpose": "Optional Qodana deep analysis",
+      "privilegedAllowed": false
+    },
+    "advanced-security/component-detection-dependency-submission-action": {
+      "sha": "b282c67b1008fde9b60da4bdfcd8849613e293b2",
+      "version": "v0.1.6",
+      "purpose": "Trusted NuGet dependency snapshot submission",
+      "privilegedAllowed": true
+    }
+  }
+}
