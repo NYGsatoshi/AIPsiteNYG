@@ -24,28 +24,48 @@ jobs:
         uses: actions/checkout@v7
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       - name: Validate helper syntax
         run: |
           python3 -m py_compile \
             scripts/ci/verify-performance-contract.py \
             scripts/ci/verify-performance-environment.py \
+            scripts/ci/verify-performance-baseline-updates.py \
             scripts/performance/common.py \
             scripts/performance/preflight.py \
             scripts/performance/warmup.py \
             scripts/performance/collect-environment.py \
             scripts/performance/verify-samples.py \
+            scripts/performance/compare.py \
             tests/ci/test_performance_contract.py \
-            tests/ci/test_performance_environment.py
+            tests/ci/test_performance_environment.py \
+            tests/ci/test_performance_comparator.py
           bash -n scripts/performance/with-environment.sh
 
       - name: Test performance contract validators
         run: |
           python3 -m unittest discover -s tests/ci -p 'test_performance_contract.py'
           python3 -m unittest discover -s tests/ci -p 'test_performance_environment.py'
+          python3 -m unittest discover -s tests/ci -p 'test_performance_comparator.py'
 
       - name: Validate versioned performance contract
         run: python3 scripts/ci/verify-performance-contract.py
 
       - name: Validate deterministic performance environment contract
         run: python3 scripts/ci/verify-performance-environment.py
+
+      - name: Validate PERF-03 baseline governance
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            python3 scripts/ci/verify-performance-baseline-updates.py --base-ref "$PR_BASE_SHA"
+          elif git rev-parse --verify HEAD^ >/dev/null 2>&1; then
+            python3 scripts/ci/verify-performance-baseline-updates.py --base-ref HEAD^
+          else
+            python3 scripts/ci/verify-performance-baseline-updates.py
+          fi
