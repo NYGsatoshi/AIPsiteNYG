@@ -1,0 +1,32 @@
+name: FCI-07 Branch Validation
+
+on:
+  push:
+    branches:
+      - fci-07-authorization-negative-matrix-601
+    paths:
+      - ".github/workflows/fci07-branch-validation.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  real-stack-fast:
+    name: FCI-07 trusted branch real-stack fast
+    runs-on: ubuntu-latest
+    environment: syncfusion-licensed-build
+    timeout-minutes: 90
+    env:
+      SYNCFUSION_LICENSE: ${{ secrets.SYNCFUSION_LICENSE }}
+    steps:
+      - name: Checkout exact validation revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Verify protected license input
+        shell: bash
+        run: test -n "${SYNCFUSION_LICENSE:-}"
+      - name: Run FCI-07 fast owners on real stack
+        shell: bash
+        run: bash scripts/ci/run-fci07-functional-security.sh functional-fast
