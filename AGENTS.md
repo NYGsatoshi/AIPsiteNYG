@@ -4,6 +4,15 @@
 
 These instructions apply to the entire repository unless a more specific `AGENTS.md` exists in a subdirectory.
 
+## Project Language
+
+English is the canonical engineering and project language for this repository.
+Use English for source identifiers, code comments, docstrings, test names and descriptions, repository documentation, configuration documentation, commit/PR/Issue text, and AI/code-review output.
+
+Intentional product localization and i18n resources are exempt from this rule. Do not translate or rewrite localized end-user content merely to satisfy the engineering-language policy.
+
+When adding or materially editing an engineering artifact, do not introduce new non-English prose unless the artifact is explicitly part of localization/i18n or another documented exception.
+
 ## Start Here
 
 Before changing code, read `docs/AI_CONTEXT.md`, `docs/KNOWN_ISSUES.md`, and `docs/CODING_RULES.md`, then read the task-specific documents referenced by `docs/AI_CONTEXT.md`.
