@@ -319,7 +319,7 @@ class ReleaseSupplyChainTests(unittest.TestCase):
                 "-e",
                 (
                     "doc=Psych.safe_load_file(ARGV[0], aliases: false); "
-                    "puts JSON.generate(doc.fetch('jobs'))"
+                    "puts JSON.generate(doc)"
                 ),
                 str(workflow_path),
             ],
@@ -328,7 +328,15 @@ class ReleaseSupplyChainTests(unittest.TestCase):
             check=False,
         )
         self.assertEqual(ruby.returncode, 0, ruby.stderr)
-        jobs = json.loads(ruby.stdout)
+        workflow = json.loads(ruby.stdout)
+        workflow_permissions = workflow.get("permissions") or {}
+        self.assertNotEqual(
+            "write",
+            workflow_permissions.get("id-token"),
+            "unexpected OIDC write authority at workflow scope",
+        )
+
+        jobs = workflow["jobs"]
         self.assertIn("sign-release-subject", jobs)
         for job_name, job in jobs.items():
             permissions = job.get("permissions") or {}
