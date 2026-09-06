@@ -5,20 +5,23 @@ import test from 'node:test';
 
 import yaml from 'js-yaml';
 
-const runnerPath = 'scripts/ci/run-fci07-functional-security.sh';
+const composeRunnerPath = 'scripts/ci/run-fci07-functional-security.sh';
+const ownerRunnerPath = 'scripts/ci/run-fci07-playwright-owners.sh';
 const overlayPath = 'docker-compose.fci07-functional-security.yml';
 const specPath = 'tests/functional/security-negative/cross-scope-negative-matrix.spec.ts';
 
-test('FCI-07 runner is syntactically valid and keeps the security fixture boundary explicit', () => {
-  const syntax = spawnSync('bash', ['-n', runnerPath], { encoding: 'utf8' });
-  assert.equal(syntax.status, 0, syntax.stderr || 'bash -n failed');
-
-  const runner = readFileSync(runnerPath, 'utf8');
-  for (const gate of ['functional-fast', 'functional-full', 'functional-extended']) {
-    assert.match(runner, new RegExp(gate));
+test('FCI-07 runners are syntactically valid and keep the security fixture boundary explicit', () => {
+  for (const path of [composeRunnerPath, ownerRunnerPath]) {
+    const syntax = spawnSync('bash', ['-n', path], { encoding: 'utf8' });
+    assert.equal(syntax.status, 0, syntax.stderr || `bash -n failed for ${path}`);
   }
-  assert.match(runner, /docker-compose\.security\.yml/);
-  assert.match(runner, /docker-compose\.fci07-functional-security\.yml/);
+
+  const composeRunner = readFileSync(composeRunnerPath, 'utf8');
+  for (const gate of ['functional-fast', 'functional-full', 'functional-extended']) {
+    assert.match(composeRunner, new RegExp(gate));
+  }
+  assert.match(composeRunner, /docker-compose\.security\.yml/);
+  assert.match(composeRunner, /docker-compose\.fci07-functional-security\.yml/);
 
   const overlay = readFileSync(overlayPath, 'utf8');
   const parsed = yaml.load(overlay);
@@ -26,11 +29,19 @@ test('FCI-07 runner is syntactically valid and keeps the security fixture bounda
   const service = parsed.services?.['real-backend-playwright'];
   assert.equal(service?.environment?.AIP_SECURITY_CI_FIXTURE_ENABLED, 'true');
   assert.match(String(service?.environment?.AIP_SECURITY_CI_PASSWORD ?? ''), /AIP_SECURITY_CI_PASSWORD/);
-  assert.match(String(service?.command ?? ''), /--domain security-negative/);
-  assert.match(String(service?.command ?? ''), /--negative-authz/);
+  assert.match(String(service?.command ?? ''), /run-fci07-playwright-owners\.sh/);
 });
 
-test('FCI-07 owner spec cannot silently turn the negative matrix into skipped green coverage', () => {
+test('FCI-07 requires both owner journeys and rejects skipped or empty owner execution', () => {
+  const ownerRunner = readFileSync(ownerRunnerPath, 'utf8');
+  assert.match(ownerRunner, /FUNC-AUTHZ-001/);
+  assert.match(ownerRunner, /FUNC-AUTHZ-002/);
+  assert.match(ownerRunner, /--journey "\$owner"/);
+  assert.match(ownerRunner, /testcase_count/);
+  assert.match(ownerRunner, /<skipped/);
+  assert.match(ownerRunner, /failures=/);
+  assert.match(ownerRunner, /errors=/);
+
   const spec = readFileSync(specPath, 'utf8');
   assert.match(spec, /journeyId:\s*'FUNC-AUTHZ-001'/);
   assert.match(spec, /journeyId:\s*'FUNC-AUTHZ-002'/);
