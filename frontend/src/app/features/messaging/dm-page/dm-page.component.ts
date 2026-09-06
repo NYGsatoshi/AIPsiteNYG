@@ -1,4 +1,4 @@
-import { Component, computed, effect, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 
@@ -11,6 +11,7 @@ import { RealtimeFacade } from '../../../core/realtime/realtime.facade';
 import { ThreadPreviewComponent } from '../thread-preview/thread-preview.component';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-dm-page',
   standalone: true,
   imports: [

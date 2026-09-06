@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 
@@ -9,6 +9,7 @@ import { WorkspacesFacade } from '../workspaces.facade';
 import { WorkspaceCardViewModel, WorkspaceCreateInput } from '../workspaces.types';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-workspace-dashboard-page',
   standalone: true,
   imports: [
@@ -19,7 +20,7 @@ import { WorkspaceCardViewModel, WorkspaceCreateInput } from '../workspaces.type
     WorkspaceSummaryListComponent,
   ],
   templateUrl: './workspace-dashboard-page.component.html',
-  styleUrl: './workspace-dashboard-page.component.scss'
+  styleUrl: './workspace-dashboard-page.component.scss',
 })
 export class WorkspaceDashboardPageComponent {
   private readonly facade = inject(WorkspacesFacade);

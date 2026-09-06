@@ -1,5 +1,5 @@
 import { HttpClient } from '@angular/common/http';
-import { Component, ElementRef, Input, OnChanges, OnDestroy, SimpleChanges, computed, inject, signal, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, Input, OnChanges, OnDestroy, SimpleChanges, computed, inject, signal, viewChild } from '@angular/core';
 import { forkJoin, Subscription } from 'rxjs';
 
 import { normalizeApiError } from '../../../core/api/api-error.adapter';
@@ -95,6 +95,7 @@ const MOCK_POLICY: SourcePolicy = Object.freeze({
 let componentSequence = 0;
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-task-execution-scope',
   standalone: true,
   imports: [TaskExecutionResultComponent],

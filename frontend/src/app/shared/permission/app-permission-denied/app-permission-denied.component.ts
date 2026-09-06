@@ -1,6 +1,7 @@
-import { Component, Input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-permission-denied',
   standalone: true,
   template: `
@@ -29,7 +30,7 @@ import { Component, Input } from '@angular/core';
         font-size: 1rem;
       }
     `
-  ]
+  ],
 })
 export class AppPermissionDeniedComponent {
   @Input() title = 'アクセスできません';

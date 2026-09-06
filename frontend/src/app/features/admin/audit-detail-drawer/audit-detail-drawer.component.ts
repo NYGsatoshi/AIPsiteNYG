@@ -1,4 +1,4 @@
-import { AfterViewChecked, Component, ElementRef, EventEmitter, HostListener, Input, Output, ViewChild } from '@angular/core';
+import { AfterViewChecked, ChangeDetectionStrategy, Component, ElementRef, EventEmitter, HostListener, Input, Output, ViewChild } from '@angular/core';
 
 import { AuditResultBadgeComponent } from '../audit-result-badge/audit-result-badge.component';
 import { AuditSeverityBadgeComponent } from '../audit-severity-badge/audit-severity-badge.component';
@@ -9,11 +9,12 @@ import {
 } from '../admin.types';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-audit-detail-drawer',
   standalone: true,
   imports: [AuditResultBadgeComponent, AuditSeverityBadgeComponent],
   templateUrl: './audit-detail-drawer.component.html',
-  styleUrl: './audit-detail-drawer.component.scss'
+  styleUrl: './audit-detail-drawer.component.scss',
 })
 export class AuditDetailDrawerComponent implements AfterViewChecked {
   @Input() isOpen = false;

@@ -1,5 +1,5 @@
 import { DatePipe } from '@angular/common';
-import { Component, computed, effect, inject, OnDestroy, Signal, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnDestroy, Signal, computed, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { Subscription } from 'rxjs';
@@ -20,6 +20,7 @@ import { FilesFacade } from '../../files/files.facade';
 import { AttachmentPickerDialogComponent } from '../../files/attachment-picker-dialog/attachment-picker-dialog.component';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-task-detail-page',
   standalone: true,
   imports: [
@@ -38,7 +39,7 @@ import { AttachmentPickerDialogComponent } from '../../files/attachment-picker-d
     AttachmentPickerDialogComponent
   ],
   templateUrl: './task-detail-page.component.html',
-  styleUrl: './task-detail-page.component.scss'
+  styleUrl: './task-detail-page.component.scss',
 })
 export class TaskDetailPageComponent implements OnDestroy {
   private readonly facade = inject(ProjectsFacade);

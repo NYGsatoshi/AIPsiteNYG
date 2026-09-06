@@ -180,9 +180,9 @@ for (const [lockPath, metadata] of Object.entries(lockfile.packages ?? {})) {
   }
 }
 
-for (const [key, value] of Object.entries(allowScripts)) {
-  if (value === true && !observedAllowScriptKeys.has(key)) {
-    console.warn(`npm lockfile policy warning: stale allowScripts entry ${key}`);
+for (const key of Object.keys(allowScripts)) {
+  if (!observedAllowScriptKeys.has(key)) {
+    fail(`stale allowScripts entry ${key}`);
   }
 }
 

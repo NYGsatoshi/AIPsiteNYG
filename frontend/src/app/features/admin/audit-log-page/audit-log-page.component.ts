@@ -1,5 +1,5 @@
 import { DOCUMENT } from '@angular/common';
-import { afterNextRender, Component, computed, effect, inject, Injector, signal, untracked } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Injector, afterNextRender, computed, effect, inject, signal, untracked } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, ParamMap, Router } from '@angular/router';
@@ -48,6 +48,7 @@ interface DrawerReturnContext {
 }
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-audit-log-page',
   standalone: true,
   imports: [
@@ -60,7 +61,7 @@ interface DrawerReturnContext {
     FormsModule,
   ],
   templateUrl: './audit-log-page.component.html',
-  styleUrl: './audit-log-page.component.scss'
+  styleUrl: './audit-log-page.component.scss',
 })
 export class AuditLogPageComponent {
   private readonly facade = inject(AdminFacade);

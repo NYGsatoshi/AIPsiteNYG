@@ -1,4 +1,4 @@
-import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClient, withXhr } from '@angular/common/http';
 import { provideRouter } from '@angular/router';
 import { applicationConfig, type Meta, type StoryObj } from '@storybook/angular';
 
@@ -16,7 +16,7 @@ const meta: Meta<TopBarComponent> = {
   component: TopBarComponent,
   decorators: [
     applicationConfig({
-      providers: [provideRouter([]), provideHttpClient()]
+      providers: [provideRouter([]), provideHttpClient(withXhr())]
     })
   ],
   args: {

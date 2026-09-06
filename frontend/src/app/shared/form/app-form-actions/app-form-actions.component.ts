@@ -1,6 +1,7 @@
-import { Component, Input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-form-actions',
   standalone: true,
   template: `
@@ -21,7 +22,7 @@ import { Component, Input } from '@angular/core';
         justify-content: flex-end;
       }
     `
-  ]
+  ],
 })
 export class AppFormActionsComponent {
   @Input() align: 'start' | 'end' = 'end';

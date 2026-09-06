@@ -3296,7 +3296,7 @@ test.describe('MVP0 real backend browser smoke', () => {
       expectUnexpectedConsoleErrors(ownerEvidence);
       expectUnexpectedApiFailures(ownerEvidence);
       expect(evidence.pageErrors, 'PR07-D recipient browser page errors').toEqual([]);
-      expectUnexpectedConsoleErrors(evidence);
+      expectUnexpectedConsoleErrors(evidence, [expectedRevokedNotificationDenial]);
       expectUnexpectedApiFailures(evidence, [expectedRevokedNotificationDenial]);
     } finally {
       await ownerContext?.close();
@@ -3968,16 +3968,22 @@ test.describe('MVP0 real backend browser smoke', () => {
       expect(deniedRetainedGrant.status, 'membership revocation invalidates a previously issued unused grant').toBe(400);
       expect(deniedRetainedGrant.text, 'revoked retained grant must not return the seeded bytes').not.toContain('Synthetic PR03C browser smoke file.');
 
-      // Revocation can race with stale project task-list refreshes already queued by the SPA.
+      // Revocation can race with stale project task-list and task execution-scope refreshes already queued by the SPA.
       // They must fail closed, and are expected only after this scenario removes Workspace access.
       const expectedRevocationRefreshFailures = evidence.failedApiResponses
         .slice(postRevocationFailureStart)
         .filter((failure) => {
           const method = failure.method.toUpperCase();
           const { pathname } = new URL(failure.path, 'http://localhost');
-          return failure.status === 400 &&
+          const staleProjectTaskList =
+            failure.status === 400 &&
             method === 'GET' &&
             /^\/api\/projects\/[^/]+\/tasks$/u.test(pathname);
+          const revokedTaskExecutionScope =
+            failure.status === 404 &&
+            method === 'GET' &&
+            pathname === `/api/tasks/${taskId}/execution-scope`;
+          return staleProjectTaskList || revokedTaskExecutionScope;
         });
 
       expect(evidence.pageErrors, 'browser page errors').toEqual([]);

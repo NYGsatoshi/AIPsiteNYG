@@ -1,5 +1,5 @@
 import { HttpClient } from '@angular/common/http';
-import { Component, DestroyRef, ElementRef, EventEmitter, Input, OnChanges, Output, ViewChild, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, EventEmitter, Input, OnChanges, Output, ViewChild, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { catchError, debounceTime, switchMap } from 'rxjs/operators';
 import { Observable, of, Subject } from 'rxjs';
@@ -14,6 +14,7 @@ let mentionInputInstance = 0;
 
 /** Friendly display text is reconciled to canonical @{GUID} tokens at explicit token spans. */
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-mention-input', standalone: true,
   template: `<label [for]="textareaId">Comment</label>
   <textarea #editor [id]="textareaId" [value]="displayValue()" [attr.maxlength]="maxLength ?? null" (input)="onInput($event)" (keydown)="onKeydown($event)" (click)="onCaretChange($event)" (keyup)="onCaretChange($event)"
@@ -23,7 +24,7 @@ let mentionInputInstance = 0;
     @for (candidate of candidates(); track candidate.userId; let i = $index) { <li [id]="optionId(i)" role="option" [attr.aria-selected]="i === selectedIndex()"><button type="button" (click)="select(candidate)">@{{ candidate.displayName }}</button></li> }
   </ul> }
   <p [id]="statusId" role="status" aria-live="polite">{{ status() }}</p>`,
-  styles: [':host{display:grid;gap:.5rem}textarea{min-height:5rem}ul{margin:0;padding:0;list-style:none}button{width:100%;text-align:left}']
+  styles: [':host{display:grid;gap:.5rem}textarea{min-height:5rem}ul{margin:0;padding:0;list-style:none}button{width:100%;text-align:left}'],
 })
 export class AppMentionInputComponent implements OnChanges {
   @Input({ required: true }) taskId = '';

@@ -1,5 +1,5 @@
 import { HttpClient } from '@angular/common/http';
-import { Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { finalize } from 'rxjs';
 
@@ -72,11 +72,12 @@ const WORKSPACE_ROLE: Record<WorkspaceRoleName, WorkspaceRoleValue> = {
 };
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-invite-admin-page',
   standalone: true,
   imports: [FormsModule, AipDateTimePickerComponent, AipDialogComponent, AppDataGridComponent, AppEmptyStateComponent, AppInlineLoadingComponent, AppPermissionDeniedComponent],
   templateUrl: './invite-admin-page.component.html',
-  styleUrl: './invite-admin-page.component.scss'
+  styleUrl: './invite-admin-page.component.scss',
 })
 export class InviteAdminPageComponent {
   private readonly http = inject(HttpClient);

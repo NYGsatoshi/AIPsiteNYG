@@ -1,4 +1,4 @@
-import { Component, ElementRef, Input, signal, ViewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, Input, ViewChild, signal } from '@angular/core';
 
 import { AnnouncementPriorityBadgeComponent } from '../announcement-priority-badge/announcement-priority-badge.component';
 import { AnnouncementLocalPreview } from '../announcements.types';
@@ -10,6 +10,7 @@ import { AnnouncementLocalPreview } from '../announcements.types';
  * analytics data.
  */
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-announcement-local-preview',
   standalone: true,
   imports: [AnnouncementPriorityBadgeComponent],

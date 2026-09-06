@@ -3,6 +3,7 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 import { RealtimeConnectionState } from './realtime.models';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.OnPush,
   selector: 'app-realtime-connection-indicator',
   standalone: true,
   template: `
@@ -20,7 +21,6 @@ import { RealtimeConnectionState } from './realtime.models';
     .realtime-indicator--attention { color: var(--aip-color-warning, #b7791f); }
     @media (prefers-reduced-motion: reduce) { .realtime-indicator { transition: none; } }
   `,
-  changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class RealtimeConnectionIndicatorComponent {
   readonly state = input.required<RealtimeConnectionState>();
