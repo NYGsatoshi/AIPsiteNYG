@@ -188,10 +188,13 @@ export function validateWorkflowText(contract, workflowText, allowlist) {
   assertPlainObject(portability, `${contract.workflow}.jobs.portability`);
   const failures = [];
 
+  if (Object.keys(workflow.jobs).length !== 1) {
+    failures.push('OS portability workflow must contain exactly one job named portability.');
+  }
   if (workflow.permissions?.contents !== 'read') {
     failures.push('Top-level permissions.contents must be read.');
   }
-  for (const forbiddenRootKey of ['continue-on-error', 'services', 'container', 'shell']) {
+  for (const forbiddenRootKey of ['continue-on-error', 'container', 'defaults', 'services', 'shell']) {
     if (hasOwn(workflow, forbiddenRootKey)) {
       failures.push(`Workflow root must not declare ${forbiddenRootKey}.`);
     }
@@ -219,7 +222,7 @@ export function validateWorkflowText(contract, workflowText, allowlist) {
   if (!Number.isInteger(portability['timeout-minutes']) || portability['timeout-minutes'] < 1 || portability['timeout-minutes'] > 60) {
     failures.push('bounded timeout must be an integer from 1 through 60 minutes.');
   }
-  for (const forbiddenJobKey of ['continue-on-error', 'services', 'container', 'shell']) {
+  for (const forbiddenJobKey of ['continue-on-error', 'container', 'defaults', 'services', 'shell']) {
     if (hasOwn(portability, forbiddenJobKey)) {
       failures.push(`jobs.portability must not declare ${forbiddenJobKey}.`);
     }
