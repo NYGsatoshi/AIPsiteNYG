@@ -50,7 +50,7 @@ def fetch_page(url: str, token: str, sha: str) -> dict[str, object]:
             f"Unable to read check runs for {sha}: HTTP {error.code}."
         ) from error
     except urllib.error.URLError as error:
-        raise RuntimeError(f"Unable to read check runs for {sha}: {error.reason}.") from error
+        raise RuntimeError(f"Unable to read check runs for {sha}: request failed.") from error
 
     if not isinstance(payload, dict):
         raise RuntimeError(f"Unable to read check runs for {sha}: GitHub returned a non-object payload.")
@@ -115,14 +115,9 @@ def is_trusted_required_check(check: dict[str, object], sha: str) -> bool:
     )
 
 
-def describe_identities(checks: list[dict[str, object]]) -> str:
-    identities = sorted(
-        {
-            f"{slug or 'unknown'}#{app_id if app_id is not None else 'unknown'}"
-            for app_id, slug in (check_app_identity(check) for check in checks)
-        }
-    )
-    return ", ".join(identities) if identities else "none"
+def is_green_required_check(check: dict[str, object]) -> bool:
+    """Reduce live check-run state to a bounded boolean before any log output."""
+    return check.get("status") == "completed" and check.get("conclusion") == "success"
 
 
 def main() -> int:
@@ -133,7 +128,7 @@ def main() -> int:
     check_runs = fetch_check_runs(repository, sha, token, api_url)
 
     failures: list[str] = []
-    summary: list[tuple[str, str, str, str, str]] = []
+    summary: list[tuple[str, bool]] = []
 
     for name in REQUIRED_CHECKS:
         named_matches = [check for check in check_runs if check.get("name") == name]
@@ -143,30 +138,20 @@ def main() -> int:
         trusted_matches.sort(key=check_timestamp, reverse=True)
 
         if not trusted_matches:
-            identities = describe_identities(named_matches)
-            failures.append(
-                f"{name}: no trusted GitHub Actions check run exists for exact SHA {sha}; "
-                f"observed identities={identities}"
-            )
-            summary.append((name, "missing", "none", identities, ""))
+            failures.append(f"{name}: no trusted GitHub Actions check run exists for exact candidate")
+            summary.append((name, False))
             continue
 
         latest = trusted_matches[0]
-        status = str(latest.get("status") or "unknown")
-        conclusion = str(latest.get("conclusion") or "none")
-        html_url = str(latest.get("html_url") or "")
-        app_id, slug = check_app_identity(latest)
-        identity = f"{slug}#{app_id}"
-        summary.append((name, status, conclusion, identity, html_url))
-        if status != "completed" or conclusion != "success":
-            failures.append(
-                f"{name}: trusted check status={status} conclusion={conclusion} identity={identity}"
-            )
+        green = is_green_required_check(latest)
+        summary.append((name, green))
+        if not green:
+            failures.append(f"{name}: trusted check is not completed successfully")
 
     print("MVP-A final check evidence:")
-    for name, status, conclusion, identity, html_url in summary:
-        suffix = f" {html_url}" if html_url else ""
-        print(f"- {name}: {status}/{conclusion} source={identity}{suffix}")
+    for name, green in summary:
+        result = "PASS" if green else "FAIL"
+        print(f"- {name}: {result}")
 
     if failures:
         print("MVP-A final gate failed:", file=sys.stderr)

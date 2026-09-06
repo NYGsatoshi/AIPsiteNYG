@@ -41,7 +41,17 @@ public sealed class CsrfProtectionMiddleware(
         }
         catch (AntiforgeryValidationException ex)
         {
-            logger.LogWarning(ex, "Rejected unsafe request without a valid CSRF token: {Method} {Path}", context.Request.Method, context.Request.Path);
+            var safeMethod = context.Request.Method
+                .Replace("\r", string.Empty, StringComparison.Ordinal)
+                .Replace("\n", string.Empty, StringComparison.Ordinal);
+            var safePath = (context.Request.Path.Value ?? string.Empty)
+                .Replace("\r", string.Empty, StringComparison.Ordinal)
+                .Replace("\n", string.Empty, StringComparison.Ordinal);
+            logger.LogWarning(
+                ex,
+                "Rejected unsafe request without a valid CSRF token: {Method} {Path}",
+                safeMethod,
+                safePath);
             context.Response.StatusCode = StatusCodes.Status403Forbidden;
             var path = context.Request.Path.Value;
             if (ApiEnvelope.IsCanonicalCreatePath(path))

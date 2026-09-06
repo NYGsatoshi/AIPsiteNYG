@@ -2,7 +2,7 @@ using AipPortal.Domain.Enums;
 
 namespace AipPortal.Application.TenantExports;
 
-public sealed record TenantExportRequest(Guid? TenantId = null, TenantExportType ExportType = TenantExportType.Metadata);
+public sealed record TenantExportRequest(Guid? TenantId = null);
 
 public sealed record TenantExportFileResponse(
     Guid ExportJobId,
