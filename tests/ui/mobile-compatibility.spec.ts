@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/prefer-readonly-parameter-types -- Playwright Page, Locator, Route, and DOM callback handles are intentionally mutable external test APIs. */
 import { expect, type Locator, type Page, test } from '@playwright/test';
 
 type HorizontalRegionEvidence = Readonly<{
