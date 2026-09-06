@@ -220,11 +220,13 @@ def _policy(policy_document: dict[str, Any]) -> dict[str, Any]:
         raise ComparatorError("invalid-policy", "comparison policy sections are missing")
     if statistics_policy.get("percentileMethod") != "linear-interpolation":
         raise ComparatorError("invalid-policy", "PERF-03 percentile method must remain linear-interpolation")
+    if variability.get("defaultIndicator") != "relative-mad" or variability.get("ratioIndicator") != "range":
+        raise ComparatorError("invalid-policy", "PERF-03 variability indicators must remain relative-mad/range")
     default_max = variability.get("defaultRelativeMadMax")
     ratio_max = variability.get("ratioRangeMax")
-    if not isinstance(default_max, (int, float)) or not 0 < float(default_max) < 1:
+    if isinstance(default_max, bool) or not isinstance(default_max, (int, float)) or not 0 < float(default_max) < 1:
         raise ComparatorError("invalid-policy", "defaultRelativeMadMax must be within (0,1)")
-    if not isinstance(ratio_max, (int, float)) or not 0 < float(ratio_max) <= 1:
+    if isinstance(ratio_max, bool) or not isinstance(ratio_max, (int, float)) or not 0 < float(ratio_max) <= 1:
         raise ComparatorError("invalid-policy", "ratioRangeMax must be within (0,1]")
     if (
         rerun.get("maxReruns") != 1
