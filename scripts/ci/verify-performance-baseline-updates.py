@@ -213,6 +213,10 @@ def validate_transition(
     baseline_changes = 0
     threshold_relaxations = 0
 
+    removed = sorted(old.keys() - new.keys())
+    if removed:
+        fail(f"blocking budget removal is not allowed: {', '.join(removed)}")
+
     # A newly introduced blocking budget is still forbidden from making the
     # candidate commit its own baseline. Existing-budget-only checks would miss
     # exactly that injection path.
@@ -299,16 +303,19 @@ def main() -> int:
     root = Path(__file__).resolve().parents[2]
     parser = argparse.ArgumentParser(description="Validate PERF-03 baseline update and budget-relaxation governance")
     parser.add_argument("--base-ref", help="Git ref used to compare performance/budgets.json on PRs")
+    parser.add_argument("--head-sha", help="Candidate head SHA paired with --base-ref")
     args = parser.parse_args()
     try:
         ledger = load_json(root / "performance" / "baseline-updates.json")
         validate_ledger(ledger)
         summary = {"schemaVersion": 1, "baselineChanges": 0, "budgetRelaxations": 0}
+        if bool(args.base_ref) != bool(args.head_sha):
+            fail("--base-ref and --head-sha must be supplied together")
         if args.base_ref:
             old_text = _git(root, "show", f"{args.base_ref}:performance/budgets.json")
             old_budgets = _load_json_text(old_text, f"{args.base_ref}:performance/budgets.json")
             new_budgets = load_json(root / "performance" / "budgets.json")
-            head_sha = _git(root, "rev-parse", "HEAD")
+            head_sha = require_sha(args.head_sha, "--head-sha")
             validate_main_ancestry(root, new_budgets, args.base_ref)
             summary.update(validate_transition(old_budgets, new_budgets, ledger, head_sha=head_sha))
         print("PERF-03 baseline governance valid: " + json.dumps(summary, sort_keys=True, separators=(",", ":")))
