@@ -78,7 +78,9 @@ test('source verifier rejects sleeps, randomness, pixel-only assertions, and inl
       ['Math.random', 'Math.random();'],
       ['pixel screenshot', 'await expect(page).toHaveScreenshot();'],
       ['inline skip', "test.skip(true, 'engine exception');"],
-      ['expected-failure', "testInfo.fail(true, 'engine exception');"]
+      ['expected-failure', "testInfo.fail(true, 'engine exception');"],
+      ['expected-failure', "testInfo?.fail(true, 'engine exception');"],
+      ['inline skip', "test['skip'](true, 'engine exception');"]
     ];
 
     for (const [label, statement] of cases) {

@@ -143,7 +143,7 @@ export async function verifyCompatCriticalSources(contract, repositoryRoot = pro
       { pattern: /\btoHaveScreenshot\s*\(/u, label: 'pixel screenshot assertion' },
       { pattern: /\btoMatchSnapshot\s*\(/u, label: 'snapshot-only assertion' },
       {
-        pattern: /\b(?:test|testInfo)\.(?:skip|fixme|fail)\s*\(/u,
+        pattern: /\b(?:test|testInfo)\s*(?:(?:\.|\?\.)\s*(?:skip|fixme|fail)|(?:\?\.\s*)?\[\s*(?:"(?:skip|fixme|fail)"|'(?:skip|fixme|fail)')\s*\])\s*(?:\?\.\s*)?\(/u,
         label: 'inline skip/fixme/expected-failure exception'
       }
     ];
