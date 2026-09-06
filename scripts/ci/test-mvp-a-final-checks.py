@@ -27,6 +27,20 @@ def check_run(
     started_at: str | None = "2026-09-06T05:00:00Z",
     completed_at: str | None = "2026-09-06T05:10:00Z",
 ) -> dict[str, Any]:
+    """Create a test fixture representing a GitHub Actions check run.
+
+    Args:
+        name: The check run name
+        run_id: The check run ID
+        status: The check run status (default: "completed")
+        conclusion: The check run conclusion (default: "success")
+        head_sha: The commit SHA the check ran against (default: HEAD)
+        started_at: ISO 8601 timestamp when the check started
+        completed_at: ISO 8601 timestamp when the check completed
+
+    Returns:
+        A dict representing a GitHub check run object with the specified properties
+    """
     return {
         "id": run_id,
         "name": name,
@@ -43,6 +57,11 @@ def check_run(
 
 
 def successful_evidence() -> list[dict[str, Any]]:
+    """Generate a complete set of successful check runs for all required checks.
+
+    Returns:
+        A list of check run dicts, one for each required check, all successful
+    """
     return [
         check_run(name, 1000 + offset)
         for offset, name in enumerate(verifier.REQUIRED_CHECKS)
@@ -51,6 +70,14 @@ def successful_evidence() -> list[dict[str, Any]]:
 
 class LatestRequiredCheckTests(unittest.TestCase):
     def evaluate(self, checks: list[dict[str, Any]]) -> tuple[list[str], dict[str, bool]]:
+        """Helper to evaluate required checks and convert summary to a dict.
+
+        Args:
+            checks: List of check run dicts to evaluate
+
+        Returns:
+            Tuple of (failures list, summary dict mapping check name to pass/fail)
+        """
         failures, summary = verifier.evaluate_required_checks(checks, HEAD)
         return failures, dict(summary)
 

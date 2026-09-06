@@ -24,6 +24,10 @@ const EXPECTED_ITERATION_COUNT = 10,
   REVOCATION_PATH = '/api/workspaces/22222222-2222-2222-2222-222222222222/members/33333333-3333-3333-3333-333333333333',
   REVOCATION_STEP_NAME = 'pr03c-workspace-membership-revoked',
   ZERO_RACE_OBSERVATIONS = 0,
+  /**
+   * Generate an array of passing iteration fixtures for testing.
+   * @returns {Array<object>} Array of iteration objects with all passing criteria met except race observations
+   */
   passingIterations = () =>
     Array.from({ length: ISSUE_683_ITERATION_COUNT }, (_unusedValue, index) => ({
       exitCode: ISSUE_683_REQUIRED_EXIT_CODE,

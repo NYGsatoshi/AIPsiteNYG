@@ -85,6 +85,14 @@ def fetch_check_runs(repository: str, sha: str, token: str, api_url: str) -> lis
 
 
 def check_run_id(check: dict[str, object]) -> int | None:
+    """Extract and validate the check run ID from a check run object.
+
+    Args:
+        check: A GitHub check run dict
+
+    Returns:
+        The check run ID as a positive integer, or None if invalid or missing
+    """
     raw_id = check.get("id")
     if isinstance(raw_id, bool) or not isinstance(raw_id, int) or raw_id <= 0:
         return None
@@ -120,6 +128,19 @@ def is_green_required_check(check: dict[str, object]) -> bool:
 def evaluate_required_checks(
     check_runs: list[dict[str, object]], sha: str
 ) -> tuple[list[str], list[tuple[str, bool]]]:
+    """Evaluate required checks by selecting the latest trusted check run by ID.
+
+    For each required check, finds all trusted check runs for the exact SHA,
+    validates their IDs, and selects the one with the highest ID as latest.
+    Uses check run ID ordering instead of timestamps to avoid masking attacks.
+
+    Args:
+        check_runs: List of GitHub check run dicts to evaluate
+        sha: The exact commit SHA to match against
+
+    Returns:
+        Tuple of (failure messages, summary of check results as name-boolean pairs)
+    """
     failures: list[str] = []
     summary: list[tuple[str, bool]] = []
 

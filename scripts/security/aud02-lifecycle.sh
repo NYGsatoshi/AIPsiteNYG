@@ -8,11 +8,13 @@ AUD02_STAGE="${AUD02_STAGE:-init}"
 AUD02_FIXTURE_IDENTITY_BEFORE="${AUD02_FIXTURE_IDENTITY_BEFORE:-}"
 AUD02_FIXTURE_ROW_COUNT=10
 
+# Internal helper to log AUD-02 lifecycle failures and return non-zero exit code.
 _aud02_fail() {
   printf 'AUD-02 lifecycle failed: %s\n' "$*" >&2
   return 1
 }
 
+# Advance the AUD-02 lifecycle state machine from expected stage to next stage, failing if out of order.
 aud02_advance() {
   local expected=$1
   local next=$2
@@ -23,6 +25,7 @@ aud02_advance() {
   printf 'AUD-02 lifecycle stage: %s\n' "$AUD02_STAGE"
 }
 
+# Query the security fixture database for tenant, user, workspace, and project IDs, and return a SHA-256 fingerprint.
 aud02_fixture_identity_fingerprint() {
   declare -F db_scalar >/dev/null 2>&1 || {
     _aud02_fail "db_scalar() is required for fixture identity evidence"
@@ -99,6 +102,7 @@ SQL
   printf 'sha256:%s\n' "$digest"
 }
 
+# Capture the fixture identity fingerprint before application restart and advance to fixture-evidence stage.
 aud02_capture_fixture_evidence() {
   [[ "$AUD02_STAGE" == "warm-up" ]] || {
     _aud02_fail "fixture evidence requires warm-up stage, got '$AUD02_STAGE'"
@@ -110,6 +114,7 @@ aud02_capture_fixture_evidence() {
   printf 'AUD-02 fixture identity evidence: %s\n' "$AUD02_FIXTURE_IDENTITY_BEFORE"
 }
 
+# Verify that the fixture identity fingerprint after restart matches the captured pre-restart fingerprint.
 aud02_verify_restart_identity() {
   [[ "$AUD02_STAGE" == "teardown" ]] || {
     _aud02_fail "restart identity verification requires teardown stage, got '$AUD02_STAGE'"
@@ -131,6 +136,7 @@ aud02_verify_restart_identity() {
   printf 'AUD-02 restart identity matched: %s\n' "$after"
 }
 
+# Write the AUD-02 lifecycle summary to GitHub step summary if available.
 aud02_write_summary() {
   [[ "$AUD02_STAGE" == "restart-identity" ]] || {
     _aud02_fail "summary requires completed restart identity stage, got '$AUD02_STAGE'"
