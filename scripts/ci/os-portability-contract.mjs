@@ -4,7 +4,9 @@ import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
 const DEFAULT_CONTRACT = 'scripts/ci/os-portability.contract.json';
+const TRUST_REGISTRY = 'governance/workflow-trust-policy.json';
 const REQUIRED_MATRIX = ['ubuntu-latest', 'windows-latest', 'macos-latest'];
+const BOUNDED_RUNS_ON = "${{ (matrix.os == 'windows-latest' && 'windows-latest') || (matrix.os == 'macos-latest' && 'macos-latest') || 'ubuntu-latest' }}";
 const REQUIRED_ASSUMPTIONS = [
   'shell',
   'gnu-tools',
@@ -150,8 +152,10 @@ export async function verifyRepositoryOsPortability(repositoryRoot = process.cwd
   const contract = await loadOsPortabilityContract(contractPath);
   const workflowText = await readUtf8(root, contract.workflow);
   const allowlist = JSON.parse(await readUtf8(root, 'governance/github-actions-allowlist.json'));
+  const trustRegistry = JSON.parse(await readUtf8(root, TRUST_REGISTRY));
 
   validateWorkflowText(contract, workflowText, allowlist);
+  validateRunnerRoutingRegistry(contract, trustRegistry);
   const declaredToolchain = await validateToolchainDeclarations(root, contract);
   await validatePortableTestSources(root, contract);
   await validateCompatibilityProfile(root, contract);
@@ -182,7 +186,7 @@ export function validateWorkflowText(contract, workflowText, allowlist) {
   requireText(workflowText, expectedMatrix, 'workflow matrix', failures);
   requirePattern(workflowText, /^\s*fail-fast:\s*false\s*$/mu, 'matrix fail-fast: false', failures);
   requirePattern(workflowText, /^\s*max-parallel:\s*3\s*$/mu, 'bounded matrix max-parallel', failures);
-  requireText(workflowText, 'runs-on: ${{ matrix.os }}', 'matrix runs-on identity', failures);
+  requireText(workflowText, `runs-on: ${BOUNDED_RUNS_ON}`, 'bounded matrix runner routing', failures);
   requireText(workflowText, 'name: OS portability (${{ matrix.os }})', 'OS-specific job identity', failures);
   requirePattern(workflowText, /^\s*timeout-minutes:\s*(?:[1-9]|[1-5]\d|60)\s*$/mu, 'bounded timeout at or below 60 minutes', failures);
 
@@ -247,6 +251,21 @@ export function validateWorkflowText(contract, workflowText, allowlist) {
   }
 }
 
+export function validateRunnerRoutingRegistry(contract, registry) {
+  const routing = registry?.runner_routing;
+  if (!routing || typeof routing !== 'object' || Array.isArray(routing)) {
+    throw new Error(`${TRUST_REGISTRY} must declare runner_routing.`);
+  }
+  const labels = Reflect.get(routing, 'github_hosted_labels');
+  if (!Array.isArray(labels) || contract.matrix.some((label) => !labels.includes(label))) {
+    throw new Error(`${TRUST_REGISTRY} must classify every portability matrix label as GitHub-hosted.`);
+  }
+  const expressions = Reflect.get(routing, 'approved_dynamic_expressions');
+  if (!Array.isArray(expressions) || !expressions.includes(BOUNDED_RUNS_ON)) {
+    throw new Error(`${TRUST_REGISTRY} must approve the bounded portability runner expression.`);
+  }
+}
+
 export function findCaseInsensitiveCollisions(paths) {
   const byFoldedPath = new Map();
   for (const entry of paths) {
@@ -260,6 +279,13 @@ export function findCaseInsensitiveCollisions(paths) {
     .filter((values) => values.size > 1)
     .map((values) => [...values].sort())
     .sort((left, right) => left[0].localeCompare(right[0]));
+}
+
+export function npmVersionCommand(platform = process.platform) {
+  if (platform === 'win32') {
+    return { command: 'cmd.exe', args: ['/d', '/s', '/c', 'npm --version'] };
+  }
+  return { command: 'npm', args: ['--version'] };
 }
 
 async function validateToolchainDeclarations(root, contract) {
@@ -327,7 +353,8 @@ function validateObservedToolchain(contract, expectedDotnetSdk) {
     failures.push(`Node major is ${actualNode}; expected ${expectedNode}.`);
   }
 
-  const npm = runVersion(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['--version']);
+  const npmCommand = npmVersionCommand();
+  const npm = runVersion(npmCommand.command, npmCommand.args);
   if (!npm.ok || npm.value !== contract.toolchain.npmVersion) {
     failures.push(`npm version is ${npm.value ?? '<unavailable>'}; expected ${contract.toolchain.npmVersion}.`);
   }

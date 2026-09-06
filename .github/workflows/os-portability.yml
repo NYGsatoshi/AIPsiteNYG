@@ -8,6 +8,7 @@ on:
       - ".github/workflows/ci.yml"
       - ".config/dotnet-tools.json"
       - "governance/github-actions-allowlist.json"
+      - "governance/workflow-trust-policy.json"
       - "global.json"
       - "AipPortal.slnx"
       - "Directory.Build.*"
@@ -41,6 +42,7 @@ on:
       - ".github/workflows/ci.yml"
       - ".config/dotnet-tools.json"
       - "governance/github-actions-allowlist.json"
+      - "governance/workflow-trust-policy.json"
       - "global.json"
       - "AipPortal.slnx"
       - "Directory.Build.*"
@@ -83,7 +85,7 @@ jobs:
       max-parallel: 3
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ (matrix.os == 'windows-latest' && 'windows-latest') || (matrix.os == 'macos-latest' && 'macos-latest') || 'ubuntu-latest' }}
     timeout-minutes: 60
 
     env:

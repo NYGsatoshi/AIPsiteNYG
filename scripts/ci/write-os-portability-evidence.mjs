@@ -4,7 +4,8 @@ import { spawnSync } from 'node:child_process';
 
 import {
   findCaseInsensitiveCollisions,
-  loadOsPortabilityContract
+  loadOsPortabilityContract,
+  npmVersionCommand
 } from './os-portability-contract.mjs';
 import { readTrxCounters } from './verify-os-portability-results.mjs';
 
@@ -45,6 +46,7 @@ export async function buildOsPortabilityEvidence(repositoryRoot = process.cwd())
   );
   const trackedPaths = listTrackedPaths(root);
   const caseCollisions = findCaseInsensitiveCollisions(trackedPaths);
+  const npmCommand = npmVersionCommand();
   const lineEndings = {};
   for (const relativePath of PORTABLE_TEXT_FILES) {
     lineEndings[relativePath] = detectLineEndings(await readFile(path.join(root, relativePath), 'utf8'));
@@ -78,7 +80,7 @@ export async function buildOsPortabilityEvidence(repositoryRoot = process.cwd())
       observed: {
         dotnetSdk: commandVersion('dotnet', ['--version']),
         node: process.version,
-        npm: commandVersion(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['--version']),
+        npm: commandVersion(npmCommand.command, npmCommand.args),
         git: commandVersion('git', ['--version'])
       }
     },

@@ -28,11 +28,13 @@ The matrix also reuses COMPAT-04's `os-portability` profile through Playwright d
 
 This separation prevents an OS x browser x database Cartesian product in pull requests. `strategy.fail-fast: false` allows every OS to report its own result; no OS is ignored and the workflow contains no `continue-on-error` escape.
 
+Runner routing uses a self-bounding expression whose only possible outputs are the three declared GitHub-hosted labels. The exact expression and all three labels are registered in `governance/workflow-trust-policy.json`; the portability contract validates that binding before dependency installation.
+
 ## Shell, filesystem, and line-ending classification
 
 | Concern | Matrix rule | Repository classification |
 | --- | --- | --- |
-| Bash and PowerShell syntax | The matrix calls `node`, `npm`, and `dotnet` directly and has no explicit shell override | Existing `.sh` and platform-specific `.ps1` entry points remain owned by their documented platform |
+| Bash, PowerShell, and cmd syntax | Workflow commands call `node`, `npm`, and `dotnet` directly with no explicit shell override; the Node probe invokes the fixed `npm --version` command through `cmd.exe` only for Windows' `.cmd` shim | Existing `.sh` and platform-specific `.ps1` entry points remain owned by their documented platform |
 | GNU-only behavior | No `sed`, `grep`, `awk`, `chmod`, or GNU-only flags | GNU-dependent CI/deployment helpers remain Linux-only |
 | Temporary paths | Portable tests use `Path.GetTempPath()` or Node path APIs; the workflow contains no `/tmp` | Existing `/tmp` usage remains Linux-lane implementation detail |
 | Path separators | Helpers use platform path APIs; repository identifiers normalize to `/` | Selected file-name tests cover `/`, `\`, and drive-prefixed input |

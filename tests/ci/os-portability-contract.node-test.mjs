@@ -5,7 +5,9 @@ import test from 'node:test';
 import {
   findCaseInsensitiveCollisions,
   loadOsPortabilityContract,
+  npmVersionCommand,
   validateOsPortabilityContract,
+  validateRunnerRoutingRegistry,
   validateWorkflowText,
   verifyRepositoryOsPortability
 } from '../../scripts/ci/os-portability-contract.mjs';
@@ -44,11 +46,35 @@ test('workflow rejects ignored OS failures, services, shell overrides, and mutab
     ['continue-on-error', `${workflow}\ncontinue-on-error: true\n`],
     ['services', `${workflow}\nservices:\n  postgres:\n`],
     ['explicit shell override', `${workflow}\nshell: bash\n`],
+    ['bounded matrix runner routing', workflow.replace(/^\s*runs-on:.*matrix\.os.*$/mu, '    runs-on: ${{ matrix.os }}')],
     ['immutable actions/checkout reference', workflow.replace(allowlist.actions['actions/checkout'].sha, 'v7')]
   ];
   for (const [message, candidate] of mutations) {
     assert.throws(() => validateWorkflowText(contract, candidate, allowlist), new RegExp(message, 'u'));
   }
+});
+
+test('runner registry binds the matrix to approved GitHub-hosted labels', async () => {
+  const contract = await loadOsPortabilityContract();
+  const registry = JSON.parse(await readFile('governance/workflow-trust-policy.json', 'utf8'));
+  assert.doesNotThrow(() => validateRunnerRoutingRegistry(contract, registry));
+
+  const missingWindows = structuredClone(registry);
+  Reflect.set(missingWindows.runner_routing, 'github_hosted_labels', ['ubuntu-latest', 'macos-latest']);
+  assert.throws(() => validateRunnerRoutingRegistry(contract, missingWindows), /every portability matrix label/u);
+
+  const missingExpression = structuredClone(registry);
+  Reflect.set(missingExpression.runner_routing, 'approved_dynamic_expressions', []);
+  assert.throws(() => validateRunnerRoutingRegistry(contract, missingExpression), /bounded portability runner expression/u);
+});
+
+test('npm version probe uses the Windows command shim through cmd.exe only on Windows', () => {
+  assert.deepEqual(npmVersionCommand('win32'), {
+    command: 'cmd.exe',
+    args: ['/d', '/s', '/c', 'npm --version']
+  });
+  assert.deepEqual(npmVersionCommand('linux'), { command: 'npm', args: ['--version'] });
+  assert.deepEqual(npmVersionCommand('darwin'), { command: 'npm', args: ['--version'] });
 });
 
 test('case-insensitive path collisions fail even when exact paths differ', () => {
