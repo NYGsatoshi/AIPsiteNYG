@@ -1,0 +1,18 @@
+# FCI-07 Functional authorization-negative overlay.
+# Layer after docker-compose.real-backend-smoke.yml and docker-compose.security.yml.
+# The application stays on the existing SEC-02/SEC-05 multi-tenant fixture while
+# the inherited Playwright image runs only the canonical Functional negative owner.
+
+services:
+  real-backend-playwright:
+    environment:
+      AIP_SECURITY_CI_FIXTURE_ENABLED: "true"
+      AIP_SECURITY_CI_PASSWORD: ${AIP_SECURITY_CI_PASSWORD:?AIP_SECURITY_CI_PASSWORD is required for FCI-07}
+      AIP_FUNCTIONAL_FCI07: "1"
+    command: >
+      bash -lc "npm ci &&
+      node scripts/ci/run-functional-playwright.mjs
+      --gate ${AIP_FCI07_GATE:-functional-fast}
+      --domain security-negative
+      --negative-authz
+      -- --project=functional-chromium --workers=1 --retries=0"
