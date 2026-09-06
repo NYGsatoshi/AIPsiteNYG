@@ -347,7 +347,7 @@ def compare_documents(
         head_sha = _require_sha(measurement.get("headSha"), "measurement.headSha")
         unit = _require_nonempty(measurement.get("unit"), "measurement.unit")
         attempt = measurement.get("attempt", 1)
-        if not isinstance(attempt, int) or attempt not in (1, 2):
+        if isinstance(attempt, bool) or not isinstance(attempt, int) or attempt not in (1, 2):
             raise ComparatorError("rerun-limit-exceeded", "attempt must be 1 or the single permitted rerun attempt 2")
         if attempt == 2:
             _require_nonempty(measurement.get("previousAttemptArtifact"), "measurement.previousAttemptArtifact")
