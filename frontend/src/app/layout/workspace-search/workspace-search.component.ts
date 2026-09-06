@@ -52,6 +52,7 @@ const TYPE_PAGE_SIZE = 8;
       <form
         class="workspace-search__form"
         role="search"
+        aria-label="Search current Workspace"
         [attr.aria-busy]="status() === 'loading'"
         (submit)="submitSearch($event)"
         (keydown.escape)="dismissResults()"
