@@ -63,6 +63,34 @@
         "contents:write"
       ],
       "reason": "Commit the single scope-checked PR445 mobile screenshot baseline back to its fixed repository branch."
+    },
+    {
+      "workflow": ".github/workflows/release-supply-chain.yml",
+      "jobs": [
+        "publish-release-image",
+        "promote-release-tag"
+      ],
+      "events": [
+        "release"
+      ],
+      "permissions": [
+        "packages:write"
+      ],
+      "reason": "Publish the immutable release subject and promote its human release tag only from the trusted release event; these jobs do not receive OIDC signing authority."
+    },
+    {
+      "workflow": ".github/workflows/release-supply-chain.yml",
+      "jobs": [
+        "sign-release-subject"
+      ],
+      "events": [
+        "release"
+      ],
+      "permissions": [
+        "id-token:write",
+        "packages:write"
+      ],
+      "reason": "Mint a short-lived GitHub Actions OIDC identity and publish Cosign signatures and attestations for the immutable release subject."
     }
   ]
 }
