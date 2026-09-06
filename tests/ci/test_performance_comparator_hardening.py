@@ -56,6 +56,21 @@ class PerformanceComparatorHardeningTests(unittest.TestCase):
             self.assertNotEqual(0, completed.returncode, args)
             self.assertIn("must be supplied together", completed.stderr)
 
+    def test_comparison_policy_indicator_drift_is_invalid(self) -> None:
+        changed_policy = base.policy()
+        changed_policy["variability"]["defaultIndicator"] = "cv"
+        result = base.compare.compare_documents(
+            base.measurement([100, 101, 102, 103, 104]),
+            base.approved_baseline([95, 96, 97, 98, 99]),
+            base.fingerprint(),
+            base.scenarios(),
+            base.budgets(),
+            base.environment(),
+            changed_policy,
+        )
+        self.assertEqual("invalid", result["decision"])
+        self.assertEqual("invalid-policy", result["reasonCode"])
+
 
 if __name__ == "__main__":
     unittest.main()
