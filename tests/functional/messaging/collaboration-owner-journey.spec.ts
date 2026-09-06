@@ -1,20 +1,19 @@
 /* eslint-disable max-lines, complexity, max-lines-per-function */
 import { randomUUID } from 'node:crypto';
 
-import { expect, type APIRequestContext, type APIResponse, test } from '@playwright/test';
+import { expect, type APIRequestContext, type APIResponse, type Response as PlaywrightResponse, test } from '@playwright/test';
 
 import { functionalFullExpansionEnabled } from '../fixtures/functional-gate-selection.mjs';
 import { functionalMetadata } from '../fixtures/functional-metadata.mjs';
+import { waitForAuthoritativeState } from '../helpers/authoritative-state';
 import { loginViaApi, logoutViaApi } from '../helpers/auth';
 import { csrfAwareRequest } from '../helpers/csrf';
-import { waitForAuthoritativeState } from '../helpers/authoritative-state';
 import { assertSafeResponse, safeResponsePreview } from '../helpers/safe-response';
 
 const smokeEmail = process.env.AIP_BROWSER_SMOKE_EMAIL ?? '';
 const smokePassword = process.env.AIP_BROWSER_SMOKE_PASSWORD ?? '';
 const recipientEmail = 'browser-smoke-recipient@example.test';
 const recipientName = 'Browser Smoke Recipient';
-const workspaceName = 'Browser Smoke Workspace';
 
 interface JourneyEvidence {
   journeyId: string;
@@ -223,12 +222,16 @@ test.describe('FCI-06 collaboration owner journeys', () => {
             const remove = await csrfAwareRequest(api, 'DELETE', `/api/messages/${messageId}`);
             await assertSafeResponse(remove, { label: 'message delete', expectedStatus: 200 });
 
-            const deleted = (await readMessages(api, conversationId)).find(
-              (message) => readOptionalString(message, 'id') === messageId
-            );
-            expect(deleted, 'deleted message remains as a tombstone').toBeDefined();
-            expect(deleted?.isDeleted).toBe(true);
-            expect(readOptionalString(deleted!, 'body')).toBeNull();
+            const afterDelete = await readMessages(api, conversationId);
+            const deletedProjection = afterDelete.find((message) => readOptionalString(message, 'id') === messageId);
+            expect(
+              afterDelete.some((message) => readOptionalString(message, 'body') === editedBody),
+              'deleted content must not remain readable through the authoritative timeline'
+            ).toBe(false);
+            if (deletedProjection) {
+              expect(deletedProjection.isDeleted).toBe(true);
+              expect(readOptionalString(deletedProjection, 'body')).toBeNull();
+            }
           });
         }
       } finally {
@@ -474,7 +477,7 @@ function readNumber(record: Record<string, unknown>, key: string): number {
   return value;
 }
 
-async function boundedResponsePreview(response: APIResponse | import('@playwright/test').Response): Promise<string> {
+async function boundedResponsePreview(response: APIResponse | PlaywrightResponse): Promise<string> {
   try {
     const text = await response.text();
     return text.length <= 1024 ? text : `${text.slice(0, 1024)}…[TRUNCATED]`;
