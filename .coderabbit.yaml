@@ -4,13 +4,9 @@ language: "en-US"
 early_access: false
 
 tone_instructions: >-
-  Keep reviews concise and technical. Prioritize issues with real behavioral,
-  security, architectural, or maintainability impact, and suppress minor findings
-  that existing deterministic CI can already detect reliably. English is the
-  canonical engineering/project language: flag newly introduced non-English
-  engineering prose in source comments, docstrings, tests, repository docs,
-  configuration docs, PR/Issue-facing text, or similar artifacts. Do not flag
-  intentional end-user localization/i18n resources solely for being non-English.
+  Prioritize behavioral, security, architecture, authorization, tenancy, and
+  maintainability risks. Avoid style nits and duplicate deterministic CI findings.
+  Use English for engineering prose; exempt intentional product localization/i18n.
 
 reviews:
   profile: "chill"
@@ -39,6 +35,66 @@ reviews:
     - "!**/node_modules/**"
     - "!**/package-lock.json"
     - "!**/*.Designer.cs"
+
+  path_instructions:
+    - path: "src/AipPortal.Application/**"
+      instructions: >-
+        Review modifying use cases for server-side authorization and tenant/resource
+        scope. Keep business logic in Application rather than Web or Infrastructure.
+        Check transaction boundaries for multi-record changes, audit requirements for
+        security-sensitive state transitions, and DTO/authorization behavior that may
+        disclose whether cross-tenant or unauthorized resources exist.
+
+    - path: "src/AipPortal.Infrastructure/**"
+      instructions: >-
+        Review EF Core/PostgreSQL code for tenant isolation, query correctness, N+1
+        behavior, unnecessary tracking, missing pagination, synchronous database/file
+        I/O, and transaction consistency. Prefer AsNoTracking for read-only queries and
+        flag domain/application policy that has leaked into infrastructure adapters.
+
+    - path: "src/AipPortal.Web/**"
+      instructions: >-
+        Keep controllers and endpoints thin. Verify request validation,
+        authentication, authorization, and tenant resolution before resource access.
+        Return DTOs rather than persistence entities. Review 403/404 behavior for
+        cross-tenant existence leaks and flag unsafe logging or configuration exposure.
+
+    - path: "frontend/**"
+      instructions: >-
+        Treat frontend permission checks as presentation only; server-side authorization
+        remains authoritative. Check backend DTO/API contract alignment, NgRx state and
+        SignalR/full-snapshot consistency, loading/empty/error/validation states,
+        keyboard/accessibility regressions, and Syncfusion integration behavior.
+
+    - path: "tests/**"
+      instructions: >-
+        Require focused regression coverage when behavior changes affect authorization,
+        tenant isolation, persistence, files, or frontend/backend contracts. Do not
+        treat EF Core InMemory tests as proof of PostgreSQL behavior or mocked UI tests
+        as proof of real backend integration. Call out environment-dependent tests that
+        can silently skip while still reporting success.
+
+    - path: ".github/workflows/**"
+      instructions: >-
+        Treat workflow changes as security-sensitive control-plane changes. Review for
+        fail-open behavior, stale PASS states, required-check bypasses, untrusted pull
+        request execution, permission escalation, secret exposure, privileged
+        environment bypass, mutable dependencies, and changes that silently neutralize
+        governance validation.
+
+    - path: "scripts/ci/**"
+      instructions: >-
+        Treat CI policy evaluators as security-sensitive governance code. Review for
+        fail-open behavior, stale or replayable PASS evidence, incomplete live-state
+        validation, bypass paths, unsafe trust assumptions, and checks that can succeed
+        without proving the condition they claim to enforce.
+
+    - path: "src/AipPortal.Infrastructure/Migrations/**"
+      instructions: >-
+        Review migrations for destructive operations, compatibility and rollback risk,
+        foreign keys and constraints, unsafe defaults, tenant-related invariants, and
+        missing indexes for foreign keys or common filters when warranted. Keep
+        migrations focused and reviewable.
 
 knowledge_base:
   code_guidelines:
