@@ -72,8 +72,8 @@ test.describe('FCI-07 real-stack authorization negative matrix', () => {
       polarity: 'negative',
       negativeAuthz: true,
     }),
-    async (fixtures, testInfo) => {
-      void fixtures;
+    async ({ browserName }, testInfo) => {
+      expect(browserName).toBe('chromium');
       const anonymousApi = await createTenantApi(ALPHA_TENANT);
       const memberApi = await createTenantApi(ALPHA_TENANT);
       const ownerApi = await createTenantApi(ALPHA_TENANT);
