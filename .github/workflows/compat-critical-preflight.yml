@@ -171,8 +171,8 @@ jobs:
       - name: Install repository Playwright dependencies
         run: npm ci --prefer-offline --ignore-scripts --no-audit --no-fund
 
-      - name: Install Angular dependencies
-        run: npm --prefix frontend ci --prefer-offline --no-audit --no-fund
+      - name: Install Angular dependencies without lifecycle scripts
+        run: npm --prefix frontend ci --prefer-offline --ignore-scripts --no-audit --no-fund
 
       - name: Install ${{ matrix.engine }} browser and system dependencies
         run: npx playwright install --with-deps "${{ matrix.browser }}"
