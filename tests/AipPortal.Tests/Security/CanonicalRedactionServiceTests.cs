@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Http;
 
 namespace AipPortal.Tests.Security;
 
+[Trait("Portability", "CrossPlatform")]
 public sealed class CanonicalRedactionServiceTests
 {
     [Fact]

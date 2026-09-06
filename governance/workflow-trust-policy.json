@@ -14,11 +14,13 @@
   "runner_routing": {
     "github_hosted_labels": [
       "ubuntu-latest",
+      "windows-latest",
       "macos-latest"
     ],
     "github_hosted_groups": [],
     "approved_dynamic_expressions": [
-      "${{ (matrix.language == 'swift' && 'macos-latest') || 'ubuntu-latest' }}"
+      "${{ (matrix.language == 'swift' && 'macos-latest') || 'ubuntu-latest' }}",
+      "${{ (matrix.os == 'windows-latest' && 'windows-latest') || (matrix.os == 'macos-latest' && 'macos-latest') || 'ubuntu-latest' }}"
     ]
   },
   "write_permissions": [
