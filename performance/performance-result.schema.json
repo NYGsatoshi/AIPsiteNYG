@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aipsite:performance-result:v1",
+  "title": "AIPsiteNYG Performance Result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "scenario",
+    "metric",
+    "gate",
+    "unit",
+    "headSha",
+    "baselineSha",
+    "sampleCount",
+    "summary",
+    "baseline",
+    "currentValue",
+    "baselineValue",
+    "absoluteDelta",
+    "relativeDelta",
+    "budget",
+    "decision",
+    "reasonCode",
+    "message",
+    "attempt",
+    "rerun",
+    "environmentCompatibilityKey",
+    "fixture"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "scenario": {"type": ["string", "null"]},
+    "metric": {"type": ["string", "null"]},
+    "gate": {"enum": ["hard-ceiling", "relative-regression", "trend-only", "extended-only", null]},
+    "unit": {"type": ["string", "null"]},
+    "headSha": {"type": ["string", "null"], "pattern": "^[0-9a-f]{40}$"},
+    "baselineSha": {"type": ["string", "null"], "pattern": "^[0-9a-f]{40}$"},
+    "sampleCount": {"type": "integer", "minimum": 0},
+    "summary": {"$ref": "#/$defs/summaryOrNull"},
+    "baseline": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sampleCount", "summary"],
+          "properties": {
+            "sampleCount": {"type": "integer", "minimum": 0},
+            "summary": {"$ref": "#/$defs/summary"}
+          }
+        }
+      ]
+    },
+    "currentValue": {"type": ["number", "null"]},
+    "baselineValue": {"type": ["number", "null"]},
+    "absoluteDelta": {"type": ["number", "null"]},
+    "relativeDelta": {"type": ["number", "null"]},
+    "budget": {"type": ["object", "null"]},
+    "decision": {"enum": ["pass", "regression", "unstable", "insufficient-data", "invalid"]},
+    "reasonCode": {"type": "string", "minLength": 1},
+    "message": {"type": ["string", "null"]},
+    "attempt": {"type": ["integer", "null"], "minimum": 1, "maximum": 2},
+    "rerun": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allowed", "maxReruns", "remaining", "preserveAttempts"],
+      "properties": {
+        "allowed": {"type": "boolean"},
+        "maxReruns": {"const": 1},
+        "remaining": {"type": "integer", "minimum": 0, "maximum": 1},
+        "preserveAttempts": {"const": true}
+      }
+    },
+    "environmentCompatibilityKey": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+    "fixture": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["profile", "hash", "version"],
+          "properties": {
+            "profile": {"type": ["string", "null"]},
+            "hash": {"type": ["string", "null"]},
+            "version": {"type": ["integer", "null"]}
+          }
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "summaryOrNull": {
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "#/$defs/summary"}
+      ]
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["min", "max", "median", "p50", "p95", "p99", "mad", "cv", "relativeMad", "range", "variabilityKind", "variabilityValue", "variabilityLimit"],
+      "properties": {
+        "min": {"type": "number"},
+        "max": {"type": "number"},
+        "median": {"type": "number"},
+        "p50": {"type": "number"},
+        "p95": {"type": "number"},
+        "p99": {"type": "number"},
+        "mad": {"type": "number", "minimum": 0},
+        "cv": {"type": ["number", "null"], "minimum": 0},
+        "relativeMad": {"type": ["number", "null"], "minimum": 0},
+        "range": {"type": "number", "minimum": 0},
+        "variabilityKind": {"enum": ["relative-mad", "range"]},
+        "variabilityValue": {"type": "number", "minimum": 0},
+        "variabilityLimit": {"type": "number", "exclusiveMinimum": 0}
+      }
+    }
+  }
+}
