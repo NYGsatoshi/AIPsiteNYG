@@ -1,5 +1,22 @@
 const COMPOSE_PROJECT_NAME_MAX_LENGTH = 63;
 
+const DEFAULT_FUNCTIONAL_PLAYWRIGHT_ARGS = Object.freeze([
+  '--config',
+  'playwright.functional.config.ts',
+  'project-task/core-golden-journey.spec.ts',
+  'files/files-fast-journey.spec.ts',
+  '--project=functional-chromium',
+  '--retries=0',
+  '--workers=1'
+]);
+
+const DEFAULT_LEGACY_PLAYWRIGHT_ARGS = Object.freeze([
+  'tests/ui/real-backend-smoke.spec.ts',
+  '--project=chromium-desktop',
+  '--retries=0',
+  '--workers=1'
+]);
+
 export const composeV2Invocation = Object.freeze({
   command: 'docker',
   prefix: ['compose']
@@ -75,6 +92,37 @@ export function isHstsPreloadedHttpUrl(value) {
 
 export function normalizeExitCode(code) {
   return Number.isInteger(code) && code >= 0 ? code : 1;
+}
+
+/**
+ * Keep the migrated Functional owners on their own Playwright config while
+ * retaining the legacy smoke suite on the root tests/ui config. Playwright
+ * treats CLI paths as filters inside testDir, so mixing both directories in
+ * one invocation silently discovers no migrated owner tests.
+ */
+export function buildRealBackendPlaywrightPlan(userArgs = [], focusedGrep = '') {
+  const grepArgs = focusedGrep.trim().length > 0 ? ['--grep', focusedGrep.trim()] : [];
+  if (userArgs.length > 0) {
+    return [{ name: 'custom', args: [...userArgs, ...grepArgs] }];
+  }
+
+  if (grepArgs.length > 0) {
+    return [{
+      name: 'focused legacy real-backend suite',
+      args: [...DEFAULT_LEGACY_PLAYWRIGHT_ARGS, ...grepArgs]
+    }];
+  }
+
+  return [
+    {
+      name: 'Functional real-backend owners',
+      args: [...DEFAULT_FUNCTIONAL_PLAYWRIGHT_ARGS]
+    },
+    {
+      name: 'legacy real-backend regression',
+      args: [...DEFAULT_LEGACY_PLAYWRIGHT_ARGS]
+    }
+  ];
 }
 
 export function redactSecrets(output) {

@@ -66,7 +66,7 @@ export function runFunctionalPlaywright(args = process.argv.slice(2)) {
     npx,
     ['playwright', 'test', '--config', 'playwright.functional.config.ts', '--grep', grep, ...playwrightArgs],
     {
-      env: process.env,
+      env: functionalRunnerEnvironment(filters),
       stdio: 'inherit'
     }
   );
@@ -75,6 +75,23 @@ export function runFunctionalPlaywright(args = process.argv.slice(2)) {
     throw result.error;
   }
   return result.status ?? 1;
+}
+
+/**
+ * Make the selected gate visible to an owner journey without coupling the
+ * journey to Playwright's generated --grep expression. An empty value means
+ * no gate was requested, so a direct journey run exercises its complete path.
+ */
+export function functionalRunnerEnvironment(filters, environment = process.env) {
+  const gates = Array.isArray(filters.gates)
+    ? filters.gates
+    : filters.gates
+      ? [filters.gates]
+      : [];
+  return {
+    ...environment,
+    AIP_FUNCTIONAL_SELECTED_GATES: gates.join(',')
+  };
 }
 
 if (isMainModule()) {

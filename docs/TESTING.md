@@ -618,14 +618,23 @@ Core migrations, builds and starts the ASP.NET Core image with the production
 Angular build, enables deterministic synthetic seed data, waits for
 `/health/ready`, and runs Playwright inside the Compose network against
 `http://aip-backend:8080`. The alias intentionally avoids the HSTS-preloaded
-`.app` hostname used by the Compose service name. It preserves traces,
-screenshots, videos, HTML reports, and
-the smoke error-context attachment on the host when the run fails. Containers,
-networks, and the isolated test volumes are removed afterwards.
+`.app` hostname used by the Compose service name. The legacy regression phase
+preserves traces, screenshots, videos, HTML reports, and the smoke
+error-context attachment on the host when it fails. Migrated Functional owners
+currently emit list/JUnit output with their high-risk browser artifacts disabled;
+FCI-09 owns the later sanitized artifact policy. Containers, networks, and the
+isolated test volumes are removed afterwards.
 
 The runner prefers `docker compose` on Windows, Linux, and macOS, and falls
 back to legacy `docker-compose` only when necessary. Do not point this suite at
 the static server on port 4173.
+
+The default browser phase invokes migrated `tests/functional/` owners with
+`playwright.functional.config.ts`, then invokes the legacy
+`tests/ui/real-backend-smoke.spec.ts` regression with the root Playwright
+config. Keeping those discovery roots separate is required: Playwright file
+arguments are scoped to the active `testDir`. Neither invocation uses
+`--pass-with-no-tests`, so a missing owner selection is a failure.
 
 For an already-running real backend only, direct execution requires the marker,
 URL, and synthetic credentials explicitly:

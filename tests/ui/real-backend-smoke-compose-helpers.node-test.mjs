@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  buildRealBackendPlaywrightPlan,
   composeProjectName,
   composeV2Invocation,
   isHstsPreloadedHttpUrl,
@@ -77,4 +78,31 @@ test('rejects the static Angular server URL and preserves child exit codes', () 
   assert.equal(isHstsPreloadedHttpUrl('http://aip-backend:8080'), false);
   assert.equal(normalizeExitCode(37), 37);
   assert.equal(normalizeExitCode(null), 1);
+});
+
+test('runs migrated Functional owners with their config before legacy regression', () => {
+  const plan = buildRealBackendPlaywrightPlan();
+  assert.deepEqual(plan.map((entry) => entry.name), [
+    'Functional real-backend owners',
+    'legacy real-backend regression'
+  ]);
+  assert.deepEqual(plan[0].args.slice(0, 2), ['--config', 'playwright.functional.config.ts']);
+  assert.ok(plan[0].args.includes('project-task/core-golden-journey.spec.ts'));
+  assert.ok(plan[0].args.includes('--project=functional-chromium'));
+  assert.equal(plan[0].args.includes('--pass-with-no-tests'), false);
+  assert.ok(plan[1].args.includes('tests/ui/real-backend-smoke.spec.ts'));
+  assert.ok(plan[1].args.includes('--project=chromium-desktop'));
+});
+
+test('keeps manifest-focused and custom runs on the legacy-compatible single invocation', () => {
+  const focused = buildRealBackendPlaywrightPlan([], 'required title');
+  assert.equal(focused.length, 1);
+  assert.deepEqual(focused[0].args.slice(-2), ['--grep', 'required title']);
+  assert.ok(focused[0].args.includes('tests/ui/real-backend-smoke.spec.ts'));
+
+  const custom = buildRealBackendPlaywrightPlan(['custom.spec.ts'], 'focused');
+  assert.deepEqual(custom, [{
+    name: 'custom',
+    args: ['custom.spec.ts', '--grep', 'focused']
+  }]);
 });

@@ -25,7 +25,10 @@ export default defineConfig({
   forbidOnly: Boolean(process.env.CI),
   retries: 0,
   workers: 1,
-  reporter: [['list'], ['junit', { outputFile: 'test-results/functional-playwright-results.xml' }]],
+  reporter: [
+    ['list', { printSteps: true }],
+    ['junit', { outputFile: 'test-results/functional-playwright-results.xml' }]
+  ],
   use: {
     baseURL,
     storageState: deterministicUiStorageState,

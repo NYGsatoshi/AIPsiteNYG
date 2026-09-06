@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { prepareRealBackendP0State } from './prepare-real-backend-p0-state.mjs';
 import {
+  buildRealBackendPlaywrightPlan,
   isHstsPreloadedHttpUrl,
   isStaticAngularServerUrl
 } from './real-backend-smoke-compose-helpers.mjs';
@@ -9,22 +10,12 @@ import {
 const playwrightCli = fileURLToPath(new URL('../../node_modules/@playwright/test/cli.js', import.meta.url));
 const userArgs = process.argv.slice(2);
 const focusedGrep = process.env.AIP_REAL_BACKEND_SMOKE_GREP?.trim();
-const playwrightArgs = [
-  ...(userArgs.length > 0
-    ? userArgs
-    : [
-      'tests/functional/project-task/core-golden-journey.spec.ts',
-      'tests/functional/files/files-fast-journey.spec.ts',
-      'tests/ui/real-backend-smoke.spec.ts',
-      '--project=chromium-desktop',
-      '--retries=0',
-      '--workers=1'
-    ]),
-  ...(focusedGrep ? ['--grep', focusedGrep] : [])
-];
+const playwrightPlan = buildRealBackendPlaywrightPlan(userArgs, focusedGrep);
 
 if (process.env.AIP_ISSUE_683_EVIDENCE === '1') {
-  playwrightArgs.push('--add-reporter=./tests/ui/issue-683-race-evidence-reporter.mjs');
+  for (const run of playwrightPlan.filter((entry) => entry.name !== 'Functional real-backend owners')) {
+    run.args.push('--add-reporter=./tests/ui/issue-683-race-evidence-reporter.mjs');
+  }
 }
 
 let exitCode = 1;
@@ -35,7 +26,14 @@ try {
   if (process.env.AIP_REAL_BACKEND_P0_SETUP === '1') {
     await prepareRealBackendP0State(configuration);
   }
-  exitCode = await runPlaywright(configuration.baseURL);
+  exitCode = 0;
+  for (const run of playwrightPlan) {
+    console.log(`Running ${run.name}.`);
+    exitCode = await runPlaywright(configuration.baseURL, run.args);
+    if (exitCode !== 0) {
+      break;
+    }
+  }
 } catch (error) {
   console.error(error instanceof Error ? error.message : error);
 }
@@ -84,7 +82,7 @@ function validateConfiguration(environment) {
   return { baseURL, email, password };
 }
 
-function runPlaywright(baseURL) {
+function runPlaywright(baseURL, playwrightArgs) {
   return new Promise((resolve) => {
     let settled = false;
     const finish = (code) => {

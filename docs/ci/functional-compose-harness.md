@@ -10,7 +10,12 @@ Run the deterministic real-backend Functional stack with:
 npm run test:functional
 ```
 
-The reusable orchestration lives in `scripts/ci/functional-compose-harness.sh`. Existing real-backend Node runners remain unchanged for compatibility and can migrate incrementally rather than through a flag-day rewrite.
+The reusable orchestration lives in `scripts/ci/functional-compose-harness.sh`.
+Existing real-backend Node runners remain supported for compatibility and can
+migrate incrementally rather than through a flag-day rewrite. The default Node
+runner now executes migrated `tests/functional/` owners with their dedicated
+Playwright config before running the legacy `tests/ui/` regression config, so
+both discovery roots fail closed independently.
 
 ## Lifecycle contract
 

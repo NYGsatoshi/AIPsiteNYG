@@ -1,17 +1,24 @@
+/* eslint-disable max-lines, max-lines-per-function -- FCI-04 keeps one canonical owner journey and its cleanup/evidence contract together. */
 import { randomUUID } from 'node:crypto';
-import { expect, type Page, test } from '@playwright/test';
+import { expect, type Locator, type Page, test } from '@playwright/test';
 
+import {
+  functionalFullExpansionEnabled,
+  selectedFunctionalGates,
+} from '../fixtures/functional-gate-selection.mjs';
 import { functionalMetadata } from '../fixtures/functional-metadata.mjs';
 
 const smokeEmail = process.env.AIP_BROWSER_SMOKE_EMAIL ?? '';
 const smokePassword = process.env.AIP_BROWSER_SMOKE_PASSWORD ?? '';
 const smokeWorkspaceTitle = 'Browser Smoke Workspace';
+const smokeSecondWorkspaceTitle = 'Browser Smoke Workspace Two';
 const smokeProjectTitle = 'Browser Smoke Project';
+const smokeSecondProjectTitle = 'Browser Smoke PR04 Second Project';
 const smokeTaskTitle = 'Browser smoke task';
 const smokeTaskFileName = 'browser-smoke-task.txt';
 
 test.describe('FCI-04 core real-backend golden journey', () => {
-  test.setTimeout(120_000);
+  test.setTimeout(180_000);
 
   test.beforeAll(() => {
     if (process.env.AIP_REAL_BACKEND_SMOKE !== '1') {
@@ -30,7 +37,7 @@ test.describe('FCI-04 core real-backend golden journey', () => {
 
   test.beforeEach(async ({}, testInfo) => {
     test.skip(
-      testInfo.project.name !== 'chromium-desktop',
+      !['chromium-desktop', 'functional-chromium'].includes(testInfo.project.name),
       'FCI-04 runs once because it mutates a shared seeded Task inside an isolated Compose project.',
     );
   });
@@ -46,11 +53,16 @@ test.describe('FCI-04 core real-backend golden journey', () => {
       polarity: 'positive',
     }),
     async ({ page }, testInfo) => {
-      const evidence: Record<string, unknown> = {
+      const fullExpansionEnabled = functionalFullExpansionEnabled();
+      const evidence: Record<string, any> = {
         journeyId: 'FUNC-TASK-001',
+        selectedGates: selectedFunctionalGates(),
+        fullExpansionEnabled,
         workspaceTitle: smokeWorkspaceTitle,
         projectTitle: smokeProjectTitle,
         taskTitle: smokeTaskTitle,
+        fullNavigation: null,
+        taskMutation: null,
         requestBody: null,
         requestHeaders: null,
         acceptedRun: null,
@@ -59,184 +71,307 @@ test.describe('FCI-04 core real-backend golden journey', () => {
         reauthorizedResult: null,
         unauthorizedStatuses: null,
       };
+      let workspaceId = '';
+      let secondWorkspaceId = '';
+      let projectId = '';
       let taskId = '';
+      let idempotencyKey = '';
+      let acceptedRun: Record<string, any> | null = null;
+      let durableResult: Record<string, any> | null = null;
       let originalTaskScope: Record<string, any> | null = null;
+      let originalTaskDetail: Record<string, any> | null = null;
+      let taskDetailsRestored = true;
       let scopeRestored = false;
 
       try {
-        await login(page);
-
-        const workspaces = await expectJsonOk(page, '/api/workspaces');
-        const workspace = Array.isArray(workspaces)
-          ? workspaces.find((item: Record<string, unknown>) => item.name === smokeWorkspaceTitle)
-          : null;
-        expect(workspace, 'seeded Workspace').toBeTruthy();
-        const workspaceId = String(workspace.id);
-
-        const projects = await expectJsonOk(page, '/api/projects?page=1&pageSize=100');
-        const project = projects.items?.find((item: Record<string, unknown>) => item.title === smokeProjectTitle);
-        expect(project, 'seeded Project').toBeTruthy();
-        const projectId = String(project.id);
-        if (typeof project.workspaceId === 'string') {
-          expect(project.workspaceId, 'Project remains in the selected Workspace authority scope').toBe(workspaceId);
-        }
-
-        const tasks = await expectJsonOk(page, `/api/projects/${projectId}/tasks?page=1&pageSize=100`);
-        const task = tasks.items?.find((item: Record<string, unknown>) => item.title === smokeTaskTitle);
-        expect(task, 'seeded Task').toBeTruthy();
-        taskId = String(task.id);
-        expect(task.hasArtifact, 'the seeded Task has a real attached Project file').toBe(true);
-
-        originalTaskScope = await expectJsonOk(page, `/api/tasks/${taskId}/execution-scope`);
-        expect(originalTaskScope.canManage, 'the seeded owner may configure and run the Task').toBe(true);
-
-        await page.goto(`/app/projects/${projectId}/tasks/${taskId}`);
-        await expect(page.getByTestId('task-detail-page')).toBeVisible();
-        await expect(page.getByRole('heading', { name: smokeTaskTitle })).toBeVisible();
-
-        const scopePanel = page.getByTestId('task-execution-scope');
-        await expect(scopePanel).toBeVisible();
-        const taskScopeGroup = scopePanel.getByRole('group', { name: 'Task source setting' });
-        await expect(taskScopeGroup).toBeVisible();
-        await taskScopeGroup.getByRole('radio', { name: /Use a complete Task override/ }).check();
-
-        const webCheckbox = taskScopeGroup.getByRole('checkbox', { name: /Allow Web as a future source/ });
-        const filesCheckbox = taskScopeGroup.getByRole('checkbox', { name: /Allow authorized Project files as a future source/ });
-        await expect(webCheckbox).toBeVisible();
-        await expect(filesCheckbox).toBeVisible();
-        if (await webCheckbox.isChecked()) { await webCheckbox.uncheck(); }
-        if (!await filesCheckbox.isChecked()) { await filesCheckbox.check(); }
-
-        const saveResponsePromise = waitForApiResponse(page, 'PUT', `/api/tasks/${taskId}/execution-scope-override`);
-        await taskScopeGroup.getByRole('button', { name: 'Save Task source setting' }).click();
-        const saveResponse = await saveResponsePromise;
-        const saveText = await saveResponse.text();
-        expect(saveResponse.status(), `Task scope save response: ${saveText}`).toBe(200);
-        expect(saveResponse.request().postDataJSON()).toMatchObject({
-          webEnabled: false,
-          projectFilesEnabled: true,
+        await test.step('FUNC-TASK-001 / STEP-01 authenticate', async () => {
+          await login(page);
         });
-        expect(saveResponse.request().headers()['x-csrf-token'], 'Task scope save uses the Angular CSRF interceptor').toBeTruthy();
 
-        await expect(scopePanel.getByTestId('task-context-summary-web')).toContainText('Web: Exclude');
-        await expect(scopePanel.getByTestId('task-context-summary-files')).toContainText('Project files: Allow');
+        await test.step('FUNC-TASK-001 / STEP-02 establish Workspace, Project, and Task authority', async () => {
+          const workspaces = await expectJsonOk(page, '/api/workspaces');
+          const workspace = Array.isArray(workspaces)
+            ? workspaces.find((item: Record<string, unknown>) => item.name === smokeWorkspaceTitle)
+            : null;
+          const secondWorkspace = Array.isArray(workspaces)
+            ? workspaces.find((item: Record<string, unknown>) => item.name === smokeSecondWorkspaceTitle)
+            : null;
+          expect(workspace, 'seeded primary Workspace').toBeTruthy();
+          workspaceId = String(workspace.id);
+          if (fullExpansionEnabled) {
+            expect(secondWorkspace, 'seeded secondary Workspace for full context switching').toBeTruthy();
+            secondWorkspaceId = String(secondWorkspace.id);
+          }
 
-        const startResponsePromise = waitForApiResponse(page, 'POST', `/api/tasks/${taskId}/execution-runs`);
-        const startButton = scopePanel.getByTestId('task-execution-start');
-        await expect(startButton).toBeVisible();
-        await expect(startButton).toBeEnabled();
-        await startButton.click();
-        const startResponse = await startResponsePromise;
-        const startText = await startResponse.text();
-        expect(startResponse.status(), `Task execution response: ${startText}`).toBe(201);
+          const workspaceSwitcher = page.getByTestId('workspace-switcher');
+          await expect(workspaceSwitcher).toBeVisible();
+          await expect(workspaceSwitcher.locator(`option[value="${workspaceId}"]`)).toHaveCount(1);
+          if (await workspaceSwitcher.inputValue() !== workspaceId) {
+            await workspaceSwitcher.selectOption(workspaceId);
+          }
+          await expect(workspaceSwitcher).toHaveValue(workspaceId);
 
-        const startRequest = startResponse.request();
-        const requestBody = startRequest.postDataJSON() as Record<string, unknown>;
-        const requestHeaders = startRequest.headers();
-        const idempotencyKey = requestHeaders['idempotency-key'] ?? '';
-        expect(requestBody).toEqual({});
-        expect(idempotencyKey).toMatch(/^[\x20-\x7e]{8,128}$/u);
-        expect(requestHeaders['x-csrf-token'], 'Task execution uses the Angular CSRF interceptor').toBeTruthy();
-        for (const forbidden of ['candidateIds', 'fileIds', 'fsPath', 'materializedSources', 'evidence', 'sources']) {
-          expect(JSON.stringify(requestBody)).not.toContain(forbidden);
+          const projects = await expectJsonOk(
+            page,
+            `/api/projects?workspaceId=${encodeURIComponent(workspaceId)}&page=1&pageSize=100`,
+          );
+          const project = projects.items?.find((item: Record<string, unknown>) => item.title === smokeProjectTitle);
+          expect(project, 'seeded Project').toBeTruthy();
+          projectId = String(project.id);
+          expect(project.workspaceId, 'Project remains in the selected Workspace authority scope').toBe(workspaceId);
+
+          const tasks = await expectJsonOk(page, `/api/projects/${projectId}/tasks?page=1&pageSize=100`);
+          const task = tasks.items?.find((item: Record<string, unknown>) => item.title === smokeTaskTitle);
+          expect(task, 'seeded Task').toBeTruthy();
+          taskId = String(task.id);
+          expect(task.hasArtifact, 'the seeded Task has a real attached Project file').toBe(true);
+
+          const taskScope = await expectJsonOk(page, `/api/tasks/${taskId}/execution-scope`) as Record<string, any>;
+          originalTaskScope = taskScope;
+          expect(taskScope.canManage, 'the seeded owner may configure and run the Task').toBe(true);
+        });
+
+        if (fullExpansionEnabled) {
+          await test.step('FUNC-TASK-001 / STEP-03 switch Workspace and navigate Project list to Task discovery', async () => {
+            evidence.fullNavigation = await runFullNavigation(
+              page,
+              workspaceId,
+              secondWorkspaceId,
+              projectId,
+              taskId,
+            );
+          });
+
+          await test.step('FUNC-TASK-001 / STEP-04 persist a Task update through fresh read and reload', async () => {
+            const taskDetail = await expectJsonOk(page, `/api/tasks/${taskId}`) as Record<string, any>;
+            originalTaskDetail = taskDetail;
+            const originalTask = taskDetail.task as Record<string, any>;
+            expect(originalTask.id).toBe(taskId);
+            expect(originalTask.uiPermissions?.canUpdate, 'the seeded owner may update the Task').toBe(true);
+
+            const durableDescription = `FCI-04 durable Task update ${randomUUID()}`;
+            const originalVersion = Number(originalTask.version);
+            const patchResponsePromise = waitForApiResponse(page, 'PATCH', `/api/tasks/${taskId}`);
+            await page.getByTestId('task-description-input').fill(durableDescription);
+            taskDetailsRestored = false;
+            await page.getByTestId('task-save-button').click();
+            const patchResponse = await patchResponsePromise;
+            const patchText = await patchResponse.text();
+            expect(patchResponse.status(), `Task update response: ${patchText}`).toBe(200);
+            const patchBody = patchResponse.request().postDataJSON() as Record<string, unknown>;
+            expect(patchBody).toMatchObject({
+              description: durableDescription,
+              expectedVersion: originalVersion,
+            });
+            expect(patchResponse.request().headers()['x-csrf-token'], 'Task update uses the Angular CSRF interceptor').toBeTruthy();
+            await expect(page.getByTestId('task-save-success')).toHaveText('Task saved.');
+
+            const freshDetail = await expectJsonOk(page, `/api/tasks/${taskId}`);
+            expect(freshDetail.task.description).toBe(durableDescription);
+            expect(Number(freshDetail.task.version)).toBeGreaterThan(originalVersion);
+
+            await page.reload();
+            await expect(page.getByTestId('task-detail-page')).toBeVisible();
+            await expect(page.getByTestId('task-description-input')).toHaveValue(durableDescription);
+            const reloadedDetail = await expectJsonOk(page, `/api/tasks/${taskId}`);
+            expect(reloadedDetail.task.description).toBe(durableDescription);
+            expect(Number(reloadedDetail.task.version)).toBe(Number(freshDetail.task.version));
+            evidence.taskMutation = {
+              originalVersion,
+              updatedVersion: Number(freshDetail.task.version),
+              reloadedVersion: Number(reloadedDetail.task.version),
+              csrfHeaderPresent: Boolean(patchResponse.request().headers()['x-csrf-token']),
+            };
+
+            await restoreTaskDetails(page, taskId, taskDetail);
+            taskDetailsRestored = true;
+          });
         }
 
-        const acceptedRun = parseJson(startText) as Record<string, any>;
-        expect(acceptedRun.id).toMatch(/^[0-9a-f-]{36}$/i);
-        expect(acceptedRun.status).toBe('Succeeded');
-        expect(acceptedRun.snapshotScopeOrigin).toBe('TaskOverride');
-        expect(acceptedRun.snapshotWebEnabled).toBe(false);
-        expect(acceptedRun.snapshotProjectFilesEnabled).toBe(true);
-        evidence.requestBody = requestBody;
-        evidence.requestHeaders = {
-          idempotencyKeyPresent: idempotencyKey.length > 0,
-          csrfHeaderPresent: Boolean(requestHeaders['x-csrf-token']),
-        };
-        evidence.acceptedRun = acceptedRun;
+        await test.step('FUNC-TASK-001 / STEP-05 reach the authorized Task detail controls', async () => {
+          if (!fullExpansionEnabled) {
+            await page.goto(`/app/projects/${projectId}/tasks/${taskId}`);
+          }
+          await expect(page).toHaveURL(new RegExp(`/app/projects/${projectId}/tasks/${taskId}$`));
+          await expect(page.getByTestId('task-detail-page')).toBeVisible();
+          await expect(page.getByRole('heading', { name: smokeTaskTitle })).toBeVisible();
+          await expect(page.getByTestId('task-editor')).toBeVisible();
+          await expect(page.getByTestId('task-execution-scope')).toBeVisible();
+        });
 
-        await expect(scopePanel.getByTestId('task-execution-result-status')).toHaveText('Succeeded', { timeout: 30_000 });
-        const report = scopePanel.getByTestId('task-execution-report');
-        await expect(report).toBeVisible();
-        await expect(report).toContainText('Project Files Analysis Report');
-        const reportBody = scopePanel.getByTestId('task-execution-report-body');
-        await expect(reportBody).toContainText(/Authorized sources consumed: [1-9]/);
-        await expect(reportBody).not.toContainText(smokeTaskFileName);
-        await expect(reportBody).not.toContainText('/srv/');
-        await expect(reportBody).not.toContainText('Synthetic PR03C browser smoke file.');
+        await test.step('FUNC-TASK-001 / STEP-06 configure the authorized Project File source', async () => {
+          const scopePanel = page.getByTestId('task-execution-scope');
+          const taskScopeGroup = scopePanel.getByRole('group', { name: 'Task source setting' });
+          await expect(taskScopeGroup).toBeVisible();
+          await taskScopeGroup.getByRole('radio', { name: /Use a complete Task override/ }).check();
 
-        const durableResultResponse = await fetchFromPage(
-          page,
-          `/api/tasks/${taskId}/execution-runs/${acceptedRun.id}/result`,
-        );
-        expect(durableResultResponse.status, durableResultResponse.text).toBe(200);
-        const durableResult = parseJson(durableResultResponse.text) as Record<string, any>;
-        expect(durableResult.runId).toBe(acceptedRun.id);
-        expect(durableResult.status).toBe('Succeeded');
-        expect(durableResult.report?.title).toBe('Project Files Analysis Report');
-        expect(durableResult.report?.bodyMarkdown).toMatch(/Authorized sources consumed: [1-9]/);
-        expect(durableResult.report?.bodyMarkdown).not.toContain(smokeTaskFileName);
-        evidence.durableResult = durableResult;
+          const webCheckbox = taskScopeGroup.getByRole('checkbox', { name: /Allow Web as a future source/ });
+          const filesCheckbox = taskScopeGroup.getByRole('checkbox', { name: /Allow authorized Project files as a future source/ });
+          await expect(webCheckbox).toBeVisible();
+          await expect(filesCheckbox).toBeVisible();
+          if (await webCheckbox.isChecked()) { await webCheckbox.uncheck(); }
+          if (!await filesCheckbox.isChecked()) { await filesCheckbox.check(); }
 
-        const replay = await requestWithCsrf(
-          page,
-          'POST',
-          `/api/tasks/${taskId}/execution-runs`,
-          {},
-          { 'Idempotency-Key': idempotencyKey },
-        );
-        expect(replay.csrfHeaderPresent).toBe(true);
-        expect(replay.status, replay.text).toBe(201);
-        const replayedRun = parseJson(replay.text) as Record<string, any>;
-        expect(replayedRun.id).toBe(acceptedRun.id);
-        expect(replayedRun.status).toBe('Succeeded');
-        evidence.replayedRun = replayedRun;
+          const saveResponsePromise = waitForApiResponse(page, 'PUT', `/api/tasks/${taskId}/execution-scope-override`);
+          await taskScopeGroup.getByRole('button', { name: 'Save Task source setting' }).click();
+          const saveResponse = await saveResponsePromise;
+          const saveText = await saveResponse.text();
+          expect(saveResponse.status(), `Task scope save response: ${saveText}`).toBe(200);
+          expect(saveResponse.request().postDataJSON()).toMatchObject({
+            webEnabled: false,
+            projectFilesEnabled: true,
+          });
+          expect(saveResponse.request().headers()['x-csrf-token'], 'Task scope save uses the Angular CSRF interceptor').toBeTruthy();
 
-        await page.reload();
-        await expect(page.getByTestId('task-detail-page')).toBeVisible();
-        await expect(page.getByTestId('task-execution-result-status')).toHaveText('Succeeded', { timeout: 30_000 });
-        await expect(page.getByTestId('task-execution-report-body')).toContainText(/Authorized sources consumed: [1-9]/);
+          await expect(scopePanel.getByTestId('task-context-summary-web')).toContainText('Web: Exclude');
+          await expect(scopePanel.getByTestId('task-context-summary-files')).toContainText('Project files: Allow');
+        });
 
-        await restoreTaskScope(page, taskId, originalTaskScope);
-        scopeRestored = true;
+        await test.step('FUNC-TASK-001 / STEP-07 start one authorized Task execution', async () => {
+          const scopePanel = page.getByTestId('task-execution-scope');
+          const startResponsePromise = waitForApiResponse(page, 'POST', `/api/tasks/${taskId}/execution-runs`);
+          const startButton = scopePanel.getByTestId('task-execution-start');
+          await expect(startButton).toBeVisible();
+          await expect(startButton).toBeEnabled();
+          await startButton.click();
+          const startResponse = await startResponsePromise;
+          const startText = await startResponse.text();
+          expect(startResponse.status(), `Task execution response: ${startText}`).toBe(201);
 
-        const logout = await requestWithCsrf(page, 'POST', '/api/auth/logout');
-        expect(logout.status, logout.text).toBe(200);
+          const startRequest = startResponse.request();
+          const requestBody = startRequest.postDataJSON() as Record<string, unknown>;
+          const requestHeaders = startRequest.headers();
+          idempotencyKey = requestHeaders['idempotency-key'] ?? '';
+          expect(requestBody).toEqual({});
+          expect(idempotencyKey).toMatch(/^[\x20-\x7e]{8,128}$/u);
+          expect(requestHeaders['x-csrf-token'], 'Task execution uses the Angular CSRF interceptor').toBeTruthy();
+          for (const forbidden of ['candidateIds', 'fileIds', 'fsPath', 'materializedSources', 'evidence', 'sources']) {
+            expect(JSON.stringify(requestBody)).not.toContain(forbidden);
+          }
 
-        const deniedRead = await fetchFromPage(page, `/api/tasks/${taskId}/execution-runs/${acceptedRun.id}/result`);
-        const deniedStart = await requestWithCsrf(
-          page,
-          'POST',
-          `/api/tasks/${taskId}/execution-runs`,
-          {},
-          { 'Idempotency-Key': `task-execution-denied-${randomUUID()}` },
-        );
-        expect(deniedRead.status).toBe(401);
-        expect(deniedStart.status).toBe(401);
+          acceptedRun = parseJson(startText) as Record<string, any>;
+          expect(acceptedRun.id).toMatch(/^[0-9a-f-]{36}$/i);
+          expect(acceptedRun.status).toBe('Succeeded');
+          expect(acceptedRun.snapshotScopeOrigin).toBe('TaskOverride');
+          expect(acceptedRun.snapshotWebEnabled).toBe(false);
+          expect(acceptedRun.snapshotProjectFilesEnabled).toBe(true);
+          evidence.requestBody = requestBody;
+          evidence.requestHeaders = {
+            idempotencyKeyPresent: idempotencyKey.length > 0,
+            csrfHeaderPresent: Boolean(requestHeaders['x-csrf-token']),
+          };
+          evidence.acceptedRun = acceptedRun;
+        });
 
-        const deniedText = `${deniedRead.text}\n${deniedStart.text}`;
-        expect(deniedText).not.toContain(smokeProjectTitle);
-        expect(deniedText).not.toContain(smokeTaskTitle);
-        expect(deniedText).not.toContain(smokeTaskFileName);
-        expect(deniedText).not.toContain('Project Files Analysis Report');
-        expect(deniedText).not.toContain(String(durableResult.report?.contentSha256 ?? 'never-match'));
-        evidence.unauthorizedStatuses = { read: deniedRead.status, start: deniedStart.status };
+        await test.step('FUNC-TASK-001 / STEP-08 read the durable result and prove idempotent replay', async () => {
+          expect(acceptedRun, 'accepted execution run').toBeTruthy();
+          const runId = String(acceptedRun!.id);
+          const scopePanel = page.getByTestId('task-execution-scope');
+          await expect(scopePanel.getByTestId('task-execution-result-status')).toHaveText('Succeeded', { timeout: 30_000 });
+          const report = scopePanel.getByTestId('task-execution-report');
+          await expect(report).toBeVisible();
+          await expect(report).toContainText('Project Files Analysis Report');
+          const reportBody = scopePanel.getByTestId('task-execution-report-body');
+          await expect(reportBody).toContainText(/Authorized sources consumed: [1-9]/);
+          await expect(reportBody).not.toContainText(smokeTaskFileName);
+          await expect(reportBody).not.toContainText('/srv/');
+          await expect(reportBody).not.toContainText('Synthetic PR03C browser smoke file.');
 
-        await login(page);
-        const reauthorizedRead = await fetchFromPage(
-          page,
-          `/api/tasks/${taskId}/execution-runs/${acceptedRun.id}/result`,
-        );
-        expect(reauthorizedRead.status, reauthorizedRead.text).toBe(200);
-        const reauthorizedResult = parseJson(reauthorizedRead.text) as Record<string, unknown>;
-        expect(reauthorizedResult.runId).toBe(acceptedRun.id);
-        expect(reauthorizedResult.status).toBe('Succeeded');
-        evidence.reauthorizedResult = reauthorizedResult;
+          const durableResultResponse = await fetchFromPage(
+            page,
+            `/api/tasks/${taskId}/execution-runs/${runId}/result`,
+          );
+          expect(durableResultResponse.status, durableResultResponse.text).toBe(200);
+          durableResult = parseJson(durableResultResponse.text) as Record<string, any>;
+          expect(durableResult.runId).toBe(runId);
+          expect(durableResult.status).toBe('Succeeded');
+          expect(durableResult.report?.title).toBe('Project Files Analysis Report');
+          expect(durableResult.report?.bodyMarkdown).toMatch(/Authorized sources consumed: [1-9]/);
+          expect(durableResult.report?.bodyMarkdown).not.toContain(smokeTaskFileName);
+          evidence.durableResult = durableResult;
+
+          const replay = await requestWithCsrf(
+            page,
+            'POST',
+            `/api/tasks/${taskId}/execution-runs`,
+            {},
+            { 'Idempotency-Key': idempotencyKey },
+          );
+          expect(replay.csrfHeaderPresent).toBe(true);
+          expect(replay.status, replay.text).toBe(201);
+          const replayedRun = parseJson(replay.text) as Record<string, any>;
+          expect(replayedRun.id).toBe(runId);
+          expect(replayedRun.status).toBe('Succeeded');
+          evidence.replayedRun = replayedRun;
+        });
+
+        await test.step('FUNC-TASK-001 / STEP-09 reload the same durable result', async () => {
+          await page.reload();
+          await expect(page.getByTestId('task-detail-page')).toBeVisible();
+          await expect(page.getByTestId('task-execution-result-status')).toHaveText('Succeeded', { timeout: 30_000 });
+          await expect(page.getByTestId('task-execution-report-body')).toContainText(/Authorized sources consumed: [1-9]/);
+
+          expect(acceptedRun, 'accepted execution run').toBeTruthy();
+          const reloadedResult = await expectJsonOk(
+            page,
+            `/api/tasks/${taskId}/execution-runs/${acceptedRun!.id}/result`,
+          );
+          expect(reloadedResult.runId).toBe(acceptedRun!.id);
+          expect(reloadedResult.status).toBe('Succeeded');
+
+          await restoreTaskScope(page, taskId, originalTaskScope!);
+          scopeRestored = true;
+        });
+
+        await test.step('FUNC-TASK-001 / STEP-10 logout and deny protected result access', async () => {
+          const logout = await requestWithCsrf(page, 'POST', '/api/auth/logout');
+          expect(logout.status, logout.text).toBe(200);
+
+          const runId = String(acceptedRun!.id);
+          const deniedRead = await fetchFromPage(page, `/api/tasks/${taskId}/execution-runs/${runId}/result`);
+          const deniedStart = await requestWithCsrf(
+            page,
+            'POST',
+            `/api/tasks/${taskId}/execution-runs`,
+            {},
+            { 'Idempotency-Key': `task-execution-denied-${randomUUID()}` },
+          );
+          expect(deniedRead.status).toBe(401);
+          expect(deniedStart.status).toBe(401);
+
+          const deniedText = `${deniedRead.text}\n${deniedStart.text}`;
+          expect(deniedText).not.toContain(smokeProjectTitle);
+          expect(deniedText).not.toContain(smokeTaskTitle);
+          expect(deniedText).not.toContain(smokeTaskFileName);
+          expect(deniedText).not.toContain('Project Files Analysis Report');
+          expect(deniedText).not.toContain(String(durableResult?.report?.contentSha256 ?? 'never-match'));
+          evidence.unauthorizedStatuses = { read: deniedRead.status, start: deniedStart.status };
+        });
+
+        await test.step('FUNC-TASK-001 / STEP-11 login again and reauthorize the result', async () => {
+          await login(page);
+          const reauthorizedRead = await fetchFromPage(
+            page,
+            `/api/tasks/${taskId}/execution-runs/${acceptedRun!.id}/result`,
+          );
+          expect(reauthorizedRead.status, reauthorizedRead.text).toBe(200);
+          const reauthorizedResult = parseJson(reauthorizedRead.text) as Record<string, unknown>;
+          expect(reauthorizedResult.runId).toBe(acceptedRun!.id);
+          expect(reauthorizedResult.status).toBe('Succeeded');
+          evidence.reauthorizedResult = reauthorizedResult;
+        });
       } finally {
-        if (!scopeRestored && taskId && originalTaskScope) {
+        if ((!taskDetailsRestored && originalTaskDetail) || (!scopeRestored && originalTaskScope)) {
           try {
-            await restoreTaskScope(page, taskId, originalTaskScope);
+            await ensureAuthenticated(page);
+            if (!taskDetailsRestored && originalTaskDetail) {
+              await restoreTaskDetails(page, taskId, originalTaskDetail);
+            }
+            if (!scopeRestored && originalTaskScope) {
+              await restoreTaskScope(page, taskId, originalTaskScope);
+            }
           } catch {
-            // The primary assertion remains authoritative; Compose discards this isolated database after the job.
+            // Preserve the primary assertion. Compose discards this isolated database after the job.
           }
         }
         await testInfo.attach('fci-04-core-golden-journey-evidence.json', {
@@ -262,6 +397,151 @@ async function login(page: Page): Promise<void> {
   expect(loginResponse.status(), await loginResponse.text()).toBe(200);
   await expect(page).toHaveURL(/\/app\/workspaces$/);
   await expect(page.getByTestId('app-shell')).toBeVisible();
+}
+
+async function runFullNavigation(
+  page: Page,
+  workspaceId: string,
+  secondWorkspaceId: string,
+  projectId: string,
+  taskId: string,
+): Promise<Record<string, unknown>> {
+  const primaryProjectsResponsePromise = waitForApiResponse(
+    page,
+    'GET',
+    '/api/projects',
+    (url) => url.searchParams.get('workspaceId') === workspaceId,
+  );
+  await page.getByRole('link', { name: 'Projects' }).first().click();
+  const primaryProjectsResponse = await primaryProjectsResponsePromise;
+  expect(primaryProjectsResponse.status(), await primaryProjectsResponse.text()).toBe(200);
+  await expect(page).toHaveURL(/\/app\/projects$/);
+  await expect(page.getByTestId('projects-overview-page')).toBeVisible();
+  const primaryProjectCard = page.getByTestId('project-summary-card').filter({ hasText: smokeProjectTitle }).first();
+  await expect(primaryProjectCard).toBeVisible();
+
+  const workspaceSwitcher = page.getByTestId('workspace-switcher');
+  const secondProjectsResponsePromise = waitForApiResponse(
+    page,
+    'GET',
+    '/api/projects',
+    (url) => url.searchParams.get('workspaceId') === secondWorkspaceId,
+  );
+  await workspaceSwitcher.selectOption(secondWorkspaceId);
+  const secondProjectsResponse = await secondProjectsResponsePromise;
+  expect(secondProjectsResponse.status(), await secondProjectsResponse.text()).toBe(200);
+  await expect(workspaceSwitcher).toHaveValue(secondWorkspaceId);
+  await expect(page.getByTestId('project-summary-card').filter({ hasText: smokeSecondProjectTitle }).first()).toBeVisible();
+  await expect(page.getByTestId('project-summary-card').filter({ hasText: smokeProjectTitle })).toHaveCount(0);
+
+  const restoredProjectsResponsePromise = waitForApiResponse(
+    page,
+    'GET',
+    '/api/projects',
+    (url) => url.searchParams.get('workspaceId') === workspaceId,
+  );
+  await workspaceSwitcher.selectOption(workspaceId);
+  const restoredProjectsResponse = await restoredProjectsResponsePromise;
+  expect(restoredProjectsResponse.status(), await restoredProjectsResponse.text()).toBe(200);
+  await expect(workspaceSwitcher).toHaveValue(workspaceId);
+  await expect(primaryProjectCard).toBeVisible();
+
+  await primaryProjectCard.getByRole('link', { name: `Open ${smokeProjectTitle}` }).click();
+  await expect(page).toHaveURL(new RegExp(`/app/projects/${projectId}$`));
+  await expect(page.getByTestId('project-detail-page')).toBeVisible();
+  await page.getByRole('tab', { name: 'List', exact: true }).click();
+
+  const taskRow = page.locator('[role="row"]').filter({ hasText: smokeTaskTitle }).first();
+  await expect(taskRow).toBeVisible();
+  await clickTaskOpenDetail(page, taskRow);
+  await expect(page).toHaveURL(new RegExp(`/app/projects/${projectId}/tasks/${taskId}$`));
+  await expect(page.getByTestId('task-detail-page')).toBeVisible();
+
+  const myTasksResponsePromise = waitForApiResponse(page, 'GET', '/api/me/tasks');
+  await page.getByTestId('nav-my-tasks').first().click();
+  const myTasksResponse = await myTasksResponsePromise;
+  const myTasksText = await myTasksResponse.text();
+  expect(myTasksResponse.status(), myTasksText).toBe(200);
+  const myTasks = parseJson(myTasksText) as Record<string, any>;
+  expect(myTasks.items).toEqual(expect.arrayContaining([
+    expect.objectContaining({ taskId, projectId, title: smokeTaskTitle }),
+  ]));
+  await expect(page).toHaveURL(/\/app\/tasks$/);
+  await expect(page.getByTestId('my-tasks-page')).toBeVisible();
+
+  const taskButton = page.getByRole('button', { name: /^Browser smoke task(?:\s|$)/ }).first();
+  await expect(taskButton).toBeVisible();
+  await taskButton.click();
+  await expect(page).toHaveURL(new RegExp(`/app/projects/${projectId}/tasks/${taskId}$`));
+  await expect(page.getByTestId('task-detail-page')).toBeVisible();
+
+  return {
+    primaryWorkspaceId: workspaceId,
+    secondWorkspaceId,
+    projectId,
+    taskId,
+    projectListToDetail: true,
+    taskListToDetail: true,
+    myTasksDiscovery: true,
+  };
+}
+
+async function clickTaskOpenDetail(page: Page, taskRow: Locator): Promise<void> {
+  const action = taskRow.getByRole('button', { name: 'Open', exact: true });
+  if (!(await action.isVisible())) {
+    await page.locator('.ag-body-horizontal-scroll-viewport').evaluate((viewport) => {
+      viewport.scrollLeft = viewport.scrollWidth;
+    });
+  }
+  await expect(action).toBeVisible();
+  await action.click();
+}
+
+async function restoreTaskDetails(
+  page: Page,
+  taskId: string,
+  originalDetail: Record<string, any>,
+): Promise<void> {
+  const original = originalDetail.task as Record<string, any>;
+  const currentDetail = await expectJsonOk(page, `/api/tasks/${taskId}`);
+  const current = currentDetail.task as Record<string, any>;
+  if (current.description === original.description) {
+    return;
+  }
+
+  const response = await requestWithCsrf(page, 'PATCH', `/api/tasks/${taskId}`, {
+    title: original.title,
+    description: original.description ?? '',
+    goal: original.brief?.goal?.value ?? null,
+    deliverable: original.brief?.deliverable?.value ?? null,
+    constraints: original.brief?.constraints?.value ?? null,
+    priority: taskPriorityValue(original.priority),
+    plannedStartDate: original.plannedStartDate ?? original.startDate ?? null,
+    plannedEndDate: original.plannedEndDate ?? original.dueDate ?? null,
+    progressPercent: original.progressPercent,
+    expectedVersion: current.version,
+  });
+  expect(response.csrfHeaderPresent).toBe(true);
+  expect(response.status, response.text).toBe(200);
+
+  const restored = await expectJsonOk(page, `/api/tasks/${taskId}`);
+  expect(restored.task.description).toBe(original.description);
+}
+
+function taskPriorityValue(priority: unknown): number {
+  const normalized = String(priority ?? '').trim().toLowerCase();
+  const values: Readonly<Record<string, number>> = {
+    low: 0,
+    medium: 1,
+    high: 2,
+    critical: 3,
+    urgent: 3,
+  };
+  const value = values[normalized];
+  if (value === undefined) {
+    throw new Error(`FCI-04 cannot restore unsupported Task priority ${normalized || '<empty>'}.`);
+  }
+  return value;
 }
 
 async function restoreTaskScope(
@@ -295,6 +575,14 @@ async function restoreTaskScope(
     },
   );
   expect(response.status, response.text).toBe(200);
+}
+
+async function ensureAuthenticated(page: Page): Promise<void> {
+  const status = await fetchFromPage(page, '/api/auth/status');
+  const body = parseJson(status.text) as Record<string, unknown> | null;
+  if (status.status !== 200 || body?.isAuthenticated !== true) {
+    await login(page);
+  }
 }
 
 async function expectJsonOk(page: Page, path: string): Promise<any> {
@@ -339,10 +627,16 @@ async function requestWithCsrf(
   }, { method, path, body, additionalHeaders });
 }
 
-function waitForApiResponse(page: Page, method: string, path: string) {
-  return page.waitForResponse((response) =>
-    response.request().method() === method && new URL(response.url()).pathname === path,
-  );
+function waitForApiResponse(
+  page: Page,
+  method: string,
+  path: string,
+  matchesUrl: (url: URL) => boolean = () => true,
+) {
+  return page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return response.request().method() === method && url.pathname === path && matchesUrl(url);
+  });
 }
 
 function parseJson(text: string): any {
