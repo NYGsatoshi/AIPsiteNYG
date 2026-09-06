@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-: "${AIP_SECURITY_CI_PASSWORD:?AIP_SECURITY_CI_PASSWORD is required for the SEC-03/SEC-04/SEC-05 runtime gate}"
+: "${AIP_SECURITY_CI_PASSWORD:?AIP_SECURITY_CI_PASSWORD is required for the SEC-03/SEC-04/SEC-05/AUD-02 runtime gate}"
 
 project="${AIP_SECURITY_CI_PROJECT:-aipsite-security-runtime-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-0}}"
 compose=(
@@ -22,12 +22,14 @@ source scripts/security/scanner-harness.sh
 source scripts/security/authorization-negative-matrix.sh
 # shellcheck source=scripts/security/schemathesis-runner.sh
 source scripts/security/schemathesis-runner.sh
+# shellcheck source=scripts/security/aud02-lifecycle.sh
+source scripts/security/aud02-lifecycle.sh
 
 cleanup() {
   status=$?
   trap - EXIT
   if (( status != 0 )); then
-    echo "SEC-03/SEC-04/SEC-05 runtime gate failed; dumping redacted Compose state." >&2
+    echo "SEC-03/SEC-04/SEC-05/AUD-02 runtime gate failed; dumping redacted Compose state." >&2
     "${compose[@]}" ps 2>&1 | security_scan_redact_stream >&2 || true
     "${compose[@]}" logs --no-color postgres migrate app 2>&1 | security_scan_redact_stream >&2 || true
   fi
@@ -39,7 +41,7 @@ cleanup() {
 trap cleanup EXIT
 
 fail() {
-  echo "SEC-03/SEC-04/SEC-05 runtime gate failed: $*" >&2
+  echo "SEC-03/SEC-04/SEC-05/AUD-02 runtime gate failed: $*" >&2
   return 1
 }
 
@@ -93,6 +95,21 @@ wait_ready() {
   fail "application did not become ready"
 }
 
+warm_up_sessions() {
+  local role tenant jar
+  for role in alpha-owner alpha-member alpha-restricted beta-owner; do
+    tenant="$(security_scan_role_tenant "$role")" || return 1
+    jar="$(security_scan_cookie_jar "$role")" || return 1
+    security_scan_http \
+      --fail --silent --show-error \
+      -o /dev/null \
+      -b "$jar" \
+      -H "X-Tenant-Slug: $tenant" \
+      "$SECURITY_SCAN_TARGET/api/auth/me" ||
+      fail "authenticated warm-up failed for role '$role'" || return 1
+  done
+}
+
 db_scalar() {
   local sql=$1
   "${compose[@]}" exec -T postgres \
@@ -112,6 +129,22 @@ assert_db_count() {
     fail "$label expected $expected rows after restart, got '$actual'"
 }
 
+assert_fresh_start() {
+  "${compose[@]}" down --volumes --remove-orphans
+  if [[ -n "$("${compose[@]}" ps -aq)" ]]; then
+    fail "fresh-start check found residual Compose containers"
+    return 1
+  fi
+  if docker volume ls --quiet --filter "label=com.docker.compose.project=$project" | grep -q .; then
+    fail "fresh-start check found residual Compose volumes"
+    return 1
+  fi
+  if docker network ls --quiet --filter "label=com.docker.compose.project=$project" | grep -q .; then
+    fail "fresh-start check found residual Compose networks"
+    return 1
+  fi
+}
+
 "${compose[@]}" config --quiet
 "${compose[@]}" config --format json | python3 -c '
 import json
@@ -120,20 +153,23 @@ import sys
 document = json.load(sys.stdin)
 app = document["services"]["app"]
 if "build" in app:
-    raise SystemExit("SEC-03/SEC-04/SEC-05 runtime app must not retain the production Docker build")
+    raise SystemExit("SEC-03/SEC-04/SEC-05/AUD-02 runtime app must not retain the production Docker build")
 if app.get("image") != "mcr.microsoft.com/dotnet/sdk:10.0.400":
-    raise SystemExit("SEC-03/SEC-04/SEC-05 runtime app must use the pinned .NET SDK image")
+    raise SystemExit("SEC-03/SEC-04/SEC-05/AUD-02 runtime app must use the pinned .NET SDK image")
 if app.get("ports"):
-    raise SystemExit("SEC-03/SEC-04/SEC-05 runtime app must not publish host ports")
+    raise SystemExit("SEC-03/SEC-04/SEC-05/AUD-02 runtime app must not publish host ports")
 environment = app.get("environment", {})
 if str(environment.get("AIP_SECURITY_CI_FIXTURE_ENABLED", "")).lower() != "true":
-    raise SystemExit("SEC-03/SEC-04/SEC-05 runtime fixture must remain enabled")
+    raise SystemExit("SEC-03/SEC-04/SEC-05/AUD-02 runtime fixture must remain enabled")
 if str(environment.get("ASPNETCORE_ENVIRONMENT", "")).lower() != "test":
-    raise SystemExit("SEC-03/SEC-04/SEC-05 runtime app must remain Test-only")
+    raise SystemExit("SEC-03/SEC-04/SEC-05/AUD-02 runtime app must remain Test-only")
 '
 
+assert_fresh_start
+aud02_advance init fresh-start
 "${compose[@]}" up -d postgres migrate app
 wait_ready
+aud02_advance fresh-start ready
 
 export ASPNETCORE_ENVIRONMENT=Test
 export AIP_SECURITY_CI_FIXTURE_ENABLED=true
@@ -142,6 +178,9 @@ export SECURITY_SCAN_STATE_PARENT="$state_dir"
 export SECURITY_SCAN_HTTP_STATE_PARENT="/state"
 security_scan_init "$base_url"
 security_scan_preflight
+aud02_advance ready login
+warm_up_sessions
+aud02_advance login warm-up
 
 # SEC-05 runs first while the deterministic SEC-03 fixture is pristine. The
 # matrix restores every temporary membership/role mutation before returning, so
@@ -169,13 +208,16 @@ fi
 # and restored its temporary authorization mutations. The runner re-verifies the
 # SEC-01 contract and the isolated Compose transport before fuzz traffic begins.
 security_schemathesis_run_matrix "$network" "$state_dir"
+aud02_capture_fixture_evidence
 security_scan_teardown
+aud02_advance fixture-evidence teardown
 
 # A process restart forces both Test-only seed layers to seed the same real
-# PostgreSQL database a second time. Successful readiness plus exact canary row
-# counts proves the fixture remains idempotent after SEC-05 and SEC-04 execution.
+# PostgreSQL database a second time. Readiness, exact fixture identity, and exact
+# canary row counts jointly prove idempotence without exposing raw fixture IDs.
 "${compose[@]}" restart app
 wait_ready
+aud02_verify_restart_identity
 
 assert_db_count 2 \
   "SELECT COUNT(*) FROM tenants WHERE \"Slug\" IN ('security-alpha','security-beta');" \
@@ -199,4 +241,5 @@ assert_db_count 2 \
   "SELECT COUNT(*) FROM announcements WHERE \"Title\" IN ('SEC05 ALPHA ANNOUNCEMENT CANARY','SEC05 BETA ANNOUNCEMENT CANARY') AND \"DeletedAt\" IS NULL;" \
   "SEC-05 announcement canaries"
 
-echo "SEC-03 scanner boundary, SEC-05 authorization negative matrix, and SEC-04 Schemathesis contract fuzzing verified on disposable PostgreSQL."
+aud02_write_summary
+echo "SEC-03 scanner boundary, SEC-05 authorization negative matrix, SEC-04 Schemathesis contract fuzzing, and AUD-02 restart identity verified on disposable PostgreSQL."
