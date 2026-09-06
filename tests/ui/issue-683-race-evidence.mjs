@@ -1,14 +1,14 @@
-const ISSUE_683_ITERATION_COUNT = 10,
+const ISSUE_683_HTTP_GET_METHOD = 'GET',
+  ISSUE_683_HTTP_NOT_FOUND_STATUS = 404,
+  ISSUE_683_ITERATION_COUNT = 10,
   ISSUE_683_MIN_RACE_OBSERVATION_ITERATIONS = 1,
-  ISSUE_683_REQUIRED_EXIT_CODE = 0,
-  ISSUE_683_REQUIRED_PLAYWRIGHT_RETRY_COUNT = 0,
-  ISSUE_683_REQUIRED_PR03C_RESULT_COUNT = 1,
   ISSUE_683_PASSED_STATUS = 'passed',
   ISSUE_683_PR03C_TITLE =
     'TASK-V1-PR03C uses the real backend for task detail, mutations, revocation, and File grant reauthorization',
+  ISSUE_683_REQUIRED_EXIT_CODE = 0,
+  ISSUE_683_REQUIRED_PLAYWRIGHT_RETRY_COUNT = 0,
+  ISSUE_683_REQUIRED_PR03C_RESULT_COUNT = 1,
   ISSUE_683_SMOKE_EVIDENCE_ATTACHMENT = 'real-backend-smoke-evidence.json',
-  ISSUE_683_HTTP_NOT_FOUND_STATUS = 404,
-  ISSUE_683_HTTP_GET_METHOD = 'GET',
   ISSUE_683_TASK_EXECUTION_SCOPE_PATH = /^\/api\/tasks\/[^/]+\/execution-scope$/u,
   ZERO_COUNT = 0,
   isIssue683RaceObservation = (failure) => {
@@ -23,23 +23,6 @@ const ISSUE_683_ITERATION_COUNT = 10,
       typeof failure.path === 'string' &&
       ISSUE_683_TASK_EXECUTION_SCOPE_PATH.test(failure.path)
     );
-  },
-  issue683RaceObservations = (smokeEvidence) => {
-    const failures = [];
-
-    if (
-      smokeEvidence &&
-      typeof smokeEvidence === 'object' &&
-      Array.isArray(smokeEvidence.failedApiResponses)
-    ) {
-      failures.push(...smokeEvidence.failedApiResponses);
-    }
-
-    return failures.filter(isIssue683RaceObservation).map((failure) => ({
-      method: failure.method,
-      path: failure.path,
-      status: failure.status
-    }));
   },
   isPassingIssue683Iteration = (iteration) => {
     const hasPlaywrightResults = iteration.playwrightRetries.length > ZERO_COUNT;
@@ -60,14 +43,32 @@ const ISSUE_683_ITERATION_COUNT = 10,
       iteration.parseErrors.length === ZERO_COUNT
     );
   },
+  issue683RaceObservations = (smokeEvidence) => {
+    const failures = [];
+
+    if (
+      smokeEvidence &&
+      typeof smokeEvidence === 'object' &&
+      Array.isArray(smokeEvidence.failedApiResponses)
+    ) {
+      failures.push(...smokeEvidence.failedApiResponses);
+    }
+
+    return failures.filter(isIssue683RaceObservation).map((failure) => ({
+      method: failure.method,
+      path: failure.path,
+      status: failure.status
+    }));
+  },
   summarizeIssue683Iterations = (iterations) => {
     const allIterationsPassed =
         iterations.length === ISSUE_683_ITERATION_COUNT && iterations.every(isPassingIssue683Iteration),
+      raceConditionSatisfied =
+        iterations.filter((iteration) => iteration.raceObservationCount > ZERO_COUNT).length >=
+        ISSUE_683_MIN_RACE_OBSERVATION_ITERATIONS,
       raceObservedIterations = iterations.filter(
         (iteration) => iteration.raceObservationCount > ZERO_COUNT
-      ).length,
-      raceConditionSatisfied =
-        raceObservedIterations >= ISSUE_683_MIN_RACE_OBSERVATION_ITERATIONS;
+      ).length;
 
     return {
       accepted: allIterationsPassed && raceConditionSatisfied,
