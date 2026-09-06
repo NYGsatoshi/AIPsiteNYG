@@ -27,7 +27,9 @@ test.describe('Public HTTPS production Golden Path', () => {
     const loginPageResponse = await navigate(page, '/app/login');
     await expect(page.getByTestId('login-page')).toBeVisible();
     expect(isHttpsUrl(page.url())).toBe(true);
-    expect(hasHsts(loginPageResponse?.headers() ?? {})).toBe(true);
+    const loginHeaders = loginPageResponse?.headers() ?? {};
+    expect(hasHsts(loginHeaders)).toBe(true);
+    assertBrowserSecurityHeaders(loginHeaders);
 
     await assertInvalidLoginIsDenied(page);
     await loginThroughBrowser(page);
@@ -126,10 +128,16 @@ async function loginThroughBrowser(page: Page): Promise<void> {
 
 function assertSecureSessionCookies(cookies: Awaited<ReturnType<BrowserContext['cookies']>>): void {
   const secureAuthCookie = cookies.some((cookie) =>
-    cookie.name === '.AipPortal.Auth' && cookie.secure && cookie.httpOnly
+    cookie.name === '.AipPortal.Auth' &&
+    cookie.secure &&
+    cookie.httpOnly &&
+    cookie.sameSite === 'Lax'
   );
   const secureCsrfCookie = cookies.some((cookie) =>
-    cookie.name === '.AipPortal.Csrf' && cookie.secure && cookie.httpOnly
+    cookie.name === '.AipPortal.Csrf' &&
+    cookie.secure &&
+    cookie.httpOnly &&
+    cookie.sameSite === 'Lax'
   );
 
   expect(secureAuthCookie).toBe(true);
@@ -139,6 +147,7 @@ function assertSecureSessionCookies(cookies: Awaited<ReturnType<BrowserContext['
 async function assertAuthorizedPath(page: Page, path: string): Promise<void> {
   const result = await browserFetch(page, path);
   expect(result.status === 200).toBe(true);
+  expect(result.headers['cache-control']?.includes('no-store') === true).toBe(true);
 }
 
 async function assertMissingCsrfIsDenied(page: Page): Promise<void> {
@@ -267,7 +276,11 @@ async function browserFetch(
 ): Promise<BrowserFetchResult> {
   return page.evaluate(async ({ path, init }) => {
     const response = await fetch(path, { credentials: 'include', ...init });
-    return { status: response.status, text: await response.text() };
+    const headers: Record<string, string> = {};
+    response.headers.forEach((value, key) => {
+      headers[key] = value;
+    });
+    return { status: response.status, text: await response.text(), headers };
   }, { path, init });
 }
 
@@ -292,7 +305,11 @@ async function csrfRequest(
       headers,
       ...(body === undefined ? {} : { body: rawBody ? String(body) : JSON.stringify(body) })
     });
-    return { status: response.status, text: await response.text() };
+    const responseHeaders: Record<string, string> = {};
+    response.headers.forEach((value, key) => {
+      responseHeaders[key] = value;
+    });
+    return { status: response.status, text: await response.text(), headers: responseHeaders };
   }, { method, path, body, additionalHeaders, rawBody });
 }
 
@@ -317,6 +334,22 @@ function fingerprint(value: unknown): string {
 function hasHsts(headers: Record<string, string>): boolean {
   const value = headers['strict-transport-security'] ?? '';
   return /max-age=\d+/iu.test(value);
+}
+
+function assertBrowserSecurityHeaders(headers: Record<string, string>): void {
+  expect(headers['x-content-type-options']).toBe('nosniff');
+  expect(headers['x-frame-options']).toBe('DENY');
+  expect(headers['referrer-policy']).toBe('strict-origin-when-cross-origin');
+  expect(headers['permissions-policy']).toContain('camera=()');
+  expect(headers['permissions-policy']).toContain('microphone=()');
+
+  const csp = headers['content-security-policy'] ?? '';
+  expect(csp).toContain("default-src 'self'");
+  expect(csp).toContain("script-src 'self'");
+  expect(csp).toContain("frame-ancestors 'none'");
+  expect(csp).not.toContain("script-src 'self' 'unsafe-inline'");
+  expect(csp).not.toContain("'unsafe-eval'");
+  expect(csp).not.toContain('*');
 }
 
 function isHttpsUrl(value: string): boolean {
@@ -352,4 +385,5 @@ async function reload(page: Page) {
 interface BrowserFetchResult {
   status: number;
   text: string;
+  headers: Record<string, string>;
 }
