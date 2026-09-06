@@ -1,6 +1,7 @@
-import { Component, EventEmitter, Input, Output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output } from '@angular/core';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-empty-state',
   standalone: true,
   template: `
@@ -44,7 +45,7 @@ import { Component, EventEmitter, Input, Output } from '@angular/core';
         font-weight: 700;
       }
     `
-  ]
+  ],
 })
 export class AppEmptyStateComponent {
   @Input() title = '表示する項目がありません。';

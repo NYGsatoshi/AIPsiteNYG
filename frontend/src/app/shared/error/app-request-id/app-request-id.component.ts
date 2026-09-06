@@ -1,6 +1,7 @@
-import { Component, Input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-request-id',
   standalone: true,
   template: `
@@ -43,7 +44,7 @@ import { Component, Input } from '@angular/core';
         color: #64748b;
       }
     `
-  ]
+  ],
 })
 export class AppRequestIdComponent {
   @Input() requestId: string | null | undefined;

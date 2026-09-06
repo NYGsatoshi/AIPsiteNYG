@@ -1,4 +1,4 @@
-import { Component, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 
 import { I18nService } from '../../../core/i18n/i18n.service';
 import {
@@ -7,6 +7,7 @@ import {
 } from './task-notification-preferences.facade';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-task-notification-preferences',
   standalone: true,
   template: `

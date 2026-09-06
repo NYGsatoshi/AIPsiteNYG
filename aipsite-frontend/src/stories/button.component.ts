@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { Component, Input, Output, EventEmitter } from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output } from '@angular/core';
 
 @Component({
   selector: 'storybook-button',
@@ -14,6 +14,7 @@ import { Component, Input, Output, EventEmitter } from '@angular/core';
   {{ label }}
 </button>`,
   styleUrls: ['./button.css'],
+  changeDetection: ChangeDetectionStrategy.Eager
 })
 export class ButtonComponent {
   /** Is this the principal call to action on the page? */

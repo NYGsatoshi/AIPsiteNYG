@@ -3,6 +3,7 @@ import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 import { AipAdapterPresentation, AipAdapterState, AipComplexAdapterName } from '../../contracts/aip-complex-adapter.contracts';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.OnPush,
   selector: 'aip-adapter-shell',
   standalone: true,
   template: `
@@ -19,7 +20,6 @@ import { AipAdapterPresentation, AipAdapterState, AipComplexAdapterName } from '
     </section>
   `,
   styleUrl: './aip-adapter-shell.component.scss',
-  changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class AipAdapterShellComponent {
   @Input({ required: true }) adapter!: AipComplexAdapterName;

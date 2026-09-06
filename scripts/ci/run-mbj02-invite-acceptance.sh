@@ -23,7 +23,13 @@ if [[ -z "${AIP_MBJ02_INVITEE_PASSWORD:-}" ]]; then
   export AIP_MBJ02_INVITEE_PASSWORD="Aip1!$(openssl rand -hex 24)"
 fi
 if [[ -z "${AIP_MBJ02_CROSS_TENANT_TOKEN:-}" ]]; then
-  export AIP_MBJ02_CROSS_TENANT_TOKEN="mbj02-cross-$(openssl rand -hex 24)"
+  export AIP_MBJ02_CROSS_TENANT_TOKEN="$(openssl rand -hex 32)"
+fi
+# Exercise tenant isolation after request validation, using the public invite
+# token format required by both the validate and accept endpoints.
+if [[ ! "$AIP_MBJ02_CROSS_TENANT_TOKEN" =~ ^[a-f0-9]{64}$ ]]; then
+  echo "AIP_MBJ02_CROSS_TENANT_TOKEN must be 64 lowercase hexadecimal characters." >&2
+  exit 1
 fi
 
 FOREIGN_TENANT_ID="22222222-2222-2222-2222-222222222222"

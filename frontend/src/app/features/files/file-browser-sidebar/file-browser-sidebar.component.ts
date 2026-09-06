@@ -1,4 +1,4 @@
-import { Component, ElementRef, EventEmitter, Input, Output, QueryList, ViewChildren, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, EventEmitter, Input, Output, QueryList, ViewChildren, computed, inject, signal } from '@angular/core';
 import { LucideChevronLeft, LucideChevronRight, LucideClock3, LucideFolder, LucideFolderOpen, LucideShare2, LucideStar } from '@lucide/angular';
 
 import { I18nService } from '../../../core/i18n/i18n.service';
@@ -16,6 +16,7 @@ interface VisibleFolderNode extends FileBrowserFolderNode {
 }
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-file-browser-sidebar',
   standalone: true,
   imports: [LucideChevronLeft, LucideChevronRight, LucideClock3, LucideFolder, LucideFolderOpen, LucideShare2, LucideStar],

@@ -1,8 +1,9 @@
-import { Component, EventEmitter, inject, Input, Output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output, inject } from '@angular/core';
 
 import { I18nService } from '../../core/i18n/i18n.service';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-mobile-header',
   standalone: true,
   template: `
@@ -25,7 +26,7 @@ import { I18nService } from '../../core/i18n/i18n.service';
       </div>
     </div>
   `,
-  styleUrl: './mobile-header.component.scss'
+  styleUrl: './mobile-header.component.scss',
 })
 export class MobileHeaderComponent {
   readonly i18n = inject(I18nService);

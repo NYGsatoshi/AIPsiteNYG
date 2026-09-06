@@ -1,4 +1,4 @@
-import { Component, computed, effect, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 
@@ -14,6 +14,7 @@ import { ActiveWorkspaceFacade } from '../../../core/workspace/active-workspace.
 import { ThreadPreviewComponent } from '../thread-preview/thread-preview.component';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-channel-messaging-page',
   standalone: true,
   imports: [

@@ -1,6 +1,7 @@
 import { A11yModule } from '@angular/cdk/a11y';
 import {
   AfterViewChecked,
+  ChangeDetectionStrategy,
   Component,
   ElementRef,
   EventEmitter,
@@ -8,10 +9,11 @@ import {
   Input,
   OnChanges,
   Output,
-  ViewChild
+  ViewChild,
 } from '@angular/core';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-confirm-dialog',
   standalone: true,
   imports: [A11yModule],
@@ -96,7 +98,7 @@ import {
         color: white;
       }
     `
-  ]
+  ],
 })
 export class AppConfirmDialogComponent implements AfterViewChecked, OnChanges {
   @Input() open = false;

@@ -1,5 +1,5 @@
 import { HttpClient } from '@angular/common/http';
-import { Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
 
 export type AuditFindingDecision = 'NoIssue' | 'NeedsFix' | 'AcceptedRisk';
 
@@ -34,6 +34,7 @@ type PanelState =
   | { readonly status: 'permissionDenied' | 'notFound' | 'error'; readonly response: null; readonly message: string };
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-audit-finding-decision-panel',
   standalone: true,
   templateUrl: './audit-finding-decision-panel.component.html',

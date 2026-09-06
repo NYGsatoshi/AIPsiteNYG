@@ -194,11 +194,13 @@ jobs:
           root=false
           frontend=false
           legacy=false
+          inspection=false
 
           route_all() {
             root=true
             frontend=true
             legacy=true
+            inspection=true
           }
 
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]] || \
@@ -222,6 +224,9 @@ jobs:
                 aipsite-frontend/package.json|aipsite-frontend/package-lock.json)
                   legacy=true
                   ;;
+                tools/frontend-inspections/package.json|tools/frontend-inspections/package-lock.json)
+                  inspection=true
+                  ;;
               esac
             done < <(git diff --name-only "$base_sha" "$head_sha")
           fi
@@ -230,6 +235,7 @@ jobs:
             echo "root=$root"
             echo "frontend=$frontend"
             echo "legacy=$legacy"
+            echo "inspection=$inspection"
           } >> "$GITHUB_OUTPUT"
 
           {
@@ -237,6 +243,7 @@ jobs:
             echo "- root: $root"
             echo "- frontend: $frontend"
             echo "- legacy frontend: $legacy"
+            echo "- frontend inspections: $inspection"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Enforce root install policy
@@ -250,3 +257,7 @@ jobs:
       - name: Enforce legacy frontend install policy
         if: steps.scope.outputs.legacy == 'true'
         run: bash scripts/ci/npm-ci-retry.sh aipsite-frontend
+
+      - name: Enforce frontend inspection install policy
+        if: steps.scope.outputs.inspection == 'true'
+        run: bash scripts/ci/npm-ci-retry.sh tools/frontend-inspections

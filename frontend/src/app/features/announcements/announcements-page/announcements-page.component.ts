@@ -1,5 +1,5 @@
 /* eslint-disable max-lines -- Issue #390 extends the existing route/editor page; structural cleanup remains part of ESLINT-01. */
-import { Component, computed, DestroyRef, inject, OnDestroy, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, OnDestroy, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -19,6 +19,7 @@ import {
 } from '../announcements.types';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-announcements-page',
   standalone: true,
   imports: [

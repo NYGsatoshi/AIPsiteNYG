@@ -1,8 +1,9 @@
 import { A11yModule } from '@angular/cdk/a11y';
-import { Component, EventEmitter, HostListener, Input, Output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, HostListener, Input, Output } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-audit-reason-dialog',
   standalone: true,
   imports: [A11yModule, FormsModule],
@@ -105,7 +106,7 @@ import { FormsModule } from '@angular/forms';
         opacity: 0.55;
       }
     `
-  ]
+  ],
 })
 export class AppAuditReasonDialogComponent {
   @Input() open = false;

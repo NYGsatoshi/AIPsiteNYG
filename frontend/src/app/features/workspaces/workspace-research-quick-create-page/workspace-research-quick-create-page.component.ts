@@ -1,5 +1,6 @@
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import {
+  ChangeDetectionStrategy,
   Component,
   DestroyRef,
   ElementRef,
@@ -20,6 +21,7 @@ import {
 } from '../workspace-research-quick-create.service';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-workspace-research-quick-create-page',
   standalone: true,
   imports: [RouterLink],
