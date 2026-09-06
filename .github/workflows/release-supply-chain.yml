@@ -361,11 +361,38 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
+      - name: Download original publish-job release inputs
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: sec11-release-inputs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/release-original
+
       - name: Download exact signed predicates
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: sec11-signed-inputs-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/release
+
+      - name: Prove signed inputs match publish-job originals
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in \
+            subject.txt \
+            image.digest \
+            staging-ref.txt \
+            repository.sha \
+            metadata.json \
+            sbom.cyclonedx.json \
+            sbom.spdx.json \
+            components.normalized.json \
+            component-inventory-warnings.json
+          do
+            cmp --silent "artifacts/release-original/$file" "artifacts/release/$file" || {
+              echo "Signing handoff changed publish-job artifact: $file" >&2
+              exit 1
+            }
+          done
 
       - name: Install checksum-pinned Cosign
         run: bash scripts/ci/install-cosign.sh
@@ -401,6 +428,8 @@ jobs:
             echo "Mutable staging tag moved after signing: expected $SUBJECT, got $resolved" >&2
             exit 1
           }
+          mkdir -p artifacts/release/results
+          printf 'verified\n' > artifacts/release/results/mutable-tag.txt
 
       - name: Build exact-attestation verification policies
         shell: bash
@@ -431,6 +460,7 @@ jobs:
         run: |
           set -euo pipefail
           identity="https://github.com/${GITHUB_WORKFLOW_REF}"
+          mkdir -p artifacts/release/verification-output artifacts/release/results
           cosign verify \
             --certificate-identity "$identity" \
             --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
@@ -438,7 +468,9 @@ jobs:
             --certificate-github-workflow-ref "$GITHUB_REF" \
             --certificate-github-workflow-sha "$RELEASE_SHA" \
             --certificate-github-workflow-trigger "release" \
-            "$SUBJECT" >/dev/null
+            "$SUBJECT" > artifacts/release/verification-output/signature.json
+          test -s artifacts/release/verification-output/signature.json
+          printf 'verified\n' > artifacts/release/results/signature.txt
 
       - name: Verify exact SBOM and provenance attestations
         shell: bash
@@ -456,24 +488,31 @@ jobs:
             --certificate-github-workflow-sha "$RELEASE_SHA"
             --certificate-github-workflow-trigger "release"
           )
+          mkdir -p artifacts/release/verification-output artifacts/release/results
 
           cosign verify-attestation \
             "${common[@]}" \
             --type cyclonedx \
             --policy artifacts/release/policies/cyclonedx.rego \
-            "$SUBJECT" >/dev/null
+            "$SUBJECT" > artifacts/release/verification-output/cyclonedx.json
+          test -s artifacts/release/verification-output/cyclonedx.json
+          printf 'verified\n' > artifacts/release/results/cyclonedx.txt
 
           cosign verify-attestation \
             "${common[@]}" \
             --type spdxjson \
             --policy artifacts/release/policies/spdx.rego \
-            "$SUBJECT" >/dev/null
+            "$SUBJECT" > artifacts/release/verification-output/spdx.json
+          test -s artifacts/release/verification-output/spdx.json
+          printf 'verified\n' > artifacts/release/results/spdx.txt
 
           cosign verify-attestation \
             "${common[@]}" \
             --type slsaprovenance1 \
             --policy artifacts/release/policies/provenance.rego \
-            "$SUBJECT" >/dev/null
+            "$SUBJECT" > artifacts/release/verification-output/provenance.json
+          test -s artifacts/release/verification-output/provenance.json
+          printf 'verified\n' > artifacts/release/results/provenance.txt
 
       - name: Emit immutable verification evidence
         shell: bash
@@ -481,6 +520,11 @@ jobs:
           set -euo pipefail
           python3 scripts/ci/release_supply_chain.py finalize \
             --evidence artifacts/release/release-signing-evidence.json \
+            --signature-result artifacts/release/results/signature.txt \
+            --cyclonedx-result artifacts/release/results/cyclonedx.txt \
+            --spdx-result artifacts/release/results/spdx.txt \
+            --provenance-result artifacts/release/results/provenance.txt \
+            --mutable-tag-result artifacts/release/results/mutable-tag.txt \
             --output artifacts/release/release-verification.json
 
       - name: Upload release verification evidence
@@ -497,6 +541,8 @@ jobs:
             artifacts/release/provenance.json
             artifacts/release/release-signing-evidence.json
             artifacts/release/release-verification.json
+            artifacts/release/verification-output
+            artifacts/release/results
           if-no-files-found: error
           retention-days: 90
 
