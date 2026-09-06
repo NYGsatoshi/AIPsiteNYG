@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "policy": {
+    "approvedSourceRef": "refs/heads/main",
+    "requiredBaselineFields": [
+      "oldBaselineSha",
+      "newBaselineSha",
+      "scenarioId",
+      "metric",
+      "reason",
+      "cause",
+      "beforeEvidence",
+      "afterEvidence",
+      "budgetChanged"
+    ],
+    "requiredBudgetRelaxationFields": [
+      "budgetId",
+      "scenarioId",
+      "metric",
+      "reason",
+      "cause",
+      "beforeEvidence",
+      "afterEvidence",
+      "oldValue",
+      "newValue"
+    ],
+    "allowedCauses": [
+      "fixture-change",
+      "environment-change",
+      "accepted-product-change",
+      "measurement-correction",
+      "contract-recalibration"
+    ],
+    "regressionOnlyCauseForbidden": true
+  },
+  "baselineUpdates": [],
+  "budgetRelaxations": []
+}

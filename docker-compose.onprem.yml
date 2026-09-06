@@ -7,6 +7,7 @@ services:
         - syncfusion_license
     environment:
       ASPNETCORE_ENVIRONMENT: Production
+      AllowedHosts: ${ALLOWED_HOSTS:-localhost}
       ConnectionStrings__DefaultConnection: Host=${DB_HOST:-db};Port=5432;Database=${DB_NAME:-aip_portal};Username=${DB_USER:-aip_portal};Password=${DB_PASSWORD:?set DB_PASSWORD}
       DataProtection__KeysPath: /app/data/protection-keys
       Tenancy__AppMode: ${TENANCY_APP_MODE:-OnPremSingleTenant}
@@ -23,6 +24,8 @@ services:
       # The supported production topology is an operator-provided TLS proxy
       # terminating outside this Compose project and reaching this loopback-only
       # origin. Proxy mode is fail-closed until a trusted source IP/CIDR is set.
+      # Add the externally forwarded host(s) to ALLOWED_HOSTS as a semicolon-
+      # delimited list; localhost remains the safe standalone/healthcheck default.
       ReverseProxy__TrustForwardedHeaders: ${REVERSE_PROXY_TRUST_FORWARDED_HEADERS:-false}
       ReverseProxy__RequireHeaderSymmetry: ${REVERSE_PROXY_REQUIRE_HEADER_SYMMETRY:-true}
       ReverseProxy__TrustedProxies__0: ${REVERSE_PROXY_TRUSTED_PROXIES:-}

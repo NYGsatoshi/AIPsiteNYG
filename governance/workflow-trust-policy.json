@@ -14,14 +14,28 @@
   "runner_routing": {
     "github_hosted_labels": [
       "ubuntu-latest",
+      "windows-latest",
       "macos-latest"
     ],
     "github_hosted_groups": [],
     "approved_dynamic_expressions": [
-      "${{ (matrix.language == 'swift' && 'macos-latest') || 'ubuntu-latest' }}"
+      "${{ (matrix.language == 'swift' && 'macos-latest') || 'ubuntu-latest' }}",
+      "${{ (matrix.os == 'windows-latest' && 'windows-latest') || (matrix.os == 'macos-latest' && 'macos-latest') || 'ubuntu-latest' }}"
     ]
   },
   "write_permissions": [
+    {
+      "workflow": ".github/workflows/external-pr-approval-evaluator.yml",
+      "jobs": [],
+      "events": [
+        "workflow_dispatch",
+        "workflow_run"
+      ],
+      "permissions": [
+        "statuses:write"
+      ],
+      "reason": "Canonical GOV-WORKFLOW-PERM-001 compatibility entry only. No job is attached and the compatibility workflow remains read-only."
+    },
     {
       "workflow": ".github/workflows/codeql.yml",
       "jobs": [
@@ -61,6 +75,46 @@
         "contents:write"
       ],
       "reason": "Commit the single scope-checked PR445 mobile screenshot baseline back to its fixed repository branch."
+    },
+    {
+      "workflow": ".github/workflows/release-supply-chain.yml",
+      "jobs": [],
+      "events": [
+        "release"
+      ],
+      "permissions": [
+        "id-token:write",
+        "packages:write"
+      ],
+      "reason": "Canonical workflow-level aggregate only. No job receives this aggregate scope; the job-specific entries below enforce exact least-privilege permissions."
+    },
+    {
+      "workflow": ".github/workflows/release-supply-chain.yml",
+      "jobs": [
+        "publish-release-image",
+        "promote-release-tag"
+      ],
+      "events": [
+        "release"
+      ],
+      "permissions": [
+        "packages:write"
+      ],
+      "reason": "Publish the immutable release subject and promote its human release tag only from the trusted release event; these jobs do not receive OIDC signing authority."
+    },
+    {
+      "workflow": ".github/workflows/release-supply-chain.yml",
+      "jobs": [
+        "sign-release-subject"
+      ],
+      "events": [
+        "release"
+      ],
+      "permissions": [
+        "id-token:write",
+        "packages:write"
+      ],
+      "reason": "Mint a short-lived GitHub Actions OIDC identity and publish Cosign signatures and attestations for the immutable release subject."
     }
   ]
 }

@@ -21,7 +21,10 @@ test('repository compat-critical contract is fail-closed and source-resolvable',
 
   assert.equal(contract.name, 'compat-critical');
   assert.equal(selectCompatCriticalTests(contract, 'browser-engine').length, 4);
-  assert.equal(selectCompatCriticalTests(contract, 'mobile').length, 4);
+  const mobileTests = selectCompatCriticalTests(contract, 'mobile');
+  assert.equal(mobileTests.length, 6);
+  assert.ok(mobileTests.some((entry) => entry.categories.includes('touch')));
+  assert.ok(mobileTests.some((entry) => entry.categories.includes('horizontal-overflow')));
   assert.equal(selectCompatCriticalTests(contract, 'os-portability').length, 2);
   assert.equal(selectCompatCriticalTests(contract, 'real-backend').length, 1);
 });

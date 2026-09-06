@@ -29,6 +29,12 @@
       "purpose": "Bounded CI evidence upload",
       "privilegedAllowed": true
     },
+    "actions/download-artifact": {
+      "sha": "3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+      "version": "v8.0.1",
+      "purpose": "Digest-bound release evidence transfer between isolated SEC-11 jobs",
+      "privilegedAllowed": true
+    },
     "actions/dependency-review-action": {
       "sha": "a1d282b36b6f3519aa1f3fc636f609c47dddb294",
       "version": "v5",
