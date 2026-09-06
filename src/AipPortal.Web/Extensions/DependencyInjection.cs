@@ -42,6 +42,7 @@ public static class DependencyInjection
         });
         services.AddAntiforgery(options => HttpSecurityPolicy.ConfigureAntiforgery(options, security));
         services.AddHostedService<StartupConfigurationValidator>();
+        services.AddHostedService<HttpSecurityConfigurationValidator>();
         services.AddHostedService<AuditPackageExportWorker>();
         services.AddHttpContextAccessor();
         services.AddScoped<ICurrentUser, CurrentUserService>();
