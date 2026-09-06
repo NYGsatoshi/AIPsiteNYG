@@ -12,6 +12,7 @@ using Microsoft.Extensions.Hosting;
 
 namespace AipPortal.Tests.Web;
 
+[Trait("Portability", "CrossPlatform")]
 public sealed class AngularSpaFallbackTests : IDisposable
 {
     private readonly string webRootPath = Path.Combine(Path.GetTempPath(), "aip-angular-fallback-tests", Guid.NewGuid().ToString("N"));
