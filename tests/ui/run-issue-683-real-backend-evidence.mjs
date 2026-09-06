@@ -31,6 +31,32 @@ validateFixedSha(candidateSha, expectedSha);
 await rm(EVIDENCE_ROOT, { recursive: true, force: true });
 await mkdir(EVIDENCE_ROOT, { recursive: true });
 
+const orderingContract = spawnSync(
+  process.execPath,
+  [
+    '--test',
+    'tests/ui/real-backend-pr03c-failure-correlation.node-test.mjs',
+    'tests/ui/issue-683-race-evidence.node-test.mjs'
+  ],
+  { cwd: process.cwd(), stdio: 'inherit' }
+);
+const orderingContractExitCode = Number.isInteger(orderingContract.status)
+  ? orderingContract.status
+  : FALLBACK_FAILURE_EXIT_CODE;
+await writeJsonFile(join(EVIDENCE_ROOT, 'ordering-contract.json'), {
+  candidateSha,
+  exitCode: orderingContractExitCode,
+  verifies: [
+    'boundary-before-revocation',
+    'revocation-success-before-failure-selection',
+    'pre-revocation-execution-scope-404-remains-unexpected',
+    'successful-revocation-required-by-issue-683-observation-policy'
+  ]
+});
+if (orderingContractExitCode !== ISSUE_683_REQUIRED_EXIT_CODE) {
+  throw new Error(`Issue ${ISSUE_ID} post-revocation ordering contract failed on fixed SHA ${candidateSha}.`);
+}
+
 const iterations = [];
 let terminalError = null;
 
@@ -104,6 +130,7 @@ const summary = {
   issue: ISSUE_ID,
   candidateSha,
   fixedShaMatchesGithubSha: candidateSha === expectedSha,
+  orderingContractExitCode,
   iterationPolicy: {
     planned: ISSUE_683_ITERATION_COUNT,
     minimumRaceObservationIterations: ISSUE_683_MIN_RACE_OBSERVATION_ITERATIONS,
@@ -169,11 +196,12 @@ function renderMarkdownSummary(summary) {
     '',
     `- Candidate SHA: \`${summary.candidateSha}\``,
     `- Fixed SHA matches \`GITHUB_SHA\`: ${summary.fixedShaMatchesGithubSha}`,
+    `- Post-revocation ordering contract exit code: ${summary.orderingContractExitCode}`,
     `- Planned clean iterations: ${summary.plannedIterations}`,
     `- Completed clean iterations: ${summary.completedIterations}`,
     `- Playwright retries: ${summary.requiredPlaywrightRetries}`,
     `- Iteration retries after failure: ${NO_ITERATION_RETRIES}`,
-    `- Race observation condition: exact \`GET /api/tasks/{taskId}/execution-scope -> 404\` in at least ${summary.minimumRaceObservationIterations} passing iteration(s)`,
+    `- Race observation condition: passing PR03C with successful Workspace revocation plus exact \`GET /api/tasks/{taskId}/execution-scope -> 404\` in at least ${summary.minimumRaceObservationIterations} iteration(s)`,
     `- Race-observed iterations: ${summary.raceObservedIterations}`,
     `- Result: **${result}**`,
     ''
