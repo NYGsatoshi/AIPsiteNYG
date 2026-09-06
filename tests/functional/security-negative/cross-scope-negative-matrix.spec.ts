@@ -72,7 +72,8 @@ test.describe('FCI-07 real-stack authorization negative matrix', () => {
       polarity: 'negative',
       negativeAuthz: true,
     }),
-    async ({}, testInfo) => {
+    async (fixtures, testInfo) => {
+      void fixtures;
       const anonymousApi = await createTenantApi(ALPHA_TENANT);
       const memberApi = await createTenantApi(ALPHA_TENANT);
       const ownerApi = await createTenantApi(ALPHA_TENANT);
@@ -132,7 +133,7 @@ test.describe('FCI-07 real-stack authorization negative matrix', () => {
 
         if (functionalFullExpansionEnabled()) {
           const invalidCsrf = await ownerApi.post(`/api/workspaces/${alpha.workspaceId}/members`, {
-            headers: { 'X-CSRF-Token': 'fci07-intentionally-invalid' },
+            headers: singleHeader('X-CSRF-Token', 'fci07-intentionally-invalid'),
             data: { userId: alphaMemberId, role: 3 },
           });
           evidence.invalidCsrfStatus = (
@@ -244,7 +245,7 @@ test.describe('FCI-07 real-stack authorization negative matrix', () => {
           })
         ).status;
 
-        await page.setExtraHTTPHeaders({ 'X-Tenant-Slug': ALPHA_TENANT });
+        await page.setExtraHTTPHeaders(singleHeader('X-Tenant-Slug', ALPHA_TENANT));
         await loginViaUi(page, { email: ALPHA_MEMBER_EMAIL, password: securityPassword });
 
         await page.goto(`/app/projects/${beta.projectId}/tasks/${beta.taskId}`);
@@ -332,7 +333,7 @@ interface CoreFixtureGraph {
 async function createTenantApi(tenantSlug: string): Promise<APIRequestContext> {
   return request.newContext({
     baseURL,
-    extraHTTPHeaders: { 'X-Tenant-Slug': tenantSlug },
+    extraHTTPHeaders: singleHeader('X-Tenant-Slug', tenantSlug),
   });
 }
 
@@ -432,6 +433,10 @@ function requireString(record: Record<string, unknown>, ...keys: string[]): stri
     throw new Error(`FCI-07 required string field was missing: ${keys.join(' / ')}.`);
   }
   return value;
+}
+
+function singleHeader(name: string, value: string): Record<string, string> {
+  return Object.fromEntries([[name, value]]);
 }
 
 async function attachEvidence(testInfo: TestInfo, name: string, evidence: Record<string, unknown>): Promise<void> {
