@@ -1,12 +1,15 @@
 using AipPortal.Application.Common;
 using AipPortal.Application.Tenancy;
+using AipPortal.Web.Configuration;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace AipPortal.Web.Controllers;
 
 [ApiController]
 [Authorize(Roles = "PlatformAdmin,SystemAdmin")]
+[EnableRateLimiting(HttpSecurityPolicy.AdminRateLimitPolicy)]
 [Route("api/platform/tenants")]
 public sealed class PlatformTenantsController(ITenantService tenantService) : ControllerBase
 {
