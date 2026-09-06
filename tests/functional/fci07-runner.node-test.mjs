@@ -37,16 +37,15 @@ test('FCI-07 requires both owner journeys and rejects skipped or empty owner exe
   assert.match(ownerRunner, /FUNC-AUTHZ-001/);
   assert.match(ownerRunner, /FUNC-AUTHZ-002/);
   assert.match(ownerRunner, /--journey "\$owner"/);
-  assert.match(ownerRunner, /testcase_count/);
-  assert.match(ownerRunner, /<skipped/);
-  assert.match(ownerRunner, /failures=/);
-  assert.match(ownerRunner, /errors=/);
+  assert.match(ownerRunner, /testcases\.length !== 1/);
+  assert.match(ownerRunner, /testcase\.includes\(owner\)/);
+  assert.match(ownerRunner, /skipped\|failure\|error/);
 
   const spec = readFileSync(specPath, 'utf8');
   assert.match(spec, /journeyId:\s*'FUNC-AUTHZ-001'/);
   assert.match(spec, /journeyId:\s*'FUNC-AUTHZ-002'/);
   assert.match(spec, /negativeAuthz:\s*true/);
-  assert.doesNotMatch(spec, /\btest\.(?:skip|fixme)\b/);
+  assert.doesNotMatch(spec, /\b(?:test(?:\.[A-Za-z_$][\w$]*)*|testInfo)\.(?:skip|fixme)\b/);
 
   const packageJson = JSON.parse(readFileSync('package.json', 'utf8'));
   assert.equal(packageJson.scripts['test:functional:fci07'], 'bash scripts/ci/run-fci07-functional-security.sh functional-fast');
