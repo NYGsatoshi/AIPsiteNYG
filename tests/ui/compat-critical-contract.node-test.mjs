@@ -72,14 +72,18 @@ test('quarantine requires reason owner issue and expiry and cannot erase require
   );
 });
 
-test('source verifier rejects arbitrary sleep, unseeded randomness, and pixel-only assertions', async () => {
+test('source verifier rejects sleeps, randomness, pixel-only assertions, and inline exceptions', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'compat-critical-'));
   try {
     await mkdir(path.join(root, 'tests/ui'), { recursive: true });
     const cases = [
       ['waitForTimeout', "await page.waitForTimeout(100);"],
       ['Math.random', 'Math.random();'],
-      ['pixel screenshot', 'await expect(page).toHaveScreenshot();']
+      ['pixel screenshot', 'await expect(page).toHaveScreenshot();'],
+      ['inline skip', "test.skip(true, 'engine exception');"],
+      ['expected-failure', "testInfo.fail(true, 'engine exception');"],
+      ['expected-failure', "testInfo?.fail(true, 'engine exception');"],
+      ['inline skip', "test['skip'](true, 'engine exception');"]
     ];
 
     for (const [label, statement] of cases) {
