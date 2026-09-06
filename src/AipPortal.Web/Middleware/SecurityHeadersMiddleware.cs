@@ -42,9 +42,10 @@ public sealed class SecurityHeadersMiddleware(RequestDelegate next)
 
         if (IsTaskDetailRead(context.Request))
         {
-            headers.CacheControl = "no-store, max-age=0";
-            headers.Pragma = "no-cache";
-            headers.Expires = "0";
+            var headers = context.Response.Headers;
+            headers["Cache-Control"] = "no-store, max-age=0";
+            headers["Pragma"] = "no-cache";
+            headers["Expires"] = "0";
         }
 
         await next(context);
