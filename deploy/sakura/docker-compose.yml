@@ -12,6 +12,7 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
       ASPNETCORE_URLS: http://0.0.0.0:8080
+      AllowedHosts: ${ALLOWED_HOSTS:-localhost}
       ConnectionStrings__DefaultConnection: Host=${DB_HOST:-db};Port=5432;Database=${DB_NAME:-aipsite};Username=${DB_USER:-aipsite_user};Password=${DB_PASSWORD:?set DB_PASSWORD}
       DataProtection__KeysPath: /app/data/protection-keys
       Tenancy__AppMode: ${TENANCY_APP_MODE:-OnPremSingleTenant}
@@ -31,7 +32,9 @@ services:
       # check while retaining the trusted peer boundary and ForwardLimit=1.
       ReverseProxy__RequireHeaderSymmetry: ${REVERSE_PROXY_REQUIRE_HEADER_SYMMETRY:-true}
       # Caddy is the only HTTP peer on the private Compose network. Operators
-      # may narrow this further by assigning a fixed internal subnet.
+      # may narrow this further by assigning a fixed internal subnet. Set
+      # ALLOWED_HOSTS to "localhost;portal.example" (or equivalent) so the
+      # forwarded public host is accepted while the container healthcheck stays valid.
       ReverseProxy__TrustedNetworks__0: ${REVERSE_PROXY_TRUSTED_NETWORKS:-172.16.0.0/12}
       Platform__PlatformAdminSetupMode: ${PLATFORM_ADMIN_SETUP_MODE:-false}
       LocalAdmin__SeedOnStartup: ${LOCAL_ADMIN_SEED_ON_STARTUP:-true}
