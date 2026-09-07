@@ -254,7 +254,8 @@ def main() -> None:
 
     forbidden = load_forbidden_values()
     for value in forbidden:
-        if value in rendered:
+        escaped_value = json.dumps(value)[1:-1]
+        if value in rendered or escaped_value in rendered:
             fail("sanitized evidence still contains ephemeral authentication material")
 
     args.output.write_text(rendered, encoding="utf-8")
