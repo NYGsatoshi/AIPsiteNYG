@@ -1,14 +1,25 @@
 #!/usr/bin/env node
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 
-const sarifPath =
-  process.argv[2] ||
-  process.env.QODANA_SARIF_PATH ||
-  (process.env.RUNNER_TEMP ? `${process.env.RUNNER_TEMP}/qodana/results/qodana.sarif.json` : undefined);
+const parseConfiguredThreshold = (name, defaultValue) => {
+    const rawValue = process.env[name] || defaultValue,
+      value = Number(rawValue);
 
-const unresolvedThreshold = parseConfiguredThreshold('QODANA_UNRESOLVED_THRESHOLD', 200);
-const unresolvedFileThreshold = parseConfiguredThreshold('QODANA_UNRESOLVED_FILE_THRESHOLD', 40);
-const criticalThreshold = parseConfiguredThreshold('QODANA_CRITICAL_THRESHOLD', 0);
+    if (!/^\d+$/u.test(rawValue) || !Number.isFinite(value) || !Number.isSafeInteger(value)) {
+      throw new TypeError(
+        `${name} must be a finite, non-negative integer; received ${JSON.stringify(rawValue)}.`
+      );
+    }
+
+    return value;
+  },
+  sarifPath =
+    process.argv[2] ||
+    process.env.QODANA_SARIF_PATH ||
+    (process.env.RUNNER_TEMP ? `${process.env.RUNNER_TEMP}/qodana/results/qodana.sarif.json` : undefined),
+  unresolvedThreshold = parseConfiguredThreshold('QODANA_UNRESOLVED_THRESHOLD', '200'),
+  unresolvedFileThreshold = parseConfiguredThreshold('QODANA_UNRESOLVED_FILE_THRESHOLD', '40'),
+  criticalThreshold = parseConfiguredThreshold('QODANA_CRITICAL_THRESHOLD', '0');
 
 if (!sarifPath) {
   console.error('Qodana SARIF path was not supplied.');
@@ -78,10 +89,6 @@ for (const result of results) {
   }
 }
 
-const criticalFindings = ['critical', 'error'].reduce(
-  (count, severity) => count + (severityCounts.get(severity) || 0),
-  0
-);
 const unresolvedFiles = new Set(unresolvedResults.flatMap(resultFiles));
 const unresolvedDependencies = countBy(unresolvedResults.map(firstUnresolvedDependency));
 const categoryCounts = countBy(unresolvedResults.map(classifyUnresolved));
@@ -90,7 +97,10 @@ const summary = {
   sarifPath,
   totalFindings: results.length,
   severityCounts: Object.fromEntries([...severityCounts.entries()].sort()),
-  criticalFindings,
+  criticalFindings: ['critical', 'error'].reduce(
+    (count, severity) => count + (severityCounts.get(severity) || Number()),
+    Number()
+  ),
   criticalThreshold,
   unresolvedSymbols: unresolvedResults.length,
   unresolvedAffectedFiles: unresolvedFiles.size,
@@ -112,11 +122,10 @@ if (modelFailureResults.length > 0) {
   process.exit(1);
 }
 
-if (criticalFindings > criticalThreshold) {
-  console.error(
-    `Qodana critical findings exceed the configured threshold: ${criticalFindings} > ${criticalThreshold}.`
+if (summary.criticalFindings > criticalThreshold) {
+  throw new Error(
+    `Qodana critical findings exceed the configured threshold: ${summary.criticalFindings} > ${criticalThreshold}.`
   );
-  process.exit(1);
 }
 
 if (unresolvedResults.length > unresolvedThreshold || unresolvedFiles.size > unresolvedFileThreshold) {
@@ -125,22 +134,6 @@ if (unresolvedResults.length > unresolvedThreshold || unresolvedFiles.size > unr
       `${unresolvedResults.length} findings across ${unresolvedFiles.size} files.`
   );
   process.exit(1);
-}
-
-function parseConfiguredThreshold(name, defaultValue) {
-  const rawValue = process.env[name] || String(defaultValue);
-  if (!/^(0|[1-9]\d*)$/.test(rawValue)) {
-    console.error(`${name} must be a finite, non-negative integer; received ${JSON.stringify(rawValue)}.`);
-    process.exit(1);
-  }
-
-  const value = Number(rawValue);
-  if (!Number.isFinite(value) || !Number.isSafeInteger(value) || value < 0) {
-    console.error(`${name} must be a finite, non-negative integer; received ${JSON.stringify(rawValue)}.`);
-    process.exit(1);
-  }
-
-  return value;
 }
 
 function normalizeSeverity(result, rule) {
