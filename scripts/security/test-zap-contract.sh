@@ -18,6 +18,7 @@ for path in "$plan" "$policy" "$runner" "$processor"; do
   [[ -f "$path" ]] || test_fail "missing $path"
 done
 
+bash -n "$runner"
 python3 -m py_compile "$processor"
 python3 - "$policy" <<'PY'
 import json
@@ -54,6 +55,7 @@ checks = (
     "type: activeScan-policy",
     "defaultThreshold: Off",
     "type: activeScan",
+    "statistic: stats.ascan.stopped",
     "template: traditional-json",
     "type: exitStatus",
     "errorLevel: High",
@@ -63,12 +65,22 @@ checks = (
 for item in checks:
     if item not in text:
         raise SystemExit(f"Automation plan invariant missing: {item}")
-for rule in ("id: 6", "id: 40003", "id: 40008", "id: 40012", "id: 40014", "id: 40018", "id: 40022", "id: 90020"):
-    if rule not in text:
-        raise SystemExit(f"Required explicit active rule missing: {rule}")
+for rule_id in ("6", "40003", "40008", "40012", "40014", "40018", "40022", "90020"):
+    for item in (
+        f"id: {rule_id}",
+        f"statistic: stats.ascan.{rule_id}.started",
+        f"statistic: stats.ascan.{rule_id}.skipped",
+    ):
+        if item not in text:
+            raise SystemExit(f"Required active-rule completion invariant missing: {item}")
 if "traditional-json-plus" in text:
     raise SystemExit("request/response-bearing ZAP report templates are forbidden")
 PY
+
+grep -Fq 'export AIP_SECURITY_ZAP_FORBIDDEN_VALUES="$forbidden_json"' "$runner" || test_fail "full forbidden-value set is not exported for host-side redaction"
+grep -Fq 'values.add(f"{name}={value}")' "$runner" || test_fail "cookie name=value pairs are missing from the forbidden-value set"
+grep -Fq 'unset AIP_SECURITY_ZAP_FORBIDDEN_VALUES' "$runner" || test_fail "host-side forbidden-value set is not cleared after each role"
+! grep -Eq '^[[:space:]]*-e[[:space:]]+AIP_SECURITY_ZAP_FORBIDDEN_VALUES([[:space:]\\]|$)' "$runner" || test_fail "forbidden-value set must not be passed into the ZAP container"
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
@@ -257,6 +269,14 @@ export SECURITY_SCAN_TRANSPORT_KIND=compose
 if security_zap_require_target >/dev/null 2>&1; then
   test_fail "public target passed SEC-06 target preflight"
 fi
+
+export AIP_SECURITY_ZAP_FORBIDDEN_VALUES='["cookie-value-123","session=cookie-value-123","csrf-value-123"]'
+redacted="$(printf '%s\n' 'cookie-value-123 session=cookie-value-123 csrf-value-123 safe-marker' | security_zap_redact_stream)"
+for value in cookie-value-123 session=cookie-value-123 csrf-value-123; do
+  [[ "$redacted" != *"$value"* ]] || test_fail "stream redaction leaked forbidden value '$value'"
+done
+[[ "$redacted" == *'safe-marker'* ]] || test_fail "stream redaction removed safe log content"
+unset AIP_SECURITY_ZAP_FORBIDDEN_VALUES
 
 # Auth/context loss must block before the runner can prepare or launch ZAP.
 auth_fetch_called=0
