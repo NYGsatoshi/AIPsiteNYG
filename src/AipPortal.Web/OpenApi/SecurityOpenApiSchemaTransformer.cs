@@ -1,3 +1,4 @@
+using AipPortal.Application.Announcements;
 using AipPortal.Application.Projects;
 using Microsoft.AspNetCore.OpenApi;
 using Microsoft.OpenApi;
@@ -24,6 +25,15 @@ public sealed class SecurityOpenApiSchemaTransformer : IOpenApiSchemaTransformer
         {
             schema.Type = JsonSchemaType.String | JsonSchemaType.Null;
             schema.Format = null;
+        }
+        else if (context.JsonTypeInfo.Type == typeof(CreateAnnouncementRequest) &&
+                 schema.Properties?.TryGetValue("body", out var body) == true)
+        {
+            // AnnouncementContentContract trims before rejecting empty content.
+            // Make that wire contract explicit so API fuzzers do not treat an
+            // empty or whitespace-only body as a valid create request.
+            body.MinLength = 1;
+            body.Pattern = "[\\s\\S]*\\S[\\s\\S]*";
         }
 
         return Task.CompletedTask;
