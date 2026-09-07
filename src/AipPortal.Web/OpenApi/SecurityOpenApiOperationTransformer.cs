@@ -63,6 +63,20 @@ public sealed class SecurityOpenApiOperationTransformer : IOpenApiOperationTrans
             AddResponse(operation, "400", "The request parameters or body are invalid.");
         }
 
+        // The legacy body-scoped project-create endpoint is deliberately
+        // fail-closed until the canonical Workspace-root create contract is
+        // available. ProjectService.CreateAsync therefore owns an explicit
+        // DependencyUnavailable / 503 result; keep the generated security
+        // contract aligned with that intentional application state.
+        if (HttpMethods.IsPost(context.Description.HttpMethod) &&
+            string.Equals(
+                context.Description.RelativePath?.TrimEnd('/'),
+                "api/projects",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            AddResponse(operation, "503", "Project creation is temporarily unavailable.");
+        }
+
         if (operation.RequestBody is not null)
         {
             // ApiExplorer flattens form DTOs and can omit their property-level
