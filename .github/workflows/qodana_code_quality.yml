@@ -91,6 +91,10 @@ jobs:
             echo "quality_gate=" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Resolve reviewed Qodana image digest
+        shell: bash
+        run: docker buildx imagetools inspect jetbrains/qodana-cdnet:2026.2-privileged
+
       - name: Run strict Qodana inspection inventory
         id: qodana_scan
         # Pinned to JetBrains/qodana-action v2026.2.1.
