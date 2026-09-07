@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using AipPortal.Application.Artifacts;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -28,6 +29,7 @@ public sealed class ArtifactsController(IArtifactService artifacts) : Controller
     public async Task<IActionResult> ListVersions(Guid artifactId, CancellationToken cancellationToken) => ToActionResult(await artifacts.ListVersionsAsync(artifactId, cancellationToken));
 
     [HttpPost("api/artifacts/{artifactId:guid}/versions")]
+    [Consumes("multipart/form-data")]
     [EnableRateLimiting("file-upload")]
     public async Task<IActionResult> UploadVersion(Guid artifactId, [FromForm] UploadArtifactVersionForm form, CancellationToken cancellationToken)
     {
@@ -51,14 +53,21 @@ public sealed class ArtifactsController(IArtifactService artifacts) : Controller
         var result = await artifacts.DownloadVersionAsync(versionId, cancellationToken);
         return result.IsSuccess
             ? PrivateFile(result.Value!.Content, result.Value.ContentType, result.Value.FileName)
-            : BadRequest(new { error = result.Error });
+            : Failure(result.Error);
     }
 
     [HttpDelete("api/artifact-versions/{versionId:guid}")]
     public async Task<IActionResult> DeleteVersion(Guid versionId, CancellationToken cancellationToken) => OkOrBad(await artifacts.DeleteVersionAsync(versionId, cancellationToken));
 
-    private IActionResult OkOrBad(AipPortal.Application.Common.Result result) => result.IsSuccess ? Ok(new { status = "OK" }) : BadRequest(new { error = result.Error });
-    private IActionResult ToActionResult<T>(AipPortal.Application.Common.Result<T> result) => result.IsSuccess ? Ok(result.Value) : BadRequest(new { error = result.Error });
+    private IActionResult OkOrBad(AipPortal.Application.Common.Result result) => result.IsSuccess ? Ok(new { status = "OK" }) : Failure(result.Error);
+    private IActionResult ToActionResult<T>(AipPortal.Application.Common.Result<T> result) => result.IsSuccess ? Ok(result.Value) : Failure(result.Error);
+
+    private IActionResult Failure(string? error) => StatusCode(error switch
+    {
+        "Artifact not found." or "Artifact version not found." or "Project not found." => 404,
+        "You are not allowed to create artifacts for this project." => 403,
+        _ => 400
+    }, new { error });
 
     private FileStreamResult PrivateFile(Stream content, string contentType, string fileName)
     {
@@ -71,6 +80,7 @@ public sealed class ArtifactsController(IArtifactService artifacts) : Controller
 
 public sealed class UploadArtifactVersionForm
 {
+    [Required]
     public IFormFile? File { get; set; }
 
     public string? ChangeNote { get; set; }

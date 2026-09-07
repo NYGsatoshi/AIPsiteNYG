@@ -26,7 +26,8 @@ public sealed class SecurityOpenApiSchemaTransformer : IOpenApiSchemaTransformer
             schema.Type = JsonSchemaType.String | JsonSchemaType.Null;
             schema.Format = null;
         }
-        else if (context.JsonTypeInfo.Type == typeof(CreateAnnouncementRequest))
+        else if (context.JsonTypeInfo.Type == typeof(CreateAnnouncementRequest) ||
+                 context.JsonTypeInfo.Type == typeof(UpdateAnnouncementRequest))
         {
             // AnnouncementService and AnnouncementContentContract trim before
             // rejecting blank values; advertise that constraint to API scanners.
@@ -67,6 +68,6 @@ public sealed class SecurityOpenApiSchemaTransformer : IOpenApiSchemaTransformer
 
         urlSchema.MinLength = 1;
         urlSchema.MaxLength = AnnouncementContentContract.MaximumUrlLength;
-        urlSchema.Pattern = "^(?:/(?!/)(?!\\.\\.(?:/|$))(?!.*?/\\.\\.(?:/|$))[^\\s\\\\]+|https://(?![^\\s/]*@)[^\\s/]+(?:/[^\\s\\\\]*)?)$";
+        urlSchema.Pattern = "^(?:/(?!/)(?!\\.\\.(?:/|$))(?!.*?/\\.\\.(?:/|$))[^\\s\\\\]*|[hH][tT][tT][pP][sS]://[^\\s/:?#@\\\\][^\\s/?#@\\\\]*(?:[/?#][^\\s\\\\]*)?)$";
     }
 }

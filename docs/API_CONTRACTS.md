@@ -15,6 +15,14 @@ responses are unchanged. Clients must accept these status codes instead of
 assuming every application failure is 400. The draft workflow below retains its
 separate error mapping.
 
+## File upload form contracts
+
+Artifact-version and attachment uploads require `multipart/form-data` and a
+`File` part. Missing files remain invalid (400); unsupported media types return
+415. Artifact endpoints retain their error text while returning 404 for the
+existing redacted missing artifact/version/project result and 403 for an
+explicit artifact-creation permission denial.
+
 ## #378 durable announcement draft delivery
 
 The Announcement editor’s production create path uses the durable
