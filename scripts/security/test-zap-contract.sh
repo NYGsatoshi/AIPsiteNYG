@@ -8,6 +8,7 @@ plan="scripts/security/zap-automation.yaml"
 policy="scripts/security/zap-policy.json"
 runner="scripts/security/zap-runner.sh"
 processor="scripts/security/process-zap-report.py"
+required_active_rule_ids="6,40003,40008,40012,40014,40018,40022,90020"
 
 test_fail() {
   printf 'SEC-06 contract test failed: %s\n' "$*" >&2
@@ -20,12 +21,13 @@ done
 
 bash -n "$runner"
 python3 -m py_compile "$processor"
-python3 - "$policy" <<'PY'
+python3 - "$policy" "$required_active_rule_ids" <<'PY'
 import json
 import re
 import sys
 from pathlib import Path
 policy = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+required_active_rule_ids = tuple(sys.argv[2].split(","))
 scanner = policy["scanner"]
 image = scanner["image"]
 if scanner["version"] != "2.17.0":
@@ -37,16 +39,32 @@ if ":latest" in image or image.endswith(":stable"):
 required = {"automation", "openapi", "pscan", "pscanrules", "ascanrules", "reports", "replacer"}
 if not required.issubset(set(scanner["requiredAddons"])):
     raise SystemExit("required ZAP add-on inventory is incomplete")
+active_rules = policy.get("activeRules")
+if not isinstance(active_rules, list) or not all(
+    isinstance(rule, dict) and "id" in rule for rule in active_rules
+):
+    raise SystemExit("SEC-06 activeRules must be an array of rule objects with ids")
+active_rule_ids = tuple(str(rule["id"]) for rule in active_rules)
+if (
+    len(active_rule_ids) != len(required_active_rule_ids)
+    or set(active_rule_ids) != set(required_active_rule_ids)
+):
+    raise SystemExit(
+        "SEC-06 activeRules must exactly match the independent required-rule set: "
+        f"expected={required_active_rule_ids} actual={active_rule_ids}"
+    )
 if policy["roles"] != ["alpha-owner", "alpha-restricted", "beta-owner"]:
     raise SystemExit("SEC-06 role matrix drifted")
 if policy["blockingPolicy"]["high"] != "block" or policy["blockingPolicy"]["medium"] != "report":
     raise SystemExit("High must block while Medium remains visible/report-only")
 PY
 
-python3 - "$plan" <<'PY'
+python3 - "$plan" "$required_active_rule_ids" <<'PY'
 from pathlib import Path
+import re
 import sys
 text = Path(sys.argv[1]).read_text(encoding="utf-8")
+required_active_rule_ids = tuple(sys.argv[2].split(","))
 checks = (
     "type: openapi",
     "statistic: openapi.urls.added",
@@ -65,11 +83,28 @@ checks = (
 for item in checks:
     if item not in text:
         raise SystemExit(f"Automation plan invariant missing: {item}")
-for rule_id in ("6", "40003", "40008", "40012", "40014", "40018", "40022", "90020"):
+try:
+    policy_section = text.split("  - type: activeScan-policy\n", 1)[1].split(
+        "\n  - type: activeScan\n", 1
+    )[0]
+except IndexError as exc:
+    raise SystemExit("Automation plan activeScan-policy section is malformed") from exc
+plan_rule_ids = tuple(
+    re.findall(r"(?m)^\s+- id:\s*(\d+)\s*$", policy_section)
+)
+if (
+    len(plan_rule_ids) != len(required_active_rule_ids)
+    or set(plan_rule_ids) != set(required_active_rule_ids)
+):
+    raise SystemExit(
+        "Automation plan rules must exactly match the independent SEC-06 required-rule set: "
+        f"expected={required_active_rule_ids} actual={plan_rule_ids}"
+    )
+for rule_id in required_active_rule_ids:
     for item in (
-        f"id: {rule_id}",
         f"statistic: stats.ascan.{rule_id}.started",
         f"statistic: stats.ascan.{rule_id}.skipped",
+        f"statistic: stats.ascan.{rule_id}.time",
     ):
         if item not in text:
             raise SystemExit(f"Required active-rule completion invariant missing: {item}")
