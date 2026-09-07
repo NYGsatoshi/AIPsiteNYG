@@ -119,10 +119,114 @@ jobs:
       policy: sec06-strict-api
       maxRuleDurationInMins: 2
       # A non-zero internal limit plus the host-side timeout in zap-runner.sh
-      # prevents a hung scanner from being interpreted as success.
+      # prevents a hung scanner from running indefinitely. The tests below make
+      # any global stop or per-rule skip a blocking incomplete-scan failure.
       maxScanDurationInMins: 10
       delayInMs: 0
       handleAntiCSRFTokens: false
+    tests:
+      - name: Active scan completed without forced stop
+        type: stats
+        statistic: stats.ascan.stopped
+        operator: "=="
+        value: 0
+        onFail: error
+      - name: Path Traversal rule started
+        type: stats
+        statistic: stats.ascan.6.started
+        operator: ">="
+        value: 1
+        onFail: error
+      - name: Path Traversal rule completed without skip
+        type: stats
+        statistic: stats.ascan.6.skipped
+        operator: "=="
+        value: 0
+        onFail: error
+      - name: CRLF Injection rule started
+        type: stats
+        statistic: stats.ascan.40003.started
+        operator: ">="
+        value: 1
+        onFail: error
+      - name: CRLF Injection rule completed without skip
+        type: stats
+        statistic: stats.ascan.40003.skipped
+        operator: "=="
+        value: 0
+        onFail: error
+      - name: Parameter Tampering rule started
+        type: stats
+        statistic: stats.ascan.40008.started
+        operator: ">="
+        value: 1
+        onFail: error
+      - name: Parameter Tampering rule completed without skip
+        type: stats
+        statistic: stats.ascan.40008.skipped
+        operator: "=="
+        value: 0
+        onFail: error
+      - name: Reflected XSS rule started
+        type: stats
+        statistic: stats.ascan.40012.started
+        operator: ">="
+        value: 1
+        onFail: error
+      - name: Reflected XSS rule completed without skip
+        type: stats
+        statistic: stats.ascan.40012.skipped
+        operator: "=="
+        value: 0
+        onFail: error
+      - name: Persistent XSS rule started
+        type: stats
+        statistic: stats.ascan.40014.started
+        operator: ">="
+        value: 1
+        onFail: error
+      - name: Persistent XSS rule completed without skip
+        type: stats
+        statistic: stats.ascan.40014.skipped
+        operator: "=="
+        value: 0
+        onFail: error
+      - name: SQL Injection rule started
+        type: stats
+        statistic: stats.ascan.40018.started
+        operator: ">="
+        value: 1
+        onFail: error
+      - name: SQL Injection rule completed without skip
+        type: stats
+        statistic: stats.ascan.40018.skipped
+        operator: "=="
+        value: 0
+        onFail: error
+      - name: PostgreSQL time-based SQL Injection rule started
+        type: stats
+        statistic: stats.ascan.40022.started
+        operator: ">="
+        value: 1
+        onFail: error
+      - name: PostgreSQL time-based SQL Injection rule completed without skip
+        type: stats
+        statistic: stats.ascan.40022.skipped
+        operator: "=="
+        value: 0
+        onFail: error
+      - name: Remote OS Command Injection rule started
+        type: stats
+        statistic: stats.ascan.90020.started
+        operator: ">="
+        value: 1
+        onFail: error
+      - name: Remote OS Command Injection rule completed without skip
+        type: stats
+        statistic: stats.ascan.90020.skipped
+        operator: "=="
+        value: 0
+        onFail: error
 
   - type: passiveScan-wait
     parameters:
