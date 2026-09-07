@@ -80,9 +80,9 @@ public sealed class FilesController(
         var result = await activity.ViewVersionAsync(fileObjectId, versionId, cancellationToken);
         return result.IsSuccess
             ? PrivateFile(result.Value!.Content, result.Value.ContentType, result.Value.FileName)
-            : BadRequest(CanonicalErrorEnvelope.FromResult(
+            : StatusCode(LegacyApplicationHttpStatus.For(result.Error), CanonicalErrorEnvelope.FromResult(
                 HttpContext,
-                StatusCodes.Status400BadRequest,
+                LegacyApplicationHttpStatus.For(result.Error),
                 result.ErrorDetail,
                 result.Error,
                 "FileVersionViewFailed"));
@@ -136,9 +136,9 @@ public sealed class FilesController(
         var result = await files.DownloadFileObjectAsync(fileObjectId, cancellationToken);
         return result.IsSuccess
             ? PrivateFile(result.Value!.Content, result.Value.ContentType, result.Value.FileName)
-            : BadRequest(CanonicalErrorEnvelope.FromResult(
+            : StatusCode(LegacyApplicationHttpStatus.For(result.Error), CanonicalErrorEnvelope.FromResult(
                 HttpContext,
-                StatusCodes.Status400BadRequest,
+                LegacyApplicationHttpStatus.For(result.Error),
                 result.ErrorDetail,
                 result.Error,
                 "FileDownloadFailed"));
@@ -188,9 +188,9 @@ public sealed class FilesController(
         var result = await files.DownloadFileObjectWithGrantAsync(fileDownloadGrantId, request.Token, cancellationToken);
         return result.IsSuccess
             ? PrivateFile(result.Value!.Content, result.Value.ContentType, result.Value.FileName)
-            : BadRequest(CanonicalErrorEnvelope.FromResult(
+            : StatusCode(LegacyApplicationHttpStatus.For(result.Error), CanonicalErrorEnvelope.FromResult(
                 HttpContext,
-                StatusCodes.Status400BadRequest,
+                LegacyApplicationHttpStatus.For(result.Error),
                 result.ErrorDetail,
                 result.Error,
                 "FileDownloadFailed"));
@@ -205,9 +205,9 @@ public sealed class FilesController(
     private IActionResult OkOrBad(Result result) =>
         result.IsSuccess
             ? Ok(new { status = "OK" })
-            : BadRequest(CanonicalErrorEnvelope.FromResult(
+            : StatusCode(LegacyApplicationHttpStatus.For(result.Error), CanonicalErrorEnvelope.FromResult(
                 HttpContext,
-                StatusCodes.Status400BadRequest,
+                LegacyApplicationHttpStatus.For(result.Error),
                 result.ErrorDetail,
                 result.Error,
                 "FileOperationFailed"));
@@ -221,9 +221,9 @@ public sealed class FilesController(
                 "FileDownloadGrant",
                 RedactionAuthorizationState.Allowed,
                 RedactionPurpose.FileDownload))
-            : BadRequest(CanonicalErrorEnvelope.FromResult(
+            : StatusCode(LegacyApplicationHttpStatus.For(result.Error), CanonicalErrorEnvelope.FromResult(
                 HttpContext,
-                StatusCodes.Status400BadRequest,
+                LegacyApplicationHttpStatus.For(result.Error),
                 result.ErrorDetail,
                 result.Error,
                 "FileGrantFailed"));
@@ -239,9 +239,9 @@ public sealed class FilesController(
                 RedactionProfile.FileMetadata,
                 moduleKey,
                 RedactionAuthorizationState.Allowed))
-            : BadRequest(CanonicalErrorEnvelope.FromResult(
+            : StatusCode(LegacyApplicationHttpStatus.For(result.Error), CanonicalErrorEnvelope.FromResult(
                 HttpContext,
-                StatusCodes.Status400BadRequest,
+                LegacyApplicationHttpStatus.For(result.Error),
                 result.ErrorDetail,
                 result.Error,
                 failureCode));

@@ -3,13 +3,63 @@ using AipPortal.Application.Artifacts;
 using AipPortal.Application.Common;
 using AipPortal.Application.Files;
 using AipPortal.Web.Controllers;
+using AipPortal.Web.OpenApi;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Abstractions;
+using Microsoft.AspNetCore.Mvc.ApiExplorer;
+using Microsoft.AspNetCore.OpenApi;
+using Microsoft.OpenApi;
 
 namespace AipPortal.Tests.Artifacts;
 
 public sealed class ArtifactUploadContractTests
 {
+    [Theory]
+    [InlineData(typeof(UploadArtifactVersionForm))]
+    [InlineData(typeof(UploadAttachmentForm))]
+    public async Task Multipart_schema_preserves_required_file(Type formType)
+    {
+        var schema = new OpenApiSchema
+        {
+            Properties = new Dictionary<string, IOpenApiSchema>
+            {
+                ["File"] = new OpenApiSchema { Type = JsonSchemaType.String, Format = "binary" },
+                ["ChangeNote"] = new OpenApiSchema { Type = JsonSchemaType.String }
+            }
+        };
+        var operation = new OpenApiOperation
+        {
+            RequestBody = new OpenApiRequestBody
+            {
+                Content = new Dictionary<string, OpenApiMediaType>
+                {
+                    ["multipart/form-data"] = new() { Schema = schema }
+                }
+            }
+        };
+        var context = new OpenApiOperationTransformerContext
+        {
+            DocumentName = "v1",
+            Document = new OpenApiDocument(),
+            ApplicationServices = null!,
+            Description = new ApiDescription
+            {
+                HttpMethod = "POST",
+                ActionDescriptor = new ActionDescriptor
+                {
+                    EndpointMetadata = [],
+                    Parameters = [new ParameterDescriptor { Name = "form", ParameterType = formType }]
+                }
+            }
+        };
+
+        await new SecurityOpenApiOperationTransformer().TransformAsync(operation, context, default);
+
+        Assert.Contains("File", schema.Required!);
+        Assert.DoesNotContain("ChangeNote", schema.Required!);
+    }
+
     [Fact]
     public void Upload_forms_require_a_file()
     {

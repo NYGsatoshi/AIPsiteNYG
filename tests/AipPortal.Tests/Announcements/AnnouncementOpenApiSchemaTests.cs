@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using System.Text.RegularExpressions;
 using AipPortal.Application.Announcements;
+using AipPortal.Application.Auth;
 using AipPortal.Web.OpenApi;
 using Microsoft.AspNetCore.OpenApi;
 using Microsoft.OpenApi;
@@ -10,6 +11,16 @@ namespace AipPortal.Tests.Announcements;
 
 public sealed class AnnouncementOpenApiSchemaTests
 {
+    [Fact]
+    public async Task Invite_schema_preserves_property_validation_metadata()
+    {
+        var schema = await Transform(typeof(RegisterByInviteRequest), "DisplayName", "Email", "Password", "InviteToken");
+        Assert.False(Regex.IsMatch(" ", schema.Properties!["DisplayName"].Pattern!));
+        Assert.Equal("email", schema.Properties["Email"].Format);
+        Assert.Equal(8, schema.Properties["Password"].MinLength);
+        Assert.False(Regex.IsMatch("", schema.Properties["InviteToken"].Pattern!));
+    }
+
     [Theory]
     [InlineData(typeof(CreateAnnouncementRequest))]
     [InlineData(typeof(UpdateAnnouncementRequest))]

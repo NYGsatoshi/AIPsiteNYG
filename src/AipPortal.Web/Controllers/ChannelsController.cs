@@ -36,7 +36,7 @@ public sealed class ChannelsController(IChannelService channels) : ControllerBas
     public async Task<IActionResult> Delete(Guid channelId, CancellationToken cancellationToken)
     {
         var result = await channels.ArchiveAsync(channelId, cancellationToken);
-        return result.IsSuccess ? Ok(new { status = "OK" }) : BadRequest(new { error = result.Error });
+        return result.IsSuccess ? Ok(new { status = "OK" }) : StatusCode(LegacyApplicationHttpStatus.For(result.Error), new { error = result.Error });
     }
 
     [HttpGet("api/channels/{channelId:guid}/members")]
@@ -55,7 +55,7 @@ public sealed class ChannelsController(IChannelService channels) : ControllerBas
     public async Task<IActionResult> RemoveMember(Guid channelId, Guid userId, CancellationToken cancellationToken)
     {
         var result = await channels.RemoveMemberAsync(channelId, userId, cancellationToken);
-        return result.IsSuccess ? Ok(new { status = "OK" }) : BadRequest(new { error = result.Error });
+        return result.IsSuccess ? Ok(new { status = "OK" }) : StatusCode(LegacyApplicationHttpStatus.For(result.Error), new { error = result.Error });
     }
 
     [HttpGet("api/channels/{channelId:guid}/posts")]
@@ -86,7 +86,7 @@ public sealed class ChannelsController(IChannelService channels) : ControllerBas
     public async Task<IActionResult> DeletePost(Guid postId, CancellationToken cancellationToken)
     {
         var result = await channels.DeletePostAsync(postId, cancellationToken);
-        return result.IsSuccess ? Ok(new { status = "OK" }) : BadRequest(new { error = result.Error });
+        return result.IsSuccess ? Ok(new { status = "OK" }) : StatusCode(LegacyApplicationHttpStatus.For(result.Error), new { error = result.Error });
     }
 
     [HttpGet("api/posts/{postId:guid}/threads")]
@@ -105,14 +105,14 @@ public sealed class ChannelsController(IChannelService channels) : ControllerBas
     public async Task<IActionResult> Pin(Guid postId, CancellationToken cancellationToken)
     {
         var result = await channels.PinPostAsync(postId, cancellationToken);
-        return result.IsSuccess ? Ok(new { status = "OK" }) : BadRequest(new { error = result.Error });
+        return result.IsSuccess ? Ok(new { status = "OK" }) : StatusCode(LegacyApplicationHttpStatus.For(result.Error), new { error = result.Error });
     }
 
     [HttpDelete("api/posts/{postId:guid}/pin")]
     public async Task<IActionResult> Unpin(Guid postId, CancellationToken cancellationToken)
     {
         var result = await channels.UnpinPostAsync(postId, cancellationToken);
-        return result.IsSuccess ? Ok(new { status = "OK" }) : BadRequest(new { error = result.Error });
+        return result.IsSuccess ? Ok(new { status = "OK" }) : StatusCode(LegacyApplicationHttpStatus.For(result.Error), new { error = result.Error });
     }
 
     [HttpGet("api/channels/{channelId:guid}/pinned-posts")]
@@ -123,6 +123,6 @@ public sealed class ChannelsController(IChannelService channels) : ControllerBas
 
     private IActionResult ToActionResult<T>(AipPortal.Application.Common.Result<T> result)
     {
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(new { error = result.Error });
+        return result.IsSuccess ? Ok(result.Value) : StatusCode(LegacyApplicationHttpStatus.For(result.Error), new { error = result.Error });
     }
 }

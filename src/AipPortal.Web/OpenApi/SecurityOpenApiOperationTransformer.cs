@@ -1,3 +1,5 @@
+using System.ComponentModel.DataAnnotations;
+using System.Reflection;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.OpenApi;
 using Microsoft.OpenApi;
@@ -63,6 +65,26 @@ public sealed class SecurityOpenApiOperationTransformer : IOpenApiOperationTrans
 
         if (operation.RequestBody is not null)
         {
+            // ApiExplorer flattens form DTOs and can omit their property-level
+            // Required attributes. Preserve those runtime validation rules in
+            // the multipart schema used by clients and scanners.
+            if (operation.RequestBody.Content?.TryGetValue("multipart/form-data", out var multipart) == true &&
+                multipart.Schema is OpenApiSchema formSchema)
+            {
+                foreach (var parameter in context.Description.ActionDescriptor.Parameters)
+                {
+                    foreach (var property in parameter.ParameterType.GetProperties())
+                    {
+                        if (property.GetCustomAttribute<RequiredAttribute>() is not null &&
+                            formSchema.Properties?.ContainsKey(property.Name) == true)
+                        {
+                            formSchema.Required ??= new HashSet<string>();
+                            formSchema.Required.Add(property.Name);
+                        }
+                    }
+                }
+            }
+
             // ApiExplorer includes the legacy text/json formatter media type,
             // but the production request pipeline rejects it with 415. Keep
             // the authoritative security contract aligned with runtime input.
