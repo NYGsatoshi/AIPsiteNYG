@@ -183,7 +183,9 @@ security_schemathesis_run_role() {
   safe_report="$artifact_dir/${role}.ndjson"
   metadata="$artifact_dir/${role}.metadata.json"
 
+  printf 'SECURITY_SCAN_PROGRESS role_auth_prepare_start role=%s\n' "$role"
   security_schemathesis_prepare_auth_file "$role" "$auth_host" || return 1
+  printf 'SECURITY_SCAN_PROGRESS role_auth_prepare_ok role=%s\n' "$role"
   : > "$evidence_host"
   chmod 600 "$evidence_host"
   rm -f "$raw_host" "$safe_report" "$metadata"
@@ -210,6 +212,7 @@ security_schemathesis_run_role() {
     fi
   fi
 
+  printf 'SECURITY_SCAN_PROGRESS role_scan_start role=%s\n' "$role"
   printf 'SEC-04 Schemathesis: lane=%s role=%s seed=%s phases=%s max-examples=%s\n' \
     "$lane" "$role" "$seed" "$phases" "$examples"
 
@@ -283,18 +286,22 @@ security_schemathesis_run_role() {
   fi
 
   (( status == 0 )) || security_schemathesis_fail "role '$role' found a blocking contract/property failure (seed $seed)" || return 1
+  printf 'SECURITY_SCAN_PROGRESS role_scan_complete role=%s\n' "$role"
 }
 
 security_schemathesis_wait_healthy() {
   local role=$1 attempt
+  printf 'SECURITY_SCAN_PROGRESS post_role_readiness_start role=%s\n' "$role"
   for attempt in 1 2 3 4 5; do
     if security_scan_health; then
+      printf 'SECURITY_SCAN_PROGRESS post_role_readiness_ok role=%s\n' "$role"
       return 0
     fi
     if (( attempt < 5 )); then
       sleep 2
     fi
   done
+  printf 'SECURITY_SCAN_PROGRESS post_role_readiness_failed role=%s\n' "$role"
   security_schemathesis_fail "application remained unhealthy after role '$role'"
 }
 
