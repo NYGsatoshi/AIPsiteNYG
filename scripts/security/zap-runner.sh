@@ -208,7 +208,10 @@ security_zap_run_role() {
   export AIP_SECURITY_ZAP_TENANT="$tenant"
   export AIP_SECURITY_ZAP_COOKIE="$cookie_header"
   export AIP_SECURITY_ZAP_CSRF_TOKEN="$SECURITY_SCAN_CSRF_TOKEN"
-  export AIP_SECURITY_ZAP_REPORT_DIR="$SECURITY_SCAN_HTTP_STATE_DIR"
+  # The host state directory is mounted into the scanner container at /state.
+  # Keep raw_host as the host-side path used by report processing, but direct
+  # the in-container Automation Framework report job to its writable mount.
+  export AIP_SECURITY_ZAP_REPORT_DIR="/state"
   export AIP_SECURITY_ZAP_REPORT_FILE="$report_name"
   export AIP_SECURITY_ZAP_FORBIDDEN_VALUES="$forbidden_json"
 
