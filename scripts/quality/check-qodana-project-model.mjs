@@ -6,9 +6,9 @@ const sarifPath =
   process.env.QODANA_SARIF_PATH ||
   (process.env.RUNNER_TEMP ? `${process.env.RUNNER_TEMP}/qodana/results/qodana.sarif.json` : undefined);
 
-const unresolvedThreshold = Number.parseInt(process.env.QODANA_UNRESOLVED_THRESHOLD || '200', 10);
-const unresolvedFileThreshold = Number.parseInt(process.env.QODANA_UNRESOLVED_FILE_THRESHOLD || '40', 10);
-const criticalThreshold = Number.parseInt(process.env.QODANA_CRITICAL_THRESHOLD || '0', 10);
+const unresolvedThreshold = parseConfiguredThreshold('QODANA_UNRESOLVED_THRESHOLD', 200);
+const unresolvedFileThreshold = parseConfiguredThreshold('QODANA_UNRESOLVED_FILE_THRESHOLD', 40);
+const criticalThreshold = parseConfiguredThreshold('QODANA_CRITICAL_THRESHOLD', 0);
 
 if (!sarifPath) {
   console.error('Qodana SARIF path was not supplied.');
@@ -125,6 +125,22 @@ if (unresolvedResults.length > unresolvedThreshold || unresolvedFiles.size > unr
       `${unresolvedResults.length} findings across ${unresolvedFiles.size} files.`
   );
   process.exit(1);
+}
+
+function parseConfiguredThreshold(name, defaultValue) {
+  const rawValue = process.env[name] || String(defaultValue);
+  if (!/^(0|[1-9]\d*)$/.test(rawValue)) {
+    console.error(`${name} must be a finite, non-negative integer; received ${JSON.stringify(rawValue)}.`);
+    process.exit(1);
+  }
+
+  const value = Number(rawValue);
+  if (!Number.isFinite(value) || !Number.isSafeInteger(value) || value < 0) {
+    console.error(`${name} must be a finite, non-negative integer; received ${JSON.stringify(rawValue)}.`);
+    process.exit(1);
+  }
+
+  return value;
 }
 
 function normalizeSeverity(result, rule) {
