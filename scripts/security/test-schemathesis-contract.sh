@@ -49,6 +49,7 @@ grep -Fq 'not_a_server_error' "$runner" || fail "unexpected 5xx check is not sel
 grep -Fq 'status_code_conformance' "$runner" || fail "status conformance check is not selected"
 grep -Fq 'response_schema_conformance' "$runner" || fail "response schema conformance check is not selected"
 grep -Fq 'operation_filters+=(--exclude-path /api/auth/login)' "$runner" || fail "authentication login lifecycle guard is missing"
+grep -Fq 'operation_filters+=(--exclude-path /api/announcements)' "$runner" || fail "authorized announcement create exclusion is missing"
 grep -Fq -- '--exclude-path /api/auth/logout' "$runner" || fail "authenticated logout session guard is missing"
 grep -Fq -- '--exclude-path /api/auth/change-password' "$runner" || fail "authenticated credential rotation guard is missing"
 grep -Fq 'export ASPNETCORE_ENVIRONMENT=Test' "$generator" || fail "OpenAPI generator must force ASPNETCORE_ENVIRONMENT=Test"
