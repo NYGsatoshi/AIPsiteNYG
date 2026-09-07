@@ -156,4 +156,39 @@ public sealed class SecurityHeadersMiddlewareTests
         Assert.True(response.Content.Headers.TryGetValues(name, out values), $"Missing required header: {name}");
         return values.Single();
     }
+
+    [Fact]
+    [Trait("Scope", "FCI-07")]
+    public async Task TaskDetailReadIsExplicitlyNonCacheable()
+    {
+        var context = new DefaultHttpContext();
+        context.Request.Method = HttpMethods.Get;
+        context.Request.Path = $"/api/tasks/{Guid.NewGuid():D}";
+        var middleware = new SecurityHeadersMiddleware(_ => Task.CompletedTask);
+
+        await middleware.InvokeAsync(context);
+
+        Assert.Equal("no-store, max-age=0", context.Response.Headers.CacheControl.ToString());
+        Assert.Equal("no-cache", context.Response.Headers.Pragma.ToString());
+        Assert.Equal("0", context.Response.Headers.Expires.ToString());
+    }
+
+    [Theory]
+    [InlineData("/api/tasks")]
+    [InlineData("/api/tasks/not-a-guid")]
+    [InlineData("/api/tasks/00000000-0000-0000-0000-000000000001/activity")]
+    [Trait("Scope", "FCI-07")]
+    public async Task TaskNoStorePolicyDoesNotLeakToOtherTaskRoutes(string path)
+    {
+        var context = new DefaultHttpContext();
+        context.Request.Method = HttpMethods.Get;
+        context.Request.Path = path;
+        var middleware = new SecurityHeadersMiddleware(_ => Task.CompletedTask);
+
+        await middleware.InvokeAsync(context);
+
+        Assert.False(context.Response.Headers.ContainsKey("Cache-Control"));
+        Assert.False(context.Response.Headers.ContainsKey("Pragma"));
+        Assert.False(context.Response.Headers.ContainsKey("Expires"));
+    }
 }
