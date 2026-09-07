@@ -17,13 +17,6 @@ separate error mapping.
 
 ## File upload form contracts
 
-Conversation, channel, event, attachment, and file endpoints now distinguish
-established redacted missing-resource failures (404), explicit authorization
-failures (403), and authentication failures (401). Error payloads and unknown or
-input-validation failures retain their existing behavior. This mapping uses an
-explicit list of public errors, never substring matching of arbitrary text.
-
-
 Artifact-version and attachment uploads require `multipart/form-data` and a
 `File` part. Missing files remain invalid (400); unsupported media types return
 415. Artifact endpoints retain their error text while returning 404 for the

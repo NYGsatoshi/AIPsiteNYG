@@ -52,9 +52,9 @@ public sealed class FileFoldersController(IFileFolderService folders) : Controll
                 RedactionProfile.FileMetadata,
                 moduleKey,
                 RedactionAuthorizationState.Allowed))
-            : StatusCode(LegacyApplicationHttpStatus.For(result.Error), CanonicalErrorEnvelope.FromResult(
+            : BadRequest(CanonicalErrorEnvelope.FromResult(
                 HttpContext,
-                LegacyApplicationHttpStatus.For(result.Error),
+                StatusCodes.Status400BadRequest,
                 result.ErrorDetail,
                 result.Error,
                 "FileFolderOperationFailed"));

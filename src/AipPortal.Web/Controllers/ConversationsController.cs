@@ -80,6 +80,6 @@ public sealed class ConversationsController(IConversationService conversations) 
     [HttpPost("api/conversations/{conversationId:guid}/read")]
     public async Task<IActionResult> MarkRead(Guid conversationId, MarkConversationReadRequest request, CancellationToken cancellationToken) => OkOrBad(await conversations.MarkReadAsync(conversationId, request, cancellationToken));
 
-    private IActionResult OkOrBad(AipPortal.Application.Common.Result result) => result.IsSuccess ? Ok(new { status = "OK" }) : StatusCode(LegacyApplicationHttpStatus.For(result.Error), new { error = result.Error });
-    private IActionResult ToActionResult<T>(AipPortal.Application.Common.Result<T> result) => result.IsSuccess ? Ok(result.Value) : StatusCode(LegacyApplicationHttpStatus.For(result.Error), new { error = result.Error });
+    private IActionResult OkOrBad(AipPortal.Application.Common.Result result) => result.IsSuccess ? Ok(new { status = "OK" }) : BadRequest(new { error = result.Error });
+    private IActionResult ToActionResult<T>(AipPortal.Application.Common.Result<T> result) => result.IsSuccess ? Ok(result.Value) : BadRequest(new { error = result.Error });
 }

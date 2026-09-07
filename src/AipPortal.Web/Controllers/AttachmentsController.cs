@@ -40,7 +40,7 @@ public sealed class AttachmentsController(IFileService files) : ControllerBase
         var result = await files.DownloadAsync(attachmentId, cancellationToken);
         return result.IsSuccess
             ? PrivateFile(result.Value!.Content, result.Value.ContentType, result.Value.FileName)
-            : StatusCode(LegacyApplicationHttpStatus.For(result.Error), new { error = result.Error });
+            : BadRequest(new { error = result.Error });
     }
 
     [HttpPost("api/attachments/{attachmentId:guid}/download-grants")]
@@ -83,14 +83,14 @@ public sealed class AttachmentsController(IFileService files) : ControllerBase
         var result = await files.DownloadWithGrantAsync(fileDownloadGrantId, request.Token, cancellationToken);
         return result.IsSuccess
             ? PrivateFile(result.Value!.Content, result.Value.ContentType, result.Value.FileName)
-            : StatusCode(LegacyApplicationHttpStatus.For(result.Error), new { error = result.Error });
+            : BadRequest(new { error = result.Error });
     }
 
     [HttpDelete("api/attachments/{attachmentId:guid}")]
     public async Task<IActionResult> Delete(Guid attachmentId, CancellationToken cancellationToken) => OkOrBad(await files.DeleteAsync(attachmentId, cancellationToken));
 
-    private IActionResult OkOrBad(AipPortal.Application.Common.Result result) => result.IsSuccess ? Ok(new { status = "OK" }) : StatusCode(LegacyApplicationHttpStatus.For(result.Error), new { error = result.Error });
-    private IActionResult ToActionResult<T>(AipPortal.Application.Common.Result<T> result) => result.IsSuccess ? Ok(result.Value) : StatusCode(LegacyApplicationHttpStatus.For(result.Error), new { error = result.Error });
+    private IActionResult OkOrBad(AipPortal.Application.Common.Result result) => result.IsSuccess ? Ok(new { status = "OK" }) : BadRequest(new { error = result.Error });
+    private IActionResult ToActionResult<T>(AipPortal.Application.Common.Result<T> result) => result.IsSuccess ? Ok(result.Value) : BadRequest(new { error = result.Error });
 
     private FileStreamResult PrivateFile(Stream content, string contentType, string fileName)
     {

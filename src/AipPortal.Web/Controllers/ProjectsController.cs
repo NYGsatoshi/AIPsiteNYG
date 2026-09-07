@@ -309,7 +309,7 @@ public sealed class ProjectsController(IProjectService projects, ITaskCommandSer
                 "Project creation is temporarily unavailable."));
         if (result.ErrorDetail?.Code == "TASK_BRIEF_FIELD_TOO_LONG")
             return TaskBriefValidationError(result.ErrorDetail);
-        return StatusCode(LegacyApplicationHttpStatus.For(result.Error), ToErrorResponse(result.Error));
+        return BadRequest(ToErrorResponse(result.Error));
     }
 
     private IActionResult ToProjectReadError<T>(
