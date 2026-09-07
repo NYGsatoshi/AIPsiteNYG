@@ -125,22 +125,29 @@ for raw in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
     elif not raw or raw.startswith("#"):
         continue
     parts = raw.split("\t")
-    if len(parts) >= 7 and parts[6]:
-        values.add(parts[6])
+    if len(parts) >= 7 and parts[5] and parts[6]:
+        name, value = parts[5], parts[6]
+        values.add(value)
+        values.add(f"{name}={value}")
 print(json.dumps(sorted(value for value in values if value), separators=(",", ":")))
 PY
 }
 
 security_zap_redact_stream() {
-  # SEC-03 already redacts the synthetic password and common header forms. ZAP
-  # also receives a serialized Cookie header and CSRF token, so remove their raw
-  # values even if an add-on logs them outside a canonical header line.
+  # SEC-03 already redacts common header forms. Consume the same complete
+  # forbidden-value set used by the evidence sanitizer so raw cookie values,
+  # cookie pairs, serialized Cookie headers, CSRF tokens, and fixture secrets
+  # cannot survive non-canonical ZAP/add-on log output.
   security_scan_redact_stream | python3 -c '
+import json
 import os
 import sys
 text = sys.stdin.read()
-for key in ("AIP_SECURITY_ZAP_COOKIE", "AIP_SECURITY_ZAP_CSRF_TOKEN"):
-    value = os.environ.get(key, "")
+raw = os.environ.get("AIP_SECURITY_ZAP_FORBIDDEN_VALUES", "")
+values = json.loads(raw) if raw else []
+if not isinstance(values, list) or not all(isinstance(value, str) for value in values):
+    raise SystemExit("AIP_SECURITY_ZAP_FORBIDDEN_VALUES must be a JSON array of strings")
+for value in values:
     if value:
         text = text.replace(value, "[REDACTED]")
 sys.stdout.write(text)
@@ -198,6 +205,7 @@ security_zap_run_role() {
   export AIP_SECURITY_ZAP_CSRF_TOKEN="$SECURITY_SCAN_CSRF_TOKEN"
   export AIP_SECURITY_ZAP_REPORT_DIR="$SECURITY_SCAN_HTTP_STATE_DIR"
   export AIP_SECURITY_ZAP_REPORT_FILE="$report_name"
+  export AIP_SECURITY_ZAP_FORBIDDEN_VALUES="$forbidden_json"
 
   role_timeout="${AIP_SECURITY_ZAP_ROLE_TIMEOUT:-15m}"
   printf 'SEC-06 ZAP: role=%s target=%s policy=sec06-strict-api timeout=%s\n' \
@@ -232,26 +240,26 @@ security_zap_run_role() {
   set -e
 
   set +e
-  AIP_SECURITY_ZAP_FORBIDDEN_VALUES="$forbidden_json" \
-    python3 scripts/security/process-zap-report.py \
-      --raw-report "$raw_host" \
-      --output "$output" \
-      --metadata "$metadata" \
-      --role "$role" \
-      --target "$SECURITY_SCAN_TARGET" \
-      --scanner-version "$ZAP_VERSION" \
-      --scanner-image "$ZAP_IMAGE" \
-      --scanner-exit "$status" \
-      --contract "$ZAP_CONTRACT" \
-      --automation-plan "$ZAP_AUTOMATION_PLAN" \
-      --policy "$ZAP_POLICY" \
-      --addon-list-sha256 "$SECURITY_ZAP_ADDON_LIST_SHA256"
+  python3 scripts/security/process-zap-report.py \
+    --raw-report "$raw_host" \
+    --output "$output" \
+    --metadata "$metadata" \
+    --role "$role" \
+    --target "$SECURITY_SCAN_TARGET" \
+    --scanner-version "$ZAP_VERSION" \
+    --scanner-image "$ZAP_IMAGE" \
+    --scanner-exit "$status" \
+    --contract "$ZAP_CONTRACT" \
+    --automation-plan "$ZAP_AUTOMATION_PLAN" \
+    --policy "$ZAP_POLICY" \
+    --addon-list-sha256 "$SECURITY_ZAP_ADDON_LIST_SHA256"
   process_status=$?
   set -e
 
   unset AIP_SECURITY_ZAP_TARGET AIP_SECURITY_ZAP_TARGET_REGEX AIP_SECURITY_ZAP_TENANT
   unset AIP_SECURITY_ZAP_COOKIE AIP_SECURITY_ZAP_CSRF_TOKEN
   unset AIP_SECURITY_ZAP_REPORT_DIR AIP_SECURITY_ZAP_REPORT_FILE
+  unset AIP_SECURITY_ZAP_FORBIDDEN_VALUES
 
   (( process_status == 0 )) || return "$process_status"
   (( status == 0 )) || security_zap_fail "role '$role' scanner exited $status" || return 1
