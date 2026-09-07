@@ -52,22 +52,27 @@ security_zap_require_internal_network() {
   docker network inspect "$network" | python3 -c '
 import json
 import sys
-container_id = sys.argv[1]
 document = json.load(sys.stdin)
 if len(document) != 1 or document[0].get("Internal") is not True:
     raise SystemExit("SEC-06 scanner network must be Docker internal=true")
-containers = document[0].get("Containers") or {}
-matched = None
-for key, value in containers.items():
-    if key == container_id or container_id.startswith(key) or key.startswith(container_id):
-        matched = value
-        break
-if not matched:
+' || return 1
+
+  # Network aliases are endpoint settings on the container. `docker network
+  # inspect` exposes attached container IDs/addresses but does not reliably
+  # expose the endpoint Aliases array, so validate the alias from container
+  # NetworkSettings instead of treating a missing field as a topology failure.
+  docker inspect "$app_container" --format '{{json .NetworkSettings.Networks}}' | python3 -c '
+import json
+import sys
+network = sys.argv[1]
+networks = json.load(sys.stdin)
+endpoint = networks.get(network)
+if not isinstance(endpoint, dict):
     raise SystemExit("SEC-02 app is not attached to the SEC-06 internal scanner network")
-aliases = matched.get("Aliases") or []
+aliases = endpoint.get("Aliases") or []
 if "app" not in aliases:
     raise SystemExit("SEC-02 app must have the app alias on the SEC-06 internal scanner network")
-' "$app_container" || return 1
+' "$network" || return 1
 }
 
 security_zap_target_regex() {
@@ -295,10 +300,10 @@ security_zap_run_matrix() {
   rm -rf artifacts/security/zap
   mkdir -p artifacts/security/zap
 
-  while IFS= read -r role; do
+  while IFS= read -r role <&3; do
     [[ -n "$role" ]] || continue
     security_zap_run_role "$role" "$network" "$mount_root" || return 1
-  done < <(security_zap_roles)
+  done 3< <(security_zap_roles)
 
   printf 'SEC-06 OWASP ZAP authenticated API DAST passed: roles=%s image=%s\n' \
     "$(security_zap_roles | paste -sd, -)" "$ZAP_IMAGE"
