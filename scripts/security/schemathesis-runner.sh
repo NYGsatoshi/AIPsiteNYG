@@ -323,11 +323,14 @@ security_schemathesis_run_matrix() {
   [[ "$version" == *"$SCHEMATHESIS_VERSION"* ]] ||
     security_schemathesis_fail "pinned image did not report Schemathesis $SCHEMATHESIS_VERSION" || return 1
 
-  while IFS= read -r role; do
+  # Keep the role list on a dedicated descriptor. SEC-03 uses `docker run -i`
+  # for HTTP probes, and inheriting the loop on stdin lets those probes consume
+  # the next role name before the shell can read it.
+  while IFS= read -r role <&3; do
     [[ -n "$role" ]] || continue
     security_schemathesis_run_role "$lane" "$role" "$base_seed" "$network" "$mount_root" || return 1
     security_schemathesis_wait_healthy "$role" || return 1
-  done < <(security_schemathesis_roles "$lane")
+  done 3< <(security_schemathesis_roles "$lane")
 
   printf 'SEC-04 Schemathesis contract fuzzing passed: lane=%s roles=%s\n' \
     "$lane" "$(security_schemathesis_roles "$lane" | paste -sd, -)"
