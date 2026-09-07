@@ -26,17 +26,47 @@ public sealed class SecurityOpenApiSchemaTransformer : IOpenApiSchemaTransformer
             schema.Type = JsonSchemaType.String | JsonSchemaType.Null;
             schema.Format = null;
         }
-        else if (context.JsonTypeInfo.Type == typeof(CreateAnnouncementRequest) &&
-                 schema.Properties?.TryGetValue("body", out var body) == true &&
-                 body is OpenApiSchema bodySchema)
+        else if (context.JsonTypeInfo.Type == typeof(CreateAnnouncementRequest))
         {
-            // AnnouncementContentContract trims before rejecting empty content.
-            // Make that wire contract explicit so API fuzzers do not treat an
-            // empty or whitespace-only body as a valid create request.
-            bodySchema.MinLength = 1;
-            bodySchema.Pattern = "[\\s\\S]*\\S[\\s\\S]*";
+            // AnnouncementService and AnnouncementContentContract trim before
+            // rejecting blank values; advertise that constraint to API scanners.
+            ConfigureNonBlankString(schema, "title");
+            ConfigureNonBlankString(schema, "body");
+        }
+        else if (context.JsonTypeInfo.Type == typeof(AnnouncementActionLink))
+        {
+            // A present action must be complete and safe; null remains the
+            // representation for an omitted CTA or attachment.
+            ConfigureNonBlankString(schema, "label", AnnouncementContentContract.MaximumLabelLength);
+            ConfigureSafeActionUrl(schema);
         }
 
         return Task.CompletedTask;
+    }
+
+    private static void ConfigureNonBlankString(OpenApiSchema schema, string propertyName, int? maximumLength = null)
+    {
+        if (schema.Properties?.TryGetValue(propertyName, out var property) != true ||
+            property is not OpenApiSchema stringSchema)
+        {
+            return;
+        }
+
+        stringSchema.MinLength = 1;
+        stringSchema.Pattern = "[\\s\\S]*\\S[\\s\\S]*";
+        stringSchema.MaxLength = maximumLength;
+    }
+
+    private static void ConfigureSafeActionUrl(OpenApiSchema schema)
+    {
+        if (schema.Properties?.TryGetValue("url", out var property) != true ||
+            property is not OpenApiSchema urlSchema)
+        {
+            return;
+        }
+
+        urlSchema.MinLength = 1;
+        urlSchema.MaxLength = AnnouncementContentContract.MaximumUrlLength;
+        urlSchema.Pattern = "^(?:/(?!/)(?!\\.\\.(?:/|$))(?!.*?/\\.\\.(?:/|$))[^\\s\\\\]+|https://(?![^\\s/]*@)[^\\s/]+(?:/[^\\s\\\\]*)?)$";
     }
 }
