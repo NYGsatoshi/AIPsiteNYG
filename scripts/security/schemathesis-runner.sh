@@ -242,7 +242,7 @@ security_schemathesis_run_role() {
       --max-examples "$examples" \
       --seed "$seed" \
       --workers 1 \
-      --max-failures 1 \
+      --max-failures 20 \
       --request-timeout 10 \
       --request-retries 0 \
       --max-redirects 0 \
