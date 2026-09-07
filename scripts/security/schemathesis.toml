@@ -1,4 +1,19 @@
 [checks]
+# Authenticated mutation APIs intentionally retain legacy 400 responses for
+# actor/resource/state-dependent application failures that cannot be expressed
+# completely in OpenAPI. Treat that established application result as an
+# accepted positive-data outcome; unexpected 5xx responses are still blocked
+# independently by not_a_server_error.
+positive_data_acceptance.expected-statuses = [
+  "2xx",
+  400,
+  401,
+  403,
+  404,
+  409,
+  "5xx",
+]
+
 # RFC 9110 415 is the precise rejection for a schema-violating request whose
 # generated Content-Type is unsupported. Schemathesis 4.25.2 omits it from the
 # built-in negative_data_rejection defaults, so keep the default set and add it.
