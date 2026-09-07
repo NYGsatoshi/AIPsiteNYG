@@ -30,3 +30,12 @@ negative_data_rejection.expected-statuses = [
   428,
   "5xx",
 ]
+
+# POST /api/projects is a deprecated body-scoped compatibility endpoint whose
+# application service intentionally fails closed with DependencyUnavailable / 503
+# until the canonical Workspace-root create contract is available. Keep the
+# server-error exception operation-scoped so an unexpected 503 elsewhere still
+# fails SEC-04.
+[[operations]]
+include-name = "POST /api/projects"
+checks.not_a_server_error.expected-statuses = ["2xx", "3xx", "4xx", 503]
