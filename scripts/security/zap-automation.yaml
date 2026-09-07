@@ -191,7 +191,8 @@ jobs:
       - name: Reflected XSS rule started
         type: stats
         statistic: stats.ascan.40012.started
-        operator: ">="n        value: 1
+        operator: ">="
+        value: 1
         onFail: error
       - name: Reflected XSS rule completed without skip
         type: stats
