@@ -1,9 +1,13 @@
 name: Qodana Deep Analysis
 
-# Qodana is the JetBrains second-opinion/deep-analysis lane. PR merge gating is
-# handled by SonarQube Cloud plus the dedicated frontend lint workflow.
+# Qodana is the JetBrains second-opinion/deep-analysis lane. Pull requests are
+# held to a zero-new-Qodana-findings gate for changed files; trusted main and
+# scheduled runs retain the full-repository inventory.
 on:
   workflow_dispatch:
+  pull_request:
+    branches:
+      - main
   push:
     branches:
       - main
@@ -28,7 +32,13 @@ jobs:
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: "1"
       DOTNET_NOLOGO: "1"
-      QODANA_FRONTEND_REQUIRED: "false"
+      # qodana-cdnet is .NET-only; frontend policy is enforced separately.
+      QODANA_SKIP_FRONTEND_BOOTSTRAP: "true"
+      # A healthy project model should not contain unresolved symbols at all.
+      QODANA_UNRESOLVED_THRESHOLD: "0"
+      QODANA_UNRESOLVED_FILE_THRESHOLD: "0"
+      # Existing non-critical debt may remain visible, but Critical findings do not.
+      QODANA_CRITICAL_THRESHOLD: "0"
 
     steps:
       - name: Repair previous Docker workspace ownership
@@ -44,6 +54,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
         with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -68,16 +79,27 @@ jobs:
         shell: bash
         run: bash scripts/ci/cleanup-qodana-containers.sh "$GITHUB_WORKSPACE"
 
-      - name: Run full Qodana inspection inventory
+      - name: Configure Qodana analysis mode
+        id: qodana_mode
+        shell: bash
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            echo "pr_mode=true" >> "$GITHUB_OUTPUT"
+            echo "quality_gate=--fail-threshold 0" >> "$GITHUB_OUTPUT"
+          else
+            echo "pr_mode=false" >> "$GITHUB_OUTPUT"
+            echo "quality_gate=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run strict Qodana inspection inventory
         id: qodana_scan
-        continue-on-error: true
-        uses: JetBrains/qodana-action@v2026.2.1
+        # Pinned to JetBrains/qodana-action v2026.2.1.
+        uses: JetBrains/qodana-action@10be11607eb323a180e2b76b26c9c5cdceac3e77
         with:
           args: |
-            --image jetbrains/qodana-cdnet:2026.1-eap-privileged
-            --solution AipPortal.slnx
-            --configuration Release
-          pr-mode: false
+            --image jetbrains/qodana-cdnet:2026.2-privileged
+            ${{ steps.qodana_mode.outputs.quality_gate }}
+          pr-mode: ${{ steps.qodana_mode.outputs.pr_mode }}
           results-dir: ${{ runner.temp }}/qodana/results-${{ github.run_id }}-${{ github.run_attempt }}
           use-caches: false
           post-pr-comment: false
@@ -96,18 +118,13 @@ jobs:
             alpine:3.21 \
             sh -c "chown -R ${uid}:${gid} /workspace"
 
-      - name: Warn when the deep scan does not complete
-        if: steps.qodana_scan.outcome != 'success'
-        shell: bash
-        run: echo "::warning::Qodana deep analysis did not complete successfully; inspect the workflow log and uploaded inventory."
-
-      - name: Set up Node.js for project-model guard
+      - name: Set up Node.js for Qodana guard
         if: steps.qodana_scan.outcome == 'success'
         uses: actions/setup-node@v7
         with:
           node-version: "24"
 
-      - name: Guard Qodana project model
+      - name: Guard Qodana findings and project model
         if: steps.qodana_scan.outcome == 'success'
         env:
           QODANA_PROJECT_MODEL_SUMMARY_PATH: ${{ runner.temp }}/qodana/project-model-summary.json

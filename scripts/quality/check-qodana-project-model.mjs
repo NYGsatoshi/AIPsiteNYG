@@ -8,6 +8,7 @@ const sarifPath =
 
 const unresolvedThreshold = Number.parseInt(process.env.QODANA_UNRESOLVED_THRESHOLD || '200', 10);
 const unresolvedFileThreshold = Number.parseInt(process.env.QODANA_UNRESOLVED_FILE_THRESHOLD || '40', 10);
+const criticalThreshold = Number.parseInt(process.env.QODANA_CRITICAL_THRESHOLD || '0', 10);
 
 if (!sarifPath) {
   console.error('Qodana SARIF path was not supplied.');
@@ -77,6 +78,10 @@ for (const result of results) {
   }
 }
 
+const criticalFindings = ['critical', 'error'].reduce(
+  (count, severity) => count + (severityCounts.get(severity) || 0),
+  0
+);
 const unresolvedFiles = new Set(unresolvedResults.flatMap(resultFiles));
 const unresolvedDependencies = countBy(unresolvedResults.map(firstUnresolvedDependency));
 const categoryCounts = countBy(unresolvedResults.map(classifyUnresolved));
@@ -85,6 +90,8 @@ const summary = {
   sarifPath,
   totalFindings: results.length,
   severityCounts: Object.fromEntries([...severityCounts.entries()].sort()),
+  criticalFindings,
+  criticalThreshold,
   unresolvedSymbols: unresolvedResults.length,
   unresolvedAffectedFiles: unresolvedFiles.size,
   unresolvedThreshold,
@@ -102,6 +109,13 @@ if (process.env.QODANA_PROJECT_MODEL_SUMMARY_PATH) {
 
 if (modelFailureResults.length > 0) {
   console.error('Qodana reported project-model, restore, build, SDK, or package-resolution failures.');
+  process.exit(1);
+}
+
+if (criticalFindings > criticalThreshold) {
+  console.error(
+    `Qodana critical findings exceed the configured threshold: ${criticalFindings} > ${criticalThreshold}.`
+  );
   process.exit(1);
 }
 
