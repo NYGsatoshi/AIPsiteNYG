@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 
-const parseConfiguredThreshold = (name, defaultValue) => {
+const configuredThresholdParser = (name, defaultValue) => {
     const rawValue = process.env[name] || defaultValue,
       value = Number(rawValue);
 
@@ -13,13 +13,13 @@ const parseConfiguredThreshold = (name, defaultValue) => {
 
     return value;
   },
+  criticalThreshold = configuredThresholdParser('QODANA_CRITICAL_THRESHOLD', '0'),
   sarifPath =
     process.argv[2] ||
     process.env.QODANA_SARIF_PATH ||
     (process.env.RUNNER_TEMP ? `${process.env.RUNNER_TEMP}/qodana/results/qodana.sarif.json` : undefined),
-  unresolvedThreshold = parseConfiguredThreshold('QODANA_UNRESOLVED_THRESHOLD', '200'),
-  unresolvedFileThreshold = parseConfiguredThreshold('QODANA_UNRESOLVED_FILE_THRESHOLD', '40'),
-  criticalThreshold = parseConfiguredThreshold('QODANA_CRITICAL_THRESHOLD', '0');
+  unresolvedFileThreshold = configuredThresholdParser('QODANA_UNRESOLVED_FILE_THRESHOLD', '40'),
+  unresolvedThreshold = configuredThresholdParser('QODANA_UNRESOLVED_THRESHOLD', '200');
 
 if (!sarifPath) {
   console.error('Qodana SARIF path was not supplied.');
