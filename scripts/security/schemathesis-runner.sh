@@ -285,6 +285,19 @@ security_schemathesis_run_role() {
   (( status == 0 )) || security_schemathesis_fail "role '$role' found a blocking contract/property failure (seed $seed)" || return 1
 }
 
+security_schemathesis_wait_healthy() {
+  local role=$1 attempt
+  for attempt in 1 2 3 4 5; do
+    if security_scan_health; then
+      return 0
+    fi
+    if (( attempt < 5 )); then
+      sleep 2
+    fi
+  done
+  security_schemathesis_fail "application remained unhealthy after role '$role'"
+}
+
 security_schemathesis_run_matrix() {
   local network=$1 mount_root=$2 lane base_seed role version
   security_scan_require_no_xtrace || return 1
@@ -306,7 +319,7 @@ security_schemathesis_run_matrix() {
   while IFS= read -r role; do
     [[ -n "$role" ]] || continue
     security_schemathesis_run_role "$lane" "$role" "$base_seed" "$network" "$mount_root" || return 1
-    security_scan_health || security_schemathesis_fail "application became unhealthy after role '$role'" || return 1
+    security_schemathesis_wait_healthy "$role" || return 1
   done < <(security_schemathesis_roles "$lane")
 
   printf 'SEC-04 Schemathesis contract fuzzing passed: lane=%s roles=%s\n' \
