@@ -21,7 +21,7 @@ Last updated: 2026-09-07.
 - Target framework: `net10.0`.
 - Node.js: `24.x` for the SARIF/project-model guard.
 - Qodana action: `JetBrains/qodana-action` v2026.2.1, pinned to commit `10be11607eb323a180e2b76b26c9c5cdceac3e77`.
-- Community linter image: `jetbrains/qodana-cdnet:2026.2-privileged`.
+- Community linter image: `jetbrains/qodana-cdnet:2026.2-privileged@sha256:21bbbfeac0e61fe8790cc27d5754b87d57b8032c0c32f84ddeb887027f83ec4f`.
 
 Qodana Community for .NET is intentionally the .NET lane. Frontend policy is enforced independently by SonarQube Cloud, ESLint/angular-eslint and Stylelint, so the Qodana bootstrap sets `QODANA_SKIP_FRONTEND_BOOTSTRAP=true` in CI instead of spending Community-linter time building an unsupported frontend analysis surface.
 
@@ -64,7 +64,7 @@ Restore, build, SDK, package-resolution, solution-load and project-model failure
 
 ## Pull-request quality gate
 
-The Qodana workflow runs on pull requests targeting `main` with full Git history and checks out the actual pull-request HEAD.
+The Qodana workflow runs on pull requests targeting `main` with full Git history and checks out the actual pull-request HEAD for analysis.
 
 For PRs:
 
@@ -74,8 +74,10 @@ For PRs:
 - Repository permissions remain `contents: read`.
 - Qodana comments, annotations and quick-fix pushes are disabled.
 - No `QODANA_TOKEN` is required for the Community linter.
+- Repository-owner PRs may exercise proposed Qodana policy changes directly.
+- For every other PR, `qodana.yaml`, the Qodana bootstrap/guard, and the repository helper scripts executed by this job are restored from the PR base SHA before execution; the guard is restored again after analysis before it consumes SARIF.
 
-This is the strict merge policy: existing repository debt does not excuse a new finding in touched code.
+This preserves analysis of submitted source while preventing an external PR from replacing the quality-policy scripts that enforce the result.
 
 ## Full-repository quality gate
 
@@ -132,7 +134,7 @@ docker run --rm `
   -v "${project}:/data/project" `
   -v "${results}:/data/results" `
   -v "${cache}:/data/cache" `
-  jetbrains/qodana-cdnet:2026.2-privileged `
+  jetbrains/qodana-cdnet:2026.2-privileged@sha256:21bbbfeac0e61fe8790cc27d5754b87d57b8032c0c32f84ddeb887027f83ec4f `
   --project-dir /data/project `
   --repository-root /data/project `
   --results-dir /data/results `
