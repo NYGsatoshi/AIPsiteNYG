@@ -128,6 +128,49 @@ if grep -Fq 'synthetic-secret' "$tmp/medium-safe.json" || grep -Fq 'synthetic-co
 fi
 grep -Fq '"queryParameterNames"' "$tmp/medium-safe.json" || test_fail "sanitizer did not retain safe location metadata"
 
+python3 - "$tmp/medium.json" "$tmp/unknown-risk.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+doc = json.loads(Path(sys.argv[1]).read_text())
+alert = doc["site"][0]["alerts"][0]
+alert["riskcode"] = "unexpected"
+alert["riskdesc"] = "Unexpected"
+Path(sys.argv[2]).write_text(json.dumps(doc), encoding="utf-8")
+PY
+if python3 "$processor" \
+  --raw-report "$tmp/unknown-risk.json" \
+  --output "$tmp/unknown-risk-safe.json" \
+  --metadata "$tmp/unknown-risk-meta.json" \
+  --role alpha-restricted \
+  --target http://app:8080 \
+  --scanner-version 2.17.0 \
+  --scanner-image 'zaproxy/zap-stable:2.17.0@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' \
+  --scanner-exit 0 \
+  --contract "$tmp/openapi.json" \
+  --automation-plan "$tmp/plan.yaml" \
+  --policy "$tmp/policy.json" \
+  --addon-list-sha256 "$addon_sha"; then
+  test_fail "unrecognized alert risk was incorrectly accepted"
+fi
+
+printf '{"site": []}\n' > "$tmp/empty-sites.json"
+if python3 "$processor" \
+  --raw-report "$tmp/empty-sites.json" \
+  --output "$tmp/empty-sites-safe.json" \
+  --metadata "$tmp/empty-sites-meta.json" \
+  --role alpha-restricted \
+  --target http://app:8080 \
+  --scanner-version 2.17.0 \
+  --scanner-image 'zaproxy/zap-stable:2.17.0@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' \
+  --scanner-exit 0 \
+  --contract "$tmp/openapi.json" \
+  --automation-plan "$tmp/plan.yaml" \
+  --policy "$tmp/policy.json" \
+  --addon-list-sha256 "$addon_sha"; then
+  test_fail "successful scanner exit without scanned-site coverage was incorrectly accepted"
+fi
+
 python3 - "$tmp/medium.json" "$tmp/high.json" <<'PY'
 import json
 import sys

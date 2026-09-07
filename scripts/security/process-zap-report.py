@@ -19,7 +19,7 @@ RISK_FROM_CODE = {
     "2": "Medium",
     "3": "High",
 }
-RISK_ORDER = ("High", "Medium", "Low", "Informational", "Unknown")
+RISK_ORDER = ("High", "Medium", "Low", "Informational")
 
 
 def fail(message: str) -> None:
@@ -77,7 +77,7 @@ def safe_location(raw: Any, target_origin: str) -> dict[str, Any] | None:
     }
 
 
-def normalize_risk(alert: dict[str, Any]) -> str:
+def normalize_risk(alert: dict[str, Any]) -> str | None:
     riskdesc = safe_text(alert.get("riskdesc"), 64)
     if riskdesc:
         head = riskdesc.split(" ", 1)[0].strip().lower()
@@ -85,7 +85,7 @@ def normalize_risk(alert: dict[str, Any]) -> str:
             return "Informational"
         if head in {"high", "medium", "low"}:
             return head.title()
-    return RISK_FROM_CODE.get(str(alert.get("riskcode", "")), "Unknown")
+    return RISK_FROM_CODE.get(str(alert.get("riskcode", "")))
 
 
 def load_forbidden_values() -> list[str]:
@@ -138,6 +138,8 @@ def main() -> None:
         sites = []
     if not isinstance(sites, list):
         fail("raw ZAP report site field must be an array")
+    if args.scanner_exit == 0 and not sites:
+        fail("scanner exited successfully without scanned-site coverage")
 
     risk_counts: Counter[str] = Counter()
     rule_counts: Counter[str] = Counter()
@@ -156,10 +158,12 @@ def main() -> None:
         for alert in alerts:
             if not isinstance(alert, dict):
                 fail("alert entry must be an object")
-            risk = normalize_risk(alert)
             plugin_id = (
                 safe_text(alert.get("pluginid") or alert.get("alertRef"), 40) or "unknown"
             )
+            risk = normalize_risk(alert)
+            if risk is None:
+                fail(f"alert {plugin_id!r} has an unrecognized risk classification")
             name = (
                 safe_text(alert.get("name") or alert.get("alert"), 160)
                 or "Unnamed ZAP alert"
