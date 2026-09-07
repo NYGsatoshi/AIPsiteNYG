@@ -4,6 +4,17 @@ This document is the active API convention guide. For endpoint examples, use `do
 
 Implementation note: this document describes the intended contract. The current controllers do not consistently follow one error shape or HTTP status mapping. Global exceptions return `ErrorResponse(Code, Message, TraceId)`, while many controller failures return `{ "error": "..." }` and map authorization/not-found failures to `400`. TASK-V1-PR06 adds a narrow safe envelope for Gantt routes. WPC-01 now does the same for Workspace capabilities/create, their authentication/model-binding/CSRF/exception boundary, Project activation-transition conflicts, disabled legacy Project create, and masked Project detail. Neither change resolves the repository-wide mismatch. Track that broader mismatch in `docs/KNOWN_ISSUES.md`; exact controller/service findings are in `docs/BACKEND_LOGIC_AUDIT.md`.
 
+## Announcement HTTP failures
+
+The `/api/announcements` endpoints preserve the existing `{ "error": "..." }`
+body while returning 401 for authentication failures, 403 for explicit permission
+denials (including publication audience authorization), and 404 for the existing
+redacted "Announcement not found." result. Missing and hidden resources remain
+indistinguishable. Input validation and unclassified failures retain 400; success
+responses are unchanged. Clients must accept these status codes instead of
+assuming every application failure is 400. The draft workflow below retains its
+separate error mapping.
+
 ## #378 durable announcement draft delivery
 
 The Announcement editor’s production create path uses the durable

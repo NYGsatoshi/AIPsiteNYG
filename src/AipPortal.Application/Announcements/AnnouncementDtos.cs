@@ -1,4 +1,3 @@
-using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using AipPortal.Domain.Enums;
@@ -66,7 +65,6 @@ public sealed record AnnouncementDetailResponse
     public Guid? ChannelId { get; init; }
     public Guid AuthorUserId { get; init; }
     public string Title { get; init; }
-    [MinLength(1), RegularExpression(@"[\s\S]*\S[\s\S]*")]
     public string Body { get; init; }
     public AnnouncementPriority Priority { get; init; }
     public bool IsPinned { get; init; }
