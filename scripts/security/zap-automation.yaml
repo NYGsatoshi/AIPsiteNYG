@@ -5,12 +5,6 @@ env:
         - "${AIP_SECURITY_ZAP_TARGET}"
       includePaths:
         - "${AIP_SECURITY_ZAP_TARGET_REGEX}/.*"
-      excludePaths:
-        # The session harness owns credential lifecycle. These routes are still
-        # imported and passively inspected, but active attacks must not invalidate
-        # or replace the synthetic credential used by the rest of the matrix.
-        - "${AIP_SECURITY_ZAP_TARGET_REGEX}/api/auth/logout(?:[/?#].*)?$"
-        - "${AIP_SECURITY_ZAP_TARGET_REGEX}/api/auth/change-password(?:[/?#].*)?$"
   parameters:
     failOnError: true
     failOnWarning: false
@@ -66,6 +60,14 @@ jobs:
   - type: passiveScan-wait
     parameters:
       maxDuration: 3
+
+  - type: activeScan-config
+    # The session harness owns credential lifecycle. Keep these routes in scope
+    # for import/passive inspection, but exclude them from active attacks so the
+    # synthetic credential remains valid for the rest of the matrix.
+    excludePaths:
+      - "${AIP_SECURITY_ZAP_TARGET_REGEX}/api/auth/logout(?:[/?#].*)?$"
+      - "${AIP_SECURITY_ZAP_TARGET_REGEX}/api/auth/change-password(?:[/?#].*)?$"
 
   - type: activeScan-policy
     parameters:
