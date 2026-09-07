@@ -27,13 +27,14 @@ public sealed class SecurityOpenApiSchemaTransformer : IOpenApiSchemaTransformer
             schema.Format = null;
         }
         else if (context.JsonTypeInfo.Type == typeof(CreateAnnouncementRequest) &&
-                 schema.Properties?.TryGetValue("body", out var body) == true)
+                 schema.Properties?.TryGetValue("body", out var body) == true &&
+                 body is OpenApiSchema bodySchema)
         {
             // AnnouncementContentContract trims before rejecting empty content.
             // Make that wire contract explicit so API fuzzers do not treat an
             // empty or whitespace-only body as a valid create request.
-            body.MinLength = 1;
-            body.Pattern = "[\\s\\S]*\\S[\\s\\S]*";
+            bodySchema.MinLength = 1;
+            bodySchema.Pattern = "[\\s\\S]*\\S[\\s\\S]*";
         }
 
         return Task.CompletedTask;
