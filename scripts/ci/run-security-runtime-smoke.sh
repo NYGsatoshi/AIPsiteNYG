@@ -17,6 +17,7 @@ zap_network="${project}_sec06_zap"
 curl_image="curlimages/curl:8.21.0"
 base_url="http://app:8080"
 app_container=""
+zap_network_owned=0
 
 # shellcheck source=scripts/security/scanner-harness.sh
 source scripts/security/scanner-harness.sh
@@ -38,11 +39,13 @@ cleanup() {
     "${compose[@]}" logs --no-color postgres migrate app 2>&1 | security_scan_redact_stream >&2 || true
   fi
   security_scan_cleanup >/dev/null 2>&1 || true
-  if [[ -n "${app_container:-}" ]]; then
-    docker network disconnect -f "$zap_network" "$app_container" >/dev/null 2>&1 || true
+  if (( zap_network_owned )); then
+    if [[ -n "${app_container:-}" ]]; then
+      docker network disconnect -f "$zap_network" "$app_container" >/dev/null 2>&1 || true
+    fi
+    docker network rm "$zap_network" >/dev/null 2>&1 || true
   fi
   "${compose[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || true
-  docker network rm "$zap_network" >/dev/null 2>&1 || true
   rm -rf "$state_dir"
   exit "$status"
 }
@@ -136,6 +139,7 @@ prepare_zap_network() {
     --label aip.security.control=SEC-06 \
     --label "aip.security.project=$project" \
     "$zap_network" >/dev/null
+  zap_network_owned=1
   docker network connect --alias app "$zap_network" "$app_container"
 }
 
@@ -143,6 +147,7 @@ release_zap_network() {
   [[ -n "$app_container" ]] || return 0
   docker network disconnect "$zap_network" "$app_container"
   docker network rm "$zap_network" >/dev/null
+  zap_network_owned=0
   app_container=""
 }
 
