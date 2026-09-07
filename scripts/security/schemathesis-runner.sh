@@ -195,6 +195,13 @@ security_schemathesis_run_role() {
   # high-volume API fuzz lanes prevents shared auth/rate-limit state from being
   # mutated between principals while preserving dedicated login negative tests.
   operation_filters+=(--exclude-path /api/auth/login)
+  # This legacy write endpoint requires a server-authorized combination of
+  # workspace/group/channel identifiers. That relational authorization
+  # prerequisite is not expressible in OpenAPI, so generic property generation
+  # cannot produce a valid positive request. SEC-06 ZAP still scans the route
+  # under each authenticated role; the application test suite owns its
+  # deterministic authorized-create cases.
+  operation_filters+=(--exclude-path /api/announcements)
   if [[ "$role" != "anonymous" ]]; then
     operation_filters+=(--exclude-path /api/auth/logout)
     operation_filters+=(--exclude-path /api/auth/change-password)
