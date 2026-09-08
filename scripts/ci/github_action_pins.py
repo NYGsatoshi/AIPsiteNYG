@@ -58,6 +58,7 @@ class UseReference:
 
 
 def _without_comment(line: str) -> str:
+    """Strip an unquoted YAML comment while preserving quoted hash characters."""
     quote: str | None = None
     escaped = False
     result: list[str] = []
@@ -84,6 +85,7 @@ def _without_comment(line: str) -> str:
 
 
 def _indent(line: str) -> int:
+    """Return the number of leading whitespace characters in a line."""
     return len(line) - len(line.lstrip())
 
 
@@ -122,6 +124,7 @@ def _valid_reference_path(value: object) -> bool:
 
 
 def _load_policy(path: Path) -> tuple[dict[str, Any], list[str]]:
+    """Load and structurally validate the GitHub Action allowlist policy."""
     errors: list[str] = []
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -167,6 +170,7 @@ def _load_policy(path: Path) -> tuple[dict[str, Any], list[str]]:
 
 
 def _parse_uses(workflow: str, text: str) -> tuple[list[UseReference], list[str]]:
+    """Parse workflow ``uses:`` references and return fail-closed parse errors."""
     references: list[UseReference] = []
     errors: list[str] = []
 
@@ -213,6 +217,7 @@ def _parse_uses(workflow: str, text: str) -> tuple[list[UseReference], list[str]
 
 
 def _scope_reasons(relative: str, text: str, required: set[str]) -> list[str]:
+    """Return reasons a workflow must obey protected immutable-reference policy."""
     reasons: list[str] = []
     clean_text = "\n".join(_without_comment(line) for line in text.splitlines())
     if relative in required:
@@ -232,6 +237,7 @@ def validate_repository(
     root: Path,
     policy_path: Path | None = None,
 ) -> tuple[list[str], list[dict[str, Any]]]:
+    """Validate workflow references against policy and return errors plus inventory."""
     root = root.resolve()
     policy_path = (policy_path or root / DEFAULT_POLICY_RELATIVE).resolve()
     policy, errors = _load_policy(policy_path)
@@ -338,6 +344,7 @@ def validate_repository(
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run the validator CLI and return a process exit code."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument("--policy", type=Path)
