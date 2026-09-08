@@ -62,6 +62,47 @@ public sealed class ArtifactUploadContractTests
     }
 
     [Fact]
+    public async Task Request_body_keeps_supported_json_media_types_and_documents_415()
+    {
+        var operation = new OpenApiOperation
+        {
+            RequestBody = new OpenApiRequestBody
+            {
+                Content = new Dictionary<string, OpenApiMediaType>
+                {
+                    ["application/json"] = new(),
+                    ["application/*+json"] = new(),
+                    ["text/json"] = new()
+                }
+            }
+        };
+        var context = new OpenApiOperationTransformerContext
+        {
+            DocumentName = "v1",
+            Document = new OpenApiDocument(),
+            ApplicationServices = null!,
+            Description = new ApiDescription
+            {
+                HttpMethod = "POST",
+                ActionDescriptor = new ActionDescriptor
+                {
+                    EndpointMetadata = [],
+                    Parameters = []
+                }
+            }
+        };
+
+        await new SecurityOpenApiOperationTransformer().TransformAsync(operation, context, default);
+
+        Assert.NotNull(operation.RequestBody.Content);
+        Assert.Contains("application/json", operation.RequestBody.Content.Keys);
+        Assert.Contains("application/*+json", operation.RequestBody.Content.Keys);
+        Assert.DoesNotContain("text/json", operation.RequestBody.Content.Keys);
+        Assert.NotNull(operation.Responses);
+        Assert.Contains("415", operation.Responses.Keys);
+    }
+
+    [Fact]
     public void Upload_forms_require_a_file()
     {
         foreach (var form in new object[] { new UploadArtifactVersionForm(), new UploadAttachmentForm() })
