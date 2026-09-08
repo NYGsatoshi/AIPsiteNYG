@@ -198,12 +198,12 @@ def reduce_alerts(
 def enforce_blocking_policy(scanner_exit: int, risk_counts: Counter[str]) -> None:
     """Apply the SEC-06 fail-closed scanner/high-risk blocking policy."""
     high_alerts = risk_counts.get("High", 0)
+    if scanner_exit != 0 and high_alerts:
+        fail(
+            f"scanner exited {scanner_exit} with "
+            f"{high_alerts} High-risk alert type(s); High findings are blocking"
+        )
     if scanner_exit != 0:
-        if high_alerts:
-            fail(
-                f"scanner exited {scanner_exit} with "
-                f"{high_alerts} High-risk alert type(s); High findings are blocking"
-            )
         fail(
             f"scanner exited non-zero ({scanner_exit}); "
             "ZAP failure/timeout cannot be green"
@@ -229,7 +229,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def load_report(args: argparse.Namespace) -> tuple[dict[str, Any], str, list[Any]]:
+def load_report(args: argparse.Namespace) -> tuple[str, list[Any]]:
     for path in (args.contract, args.automation_plan, args.policy):
         if not path.is_file():
             fail(f"required input is missing: {path}")
@@ -251,7 +251,7 @@ def load_report(args: argparse.Namespace) -> tuple[dict[str, Any], str, list[Any
         fail("raw ZAP report site field must be an array")
     if args.scanner_exit == 0 and not sites:
         fail("scanner exited successfully without scanned-site coverage")
-    return raw, target_origin, sites
+    return target_origin, sites
 
 
 def scan_status(scanner_exit: int, high_alerts: int) -> str:
@@ -342,7 +342,7 @@ def write_evidence(
 
 def main() -> None:
     args = parse_args()
-    _, target_origin, sites = load_report(args)
+    target_origin, sites = load_report(args)
     risk_counts, rule_counts, instance_counts, safe_alerts = reduce_alerts(
         sites, target_origin
     )
