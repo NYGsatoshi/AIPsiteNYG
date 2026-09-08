@@ -21,25 +21,58 @@ public sealed class SecurityOpenApiSchemaTransformer : IOpenApiSchemaTransformer
         OpenApiSchemaTransformerContext context,
         CancellationToken cancellationToken)
     {
+        ApplyPropertyValidationMetadata(schema, context);
+        ConfigureRequestShape(schema, context.JsonTypeInfo.Type);
+        ConfigureWireSchema(schema, context.JsonTypeInfo.Type);
+        return Task.CompletedTask;
+    }
+
+    private static void ApplyPropertyValidationMetadata(
+        OpenApiSchema schema,
+        OpenApiSchemaTransformerContext context)
+    {
         // Preserve validation metadata on record properties as well as
         // constructor parameters. Required strings must not generate blanks.
         foreach (var property in context.JsonTypeInfo.Type.GetProperties())
         {
             var name = context.JsonTypeInfo.Options.PropertyNamingPolicy?.ConvertName(property.Name) ?? property.Name;
             if (schema.Properties?.TryGetValue(name, out var value) != true || value is not OpenApiSchema field)
+            {
                 continue;
-            if (property.PropertyType == typeof(string) &&
-                property.GetCustomAttribute<RequiredAttribute>() is { AllowEmptyStrings: false })
-                ConfigureNonBlankString(schema, name, field.MaxLength);
-            if (property.GetCustomAttribute<RegularExpressionAttribute>() is { } pattern)
-                field.Pattern = pattern.Pattern;
-            if (property.GetCustomAttribute<MinLengthAttribute>() is { } minimum)
-                field.MinLength = Math.Max(field.MinLength ?? 0, minimum.Length);
-            if (property.GetCustomAttribute<EmailAddressAttribute>() is not null)
-                field.Format = "email";
-        }
+            }
 
-        if (context.JsonTypeInfo.Type == typeof(CreateConversationRequest))
+            ApplyPropertyValidation(schema, name, property, field);
+        }
+    }
+
+    private static void ApplyPropertyValidation(
+        OpenApiSchema schema,
+        string name,
+        PropertyInfo property,
+        OpenApiSchema field)
+    {
+        if (property.PropertyType == typeof(string) &&
+            property.GetCustomAttribute<RequiredAttribute>() is { AllowEmptyStrings: false })
+        {
+            ConfigureNonBlankString(schema, name, field.MaxLength);
+        }
+        if (property.GetCustomAttribute<RegularExpressionAttribute>() is { } pattern)
+        {
+            field.Pattern = pattern.Pattern;
+        }
+        if (property.GetCustomAttribute<MinLengthAttribute>() is { } minimum)
+        {
+            field.MinLength = Math.Max(field.MinLength ?? 0, minimum.Length);
+        }
+        if (property.GetCustomAttribute<EmailAddressAttribute>() is not null)
+        {
+            field.Format = "email";
+        }
+    }
+
+    private static void ConfigureRequestShape(OpenApiSchema schema, Type requestType)
+    {
+        if (requestType == typeof(CreateConversationRequest))
         {
             schema.OneOf =
             [
@@ -47,8 +80,10 @@ public sealed class SecurityOpenApiSchemaTransformer : IOpenApiSchemaTransformer
                 ConversationScope("ProjectChannel", "workspaceId", "projectId"),
                 ConversationScope("Thread", "parentConversationId")
             ];
+            return;
         }
-        else if (context.JsonTypeInfo.Type == typeof(CreateEventRequest))
+
+        if (requestType == typeof(CreateEventRequest))
         {
             ConfigureNonBlankString(schema, "title");
             var scopes = new[] { "workspaceId", "groupId", "projectId" };
@@ -60,38 +95,43 @@ public sealed class SecurityOpenApiSchemaTransformer : IOpenApiSchemaTransformer
                     : new OpenApiSchema { Type = JsonSchemaType.Null }))
             }).ToList();
         }
+    }
 
-        if (context.JsonTypeInfo.Type == typeof(IFormFile))
+    private static void ConfigureWireSchema(OpenApiSchema schema, Type requestType)
+    {
+        if (requestType == typeof(IFormFile))
         {
             schema.MinLength = 1;
+            return;
         }
-        else if (context.JsonTypeInfo.Type == typeof(OptionalDateTimeOffset))
+        if (requestType == typeof(OptionalDateTimeOffset))
         {
             schema.Type = JsonSchemaType.String | JsonSchemaType.Null;
             schema.Format = "date-time";
+            return;
         }
-        else if (context.JsonTypeInfo.Type == typeof(OptionalString))
+        if (requestType == typeof(OptionalString))
         {
             schema.Type = JsonSchemaType.String | JsonSchemaType.Null;
             schema.Format = null;
+            return;
         }
-        else if (context.JsonTypeInfo.Type == typeof(CreateAnnouncementRequest) ||
-                 context.JsonTypeInfo.Type == typeof(UpdateAnnouncementRequest))
+        if (requestType == typeof(CreateAnnouncementRequest) ||
+            requestType == typeof(UpdateAnnouncementRequest))
         {
             // AnnouncementService and AnnouncementContentContract trim before
             // rejecting blank values; advertise that constraint to API scanners.
             ConfigureNonBlankString(schema, "title");
             ConfigureNonBlankString(schema, "body");
+            return;
         }
-        else if (context.JsonTypeInfo.Type == typeof(AnnouncementActionLink))
+        if (requestType == typeof(AnnouncementActionLink))
         {
             // A present action must be complete and safe; null remains the
             // representation for an omitted CTA or attachment.
             ConfigureNonBlankString(schema, "label", AnnouncementContentContract.MaximumLabelLength);
             ConfigureSafeActionUrl(schema);
         }
-
-        return Task.CompletedTask;
     }
 
     private static OpenApiSchema ConversationScope(string type, params string[] requiredIds)
@@ -100,9 +140,9 @@ public sealed class SecurityOpenApiSchemaTransformer : IOpenApiSchemaTransformer
         {
             Type = JsonSchemaType.String,
             Format = "uuid",
-            Not = new OpenApiSchema { Enum = [JsonValue.Create(Guid.Empty.ToString())!] }
+            Not = new OpenApiSchema { Enum = [JsonValue.Create(Guid.Empty.ToString())] }
         });
-        properties["type"] = new OpenApiSchema { Enum = [JsonValue.Create(type)!] };
+        properties["type"] = new OpenApiSchema { Enum = [JsonValue.Create(type)] };
         return new OpenApiSchema
         {
             Required = requiredIds.Append("type").ToHashSet(),
