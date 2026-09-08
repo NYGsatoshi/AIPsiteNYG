@@ -33,7 +33,7 @@ jobs:
           gid="$(id -g)"
           docker run --rm \
             -v "$GITHUB_WORKSPACE:/workspace" \
-            alpine:3.21.7@sha256:48b3e6c6914f1ee3e78c181e18415f29cb01b2c2f0fd670709a1c360979b2874 \
+            alpine:3.21.7@sha256:f27cad9117495d32d067133afff942cb2dc745dfe9163e949f6bfe8a6a245339 \
             sh -c "chown -R ${uid}:${gid} /workspace"
 
       - name: Checkout repository
@@ -136,7 +136,7 @@ jobs:
           gid="$(id -g)"
           docker run --rm \
             -v "$GITHUB_WORKSPACE:/workspace" \
-            alpine:3.21.7@sha256:48b3e6c6914f1ee3e78c181e18415f29cb01b2c2f0fd670709a1c360979b2874 \
+            alpine:3.21.7@sha256:f27cad9117495d32d067133afff942cb2dc745dfe9163e949f6bfe8a6a245339 \
             sh -c "chown -R ${uid}:${gid} /workspace"
 
       - name: Set up Node.js for Qodana guard
