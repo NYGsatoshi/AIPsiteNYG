@@ -2,7 +2,9 @@
   "schemaVersion": 1,
   "requiredWorkflows": [
     ".github/workflows/ci.yml",
-    ".github/workflows/publication-readiness.yml"
+    ".github/workflows/publication-readiness.yml",
+    ".github/workflows/qodana_code_quality.yml",
+    ".github/workflows/qodana_trusted_gate.yml"
   ],
   "actions": {
     "actions/checkout": {
@@ -50,14 +52,21 @@
     "JetBrains/qodana-action": {
       "sha": "10be11607eb323a180e2b76b26c9c5cdceac3e77",
       "version": "v2026.2.1",
-      "purpose": "Optional Qodana deep analysis",
-      "privilegedAllowed": false
+      "purpose": "Pinned Qodana deep analysis in the protected read-only Qodana gate",
+      "privilegedAllowed": true
     },
     "advanced-security/component-detection-dependency-submission-action": {
       "sha": "b282c67b1008fde9b60da4bdfcd8849613e293b2",
       "version": "v0.1.6",
       "purpose": "Trusted NuGet dependency snapshot submission",
       "privilegedAllowed": true
+    },
+    "NYGsatoshi/AIPsiteNYG": {
+      "sha": "9def3cb0a74ddb68842268070aee5668c56b76a4",
+      "version": "qodana-gate-v1",
+      "purpose": "Immutable same-repository reusable Qodana gate",
+      "privilegedAllowed": true,
+      "path": ".github/workflows/qodana_trusted_gate.yml"
     }
   }
 }

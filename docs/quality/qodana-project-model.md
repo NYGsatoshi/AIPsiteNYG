@@ -1,6 +1,6 @@
 # Qodana project model
 
-Last updated: 2026-07-12.
+Last updated: 2026-09-08.
 
 ## Canonical roots
 
@@ -13,153 +13,127 @@ Last updated: 2026-07-12.
   - `src/AipPortal.Web/AipPortal.Web.csproj`
   - `tests/AipPortal.Tests/AipPortal.Tests.csproj`
 - Active Angular workspace: `frontend/`.
-- Legacy Angular scaffold: `aipsite-frontend/`; this is not the active frontend and is excluded from Qodana first-party analysis.
+- Legacy Angular scaffold: `aipsite-frontend/`; it is inactive and excluded from Qodana analysis.
 
 ## Required toolchain
 
-- .NET SDK: `10.0.301`, from `global.json`.
+- .NET SDK: `10.0.400`, pinned by `global.json` with roll-forward disabled.
 - Target framework: `net10.0`.
-- Node.js: `24.x`; active development docs require `24.15+`.
-- npm: `11.17.0`, matching `frontend/package.json`.
-- Qodana action: `JetBrains/qodana-action@v2026.1`.
-- Full-stack linter: `qodana-dotnet` in native mode through the GitHub-hosted runner.
-- Token-optional fallback linter: `jetbrains/qodana-cdnet:2026.1-eap-privileged`, .NET-only.
+- Node.js: `24.x` for the SARIF/project-model guard.
+- Qodana action: `JetBrains/qodana-action` v2026.2.1, pinned to commit `10be11607eb323a180e2b76b26c9c5cdceac3e77`.
+- Community linter image: `jetbrains/qodana-cdnet:2026.2-privileged@sha256:21bbbfeac0e61fe8790cc27d5754b87d57b8032c0c32f84ddeb887027f83ec4f`.
+
+Qodana Community for .NET is intentionally the .NET lane. Frontend policy is enforced independently by SonarQube Cloud, ESLint/angular-eslint and Stylelint, so the Qodana bootstrap sets `QODANA_SKIP_FRONTEND_BOOTSTRAP=true` in CI instead of spending Community-linter time building an unsupported frontend analysis surface.
+
+## Inspection policy
+
+`qodana.yaml` starts from `qodana.recommended` and additionally enables every inspection whose default JetBrains IDE severity is:
+
+- `ERROR`
+- `WARNING`
+- `WEAK WARNING`
+
+This keeps the profile deliberately strict while avoiding the previous unrestricted `ALL` inventory, which also enabled low-value typo/information-only inspections and could add substantial noise and scan cost.
+
+Generated output, dependencies, runtime data, test artifacts and the inactive legacy frontend remain excluded. First-party backend source and tests remain in scope.
+
+## Solution and configuration
+
+The canonical .NET project model is configured in `qodana.yaml`:
+
+```yaml
+dotnet:
+  solution: AipPortal.slnx
+  configuration: Release
+```
+
+Keeping these values in `qodana.yaml` makes local Docker runs and GitHub Actions consume the same solution/configuration instead of duplicating command-line flags.
 
 ## Bootstrap sequence
 
-Qodana runs `scripts/quality/qodana-bootstrap.sh` inside the Qodana execution environment.
-
-The script:
+Qodana runs `scripts/quality/qodana-bootstrap.sh` before inspections. For the Community .NET CI lane the script:
 
 1. Reads the required SDK from `global.json`.
-2. Installs that SDK only when the Qodana environment does not already provide it.
-3. Prints `dotnet --list-sdks`, `dotnet --info`, and `dotnet msbuild -version`.
+2. Installs that exact SDK if the image does not provide it.
+3. Prints the active SDK/MSBuild information.
 4. Runs `dotnet restore AipPortal.slnx --verbosity normal`.
 5. Runs `dotnet build AipPortal.slnx --configuration Release --no-restore`.
-6. When npm is available, runs root `npm ci`, `npm --prefix frontend ci`, and `npm --prefix frontend run build`.
-7. Fails if `QODANA_FRONTEND_REQUIRED=true` and npm is unavailable.
+6. Skips the frontend bootstrap because `qodana-cdnet` does not analyze the active Angular/TypeScript application.
 
-No generated OpenAPI, NSwag, Kiota, protobuf, GraphQL, or custom source-generation step is required. EF migrations and normal compiler-generated files are produced by restore/build.
+Restore, build, SDK, package-resolution, solution-load and project-model failures are hard failures.
 
-## Solution selection
+## Pull-request quality gate
 
-The workflow passes `--solution AipPortal.slnx` to the Qodana action. This is the documented Qodana CLI/action mechanism for selecting a .NET solution.
+The Qodana workflow runs on every pull request, regardless of target branch, with full Git history and checks out the actual pull-request HEAD for analysis.
 
-The repository previously used a `dotnet.solution` YAML key without passing `--solution` for the `qodana-dotnet` job. The documented Qodana YAML reference does not list that key, so the workflow now makes solution selection explicit in the action arguments.
+For PRs:
+
+- `pr-mode: true` supplies Qodana with pull-request comparison context while retaining the inspection inventory used by the repository guard.
+- Before Qodana starts, the workflow writes the exact `base...HEAD` changed-file set to a runner-temporary, NUL-delimited file.
+- After Qodana succeeds, `check-qodana-project-model.mjs` rejects any Qodana finding located in one of those changed files.
+- The native total-problem `--fail-threshold` is not used for the PR gate because, without a stable matching baseline, it also counts historical findings exposed by the strict profile.
+- Qodana execution failure is not masked with `continue-on-error`.
+- Repository permissions remain `contents: read`.
+- Qodana comments, annotations and quick-fix pushes are disabled.
+- No `QODANA_TOKEN` is required for the Community linter.
+- Repository-owner PRs may exercise proposed Qodana policy changes directly.
+- For every other PR, `qodana.yaml`, the Qodana bootstrap/guard, and the repository helper scripts executed by this job are restored from the PR base SHA before execution; the guard is restored again after analysis before it consumes SARIF.
+
+This preserves analysis of submitted source while preventing an external PR from replacing the quality-policy scripts that enforce the result. Historical findings in untouched files remain visible without turning unrelated PRs red.
+
+## Full-repository quality gate
+
+Pushes to `main`, the weekly schedule and manual dispatch run a full inventory with `pr-mode: false`.
+
+The repository currently has historical non-critical Qodana debt, so an absolute repository-wide `failThreshold: 0` would make the lane permanently red and would not distinguish regressions from existing findings. Instead the SARIF guard enforces hard invariants while preserving the full report:
+
+- Critical findings: `0` allowed.
+- Unresolved-symbol findings: `0` allowed.
+- Files affected by unresolved-symbol findings: `0` allowed.
+- Project-model/restore/build/SDK/package-resolution failures: `0` allowed.
+- Missing or invalid SARIF: hard failure.
+- Qodana process failure: hard failure.
+
+All non-critical findings remain visible in the uploaded inventory and can be retired incrementally. Because PRs reject findings in changed files, new debt is prevented at the merge boundary without charging unrelated historical debt to the PR.
 
 ## Exclusion rationale
 
-Qodana must analyze first-party source and tests, but not generated output, dependency folders, runtime data, or inactive scaffold source.
+Qodana analyzes first-party source and tests, but not generated output, dependencies, runtime data or inactive source.
 
-Configured exclusions:
+Configured exclusions include:
 
-- `**/bin/**`, `**/obj/**`, and concrete project `bin`/`obj` paths: build and compiler-generated output.
+- `**/bin/**`, `**/obj/**`: build/compiler output.
 - `**/node_modules/**`: external npm dependencies.
-- `**/dist/**`, `**/.angular/**`, and `**/storybook-static/**`: Angular and Storybook generated output/cache.
-- `**/coverage/**`, `**/TestResults/**`, `**/test-results/**`, `**/playwright-report/**`, and `**/.playwright/**`: test output and browser artifacts.
-- `**/.qodana/**` and `.tmp`: scanner and local diagnostic output.
-- `src/AipPortal.Web/wwwroot`: hosted Angular build output; source of truth is `frontend/`.
-- `src/AipPortal.Web/data`: local runtime data such as Data Protection keys.
-- `aipsite-frontend`: legacy/inactive Angular scaffold; active frontend analysis is `frontend/`.
+- `**/dist/**`, `**/.angular/**`, `**/storybook-static/**`: frontend generated output/cache.
+- `**/coverage/**`, `**/TestResults/**`, `**/test-results/**`, `**/playwright-report/**`, `**/.playwright/**`: test/browser output.
+- `**/.qodana/**`, `.tmp`, `**/artifacts/**`: scanner and CI/local artifacts.
+- `src/AipPortal.Web/wwwroot`: hosted frontend build output; source of truth is `frontend/`.
+- `src/AipPortal.Web/data`: local runtime data.
+- `aipsite-frontend`: inactive legacy frontend scaffold.
 
 Tests are not excluded.
 
-## Interpreting `Cannot resolve symbol`
-
-Small numbers of unresolved-symbol findings can be genuine source defects. A large cross-cutting burst is a project-model failure.
-
-Use the first unresolved dependency to classify the failure:
-
-- Backend platform failure: `Microsoft`, `Microsoft.AspNetCore`, `Microsoft.EntityFrameworkCore`, `ControllerBase`, `DbContext`, `IdentityUser`.
-- Frontend dependency failure: `@angular/core`, `@angular/common`, `@angular/router`, `rxjs`, `typescript`, `Component`, `Injectable`.
-- Internal project failure: `AipPortal.*`, `Application.*`, `Infrastructure.*`, `Domain.*`.
-- Generated-code failure: generated clients, DTOs, source-generator output, EF generated artifacts.
-
-The CI guard `scripts/quality/check-qodana-project-model.mjs` parses `qodana.sarif.json` and fails if unresolved-symbol findings exceed `200` total findings or `40` affected files, or if SARIF reports SDK, restore, package, build, bootstrap, solution-load, or project-model failures.
-
-## Baseline and quality gate policy
-
-Do not create a baseline from a failed restore, failed build, missing frontend dependency tree, or unresolved-symbol cascade.
-
-After the project model is healthy:
-
-1. Use the Qodana report to separate unchanged existing findings from newly introduced findings.
-2. If a baseline is needed, create it only from a successful full-stack `qodana-dotnet` run.
-3. Keep new Critical findings at zero.
-4. Keep new High findings at zero unless a temporary exception is explicitly documented with an owner and expiry.
-5. Keep restore, build, bootstrap, and project-model failures as hard CI failures.
-
 ## Local reproduction
 
-Backend:
+Backend preparation:
 
 ```powershell
-dotnet --info
-dotnet --list-sdks
-dotnet restore AipPortal.slnx --verbosity normal
+dotnet restore AipPortal.slnx
 dotnet build AipPortal.slnx --configuration Release --no-restore
 ```
 
-Frontend:
+Run the pinned Community linter image from the repository root:
 
 ```powershell
-npm --prefix frontend ci
-npm --prefix frontend run build
-```
-
-Community .NET-only Qodana container:
-
-```powershell
-$project = (Get-Location).Path
-$results = Join-Path $project ".tmp/qodana/results"
-$cache = Join-Path $project ".tmp/qodana/cache"
 docker run --rm `
-  -e QODANA_FRONTEND_REQUIRED=false `
-  -v "${project}:/data/project" `
-  -v "${results}:/data/results" `
-  -v "${cache}:/data/cache" `
-  jetbrains/qodana-cdnet:2026.1-eap-privileged `
-  --project-dir /data/project `
-  --repository-root /data/project `
-  --results-dir /data/results `
-  --cache-dir /data/cache `
-  --config qodana.yaml `
-  --solution AipPortal.slnx `
-  --configuration Release
-
-node scripts/quality/check-qodana-project-model.mjs .tmp/qodana/results/qodana.sarif.json
+  -v "${PWD}:/data/project" `
+  -v "${PWD}/.qodana/cache:/data/cache" `
+  -v "${PWD}/.qodana/results:/data/results" `
+  jetbrains/qodana-cdnet:2026.2-privileged@sha256:21bbbfeac0e61fe8790cc27d5754b87d57b8032c0c32f84ddeb887027f83ec4f
 ```
 
-Full-stack Qodana runs in GitHub Actions with `QODANA_TOKEN` using `qodana-dotnet --within-docker false`; the token is not stored in source-controlled files.
+Validate the generated SARIF/project model:
 
-## Validation evidence
-
-Local environment:
-
-- `dotnet --info`: SDK `10.0.301`, MSBuild `18.6.4`, ASP.NET Core runtime `10.0.9`.
-- `dotnet --list-sdks`: `10.0.301`.
-- `node --version`: `v24.13.0`.
-- `npm --version`: `11.6.2`.
-
-Commands run on 2026-07-12:
-
-- `dotnet restore AipPortal.slnx --verbosity normal`: passed after enabling NuGet network access; `0` warnings, `0` errors.
-- `dotnet build AipPortal.slnx --configuration Release --no-restore`: passed; `0` warnings, `0` errors.
-- `npm --prefix frontend ci`: passed after enabling npm registry access; `1058` packages installed.
-- `npm --prefix frontend run build`: passed; emitted the existing initial bundle budget warning.
-- Patched Community Qodana run: passed with Qodana Community for .NET `2026.1.503`.
-- Patched Qodana SARIF guard: passed; `0` unresolved-symbol findings and `0` project-model failures.
-
-Accessible local Qodana metrics:
-
-| Metric | Before | After |
-| --- | ---: | ---: |
-| Total Qodana findings | Not available; current pre-fix local run was stopped after more than 83 minutes and produced incomplete SARIF | 1640 |
-| Critical | Not available | 0 |
-| High | Not available | 919 |
-| Moderate | Not available | 721 |
-| Cannot resolve symbol | Not available | 0 |
-| Unique affected files | Not available | 143 |
-| Genuine production-source findings | Not available | 1640 Qodana warning/note findings; no project-model collapse detected |
-
-The local Community run is .NET-only. Representative ASP.NET Core, EF Core, and internal AIP project references are validated by the successful Qodana solution load/build. Representative Angular symbols are validated by `npm --prefix frontend ci` and the production Angular build locally, and by the `qodana-dotnet` full-stack workflow when `QODANA_TOKEN` is available in GitHub Actions.
+```powershell
+node scripts/quality/check-qodana-project-model.mjs .qodana/results/qodana.sarif.json
+```

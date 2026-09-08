@@ -1,9 +1,11 @@
 name: Qodana Deep Analysis
 
-# Qodana is the JetBrains second-opinion/deep-analysis lane. PR merge gating is
-# handled by SonarQube Cloud plus the dedicated frontend lint workflow.
+# Qodana policy execution is intentionally kept out of this PR-mutable caller.
+# The reusable gate is pinned to an immutable commit so an external PR cannot
+# edit or remove its restore, scan, or SARIF-guard steps.
 on:
   workflow_dispatch:
+  pull_request:
   push:
     branches:
       - main
@@ -19,120 +21,7 @@ permissions:
 
 jobs:
   qodana-dotnet-community:
-    name: Qodana Community / .NET
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
+    name: Qodana Gate
     permissions:
       contents: read
-
-    env:
-      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
-      DOTNET_NOLOGO: "1"
-      QODANA_FRONTEND_REQUIRED: "false"
-
-    steps:
-      - name: Repair previous Docker workspace ownership
-        shell: bash
-        run: |
-          uid="$(id -u)"
-          gid="$(id -g)"
-          docker run --rm \
-            -v "$GITHUB_WORKSPACE:/workspace" \
-            alpine:3.21 \
-            sh -c "chown -R ${uid}:${gid} /workspace"
-
-      - name: Checkout repository
-        uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Configure persistent .NET caches
-        shell: bash
-        run: |
-          bash scripts/ci/configure-persistent-caches.sh
-          job_temp="$RUNNER_TEMP/dotnet-${GITHUB_JOB}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          mkdir -p "$job_temp/home" "$job_temp/nuget/scratch"
-          {
-            echo "DOTNET_CLI_HOME=$job_temp/home"
-            echo "DOTNET_CLI_WORKLOAD_UPDATE_NOTIFY_DISABLE=1"
-            echo "NUGET_SCRATCH=$job_temp/nuget/scratch"
-          } >> "$GITHUB_ENV"
-
-      - name: Set up .NET SDK
-        uses: actions/setup-dotnet@v6
-        with:
-          global-json-file: global.json
-
-      - name: Remove orphaned Qodana containers for this workspace
-        shell: bash
-        run: bash scripts/ci/cleanup-qodana-containers.sh "$GITHUB_WORKSPACE"
-
-      - name: Run full Qodana inspection inventory
-        id: qodana_scan
-        continue-on-error: true
-        uses: JetBrains/qodana-action@v2026.2.1
-        with:
-          args: |
-            --image jetbrains/qodana-cdnet:2026.1-eap-privileged
-            --solution AipPortal.slnx
-            --configuration Release
-          pr-mode: false
-          results-dir: ${{ runner.temp }}/qodana/results-${{ github.run_id }}-${{ github.run_attempt }}
-          use-caches: false
-          post-pr-comment: false
-          use-annotations: false
-          upload-result: false
-          push-fixes: none
-
-      - name: Repair Qodana workspace ownership
-        if: always()
-        shell: bash
-        run: |
-          uid="$(id -u)"
-          gid="$(id -g)"
-          docker run --rm \
-            -v "$GITHUB_WORKSPACE:/workspace" \
-            alpine:3.21 \
-            sh -c "chown -R ${uid}:${gid} /workspace"
-
-      - name: Warn when the deep scan does not complete
-        if: steps.qodana_scan.outcome != 'success'
-        shell: bash
-        run: echo "::warning::Qodana deep analysis did not complete successfully; inspect the workflow log and uploaded inventory."
-
-      - name: Set up Node.js for project-model guard
-        if: steps.qodana_scan.outcome == 'success'
-        uses: actions/setup-node@v7
-        with:
-          node-version: "24"
-
-      - name: Guard Qodana project model
-        if: steps.qodana_scan.outcome == 'success'
-        env:
-          QODANA_PROJECT_MODEL_SUMMARY_PATH: ${{ runner.temp }}/qodana/project-model-summary.json
-        shell: bash
-        run: |
-          sarif="${RUNNER_TEMP}/qodana/results-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/qodana.sarif.json"
-          if [[ ! -f "$sarif" ]]; then
-            echo "::error::Qodana succeeded without producing the required SARIF report."
-            exit 1
-          fi
-          node scripts/quality/check-qodana-project-model.mjs "$sarif"
-
-      - name: Upload Qodana inspection inventory
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: qodana-full-inventory
-          path: ${{ runner.temp }}/qodana/results-${{ github.run_id }}-${{ github.run_attempt }}
-          if-no-files-found: warn
-          retention-days: 14
-
-      - name: Upload Qodana project-model summary
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: qodana-project-model-summary
-          path: ${{ runner.temp }}/qodana/project-model-summary.json
-          if-no-files-found: ignore
+    uses: NYGsatoshi/AIPsiteNYG/.github/workflows/qodana_trusted_gate.yml@9def3cb0a74ddb68842268070aee5668c56b76a4 # qodana-gate-v1
