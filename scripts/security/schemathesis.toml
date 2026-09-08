@@ -33,7 +33,7 @@ negative_data_rejection.expected-statuses = [
 # unexpected Bad Request on unrelated operations.
 [[operations]]
 include-name-regex = "^(POST|PUT|PATCH|DELETE) "
-include-by = "responses/400 != null"
+include-by = "/responses/400 != null"
 exclude-name = "POST /api/projects"
 checks.positive_data_acceptance.expected-statuses = [
   "2xx",
