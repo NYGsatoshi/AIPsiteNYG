@@ -1,6 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using AipPortal.Application.Artifacts;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 
@@ -64,9 +65,9 @@ public sealed class ArtifactsController(IArtifactService artifacts) : Controller
 
     private IActionResult Failure(string? error) => StatusCode(error switch
     {
-        "Artifact not found." or "Artifact version not found." or "Project not found." => 404,
-        "You are not allowed to create artifacts for this project." => 403,
-        _ => 400
+        "Artifact not found." or "Artifact version not found." or "Project not found." => StatusCodes.Status404NotFound,
+        "You are not allowed to create artifacts for this project." => StatusCodes.Status403Forbidden,
+        _ => StatusCodes.Status400BadRequest
     }, new { error });
 
     private FileStreamResult PrivateFile(Stream content, string contentType, string fileName)
