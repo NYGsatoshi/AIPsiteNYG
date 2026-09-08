@@ -101,46 +101,10 @@ def load_forbidden_values() -> list[str]:
     return sorted({value for value in values if value})
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--raw-report", required=True, type=Path)
-    parser.add_argument("--output", required=True, type=Path)
-    parser.add_argument("--metadata", required=True, type=Path)
-    parser.add_argument("--role", required=True)
-    parser.add_argument("--target", required=True)
-    parser.add_argument("--scanner-version", required=True)
-    parser.add_argument("--scanner-image", required=True)
-    parser.add_argument("--scanner-exit", required=True, type=int)
-    parser.add_argument("--contract", required=True, type=Path)
-    parser.add_argument("--automation-plan", required=True, type=Path)
-    parser.add_argument("--policy", required=True, type=Path)
-    parser.add_argument("--addon-list-sha256", required=True)
-    args = parser.parse_args()
-
-    required = (args.contract, args.automation_plan, args.policy)
-    for path in required:
-        if not path.is_file():
-            fail(f"required input is missing: {path}")
-
-    if not args.raw_report.is_file() or args.raw_report.stat().st_size == 0:
-        fail("scanner reported without a non-empty JSON report")
-
-    try:
-        raw = json.loads(args.raw_report.read_text(encoding="utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        fail(f"raw ZAP report is invalid JSON: {exc}")
-    if not isinstance(raw, dict):
-        fail("raw ZAP report root must be an object")
-
-    target_origin = normalize_origin(args.target)
-    sites = raw.get("site", [])
-    if sites is None:
-        sites = []
-    if not isinstance(sites, list):
-        fail("raw ZAP report site field must be an array")
-    if args.scanner_exit == 0 and not sites:
-        fail("scanner exited successfully without scanned-site coverage")
-
+def reduce_alerts(
+    sites: list[Any], target_origin: str
+) -> tuple[Counter[str], Counter[str], Counter[str], list[dict[str, Any]]]:
+    """Normalize ZAP alerts into deterministic, metadata-only evidence."""
     risk_counts: Counter[str] = Counter()
     rule_counts: Counter[str] = Counter()
     instance_counts: Counter[str] = Counter()
@@ -215,6 +179,69 @@ def main() -> None:
             item["name"],
         )
     )
+    return risk_counts, rule_counts, instance_counts, safe_alerts
+
+
+def enforce_blocking_policy(scanner_exit: int, risk_counts: Counter[str]) -> None:
+    """Apply the SEC-06 fail-closed scanner/high-risk blocking policy."""
+    high_alerts = risk_counts.get("High", 0)
+    if scanner_exit != 0:
+        if high_alerts:
+            fail(
+                f"scanner exited {scanner_exit} with "
+                f"{high_alerts} High-risk alert type(s); High findings are blocking"
+            )
+        fail(
+            f"scanner exited non-zero ({scanner_exit}); "
+            "ZAP failure/timeout cannot be green"
+        )
+    if high_alerts:
+        fail(f"{high_alerts} High-risk alert type(s) are blocking")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--raw-report", required=True, type=Path)
+    parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--metadata", required=True, type=Path)
+    parser.add_argument("--role", required=True)
+    parser.add_argument("--target", required=True)
+    parser.add_argument("--scanner-version", required=True)
+    parser.add_argument("--scanner-image", required=True)
+    parser.add_argument("--scanner-exit", required=True, type=int)
+    parser.add_argument("--contract", required=True, type=Path)
+    parser.add_argument("--automation-plan", required=True, type=Path)
+    parser.add_argument("--policy", required=True, type=Path)
+    parser.add_argument("--addon-list-sha256", required=True)
+    args = parser.parse_args()
+
+    required = (args.contract, args.automation_plan, args.policy)
+    for path in required:
+        if not path.is_file():
+            fail(f"required input is missing: {path}")
+
+    if not args.raw_report.is_file() or args.raw_report.stat().st_size == 0:
+        fail("scanner reported without a non-empty JSON report")
+
+    try:
+        raw = json.loads(args.raw_report.read_text(encoding="utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        fail(f"raw ZAP report is invalid JSON: {exc}")
+    if not isinstance(raw, dict):
+        fail("raw ZAP report root must be an object")
+
+    target_origin = normalize_origin(args.target)
+    sites = raw.get("site", [])
+    if sites is None:
+        sites = []
+    if not isinstance(sites, list):
+        fail("raw ZAP report site field must be an array")
+    if args.scanner_exit == 0 and not sites:
+        fail("scanner exited successfully without scanned-site coverage")
+
+    risk_counts, rule_counts, instance_counts, safe_alerts = reduce_alerts(
+        sites, target_origin
+    )
 
     evidence = {
         "schemaVersion": 1,
@@ -287,18 +314,7 @@ def main() -> None:
         encoding="utf-8",
     )
 
-    if args.scanner_exit != 0:
-        if risk_counts.get("High", 0):
-            fail(
-                f"scanner exited {args.scanner_exit} with "
-                f"{risk_counts['High']} High-risk alert type(s); High findings are blocking"
-            )
-        fail(
-            f"scanner exited non-zero ({args.scanner_exit}); "
-            "ZAP failure/timeout cannot be green"
-        )
-    if risk_counts.get("High", 0):
-        fail(f"{risk_counts['High']} High-risk alert type(s) are blocking")
+    enforce_blocking_policy(args.scanner_exit, risk_counts)
 
     print(
         "SEC-06 ZAP report accepted: "
