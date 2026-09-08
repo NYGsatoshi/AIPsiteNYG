@@ -68,8 +68,21 @@ if (
     )
 if policy["roles"] != ["alpha-owner", "alpha-restricted", "beta-owner"]:
     raise SystemExit("SEC-06 role matrix drifted")
-if policy["blockingPolicy"]["high"] != "block" or policy["blockingPolicy"]["medium"] != "report":
+blocking = policy["blockingPolicy"]
+if blocking["high"] != "block" or blocking["medium"] != "report":
     raise SystemExit("High must block while Medium remains visible/report-only")
+if blocking.get("zeroOpenApiCoverage") != "block":
+    raise SystemExit("zero OpenAPI/authenticated coverage must remain blocking")
+coverage = policy.get("coveragePolicy", {}).get("zeroOpenApiCoverage")
+expected_probe = {
+    "method": "GET",
+    "path": "/api/announcements/audiences",
+    "expectedStatus": 200,
+}
+if not isinstance(coverage, dict) or coverage.get("openApiStatistic") != "openapi.urls.added > 0":
+    raise SystemExit("SEC-06 coverage policy must retain the OpenAPI import signal")
+if coverage.get("authenticatedRequestResponsePerRole") != expected_probe:
+    raise SystemExit("SEC-06 coverage policy must require the protected per-role request/response probe")
 PY
 
 python3 - "$plan" "$required_active_rule_ids" <<'PY'
@@ -82,6 +95,9 @@ checks = (
     "type: openapi",
     "statistic: openapi.urls.added",
     'operator: ">"',
+    "type: requestor",
+    '${AIP_SECURITY_ZAP_TARGET}/api/announcements/audiences',
+    "responseCode: 200",
     "type: passiveScan-wait",
     "type: activeScan-policy",
     "defaultThreshold: Off",
@@ -90,6 +106,7 @@ checks = (
     "template: traditional-json",
     "type: exitStatus",
     "errorLevel: High",
+    "warnExitValue: 1",
     "${AIP_SECURITY_ZAP_COOKIE}",
     "${AIP_SECURITY_ZAP_CSRF_TOKEN}",
 )
@@ -117,10 +134,12 @@ for rule_id in required_active_rule_ids:
     for item in (
         f"statistic: stats.ascan.{rule_id}.started",
         f"statistic: stats.ascan.{rule_id}.skipped",
-        f"statistic: stats.ascan.{rule_id}.time",
     ):
         if item not in text:
             raise SystemExit(f"Required active-rule completion invariant missing: {item}")
+    obsolete_time = f"statistic: stats.ascan.{rule_id}.time"
+    if obsolete_time in text:
+        raise SystemExit(f"Obsolete per-rule time invariant must be absent: {obsolete_time}")
 if "traditional-json-plus" in text:
     raise SystemExit("request/response-bearing ZAP report templates are forbidden")
 PY
@@ -129,6 +148,9 @@ grep -Fq 'export AIP_SECURITY_ZAP_FORBIDDEN_VALUES="$forbidden_json"' "$runner" 
 grep -Fq 'values.add(f"{name}={value}")' "$runner" || test_fail "cookie name=value pairs are missing from the forbidden-value set"
 grep -Fq 'unset AIP_SECURITY_ZAP_FORBIDDEN_VALUES' "$runner" || test_fail "host-side forbidden-value set is not cleared after each role"
 ! grep -Eq '^[[:space:]]*-e[[:space:]]+AIP_SECURITY_ZAP_FORBIDDEN_VALUES([[:space:]\\]|$)' "$runner" || test_fail "forbidden-value set must not be passed into the ZAP container"
+grep -Fq 'container_name="sec06-zap-${role}-$$"' "$runner" || test_fail "ZAP role container lacks a deterministic cleanup name"
+grep -Fq -- '--name "$container_name"' "$runner" || test_fail "named ZAP role container is not wired into docker run"
+grep -Fq 'docker rm -f "$container_name" >/dev/null 2>&1 || true' "$runner" || test_fail "non-zero ZAP exit does not force-remove its named container"
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
@@ -246,6 +268,33 @@ if grep -Fq 'synthetic-secret' "$tmp/medium-safe.json" || grep -Fq 'synthetic-co
   test_fail "sanitized report persisted attack/evidence/session material"
 fi
 grep -Fq '"queryParameterNames"' "$tmp/medium-safe.json" || test_fail "sanitizer did not retain safe location metadata"
+
+python3 - "$tmp/medium.json" "$tmp/encoded-secret.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+doc = json.loads(Path(sys.argv[1]).read_text())
+doc["site"][0]["alerts"][0]["instances"][0]["uri"] = "http://app:8080/api/synthetic%2Ftoken"
+Path(sys.argv[2]).write_text(json.dumps(doc), encoding="utf-8")
+PY
+expect_failure_contains \
+  'sanitized evidence still contains ephemeral authentication material' \
+  env -u AIP_SECURITY_ZAP_ALLOW_UNSANITIZED AIP_SECURITY_ZAP_FORBIDDEN_VALUES='["synthetic/token"]' \
+  python3 "$processor" \
+    --raw-report "$tmp/encoded-secret.json" \
+    --output "$tmp/encoded-secret-safe.json" \
+    --metadata "$tmp/encoded-secret-meta.json" \
+    --role alpha-restricted \
+    --target http://app:8080 \
+    --scanner-version 2.17.0 \
+    --scanner-image "$TEST_SCANNER_IMAGE" \
+    --scanner-exit 0 \
+    --contract "$tmp/openapi.json" \
+    --automation-plan "$tmp/plan.yaml" \
+    --policy "$tmp/policy.json" \
+    --addon-list-sha256 "$addon_sha"
+[[ ! -e "$tmp/encoded-secret-safe.json" && ! -e "$tmp/encoded-secret-meta.json" ]] ||
+  test_fail "URL-encoded forbidden path wrote sanitized evidence"
 
 python3 - "$tmp/medium.json" "$tmp/unknown-risk.json" <<'PY'
 import json
@@ -396,6 +445,35 @@ set -e
 (( target_status != 0 )) || test_fail "non-Compose local target passed SEC-06 target preflight"
 [[ "$target_rejection" == *'required SEC-06 runtime accepts only the SEC-02 Compose service origin'* ]] ||
   test_fail "unexpected SEC-06 target-preflight rejection: $target_rejection"
+
+# A non-internal scanner network must block the matrix before toolchain
+# preparation or any role scan can run. Stub Docker narrowly to the two network
+# inspect calls used by security_zap_require_internal_network.
+set +e
+internal_network_rejection="$(
+  (
+    docker() {
+      if [[ "$1" == "network" && "$2" == "inspect" && "$3" == "sec06-denied-network" ]]; then
+        printf '[{"Internal":false}]\n'
+        return 0
+      fi
+      printf 'UNEXPECTED_DOCKER_CALL %s\n' "$*" >&2
+      return 99
+    }
+    security_zap_require_contract() { return 0; }
+    security_zap_require_target() { return 0; }
+    security_zap_verify_toolchain() { printf 'ZAP_PREP_CALLED\n' >&2; return 0; }
+    security_zap_run_role() { printf 'ZAP_ROLE_CALLED\n' >&2; return 0; }
+    security_zap_run_matrix sec06-denied-network "$tmp" app-container
+  ) 2>&1
+)"
+internal_network_status=$?
+set -e
+(( internal_network_status != 0 )) || test_fail "non-internal SEC-06 scanner network was accepted"
+[[ "$internal_network_rejection" == *'SEC-06 scanner network must be Docker internal=true'* ]] ||
+  test_fail "unexpected internal-network rejection: $internal_network_rejection"
+[[ "$internal_network_rejection" != *'ZAP_PREP_CALLED'* && "$internal_network_rejection" != *'ZAP_ROLE_CALLED'* ]] ||
+  test_fail "SEC-06 continued to ZAP preparation after rejecting a non-internal network"
 
 export AIP_SECURITY_ZAP_FORBIDDEN_VALUES='["cookie-value-123","session=cookie-value-123","csrf-value-123"]'
 redacted="$(printf '%s\n' 'cookie-value-123 session=cookie-value-123 csrf-value-123 safe-marker' | security_zap_redact_stream)"
