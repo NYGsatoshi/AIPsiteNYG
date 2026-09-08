@@ -64,7 +64,7 @@ Restore, build, SDK, package-resolution, solution-load and project-model failure
 
 ## Pull-request quality gate
 
-The Qodana workflow runs on pull requests targeting `main` with full Git history and checks out the actual pull-request HEAD for analysis.
+The Qodana workflow runs on every pull request, regardless of target branch, with full Git history and checks out the actual pull-request HEAD for analysis.
 
 For PRs:
 
@@ -118,35 +118,22 @@ Tests are not excluded.
 Backend preparation:
 
 ```powershell
-dotnet --info
-dotnet --list-sdks
-dotnet restore AipPortal.slnx --verbosity normal
+dotnet restore AipPortal.slnx
 dotnet build AipPortal.slnx --configuration Release --no-restore
 ```
 
-Community Qodana Docker run:
+Run the pinned Community linter image from the repository root:
 
 ```powershell
-$project = (Get-Location).Path
-$results = Join-Path $project ".tmp/qodana/results"
-$cache = Join-Path $project ".tmp/qodana/cache"
-
 docker run --rm `
-  -e QODANA_SKIP_FRONTEND_BOOTSTRAP=true `
-  -v "${project}:/data/project" `
-  -v "${results}:/data/results" `
-  -v "${cache}:/data/cache" `
-  jetbrains/qodana-cdnet:2026.2-privileged@sha256:21bbbfeac0e61fe8790cc27d5754b87d57b8032c0c32f84ddeb887027f83ec4f `
-  --project-dir /data/project `
-  --repository-root /data/project `
-  --results-dir /data/results `
-  --cache-dir /data/cache `
-  --config qodana.yaml
-
-$env:QODANA_CRITICAL_THRESHOLD = "0"
-$env:QODANA_UNRESOLVED_THRESHOLD = "0"
-$env:QODANA_UNRESOLVED_FILE_THRESHOLD = "0"
-node scripts/quality/check-qodana-project-model.mjs .tmp/qodana/results/qodana.sarif.json
+  -v "${PWD}:/data/project" `
+  -v "${PWD}/.qodana/cache:/data/cache" `
+  -v "${PWD}/.qodana/results:/data/results" `
+  jetbrains/qodana-cdnet:2026.2-privileged@sha256:21bbbfeac0e61fe8790cc27d5754b87d57b8032c0c32f84ddeb887027f83ec4f
 ```
 
-For a PR-equivalent guard run, generate the same NUL-delimited `base...HEAD` changed-file list used by CI, set `QODANA_CHANGED_FILES_PATH` to it, and run the SARIF guard against the completed Qodana report.
+Validate the generated SARIF/project model:
+
+```powershell
+node scripts/quality/check-qodana-project-model.mjs .qodana/results/qodana.sarif.json
+```
