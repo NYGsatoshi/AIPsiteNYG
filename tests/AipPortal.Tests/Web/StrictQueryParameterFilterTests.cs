@@ -41,6 +41,42 @@ public sealed class StrictQueryParameterFilterTests
     }
 
     [Fact]
+    public async Task AllowsDeclaredQueryKeysAndInvokesNext()
+    {
+        var filter = new StrictQueryParameterFilter();
+        var action = typeof(QueryFixture).GetMethod(nameof(QueryFixture.List), BindingFlags.Instance | BindingFlags.Public)!;
+        var parameter = action.GetParameters().Single();
+        var descriptor = new ControllerActionDescriptor
+        {
+            MethodInfo = action,
+            Parameters = [new ControllerParameterDescriptor
+            {
+                Name = parameter.Name!,
+                ParameterInfo = parameter
+            }]
+        };
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.QueryString = new QueryString("?page=1&pageSize=25");
+        var actionContext = new ActionContext(httpContext, new RouteData(), descriptor);
+        var controller = new QueryFixture();
+        var context = new ActionExecutingContext(
+            actionContext,
+            [],
+            new Dictionary<string, object?>(),
+            controller);
+        var nextInvoked = false;
+
+        await filter.OnActionExecutionAsync(context, () =>
+        {
+            nextInvoked = true;
+            return Task.FromResult(new ActionExecutedContext(actionContext, [], controller));
+        });
+
+        Assert.True(nextInvoked);
+        Assert.Null(context.Result);
+    }
+
+    [Fact]
     public async Task RejectsBlankValueForDeclaredTimestampQueryProperty()
     {
         var filter = new StrictQueryParameterFilter();
