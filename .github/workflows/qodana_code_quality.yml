@@ -97,14 +97,19 @@ jobs:
 
       - name: Configure Qodana analysis mode
         id: qodana_mode
+        env:
+          QODANA_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         shell: bash
         run: |
           if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            changed_files="$RUNNER_TEMP/qodana/pr-changed-files.txt"
+            mkdir -p "$(dirname "$changed_files")"
+            git diff --name-only --diff-filter=ACMR -z "$QODANA_PR_BASE_SHA...HEAD" > "$changed_files"
+            echo "changed_files_path=$changed_files" >> "$GITHUB_OUTPUT"
             echo "pr_mode=true" >> "$GITHUB_OUTPUT"
-            echo "quality_gate=--fail-threshold 0" >> "$GITHUB_OUTPUT"
           else
+            echo "changed_files_path=" >> "$GITHUB_OUTPUT"
             echo "pr_mode=false" >> "$GITHUB_OUTPUT"
-            echo "quality_gate=" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Run strict Qodana inspection inventory
@@ -114,7 +119,6 @@ jobs:
         with:
           args: |
             --image jetbrains/qodana-cdnet:2026.2-privileged@sha256:21bbbfeac0e61fe8790cc27d5754b87d57b8032c0c32f84ddeb887027f83ec4f
-            ${{ steps.qodana_mode.outputs.quality_gate }}
           pr-mode: ${{ steps.qodana_mode.outputs.pr_mode }}
           results-dir: ${{ runner.temp }}/qodana/results-${{ github.run_id }}-${{ github.run_attempt }}
           use-caches: false
@@ -152,6 +156,7 @@ jobs:
       - name: Guard Qodana findings and project model
         if: steps.qodana_scan.outcome == 'success'
         env:
+          QODANA_CHANGED_FILES_PATH: ${{ steps.qodana_mode.outputs.changed_files_path }}
           QODANA_PROJECT_MODEL_SUMMARY_PATH: ${{ runner.temp }}/qodana/project-model-summary.json
         shell: bash
         run: |
