@@ -37,6 +37,7 @@ class GithubActionPinsTests(unittest.TestCase):
                             "version": "v1",
                             "purpose": "reusable workflow fixture",
                             "privilegedAllowed": True,
+                            "path": ".github/workflows/check.yml",
                         },
                         "vendor/unprivileged": {
                             "sha": PIN,
@@ -128,6 +129,15 @@ class GithubActionPinsTests(unittest.TestCase):
             f"""name: required\non: pull_request\njobs:\n  reusable:\n    uses: owner/reusable/.github/workflows/check.yml@{PIN} # v1\n""",
         )
         self.assertEqual(self.errors(), [])
+
+    def test_reusable_workflow_path_must_match_allowlist(self) -> None:
+        self.write_workflow(
+            "required.yml",
+            f"""name: required\non: pull_request\njobs:\n  reusable:\n    uses: owner/reusable/.github/workflows/other.yml@{PIN} # v1\n""",
+        )
+        self.assertTrue(
+            any("does not match reviewed allowlist path" in error for error in self.errors())
+        )
 
     def test_secret_bearing_workflow_is_automatically_protected(self) -> None:
         self.write_workflow(
