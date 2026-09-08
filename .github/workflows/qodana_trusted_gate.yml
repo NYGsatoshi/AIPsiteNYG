@@ -1,0 +1,170 @@
+name: Trusted Qodana Gate
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  qodana-dotnet-community:
+    name: Qodana Community / .NET
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "1"
+      # qodana-cdnet is .NET-only; frontend policy is enforced separately.
+      QODANA_SKIP_FRONTEND_BOOTSTRAP: "true"
+      # A healthy project model should not contain unresolved symbols at all.
+      QODANA_UNRESOLVED_THRESHOLD: "0"
+      QODANA_UNRESOLVED_FILE_THRESHOLD: "0"
+      # Existing non-critical debt may remain visible, but Critical findings do not.
+      QODANA_CRITICAL_THRESHOLD: "0"
+
+    steps:
+      - name: Repair previous Docker workspace ownership
+        shell: bash
+        run: |
+          uid="$(id -u)"
+          gid="$(id -g)"
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            alpine:3.21 \
+            sh -c "chown -R ${uid}:${gid} /workspace"
+
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      # The reusable workflow itself is invoked from an immutable commit. For
+      # external PRs, restore every repository-controlled Qodana executable or
+      # configuration file from the immutable PR base SHA before it is used.
+      - name: Restore trusted Qodana policy for external pull requests
+        if: github.event_name == 'pull_request' && github.event.pull_request.user.login != github.repository_owner
+        env:
+          QODANA_POLICY_SHA: ${{ github.event.pull_request.base.sha }}
+        shell: bash
+        run: |
+          git checkout "$QODANA_POLICY_SHA" -- \
+            qodana.yaml \
+            scripts/quality/qodana-bootstrap.sh \
+            scripts/quality/check-qodana-project-model.mjs \
+            scripts/ci/configure-persistent-caches.sh \
+            scripts/ci/cleanup-qodana-containers.sh
+
+      - name: Configure persistent .NET caches
+        shell: bash
+        run: |
+          bash scripts/ci/configure-persistent-caches.sh
+          job_temp="$RUNNER_TEMP/dotnet-${GITHUB_JOB}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -p "$job_temp/home" "$job_temp/nuget/scratch"
+          {
+            echo "DOTNET_CLI_HOME=$job_temp/home"
+            echo "DOTNET_CLI_WORKLOAD_UPDATE_NOTIFY_DISABLE=1"
+            echo "NUGET_SCRATCH=$job_temp/nuget/scratch"
+          } >> "$GITHUB_ENV"
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Remove orphaned Qodana containers for this workspace
+        shell: bash
+        run: bash scripts/ci/cleanup-qodana-containers.sh "$GITHUB_WORKSPACE"
+
+      - name: Configure Qodana analysis mode
+        id: qodana_mode
+        env:
+          QODANA_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        shell: bash
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            changed_files="$RUNNER_TEMP/qodana/pr-changed-files.txt"
+            mkdir -p "$(dirname "$changed_files")"
+            git diff --name-only --diff-filter=ACMR -z "$QODANA_PR_BASE_SHA...HEAD" > "$changed_files"
+            echo "changed_files_path=$changed_files" >> "$GITHUB_OUTPUT"
+            echo "pr_mode=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed_files_path=" >> "$GITHUB_OUTPUT"
+            echo "pr_mode=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run strict Qodana inspection inventory
+        id: qodana_scan
+        # Pinned to JetBrains/qodana-action v2026.2.1.
+        uses: JetBrains/qodana-action@10be11607eb323a180e2b76b26c9c5cdceac3e77
+        with:
+          args: |
+            --image jetbrains/qodana-cdnet:2026.2-privileged@sha256:21bbbfeac0e61fe8790cc27d5754b87d57b8032c0c32f84ddeb887027f83ec4f
+          pr-mode: ${{ steps.qodana_mode.outputs.pr_mode }}
+          results-dir: ${{ runner.temp }}/qodana/results-${{ github.run_id }}-${{ github.run_attempt }}
+          use-caches: false
+          post-pr-comment: false
+          use-annotations: false
+          upload-result: false
+          push-fixes: none
+
+      - name: Repair Qodana workspace ownership
+        if: always()
+        shell: bash
+        run: |
+          uid="$(id -u)"
+          gid="$(id -g)"
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            alpine:3.21 \
+            sh -c "chown -R ${uid}:${gid} /workspace"
+
+      - name: Set up Node.js for Qodana guard
+        if: steps.qodana_scan.outcome == 'success'
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
+      # A submitted project build can modify workspace files, so restore the
+      # guard again before execution for PRs that do not come from the owner.
+      - name: Restore trusted Qodana guard after analysis
+        if: steps.qodana_scan.outcome == 'success' && github.event_name == 'pull_request' && github.event.pull_request.user.login != github.repository_owner
+        env:
+          QODANA_POLICY_SHA: ${{ github.event.pull_request.base.sha }}
+        shell: bash
+        run: git checkout "$QODANA_POLICY_SHA" -- scripts/quality/check-qodana-project-model.mjs
+
+      - name: Guard Qodana findings and project model
+        if: steps.qodana_scan.outcome == 'success'
+        env:
+          QODANA_CHANGED_FILES_PATH: ${{ steps.qodana_mode.outputs.changed_files_path }}
+          QODANA_PROJECT_MODEL_SUMMARY_PATH: ${{ runner.temp }}/qodana/project-model-summary.json
+        shell: bash
+        run: |
+          sarif="${RUNNER_TEMP}/qodana/results-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/qodana.sarif.json"
+          if [[ ! -f "$sarif" ]]; then
+            echo "::error::Qodana succeeded without producing the required SARIF report."
+            exit 1
+          fi
+          node scripts/quality/check-qodana-project-model.mjs "$sarif"
+
+      - name: Upload Qodana inspection inventory
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: qodana-full-inventory
+          path: ${{ runner.temp }}/qodana/results-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload Qodana project-model summary
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: qodana-project-model-summary
+          path: ${{ runner.temp }}/qodana/project-model-summary.json
+          if-no-files-found: ignore
