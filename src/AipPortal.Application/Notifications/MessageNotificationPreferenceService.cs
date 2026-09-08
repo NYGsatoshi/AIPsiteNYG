@@ -5,7 +5,8 @@ namespace AipPortal.Application.Notifications;
 
 public sealed record MessageNotificationPreferenceResponse(bool MessageNotificationsEnabled);
 
-public sealed record UpdateMessageNotificationPreferenceRequest(bool MessageNotificationsEnabled);
+public sealed record UpdateMessageNotificationPreferenceRequest(
+    [property: System.Text.Json.Serialization.JsonRequired] bool MessageNotificationsEnabled);
 
 public interface IMessageNotificationPreferenceStore
 {

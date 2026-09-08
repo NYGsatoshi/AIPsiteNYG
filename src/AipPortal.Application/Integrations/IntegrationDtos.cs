@@ -13,7 +13,7 @@ public sealed record IntegrationAccountResponse(
     DateTimeOffset? UpdatedAt);
 
 public sealed record CreateIntegrationAccountRequest(
-    IntegrationProvider Provider,
+    [property: System.Text.Json.Serialization.JsonRequired] IntegrationProvider Provider,
     string DisplayName,
     string? SettingsJson,
     IntegrationAccountStatus Status = IntegrationAccountStatus.Draft);

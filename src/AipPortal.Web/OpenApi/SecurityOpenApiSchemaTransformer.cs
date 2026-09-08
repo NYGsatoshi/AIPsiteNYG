@@ -5,6 +5,7 @@ using AipPortal.Application.Announcements;
 using AipPortal.Application.Events;
 using AipPortal.Application.Messaging;
 using AipPortal.Application.Projects;
+using AipPortal.Application.TenantAdministration;
 using Microsoft.AspNetCore.OpenApi;
 using Microsoft.OpenApi;
 
@@ -72,6 +73,15 @@ public sealed class SecurityOpenApiSchemaTransformer : IOpenApiSchemaTransformer
 
     private static void ConfigureRequestShape(OpenApiSchema schema, Type requestType)
     {
+        if (requestType == typeof(UpdateTenantSettingsRequest))
+        {
+            // PATCH semantics permit every field to be omitted. The generated
+            // constructor-based schema otherwise marks nullable parameters as
+            // required, which contradicts the service's merge behavior.
+            schema.Required?.Clear();
+            return;
+        }
+
         if (requestType == typeof(CreateConversationRequest))
         {
             schema.OneOf =

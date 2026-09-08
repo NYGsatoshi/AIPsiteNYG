@@ -189,6 +189,34 @@ public sealed class CommunicationPollingServiceTests
         Assert.DoesNotContain("File token", json, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public async Task UnknownWorkspaceScopeDoesNotBecomeAnAuditForeignKey()
+    {
+        var fixture = PollingFixture.Create();
+        fixture.Notifications.Add(new NotificationListItemResponse(
+            Guid.NewGuid(),
+            fixture.UserId,
+            NotificationType.ArtifactUploaded,
+            "File notification",
+            "A file was uploaded.",
+            "FileObject",
+            Guid.NewGuid(),
+            false,
+            fixture.Clock.UtcNow,
+            null,
+            null));
+
+        var result = await fixture.Service.GetNotificationsAsync(new CommunicationPollingQuery(
+            WorkspaceId: Guid.NewGuid()));
+
+        Assert.True(result.IsSuccess);
+        var item = Assert.Single(result.Value!.Items);
+        Assert.Equal("Inaccessible", item.TargetType);
+        var entry = Assert.Single(fixture.Audit.Entries);
+        Assert.Null(entry.WorkspaceId);
+        Assert.Contains("workspaceId", JsonSerializer.Serialize(entry.Metadata), StringComparison.Ordinal);
+    }
+
     private sealed class PollingFixture
     {
         private PollingFixture(SystemRole role)
