@@ -53,6 +53,7 @@ public sealed class AnnouncementOpenApiSchemaTests
     [InlineData("https://#fragment", false)]
     [InlineData("https://:", false)]
     [InlineData("https://user@example.com", false)]
+    [InlineData("https://example.com:bad", false)]
     [InlineData("/", true)]
     [InlineData("/announcements", true)]
     [InlineData("https://example.com?foo", true)]
