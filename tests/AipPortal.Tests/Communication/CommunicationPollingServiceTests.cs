@@ -193,6 +193,7 @@ public sealed class CommunicationPollingServiceTests
     public async Task UnknownWorkspaceScopeDoesNotBecomeAnAuditForeignKey()
     {
         var fixture = PollingFixture.Create();
+        var requestedWorkspaceId = Guid.NewGuid();
         fixture.Notifications.Add(new NotificationListItemResponse(
             Guid.NewGuid(),
             fixture.UserId,
@@ -207,14 +208,17 @@ public sealed class CommunicationPollingServiceTests
             null));
 
         var result = await fixture.Service.GetNotificationsAsync(new CommunicationPollingQuery(
-            WorkspaceId: Guid.NewGuid()));
+            WorkspaceId: requestedWorkspaceId));
 
         Assert.True(result.IsSuccess);
         var item = Assert.Single(result.Value!.Items);
         Assert.Equal("Inaccessible", item.TargetType);
         var entry = Assert.Single(fixture.Audit.Entries);
         Assert.Null(entry.WorkspaceId);
-        Assert.Contains("workspaceId", JsonSerializer.Serialize(entry.Metadata), StringComparison.Ordinal);
+        Assert.Contains(
+            requestedWorkspaceId.ToString(),
+            JsonSerializer.Serialize(entry.Metadata),
+            StringComparison.OrdinalIgnoreCase);
     }
 
     private sealed class PollingFixture
