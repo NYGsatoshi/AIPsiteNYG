@@ -33,7 +33,7 @@ jobs:
           gid="$(id -g)"
           docker run --rm \
             -v "$GITHUB_WORKSPACE:/workspace" \
-            alpine:3.21 \
+            alpine:3.21.7@sha256:48b3e6c6914f1ee3e78c181e18415f29cb01b2c2f0fd670709a1c360979b2874 \
             sh -c "chown -R ${uid}:${gid} /workspace"
 
       - name: Checkout repository
@@ -44,20 +44,37 @@ jobs:
           persist-credentials: false
 
       # The reusable workflow itself is invoked from an immutable commit. For
-      # external PRs, restore every repository-controlled Qodana executable or
-      # configuration file from the immutable PR base SHA before it is used.
+      # external PRs, restore every repository-controlled Qodana executable,
+      # configuration, toolchain, and canonical solution input to its immutable
+      # PR-base state before it is used. A path absent from base is removed so a
+      # PR cannot introduce a new analysis override such as .editorconfig.
       - name: Restore trusted Qodana policy for external pull requests
         if: github.event_name == 'pull_request' && github.event.pull_request.user.login != github.repository_owner
         env:
           QODANA_POLICY_SHA: ${{ github.event.pull_request.base.sha }}
         shell: bash
         run: |
-          git checkout "$QODANA_POLICY_SHA" -- \
+          restore_from_base() {
+            local path="$1"
+            if git cat-file -e "${QODANA_POLICY_SHA}:${path}" 2>/dev/null; then
+              git restore --source="$QODANA_POLICY_SHA" --staged --worktree -- "$path"
+            else
+              git rm -r --cached --ignore-unmatch -- "$path" >/dev/null
+              rm -rf -- "$path"
+            fi
+          }
+
+          for path in \
+            .editorconfig \
+            global.json \
+            AipPortal.slnx \
             qodana.yaml \
             scripts/quality/qodana-bootstrap.sh \
             scripts/quality/check-qodana-project-model.mjs \
             scripts/ci/configure-persistent-caches.sh \
-            scripts/ci/cleanup-qodana-containers.sh
+            scripts/ci/cleanup-qodana-containers.sh; do
+            restore_from_base "$path"
+          done
 
       - name: Configure persistent .NET caches
         shell: bash
@@ -119,7 +136,7 @@ jobs:
           gid="$(id -g)"
           docker run --rm \
             -v "$GITHUB_WORKSPACE:/workspace" \
-            alpine:3.21 \
+            alpine:3.21.7@sha256:48b3e6c6914f1ee3e78c181e18415f29cb01b2c2f0fd670709a1c360979b2874 \
             sh -c "chown -R ${uid}:${gid} /workspace"
 
       - name: Set up Node.js for Qodana guard
@@ -135,7 +152,7 @@ jobs:
         env:
           QODANA_POLICY_SHA: ${{ github.event.pull_request.base.sha }}
         shell: bash
-        run: git checkout "$QODANA_POLICY_SHA" -- scripts/quality/check-qodana-project-model.mjs
+        run: git restore --source="$QODANA_POLICY_SHA" --staged --worktree -- scripts/quality/check-qodana-project-model.mjs
 
       - name: Guard Qodana findings and project model
         if: steps.qodana_scan.outcome == 'success'
