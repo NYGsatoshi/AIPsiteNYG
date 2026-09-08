@@ -85,6 +85,16 @@
       "reason": "The application persistence target is PostgreSQL and required CI does not enable beta scan rules implicitly."
     }
   ],
+  "coveragePolicy": {
+    "zeroOpenApiCoverage": {
+      "openApiStatistic": "openapi.urls.added > 0",
+      "authenticatedRequestResponsePerRole": {
+        "method": "GET",
+        "path": "/api/announcements/audiences",
+        "expectedStatus": 200
+      }
+    }
+  },
   "blockingPolicy": {
     "high": "block",
     "scannerFailure": "block",
