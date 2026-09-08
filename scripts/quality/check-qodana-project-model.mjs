@@ -47,7 +47,7 @@ try {
 
 const changedFiles = changedFilesPath
     ? new Set(readFileSync(changedFilesPath, 'utf8').split('\0').filter(Boolean))
-    : undefined,
+    : null,
   results = (sarif.runs || []).flatMap((run) => run.results || []),
   ruleIndex = new Map();
 
@@ -99,7 +99,11 @@ for (const result of results) {
 
 const categoryCounts = countBy(unresolvedResults.map(classifyUnresolved)),
   changedResults = changedFiles
-    ? results.filter((result) => resultFiles(result).some((file) => changedFiles.has(file)))
+    ? results.filter((result) =>
+        (result.locations || []).some((location) =>
+          changedFiles.has(location.physicalLocation?.artifactLocation?.uri)
+        )
+      )
     : [],
   unresolvedDependencies = countBy(unresolvedResults.map(firstUnresolvedDependency)),
   unresolvedFiles = new Set(unresolvedResults.flatMap(resultFiles));
