@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json;
 using AipPortal.Application.Artifacts;
 using AipPortal.Application.Common;
 using AipPortal.Application.Files;
@@ -9,6 +10,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Abstractions;
 using Microsoft.AspNetCore.Mvc.ApiExplorer;
 using Microsoft.AspNetCore.OpenApi;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.OpenApi;
 
 namespace AipPortal.Tests.Artifacts;
@@ -24,8 +26,8 @@ public sealed class ArtifactUploadContractTests
         {
             Properties = new Dictionary<string, IOpenApiSchema>
             {
-                ["File"] = new OpenApiSchema { Type = JsonSchemaType.String, Format = "binary" },
-                ["ChangeNote"] = new OpenApiSchema { Type = JsonSchemaType.String }
+                ["file"] = new OpenApiSchema { Type = JsonSchemaType.String, Format = "binary" },
+                ["changeNote"] = new OpenApiSchema { Type = JsonSchemaType.String }
             }
         };
         var operation = new OpenApiOperation
@@ -38,11 +40,15 @@ public sealed class ArtifactUploadContractTests
                 }
             }
         };
+        var services = new ServiceCollection();
+        services.Configure<JsonOptions>(options =>
+            options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase);
+        using var serviceProvider = services.BuildServiceProvider();
         var context = new OpenApiOperationTransformerContext
         {
             DocumentName = "v1",
             Document = new OpenApiDocument(),
-            ApplicationServices = null!,
+            ApplicationServices = serviceProvider,
             Description = new ApiDescription
             {
                 HttpMethod = "POST",
@@ -57,8 +63,8 @@ public sealed class ArtifactUploadContractTests
         await new SecurityOpenApiOperationTransformer().TransformAsync(operation, context, default);
 
         Assert.NotNull(schema.Required);
-        Assert.Contains("File", schema.Required);
-        Assert.DoesNotContain("ChangeNote", schema.Required);
+        Assert.Contains("file", schema.Required);
+        Assert.DoesNotContain("changeNote", schema.Required);
     }
 
     [Fact]
