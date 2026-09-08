@@ -29,66 +29,35 @@ jobs:
           path = Path("scripts/security/zap-runner.sh")
           text = path.read_text(encoding="utf-8")
 
-          replacements = [
-              (
-                  """security_zap_roles() {
-          # alpha-restricted is the lower-privilege representative requested by SEC-06.
-          # SEC-05 separately owns exhaustive actor x authorization semantics.
-          printf '%s\\n' alpha-owner alpha-restricted beta-owner
-          }
-          """,
-                  """security_zap_roles() {
-          # alpha-restricted is the lower-privilege representative requested by SEC-06.
-          # SEC-05 separately owns exhaustive actor x authorization semantics.
-          printf '%s\\n' alpha-owner alpha-restricted beta-owner || return 1
-          return 0
-          }
-          """,
-                  "security_zap_roles",
-              ),
-              (
-                  """security_zap_target_regex() {
-          python3 - "$SECURITY_SCAN_TARGET" <<'PY'
-          import re
-          import sys
-          print(re.escape(sys.argv[1]))
-          PY
-          }
-          """,
-                  """security_zap_target_regex() {
-          python3 - "$SECURITY_SCAN_TARGET" <<'PY' || return 1
-          import re
-          import sys
-          print(re.escape(sys.argv[1]))
-          PY
-          return 0
-          }
-          """,
-                  "security_zap_target_regex",
-              ),
-              (
-                  """sys.stdout.write(text)
-          '
-          }
-
-          security_zap_verify_toolchain() {
-          """,
-                  """sys.stdout.write(text)
-          ' || return 1
-          return 0
-          }
-
-          security_zap_verify_toolchain() {
-          """,
-                  "security_zap_redact_stream",
-              ),
-          ]
-
-          for old, new, label in replacements:
+          def replace_once(old: str, new: str, label: str) -> None:
+              global text
               count = text.count(old)
               if count != 1:
                   raise SystemExit(f"{label}: expected exactly one match, found {count}")
               text = text.replace(old, new, 1)
+
+          replace_once(
+              "  printf '%s\\n' alpha-owner alpha-restricted beta-owner\n}\n\nsecurity_zap_require_target() {",
+              "  printf '%s\\n' alpha-owner alpha-restricted beta-owner || return 1\n  return 0\n}\n\nsecurity_zap_require_target() {",
+              "security_zap_roles",
+          )
+
+          replace_once(
+              "security_zap_target_regex() {\n  python3 - \"$SECURITY_SCAN_TARGET\" <<'PY'\n",
+              "security_zap_target_regex() {\n  python3 - \"$SECURITY_SCAN_TARGET\" <<'PY' || return 1\n",
+              "security_zap_target_regex command",
+          )
+          replace_once(
+              "print(re.escape(sys.argv[1]))\nPY\n}\n\nsecurity_zap_cookie_header() {",
+              "print(re.escape(sys.argv[1]))\nPY\n  return 0\n}\n\nsecurity_zap_cookie_header() {",
+              "security_zap_target_regex return",
+          )
+
+          replace_once(
+              "sys.stdout.write(text)\n'\n}\n\nsecurity_zap_verify_toolchain() {",
+              "sys.stdout.write(text)\n' || return 1\n  return 0\n}\n\nsecurity_zap_verify_toolchain() {",
+              "security_zap_redact_stream",
+          )
 
           path.write_text(text, encoding="utf-8")
           PYTHON_SCRIPT
