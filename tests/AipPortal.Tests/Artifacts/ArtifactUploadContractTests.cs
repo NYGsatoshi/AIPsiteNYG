@@ -56,8 +56,9 @@ public sealed class ArtifactUploadContractTests
 
         await new SecurityOpenApiOperationTransformer().TransformAsync(operation, context, default);
 
-        Assert.Contains("File", schema.Required!);
-        Assert.DoesNotContain("ChangeNote", schema.Required!);
+        Assert.NotNull(schema.Required);
+        Assert.Contains("File", schema.Required);
+        Assert.DoesNotContain("ChangeNote", schema.Required);
     }
 
     [Fact]
@@ -79,8 +80,8 @@ public sealed class ArtifactUploadContractTests
     }
 
     [Theory]
-    [InlineData("Artifact not found.", 404)]
-    [InlineData("Empty files are not allowed.", 400)]
+    [InlineData("Artifact not found.", StatusCodes.Status404NotFound)]
+    [InlineData("Empty files are not allowed.", StatusCodes.Status400BadRequest)]
     public async Task Upload_preserves_missing_resource_and_validation_distinction(string error, int status)
     {
         using var stream = new MemoryStream(new byte[] { 1 });
@@ -104,13 +105,28 @@ public sealed class ArtifactUploadContractTests
         public Task<Result<ArtifactVersionResponse>> UploadVersionAsync(Guid artifactId, UploadArtifactVersionInput input, CancellationToken cancellationToken = default)
             => Task.FromResult(Result<ArtifactVersionResponse>.Failure(error));
 
-        public Task<Result<IReadOnlyList<ArtifactListItemResponse>>> ListAsync(Guid projectId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<Result<ArtifactDetailResponse>> CreateAsync(Guid projectId, CreateArtifactRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<Result<ArtifactDetailResponse>> GetAsync(Guid artifactId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<Result<ArtifactDetailResponse>> UpdateAsync(Guid artifactId, UpdateArtifactRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<Result> DeleteAsync(Guid artifactId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<Result<IReadOnlyList<ArtifactVersionResponse>>> ListVersionsAsync(Guid artifactId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<Result<FileDownloadResponse>> DownloadVersionAsync(Guid versionId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<Result> DeleteVersionAsync(Guid versionId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<Result<IReadOnlyList<ArtifactListItemResponse>>> ListAsync(Guid projectId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException(nameof(ListAsync));
+
+        public Task<Result<ArtifactDetailResponse>> CreateAsync(Guid projectId, CreateArtifactRequest request, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException(nameof(CreateAsync));
+
+        public Task<Result<ArtifactDetailResponse>> GetAsync(Guid artifactId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException(nameof(GetAsync));
+
+        public Task<Result<ArtifactDetailResponse>> UpdateAsync(Guid artifactId, UpdateArtifactRequest request, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException(nameof(UpdateAsync));
+
+        public Task<Result> DeleteAsync(Guid artifactId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException(nameof(DeleteAsync));
+
+        public Task<Result<IReadOnlyList<ArtifactVersionResponse>>> ListVersionsAsync(Guid artifactId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException(nameof(ListVersionsAsync));
+
+        public Task<Result<FileDownloadResponse>> DownloadVersionAsync(Guid versionId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException(nameof(DownloadVersionAsync));
+
+        public Task<Result> DeleteVersionAsync(Guid versionId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException(nameof(DeleteVersionAsync));
     }
 }
