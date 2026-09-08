@@ -62,7 +62,7 @@
       "privilegedAllowed": true
     },
     "NYGsatoshi/AIPsiteNYG": {
-      "sha": "974357c55b11b1b162bfde2ecf9533003378bc42",
+      "sha": "883d630ebce78ac60a29c3936246115ba1bb20ba",
       "version": "qodana-gate-v1",
       "purpose": "Immutable same-repository reusable Qodana gate",
       "privilegedAllowed": true,
