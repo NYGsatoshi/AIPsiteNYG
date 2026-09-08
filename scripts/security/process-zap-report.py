@@ -247,6 +247,9 @@ def load_report(args: argparse.Namespace) -> tuple[str, list[Any]]:
     for path in (args.contract, args.automation_plan, args.policy):
         if not path.is_file():
             fail(f"required input is missing: {path}")
+    for path in (args.automation_plan, args.policy):
+        if path.stat().st_size == 0:
+            fail(f"required input is empty: {path}")
     if not args.raw_report.is_file() or args.raw_report.stat().st_size == 0:
         fail("scanner reported without a non-empty JSON report")
 
