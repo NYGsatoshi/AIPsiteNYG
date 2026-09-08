@@ -9,6 +9,31 @@ namespace AipPortal.Tests.Announcements;
 
 public sealed class AnnouncementHttpStatusTests
 {
+    [Fact]
+    public async Task Create_denied_selected_audience_returns_exact_forbidden_payload_without_calling_service()
+    {
+        var announcements = new CreateTrackingAnnouncementService();
+        var controller = new AnnouncementsController(
+            announcements,
+            null!,
+            new DeniedAudienceService(),
+            null!);
+        var request = new CreateAnnouncementRequest(
+            Guid.NewGuid(),
+            null,
+            null,
+            "Title",
+            "Body");
+
+        var result = Assert.IsType<ObjectResult>(await controller.Create(request, default));
+
+        Assert.Equal(StatusCodes.Status403Forbidden, result.StatusCode);
+        Assert.Equal(
+            "{\"error\":\"Announcement audience is not authorized.\"}",
+            JsonSerializer.Serialize(result.Value));
+        Assert.Equal(0, announcements.CreateCalls);
+    }
+
     [Theory]
     [InlineData("Announcement not found.", StatusCodes.Status404NotFound)]
     [InlineData("Authentication is required.", StatusCodes.Status401Unauthorized)]
@@ -43,6 +68,68 @@ public sealed class AnnouncementHttpStatusTests
         var result = Assert.IsType<OkObjectResult>(await controller.Acknowledge(Guid.NewGuid(), default));
 
         Assert.Equal("OK", JsonSerializer.SerializeToElement(result.Value).GetProperty("status").GetString());
+    }
+
+    private sealed class DeniedAudienceService : IAnnouncementAudienceService
+    {
+        public Task<Result<IReadOnlyList<AnnouncementAudienceOptionResponse>>> ListAsync(CancellationToken cancellationToken = default)
+            => throw new NotSupportedException(nameof(ListAsync));
+
+        public Task<Result<bool>> IsAuthorizedAsync(
+            Guid? workspaceId,
+            Guid? groupId,
+            Guid? channelId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(Result<bool>.Success(false));
+
+        public Task<Result<bool>> IsAuthorizedForActorAsync(
+            Guid actorUserId,
+            Guid? workspaceId,
+            Guid? groupId,
+            Guid? channelId,
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException(nameof(IsAuthorizedForActorAsync));
+    }
+
+    private sealed class CreateTrackingAnnouncementService : IAnnouncementService
+    {
+        public int CreateCalls { get; private set; }
+
+        public Task<Result<AnnouncementDetailResponse>> CreateAsync(
+            CreateAnnouncementRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            CreateCalls++;
+            throw new InvalidOperationException("CreateAsync must not be called when audience authorization is denied.");
+        }
+
+        public Task<Result<PagedResponse<AnnouncementListItemResponse>>> ListAsync(
+            AnnouncementListQuery query,
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException(nameof(ListAsync));
+
+        public Task<Result<AnnouncementDetailResponse>> GetAsync(Guid announcementId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException(nameof(GetAsync));
+
+        public Task<Result<AnnouncementDetailResponse>> UpdateAsync(
+            Guid announcementId,
+            UpdateAnnouncementRequest request,
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException(nameof(UpdateAsync));
+
+        public Task<Result> DeleteAsync(Guid announcementId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException(nameof(DeleteAsync));
+
+        public Task<Result> MarkReadAsync(Guid announcementId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException(nameof(MarkReadAsync));
+
+        public Task<Result<AnnouncementReadStatusResponse>> GetReadStatusAsync(
+            Guid announcementId,
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException(nameof(GetReadStatusAsync));
+
+        public Task<Result> ResendUnreadAsync(Guid announcementId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException(nameof(ResendUnreadAsync));
     }
 
     private sealed class AnalyticsStub(string? error) : IAnnouncementAnalyticsService
