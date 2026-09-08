@@ -115,6 +115,7 @@ def _requests_write_permission(text: str) -> bool:
 
 
 def _valid_reference_path(value: object) -> bool:
+    """Return whether an allowlisted ``uses:`` path is a safe relative path."""
     if not isinstance(value, str) or not value or value.startswith("/"):
         return False
     return all(part not in {"", ".", ".."} for part in value.split("/"))
