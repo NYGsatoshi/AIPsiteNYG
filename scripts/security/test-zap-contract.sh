@@ -123,6 +123,7 @@ printf '{}\n' > "$tmp/openapi.json"
 cp "$plan" "$tmp/plan.yaml"
 cp "$policy" "$tmp/policy.json"
 addon_sha="$(printf 'immutable-addon-inventory' | sha256sum | awk '{print $1}')"
+readonly TEST_SCANNER_IMAGE='zaproxy/zap-stable:2.17.0@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 
 cat > "$tmp/medium.json" <<'JSON'
 {
@@ -162,7 +163,7 @@ python3 "$processor" \
   --role alpha-restricted \
   --target http://app:8080 \
   --scanner-version 2.17.0 \
-  --scanner-image 'zaproxy/zap-stable:2.17.0@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' \
+  --scanner-image "$TEST_SCANNER_IMAGE" \
   --scanner-exit 0 \
   --contract "$tmp/openapi.json" \
   --automation-plan "$tmp/plan.yaml" \
@@ -192,7 +193,7 @@ if python3 "$processor" \
   --role alpha-restricted \
   --target http://app:8080 \
   --scanner-version 2.17.0 \
-  --scanner-image 'zaproxy/zap-stable:2.17.0@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' \
+  --scanner-image "$TEST_SCANNER_IMAGE" \
   --scanner-exit 0 \
   --contract "$tmp/openapi.json" \
   --automation-plan "$tmp/plan.yaml" \
@@ -209,7 +210,7 @@ if python3 "$processor" \
   --role alpha-restricted \
   --target http://app:8080 \
   --scanner-version 2.17.0 \
-  --scanner-image 'zaproxy/zap-stable:2.17.0@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' \
+  --scanner-image "$TEST_SCANNER_IMAGE" \
   --scanner-exit 0 \
   --contract "$tmp/openapi.json" \
   --automation-plan "$tmp/plan.yaml" \
@@ -239,7 +240,7 @@ if AIP_SECURITY_ZAP_FORBIDDEN_VALUES='["synthetic-secret","synthetic-cookie"]' \
     --role alpha-owner \
     --target http://app:8080 \
     --scanner-version 2.17.0 \
-    --scanner-image 'zaproxy/zap-stable:2.17.0@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' \
+    --scanner-image "$TEST_SCANNER_IMAGE" \
     --scanner-exit 1 \
     --contract "$tmp/openapi.json" \
     --automation-plan "$tmp/plan.yaml" \
@@ -257,7 +258,7 @@ if python3 "$processor" \
   --role beta-owner \
   --target http://app:8080 \
   --scanner-version 2.17.0 \
-  --scanner-image 'zaproxy/zap-stable:2.17.0@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' \
+  --scanner-image "$TEST_SCANNER_IMAGE" \
   --scanner-exit 124 \
   --contract "$tmp/openapi.json" \
   --automation-plan "$tmp/plan.yaml" \
@@ -281,7 +282,7 @@ if python3 "$processor" \
   --role alpha-owner \
   --target http://app:8080 \
   --scanner-version 2.17.0 \
-  --scanner-image 'zaproxy/zap-stable:2.17.0@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' \
+  --scanner-image "$TEST_SCANNER_IMAGE" \
   --scanner-exit 0 \
   --contract "$tmp/openapi.json" \
   --automation-plan "$tmp/plan.yaml" \

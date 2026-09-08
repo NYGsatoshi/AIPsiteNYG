@@ -21,6 +21,7 @@ security_zap_require_contract() {
   [[ -f "$ZAP_POLICY" ]] || security_zap_fail "repository-owned ZAP policy manifest is missing" || return 1
   python3 scripts/ci/verify-openapi.py "$ZAP_CONTRACT" ||
     security_zap_fail "authoritative SEC-01 OpenAPI artifact failed re-verification" || return 1
+  return 0
 }
 
 security_zap_roles() {
@@ -73,6 +74,7 @@ aliases = endpoint.get("Aliases") or []
 if "app" not in aliases:
     raise SystemExit("SEC-02 app must have the app alias on the SEC-06 internal scanner network")
 ' "$network" || return 1
+  return 0
 }
 
 security_zap_target_regex() {
@@ -114,7 +116,7 @@ security_zap_forbidden_values_json() {
   SECURITY_ZAP_COOKIE_HEADER="$cookie_header" \
   SECURITY_ZAP_CSRF="$csrf" \
   SECURITY_ZAP_FIXTURE_PASSWORD="${AIP_SECURITY_CI_PASSWORD:-}" \
-    python3 - "$jar" <<'PY'
+    python3 - "$jar" <<'PY' || return 1
 from pathlib import Path
 import json
 import os
@@ -136,6 +138,7 @@ for raw in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
         values.add(f"{name}={value}")
 print(json.dumps(sorted(value for value in values if value), separators=(",", ":")))
 PY
+  return 0
 }
 
 security_zap_redact_stream() {
@@ -175,7 +178,7 @@ security_zap_verify_toolchain() {
     grep -Eiq "(^|[^[:alnum:]_-])${required}([^[:alnum:]_-]|$)" <<<"$addon_list" ||
       security_zap_fail "immutable image is missing required add-on '$required'" || return 1
   done
-  addon_hash="$(printf '%s' "$addon_list" | sha256sum | awk '{print $1}')"
+  addon_hash="$(printf '%s' "$addon_list" | sha256sum | cut -d ' ' -f1)"
   [[ "$addon_hash" =~ ^[0-9a-f]{64}$ ]] || return 1
   SECURITY_ZAP_ADDON_LIST_SHA256="$addon_hash"
   export SECURITY_ZAP_ADDON_LIST_SHA256
@@ -283,9 +286,9 @@ security_zap_run_role() {
     {
       printf '### SEC-06 OWASP ZAP — %s\n\n' "$role"
       printf -- '- Tool: `OWASP ZAP %s` / `%s`\n' "$ZAP_VERSION" "$ZAP_IMAGE"
-      printf -- '- OpenAPI SHA-256: `%s`\n' "$(sha256sum "$ZAP_CONTRACT" | awk '{print $1}')"
-      printf -- '- Automation plan SHA-256: `%s`\n' "$(sha256sum "$ZAP_AUTOMATION_PLAN" | awk '{print $1}')"
-      printf -- '- Policy SHA-256: `%s`\n' "$(sha256sum "$ZAP_POLICY" | awk '{print $1}')"
+      printf -- '- OpenAPI SHA-256: `%s`\n' "$(sha256sum "$ZAP_CONTRACT" | cut -d ' ' -f1)"
+      printf -- '- Automation plan SHA-256: `%s`\n' "$(sha256sum "$ZAP_AUTOMATION_PLAN" | cut -d ' ' -f1)"
+      printf -- '- Policy SHA-256: `%s`\n' "$(sha256sum "$ZAP_POLICY" | cut -d ' ' -f1)"
       printf -- '- Add-on inventory SHA-256: `%s`\n' "$SECURITY_ZAP_ADDON_LIST_SHA256"
       printf -- '- Sanitized report: `%s`\n\n' "$output"
     } >> "$GITHUB_STEP_SUMMARY"

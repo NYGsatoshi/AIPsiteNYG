@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Linq;
 using System.Reflection;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.OpenApi;
@@ -129,15 +130,15 @@ public sealed class SecurityOpenApiOperationTransformer : IOpenApiOperationTrans
 
         foreach (var parameter in context.Description.ActionDescriptor.Parameters)
         {
-            foreach (var property in RequiredProperties(parameter.ParameterType))
+            foreach (var propertyName in RequiredProperties(parameter.ParameterType).Select(property => property.Name))
             {
-                if (formSchema.Properties?.ContainsKey(property.Name) != true)
+                if (formSchema.Properties?.ContainsKey(propertyName) != true)
                 {
                     continue;
                 }
 
                 formSchema.Required ??= new HashSet<string>();
-                formSchema.Required.Add(property.Name);
+                formSchema.Required.Add(propertyName);
             }
         }
     }
