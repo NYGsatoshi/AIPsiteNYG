@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 
-const configuredThresholdParser = (name, defaultValue) => {
+const changedFilesPath = process.env.QODANA_CHANGED_FILES_PATH,
+  configuredThresholdParser = (name, defaultValue) => {
     const rawValue = process.env[name] || defaultValue,
       value = Number(rawValue);
 
@@ -31,6 +32,10 @@ if (!existsSync(sarifPath)) {
   process.exit(1);
 }
 
+if (changedFilesPath && !existsSync(changedFilesPath)) {
+  throw new Error(`Qodana changed-files list was not found: ${changedFilesPath}`);
+}
+
 let sarif;
 try {
   sarif = JSON.parse(readFileSync(sarifPath, 'utf8'));
@@ -40,8 +45,11 @@ try {
   process.exit(1);
 }
 
-const results = (sarif.runs || []).flatMap((run) => run.results || []);
-const ruleIndex = new Map();
+const changedFiles = changedFilesPath
+    ? new Set(readFileSync(changedFilesPath, 'utf8').split('\0').filter(Boolean))
+    : undefined,
+  results = (sarif.runs || []).flatMap((run) => run.results || []),
+  ruleIndex = new Map();
 
 for (const run of sarif.runs || []) {
   for (const rule of run.tool?.driver?.rules || []) {
@@ -89,14 +97,19 @@ for (const result of results) {
   }
 }
 
-const unresolvedFiles = new Set(unresolvedResults.flatMap(resultFiles));
-const unresolvedDependencies = countBy(unresolvedResults.map(firstUnresolvedDependency));
-const categoryCounts = countBy(unresolvedResults.map(classifyUnresolved));
+const categoryCounts = countBy(unresolvedResults.map(classifyUnresolved)),
+  changedResults = changedFiles
+    ? results.filter((result) => resultFiles(result).some((file) => changedFiles.has(file)))
+    : [],
+  unresolvedDependencies = countBy(unresolvedResults.map(firstUnresolvedDependency)),
+  unresolvedFiles = new Set(unresolvedResults.flatMap(resultFiles));
 
 const summary = {
   sarifPath,
   totalFindings: results.length,
   severityCounts: Object.fromEntries([...severityCounts.entries()].sort()),
+  changedFiles: changedFiles?.size ?? Number(),
+  changedFindings: changedResults.length,
   criticalFindings: ['critical', 'error'].reduce(
     (count, severity) => count + (severityCounts.get(severity) || Number()),
     Number()
@@ -134,6 +147,12 @@ if (unresolvedResults.length > unresolvedThreshold || unresolvedFiles.size > unr
       `${unresolvedResults.length} findings across ${unresolvedFiles.size} files.`
   );
   process.exit(1);
+}
+
+if (changedFiles && changedResults.length) {
+  throw new Error(
+    `Qodana reported ${changedResults.length} finding(s) in files changed by this pull request.`
+  );
 }
 
 function normalizeSeverity(result, rule) {
