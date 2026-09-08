@@ -52,6 +52,22 @@ def hash_array(value, message)
   value
 end
 
+def require_blocking_stats_test(tests, statistic, operator, value, message)
+  matches = tests.select { |test| test["statistic"].to_s == statistic }
+  fail!(message) unless matches.length == 1
+
+  test = matches.first
+  unless test["type"] == "stats" &&
+         test["operator"] == operator &&
+         test["value"] == value &&
+         test["onFail"] == "error"
+    fail!(
+      "#{message}: expected type=stats statistic=#{statistic.inspect} " \
+      "operator=#{operator.inspect} value=#{value.inspect} onFail=error"
+    )
+  end
+end
+
 begin
   document = YAML.safe_load(File.read(path), aliases: false)
 rescue Psych::Exception => e
@@ -62,9 +78,13 @@ jobs = hash_array(document["jobs"], "Automation plan jobs must be an array of ma
 
 openapi = only_job(jobs, "openapi")
 openapi_tests = hash_array(openapi["tests"], "OpenAPI job tests must be an array of mappings")
-unless openapi_tests.any? { |test| test["statistic"] == "openapi.urls.added" && test["operator"] == ">" }
-  fail!("Automation plan OpenAPI coverage invariant is missing")
-end
+require_blocking_stats_test(
+  openapi_tests,
+  "openapi.urls.added",
+  ">",
+  0,
+  "Automation plan OpenAPI coverage invariant is missing or non-blocking"
+)
 
 requestor = only_job(jobs, "requestor")
 requests = hash_array(requestor["requests"], "requestor requests must be an array of mappings")
@@ -100,10 +120,33 @@ active_scan = only_job(jobs, "activeScan")
 active_tests = hash_array(active_scan["tests"], "activeScan tests must be an array of mappings")
 statistics = active_tests.map { |test| test["statistic"] }.compact.map(&:to_s)
 fail!("Active scan forced-stop invariant is missing") unless statistics.include?("stats.ascan.stopped")
+require_blocking_stats_test(
+  active_tests,
+  "stats.ascan.stopped",
+  "==",
+  0,
+  "Active scan forced-stop invariant is missing or non-blocking"
+)
 required_active_rule_ids.each do |rule_id|
-  %W[stats.ascan.#{rule_id}.started stats.ascan.#{rule_id}.skipped].each do |statistic|
+  started = "stats.ascan.#{rule_id}.started"
+  skipped = "stats.ascan.#{rule_id}.skipped"
+  [started, skipped].each do |statistic|
     fail!("Required active-rule completion invariant missing: #{statistic}") unless statistics.include?(statistic)
   end
+  require_blocking_stats_test(
+    active_tests,
+    started,
+    ">=",
+    1,
+    "Required active-rule started invariant missing or non-blocking: #{started}"
+  )
+  require_blocking_stats_test(
+    active_tests,
+    skipped,
+    "==",
+    0,
+    "Required active-rule skipped invariant missing or non-blocking: #{skipped}"
+  )
   obsolete = "stats.ascan.#{rule_id}.time"
   fail!("Obsolete per-rule time invariant must be absent: #{obsolete}") if statistics.include?(obsolete)
 end
