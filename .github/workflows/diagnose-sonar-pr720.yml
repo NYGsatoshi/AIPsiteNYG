@@ -23,38 +23,38 @@ jobs:
       - name: Apply exact Sonar fixes
         run: |
           set -euo pipefail
-          python3 - <<'PY'
+          python3 - <<'PYTHON_SCRIPT'
           from pathlib import Path
 
           operation_path = Path("src/AipPortal.Web/OpenApi/SecurityOpenApiOperationTransformer.cs")
           operation = operation_path.read_text(encoding="utf-8")
           old_loop = '''        foreach (var parameter in context.Description.ActionDescriptor.Parameters)
+          {
+              foreach (var property in RequiredProperties(parameter.ParameterType))
+              {
+                  if (formSchema.Properties?.ContainsKey(property.Name) != true)
                   {
-                      foreach (var property in RequiredProperties(parameter.ParameterType))
-                      {
-                          if (formSchema.Properties?.ContainsKey(property.Name) != true)
-                          {
-                              continue;
-                          }
-
-                          formSchema.Required ??= new HashSet<string>();
-                          formSchema.Required.Add(property.Name);
-                      }
+                      continue;
                   }
+
+                  formSchema.Required ??= new HashSet<string>();
+                  formSchema.Required.Add(property.Name);
+              }
+          }
           '''
           new_loop = '''        foreach (var parameter in context.Description.ActionDescriptor.Parameters)
+          {
+              foreach (var propertyName in RequiredProperties(parameter.ParameterType).Select(property => property.Name))
+              {
+                  if (formSchema.Properties?.ContainsKey(propertyName) != true)
                   {
-                      foreach (var propertyName in RequiredProperties(parameter.ParameterType).Select(property => property.Name))
-                      {
-                          if (formSchema.Properties?.ContainsKey(propertyName) != true)
-                          {
-                              continue;
-                          }
-
-                          formSchema.Required ??= new HashSet<string>();
-                          formSchema.Required.Add(propertyName);
-                      }
+                      continue;
                   }
+
+                  formSchema.Required ??= new HashSet<string>();
+                  formSchema.Required.Add(propertyName);
+              }
+          }
           '''
           if operation.count(old_loop) != 1:
               raise SystemExit("operation transformer loop shape drifted")
@@ -75,13 +75,8 @@ jobs:
           marker = "addon_sha=\"$(printf 'immutable-addon-inventory' | sha256sum | awk '{print $1}')\"\n"
           if test.count(marker) != 1:
               raise SystemExit("addon SHA marker drifted")
-          test = test.replace(
-              marker,
-              marker + "readonly TEST_SCANNER_IMAGE=" + image_literal + "\n",
-              1,
-          )
+          test = test.replace(marker, marker + "readonly TEST_SCANNER_IMAGE=" + image_literal + "\n", 1)
           test = test.replace(image_literal, '"$TEST_SCANNER_IMAGE"')
-          # Restore the single literal in the constant declaration after the global replacement.
           test = test.replace(
               'readonly TEST_SCANNER_IMAGE="$TEST_SCANNER_IMAGE"',
               "readonly TEST_SCANNER_IMAGE=" + image_literal,
@@ -97,11 +92,11 @@ jobs:
           runner = runner.replace(awk_literal, "cut -d ' ' -f1")
 
           contract_tail = '''  python3 scripts/ci/verify-openapi.py "$ZAP_CONTRACT" ||
-              security_zap_fail "authoritative SEC-01 OpenAPI artifact failed re-verification" || return 1
+            security_zap_fail "authoritative SEC-01 OpenAPI artifact failed re-verification" || return 1
           }
           '''
           contract_fixed = '''  python3 scripts/ci/verify-openapi.py "$ZAP_CONTRACT" ||
-              security_zap_fail "authoritative SEC-01 OpenAPI artifact failed re-verification" || return 1
+            security_zap_fail "authoritative SEC-01 OpenAPI artifact failed re-verification" || return 1
             return 0
           }
           '''
@@ -128,12 +123,8 @@ jobs:
           '''
           if runner.count(forbidden_command) != 1:
               raise SystemExit("forbidden-values Python command drifted")
-          runner = runner.replace(
-              forbidden_command,
-              '''    python3 - "$jar" <<'PY' || return 1
-          ''',
-              1,
-          )
+          runner = runner.replace(forbidden_command, '''    python3 - "$jar" <<'PY' || return 1
+          ''', 1)
           forbidden_tail = '''print(json.dumps(sorted(value for value in values if value), separators=(",", ":")))
           PY
           }
@@ -151,7 +142,7 @@ jobs:
               raise SystemExit("forbidden-values function tail drifted")
           runner = runner.replace(forbidden_tail, forbidden_fixed, 1)
           runner_path.write_text(runner, encoding="utf-8")
-          PY
+          PYTHON_SCRIPT
 
           bash -n scripts/security/test-zap-contract.sh
           bash -n scripts/security/zap-runner.sh
