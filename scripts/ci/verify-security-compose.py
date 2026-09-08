@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail closed when the resolved SEC-02/SEC-03/SEC-04/AUD-02 security profile drifts."""
+"""Fail closed when the resolved SEC-02/SEC-03/SEC-04/SEC-05/SEC-06/AUD-02 security profile drifts."""
 
 from __future__ import annotations
 
@@ -69,6 +69,10 @@ def run_scanner_harness_contract_tests() -> None:
         check=True,
     )
     subprocess.run(
+        ["bash", "scripts/security/test-zap-contract.sh"],
+        check=True,
+    )
+    subprocess.run(
         ["bash", "scripts/security/test-aud02-lifecycle.sh"],
         check=True,
     )
@@ -134,16 +138,16 @@ def main() -> None:
         fail("real-backend-playwright must be inactive in the default SEC-02 profile")
 
     print("SEC-02 resolved Compose invariants verified.")
-    print("Running SEC-03/SEC-04/AUD-02 scanner contract tests inside the required security gate.")
+    print("Running SEC-03/SEC-04/SEC-06/AUD-02 scanner contract tests inside the required security gate.")
     run_scanner_harness_contract_tests()
 
     if should_run_runtime_smoke():
-        print("Generating the deterministic SEC-01 contract for the SEC-04 runtime gate.")
+        print("Generating the deterministic SEC-01 contract for the SEC-04/SEC-06 runtime gates.")
         subprocess.run(
             ["bash", "scripts/ci/generate-security-openapi-contract.sh"],
             check=True,
         )
-        print("Running SEC-03/SEC-04/SEC-05/AUD-02 runtime gate.")
+        print("Running SEC-03/SEC-04/SEC-05/SEC-06/AUD-02 runtime gate.")
         subprocess.run(
             ["bash", "scripts/ci/run-security-runtime-smoke.sh"],
             check=True,

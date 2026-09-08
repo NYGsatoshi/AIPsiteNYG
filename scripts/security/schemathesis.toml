@@ -1,4 +1,16 @@
 [checks]
+# Positive-data checks stay strict by default. Resource/auth/conflict outcomes are
+# expected across authenticated scans, but 400 is only accepted for mutation
+# operations whose OpenAPI contract explicitly documents that legacy outcome.
+# Server errors remain owned exclusively by not_a_server_error.
+positive_data_acceptance.expected-statuses = [
+  "2xx",
+  401,
+  403,
+  404,
+  409,
+]
+
 # RFC 9110 415 is the precise rejection for a schema-violating request whose
 # generated Content-Type is unsupported. Schemathesis 4.25.2 omits it from the
 # built-in negative_data_rejection defaults, so keep the default set and add it.
@@ -15,3 +27,37 @@ negative_data_rejection.expected-statuses = [
   428,
   "5xx",
 ]
+
+# Legacy application 400s are accepted only for mutation operations that
+# advertise a 400 response. This prevents a global allowance from masking an
+# unexpected Bad Request on unrelated operations.
+[[operations]]
+include-name-regex = "^(POST|PUT|PATCH|DELETE) "
+include-by = "/responses/400 != null"
+exclude-name = "POST /api/projects"
+checks.positive_data_acceptance.expected-statuses = [
+  "2xx",
+  400,
+  401,
+  403,
+  404,
+  409,
+]
+
+# POST /api/projects is a deprecated body-scoped compatibility endpoint whose
+# application service intentionally fails closed with DependencyUnavailable / 503
+# until the canonical Workspace-root create contract is available. Keep both
+# positive-data and server-error exceptions operation-scoped so 503 elsewhere
+# still fails SEC-04.
+[[operations]]
+include-name = "POST /api/projects"
+checks.positive_data_acceptance.expected-statuses = [
+  "2xx",
+  400,
+  401,
+  403,
+  404,
+  409,
+  503,
+]
+checks.not_a_server_error.expected-statuses = ["2xx", "3xx", "4xx", 503]

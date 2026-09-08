@@ -344,6 +344,15 @@ jobs:
           [[ -f gitleaks-report.json ]] || printf '[]\n' > gitleaks-report.json
           exit "$status"
 
+      - name: Upload SEC-06 sanitized ZAP evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: sec06-zap-evidence
+          path: artifacts/security/zap/
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Upload security reports on failure
         if: failure()
         continue-on-error: true
@@ -355,5 +364,6 @@ jobs:
             trivy-filesystem-report.txt
             gitleaks-report.json
             artifacts/security/schemathesis/
+            artifacts/security/zap/
           if-no-files-found: warn
           retention-days: 7

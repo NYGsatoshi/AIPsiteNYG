@@ -68,7 +68,10 @@ public static class DependencyInjection
         });
 
         services.AddControllers(options =>
-            options.Filters.Add<CanonicalProjectsResponseProjectionFilter>())
+            {
+                options.Filters.Add<CanonicalProjectsResponseProjectionFilter>();
+                options.Filters.Add<StrictQueryParameterFilter>();
+            })
             .ConfigureApiBehaviorOptions(options =>
             {
                 var defaultFactory = options.InvalidModelStateResponseFactory;
@@ -130,7 +133,14 @@ public static class DependencyInjection
                             "body"));
                     }
                     if (!IsPr06CommandPath(path))
-                        return defaultFactory(context);
+                    {
+                        // MVC supplies its default factory through a later
+                        // options configurator.  Capturing it here can therefore
+                        // legitimately yield null, which used to turn ordinary
+                        // data-annotation failures into 500 responses.
+                        return defaultFactory?.Invoke(context) ??
+                            new BadRequestObjectResult(new ValidationProblemDetails(context.ModelState));
+                    }
 
                     var dependency = path?.Contains("/dependencies", StringComparison.OrdinalIgnoreCase) == true;
                     if (context.HttpContext.User.Identity?.IsAuthenticated != true)

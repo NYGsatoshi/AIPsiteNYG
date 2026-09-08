@@ -1,0 +1,275 @@
+env:
+  contexts:
+    - name: sec06-api
+      urls:
+        - "${AIP_SECURITY_ZAP_TARGET}"
+      includePaths:
+        - "${AIP_SECURITY_ZAP_TARGET_REGEX}/.*"
+  parameters:
+    failOnError: true
+    failOnWarning: false
+    continueOnFailure: false
+    progressToStdout: true
+
+jobs:
+  - type: passiveScan-config
+    parameters:
+      maxAlertsPerRule: 25
+      scanOnlyInScope: true
+      maxBodySizeInBytesToScan: 1048576
+      enableTags: false
+      disableAllRules: false
+
+  - type: replacer
+    parameters:
+      deleteAllRules: true
+    rules:
+      - description: SEC-06 tenant boundary header
+        url: "${AIP_SECURITY_ZAP_TARGET_REGEX}/.*"
+        matchType: req_header
+        matchString: X-Tenant-Slug
+        matchRegex: false
+        replacementString: "${AIP_SECURITY_ZAP_TENANT}"
+      - description: SEC-06 ephemeral SEC-03 session cookie
+        url: "${AIP_SECURITY_ZAP_TARGET_REGEX}/.*"
+        matchType: req_header
+        matchString: Cookie
+        matchRegex: false
+        replacementString: "${AIP_SECURITY_ZAP_COOKIE}"
+      - description: SEC-06 ephemeral SEC-03 CSRF token
+        url: "${AIP_SECURITY_ZAP_TARGET_REGEX}/.*"
+        matchType: req_header
+        matchString: X-CSRF-Token
+        matchRegex: false
+        replacementString: "${AIP_SECURITY_ZAP_CSRF_TOKEN}"
+
+  - type: openapi
+    parameters:
+      apiFile: /work/artifacts/openapi/aipportal-openapi.json
+      context: sec06-api
+      targetUrl: "${AIP_SECURITY_ZAP_TARGET}"
+      maxMessages: 0
+    tests:
+      - name: OpenAPI import produced a non-zero authenticated API surface
+        type: stats
+        statistic: openapi.urls.added
+        operator: ">"
+        value: 0
+        onFail: error
+
+  # Each role runs in a fresh ZAP process with role-specific replacer values.
+  # Require an actual protected request/response exchange so an imported-only
+  # OpenAPI surface cannot satisfy the SEC-06 coverage gate.
+  - type: requestor
+    requests:
+      - name: SEC-06 authenticated role coverage probe
+        url: "${AIP_SECURITY_ZAP_TARGET}/api/announcements/audiences"
+        method: GET
+        responseCode: 200
+
+  - type: passiveScan-wait
+    parameters:
+      maxDuration: 3
+
+  - type: activeScan-config
+    # The session harness owns credential lifecycle. Keep these routes in scope
+    # for import/passive inspection, but exclude them from active attacks so the
+    # synthetic credential remains valid for the rest of the matrix.
+    excludePaths:
+      - "${AIP_SECURITY_ZAP_TARGET_REGEX}/api/auth/logout(?:[/?#].*)?$"
+      - "${AIP_SECURITY_ZAP_TARGET_REGEX}/api/auth/change-password(?:[/?#].*)?$"
+
+  - type: activeScan-policy
+    parameters:
+      name: sec06-strict-api
+    policyDefinition:
+      # Default-off is deliberate: required CI executes only stack-relevant,
+      # repository-reviewed release rules. Beta/OAST/desync classes are not
+      # silently activated by a ZAP image refresh.
+      defaultStrength: Medium
+      defaultThreshold: Off
+      rules:
+        - id: 6
+          name: Path Traversal
+          strength: Medium
+          threshold: Low
+        - id: 40003
+          name: CRLF Injection
+          strength: Medium
+          threshold: Low
+        - id: 40008
+          name: Parameter Tampering
+          strength: Medium
+          threshold: Low
+        - id: 40012
+          name: Cross Site Scripting Reflected
+          strength: Medium
+          threshold: Low
+        - id: 40014
+          name: Cross Site Scripting Persistent
+          strength: Medium
+          threshold: Low
+        - id: 40018
+          name: SQL Injection
+          strength: Medium
+          threshold: Low
+        - id: 40022
+          name: SQL Injection PostgreSQL Time Based
+          strength: Low
+          threshold: Low
+        - id: 90020
+          name: Remote OS Command Injection
+          strength: Medium
+          threshold: Low
+
+  - type: activeScan
+    parameters:
+      context: sec06-api
+      url: "${AIP_SECURITY_ZAP_TARGET}"
+      policy: sec06-strict-api
+      # Keep each reviewed rule bounded. The started/skipped assertions below
+      # require every required rule to execute without being skipped.
+      maxRuleDurationInMins: 2
+      # A non-zero internal limit plus the host-side timeout in zap-runner.sh
+      # prevents a hung scanner from running indefinitely. The tests below make
+      # any global stop or per-rule skip a blocking incomplete-scan failure.
+      maxScanDurationInMins: 10
+      delayInMs: 0
+      handleAntiCSRFTokens: false
+    tests:
+      - name: Active scan completed without forced stop
+        type: stats
+        statistic: stats.ascan.stopped
+        operator: "=="
+        value: 0
+        onFail: error
+      - name: Path Traversal rule started
+        type: stats
+        statistic: stats.ascan.6.started
+        operator: ">="
+        value: 1
+        onFail: error
+      - name: Path Traversal rule completed without skip
+        type: stats
+        statistic: stats.ascan.6.skipped
+        operator: "=="
+        value: 0
+        onFail: error
+      - name: CRLF Injection rule started
+        type: stats
+        statistic: stats.ascan.40003.started
+        operator: ">="
+        value: 1
+        onFail: error
+      - name: CRLF Injection rule completed without skip
+        type: stats
+        statistic: stats.ascan.40003.skipped
+        operator: "=="
+        value: 0
+        onFail: error
+      - name: Parameter Tampering rule started
+        type: stats
+        statistic: stats.ascan.40008.started
+        operator: ">="
+        value: 1
+        onFail: error
+      - name: Parameter Tampering rule completed without skip
+        type: stats
+        statistic: stats.ascan.40008.skipped
+        operator: "=="
+        value: 0
+        onFail: error
+      - name: Reflected XSS rule started
+        type: stats
+        statistic: stats.ascan.40012.started
+        operator: ">="
+        value: 1
+        onFail: error
+      - name: Reflected XSS rule completed without skip
+        type: stats
+        statistic: stats.ascan.40012.skipped
+        operator: "=="
+        value: 0
+        onFail: error
+      - name: Persistent XSS rule started
+        type: stats
+        statistic: stats.ascan.40014.started
+        operator: ">="
+        value: 1
+        onFail: error
+      - name: Persistent XSS rule completed without skip
+        type: stats
+        statistic: stats.ascan.40014.skipped
+        operator: "=="
+        value: 0
+        onFail: error
+      - name: SQL Injection rule started
+        type: stats
+        statistic: stats.ascan.40018.started
+        operator: ">="
+        value: 1
+        onFail: error
+      - name: SQL Injection rule completed without skip
+        type: stats
+        statistic: stats.ascan.40018.skipped
+        operator: "=="
+        value: 0
+        onFail: error
+      - name: PostgreSQL time-based SQL Injection rule started
+        type: stats
+        statistic: stats.ascan.40022.started
+        operator: ">="
+        value: 1
+        onFail: error
+      - name: PostgreSQL time-based SQL Injection rule completed without skip
+        type: stats
+        statistic: stats.ascan.40022.skipped
+        operator: "=="
+        value: 0
+        onFail: error
+      - name: Remote OS Command Injection rule started
+        type: stats
+        statistic: stats.ascan.90020.started
+        operator: ">="
+        value: 1
+        onFail: error
+      - name: Remote OS Command Injection rule completed without skip
+        type: stats
+        statistic: stats.ascan.90020.skipped
+        operator: "=="
+        value: 0
+        onFail: error
+
+  - type: passiveScan-wait
+    parameters:
+      maxDuration: 3
+
+  - type: report
+    alwaysRun: true
+    parameters:
+      # traditional-json intentionally omits raw request/response bodies. The
+      # generated file is still ephemeral and is reduced again by the sanitizer.
+      template: traditional-json
+      reportDir: "${AIP_SECURITY_ZAP_REPORT_DIR}"
+      reportFile: "${AIP_SECURITY_ZAP_REPORT_FILE}"
+      reportTitle: "AIPsiteNYG SEC-06 authenticated API DAST"
+      reportDescription: "Disposable SEC-02 target; sanitized evidence is generated outside ZAP."
+      displayReport: false
+    risks:
+      - high
+      - medium
+      - low
+      - info
+    confidences:
+      - high
+      - medium
+      - low
+      - falsepositive
+
+  - type: exitStatus
+    alwaysRun: true
+    parameters:
+      errorLevel: High
+      okExitValue: 0
+      errorExitValue: 1
+      warnExitValue: 1
