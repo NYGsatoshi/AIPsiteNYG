@@ -8,6 +8,10 @@ capabilities (GitHub secrets, protected environments, inherited secrets, or
 write permissions) must use an allowlisted full 40-character commit SHA and a
 human-readable version comment.
 
+Allowlist entries may additionally restrict a repository to one exact action or
+reusable-workflow path. This prevents approval of one reviewed same-repository
+workflow from implicitly approving every ``uses:`` target in that repository.
+
 Unprivileged helper workflows may temporarily retain mutable refs while the
 repository migrates them incrementally, but they cannot introduce an unknown
 external action. This keeps the security boundary focused on code that can
@@ -47,6 +51,7 @@ class UseReference:
     line: int
     target: str
     repository: str | None
+    target_path: str | None
     ref: str | None
     version_comment: str | None
     local: bool
@@ -109,6 +114,12 @@ def _requests_write_permission(text: str) -> bool:
     return False
 
 
+def _valid_reference_path(value: object) -> bool:
+    if not isinstance(value, str) or not value or value.startswith("/"):
+        return False
+    return all(part not in {"", ".", ".."} for part in value.split("/"))
+
+
 def _load_policy(path: Path) -> tuple[dict[str, Any], list[str]]:
     errors: list[str] = []
     try:
@@ -139,6 +150,7 @@ def _load_policy(path: Path) -> tuple[dict[str, Any], list[str]]:
         version = entry.get("version")
         purpose = entry.get("purpose")
         privileged = entry.get("privilegedAllowed")
+        reference_path = entry.get("path")
         if not isinstance(sha, str) or not FULL_SHA.fullmatch(sha):
             errors.append(f"{path}: {repository}.sha must be a lowercase 40-character SHA")
         if not isinstance(version, str) or not version.strip():
@@ -147,6 +159,8 @@ def _load_policy(path: Path) -> tuple[dict[str, Any], list[str]]:
             errors.append(f"{path}: {repository}.purpose is required")
         if not isinstance(privileged, bool):
             errors.append(f"{path}: {repository}.privilegedAllowed must be boolean")
+        if reference_path is not None and not _valid_reference_path(reference_path):
+            errors.append(f"{path}: {repository}.path must be a safe relative uses path")
 
     return data, errors
 
@@ -169,14 +183,14 @@ def _parse_uses(workflow: str, text: str) -> tuple[list[UseReference], list[str]
         comment = (match.group("comment") or "").strip() or None
         if target.startswith("./"):
             references.append(
-                UseReference(workflow, line_number, target, None, None, comment, True)
+                UseReference(workflow, line_number, target, None, None, None, comment, True)
             )
             continue
 
         if "@" not in target:
             errors.append(f"{workflow}:{line_number}: external uses reference lacks @ref: {target}")
             references.append(
-                UseReference(workflow, line_number, target, None, None, comment, False)
+                UseReference(workflow, line_number, target, None, None, None, comment, False)
             )
             continue
 
@@ -185,11 +199,13 @@ def _parse_uses(workflow: str, text: str) -> tuple[list[UseReference], list[str]
         if len(parts) < 2 or not parts[0] or not parts[1]:
             errors.append(f"{workflow}:{line_number}: invalid external action path: {target}")
             repository = None
+            target_path = None
         else:
             repository = f"{parts[0]}/{parts[1]}"
+            target_path = "/".join(parts[2:]) or None
 
         references.append(
-            UseReference(workflow, line_number, target, repository, ref, comment, False)
+            UseReference(workflow, line_number, target, repository, target_path, ref, comment, False)
         )
 
     return references, errors
@@ -263,30 +279,40 @@ def validate_repository(
                     f"{reference.repository or reference.target}"
                 )
                 state = "unknown"
-            elif protected:
-                if entry.get("privilegedAllowed") is not True:
+            else:
+                expected_path = entry.get("path")
+                if expected_path is not None and reference.target_path != expected_path:
                     errors.append(
-                        f"{relative}:{reference.line}: {reference.repository} is not approved for protected workflows"
+                        f"{relative}:{reference.line}: {reference.repository} path "
+                        f"{reference.target_path or '<repository-root>'} does not match reviewed allowlist path "
+                        f"{expected_path}"
                     )
-                expected_sha = entry.get("sha")
-                expected_version = entry.get("version")
-                if not reference.ref or not FULL_SHA.fullmatch(reference.ref):
-                    errors.append(
-                        f"{relative}:{reference.line}: protected external action must use a full immutable SHA: "
-                        f"{reference.target}"
-                    )
-                    state = "mutable"
-                elif reference.ref != expected_sha:
-                    errors.append(
-                        f"{relative}:{reference.line}: {reference.repository} SHA {reference.ref} does not match "
-                        f"reviewed allowlist SHA {expected_sha}"
-                    )
-                    state = "unreviewed-sha"
-                version_token = (reference.version_comment or "").split(maxsplit=1)[0] if reference.version_comment else ""
-                if version_token != expected_version:
-                    errors.append(
-                        f"{relative}:{reference.line}: protected action pin requires version comment '# {expected_version}'"
-                    )
+                    state = "unreviewed-path"
+
+                if protected:
+                    if entry.get("privilegedAllowed") is not True:
+                        errors.append(
+                            f"{relative}:{reference.line}: {reference.repository} is not approved for protected workflows"
+                        )
+                    expected_sha = entry.get("sha")
+                    expected_version = entry.get("version")
+                    if not reference.ref or not FULL_SHA.fullmatch(reference.ref):
+                        errors.append(
+                            f"{relative}:{reference.line}: protected external action must use a full immutable SHA: "
+                            f"{reference.target}"
+                        )
+                        state = "mutable"
+                    elif reference.ref != expected_sha:
+                        errors.append(
+                            f"{relative}:{reference.line}: {reference.repository} SHA {reference.ref} does not match "
+                            f"reviewed allowlist SHA {expected_sha}"
+                        )
+                        state = "unreviewed-sha"
+                    version_token = (reference.version_comment or "").split(maxsplit=1)[0] if reference.version_comment else ""
+                    if version_token != expected_version:
+                        errors.append(
+                            f"{relative}:{reference.line}: protected action pin requires version comment '# {expected_version}'"
+                        )
 
             inventory.append(
                 {
@@ -294,6 +320,7 @@ def validate_repository(
                     "line": reference.line,
                     "target": reference.target,
                     "repository": reference.repository,
+                    "path": reference.target_path,
                     "ref": reference.ref,
                     "versionComment": reference.version_comment,
                     "scope": state,
