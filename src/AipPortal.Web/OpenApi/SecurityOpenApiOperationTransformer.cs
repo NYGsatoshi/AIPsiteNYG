@@ -23,7 +23,18 @@ public sealed class SecurityOpenApiOperationTransformer : IOpenApiOperationTrans
         var document = context.Document ??
             throw new InvalidOperationException("OpenAPI operation transformer requires its document context.");
         EnsureCookieSecurityScheme(document);
+        ConfigureAuthorizationResponses(operation, context, document);
+        ConfigureValidationResponses(operation, context);
+        ConfigureRequestBody(operation, context);
+        ConfigureKnownErrorContent(operation);
+        return Task.CompletedTask;
+    }
 
+    private static void ConfigureAuthorizationResponses(
+        OpenApiOperation operation,
+        OpenApiOperationTransformerContext context,
+        OpenApiDocument document)
+    {
         var endpointMetadata = context.Description.ActionDescriptor.EndpointMetadata;
         var hasAuthorizationBoundary = endpointMetadata.OfType<IAuthorizeData>().Any();
         var allowsAnonymousTransport = endpointMetadata.OfType<IAllowAnonymous>().Any();
@@ -36,7 +47,6 @@ public sealed class SecurityOpenApiOperationTransformer : IOpenApiOperationTrans
             {
                 [new OpenApiSecuritySchemeReference(CookieSchemeName, document)] = []
             });
-
         }
 
         if (hasAuthorizationBoundary)
@@ -52,7 +62,12 @@ public sealed class SecurityOpenApiOperationTransformer : IOpenApiOperationTrans
         {
             AddResponse(operation, "403", "CSRF validation failed for an authenticated unsafe request.");
         }
+    }
 
+    private static void ConfigureValidationResponses(
+        OpenApiOperation operation,
+        OpenApiOperationTransformerContext context)
+    {
         if (context.Description.RelativePath?.Contains('{') == true)
         {
             AddResponse(operation, "404", "The route value is invalid or the addressed resource does not exist.");
@@ -68,44 +83,71 @@ public sealed class SecurityOpenApiOperationTransformer : IOpenApiOperationTrans
         // available. ProjectService.CreateAsync therefore owns an explicit
         // DependencyUnavailable / 503 result; keep the generated security
         // contract aligned with that intentional application state.
-        if (HttpMethods.IsPost(context.Description.HttpMethod) &&
-            string.Equals(
-                context.Description.RelativePath?.TrimEnd('/'),
-                "api/projects",
-                StringComparison.OrdinalIgnoreCase))
+        if (IsLegacyProjectCreate(context))
         {
             AddResponse(operation, "503", "Project creation is temporarily unavailable.");
         }
+    }
 
-        if (operation.RequestBody is not null)
+    private static bool IsLegacyProjectCreate(OpenApiOperationTransformerContext context) =>
+        HttpMethods.IsPost(context.Description.HttpMethod) &&
+        string.Equals(
+            context.Description.RelativePath?.TrimEnd('/'),
+            "api/projects",
+            StringComparison.OrdinalIgnoreCase);
+
+    private static void ConfigureRequestBody(
+        OpenApiOperation operation,
+        OpenApiOperationTransformerContext context)
+    {
+        if (operation.RequestBody is null)
         {
-            // ApiExplorer flattens form DTOs and can omit their property-level
-            // Required attributes. Preserve those runtime validation rules in
-            // the multipart schema used by clients and scanners.
-            if (operation.RequestBody.Content?.TryGetValue("multipart/form-data", out var multipart) == true &&
-                multipart.Schema is OpenApiSchema formSchema)
-            {
-                foreach (var parameter in context.Description.ActionDescriptor.Parameters)
-                {
-                    foreach (var property in parameter.ParameterType.GetProperties())
-                    {
-                        if (property.GetCustomAttribute<RequiredAttribute>() is not null &&
-                            formSchema.Properties?.ContainsKey(property.Name) == true)
-                        {
-                            formSchema.Required ??= new HashSet<string>();
-                            formSchema.Required.Add(property.Name);
-                        }
-                    }
-                }
-            }
-
-            // ApiExplorer includes the legacy text/json formatter media type,
-            // but the production request pipeline rejects it with 415. Keep
-            // the authoritative security contract aligned with runtime input.
-            operation.RequestBody.Content?.Remove("text/json");
-            AddResponse(operation, "415", "The request content type is not supported.");
+            return;
         }
 
+        PreserveMultipartRequiredProperties(operation, context);
+
+        // ApiExplorer includes the legacy text/json formatter media type,
+        // but the production request pipeline rejects it with 415. Keep
+        // the authoritative security contract aligned with runtime input.
+        operation.RequestBody.Content?.Remove("text/json");
+        AddResponse(operation, "415", "The request content type is not supported.");
+    }
+
+    private static void PreserveMultipartRequiredProperties(
+        OpenApiOperation operation,
+        OpenApiOperationTransformerContext context)
+    {
+        // ApiExplorer flattens form DTOs and can omit their property-level
+        // Required attributes. Preserve those runtime validation rules in
+        // the multipart schema used by clients and scanners.
+        if (operation.RequestBody?.Content?.TryGetValue("multipart/form-data", out var multipart) != true ||
+            multipart.Schema is not OpenApiSchema formSchema)
+        {
+            return;
+        }
+
+        foreach (var parameter in context.Description.ActionDescriptor.Parameters)
+        {
+            foreach (var property in RequiredProperties(parameter.ParameterType))
+            {
+                if (formSchema.Properties?.ContainsKey(property.Name) != true)
+                {
+                    continue;
+                }
+
+                formSchema.Required ??= new HashSet<string>();
+                formSchema.Required.Add(property.Name);
+            }
+        }
+    }
+
+    private static IEnumerable<PropertyInfo> RequiredProperties(Type parameterType) =>
+        parameterType.GetProperties()
+            .Where(property => property.GetCustomAttribute<RequiredAttribute>() is not null);
+
+    private static void ConfigureKnownErrorContent(OpenApiOperation operation)
+    {
         foreach (var status in new[] { "400", "401", "403", "404", "415" })
         {
             if (operation.Responses?.ContainsKey(status) == true)
@@ -113,8 +155,6 @@ public sealed class SecurityOpenApiOperationTransformer : IOpenApiOperationTrans
                 AddErrorResponseContent(operation, status);
             }
         }
-
-        return Task.CompletedTask;
     }
 
     private static void EnsureCookieSecurityScheme(OpenApiDocument document)
