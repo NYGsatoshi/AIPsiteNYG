@@ -106,7 +106,7 @@ jobs:
           if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
             changed_files="$RUNNER_TEMP/qodana/pr-changed-files.txt"
             mkdir -p "$(dirname "$changed_files")"
-            git diff --name-only --diff-filter=ACMR -z "$QODANA_PR_BASE_SHA...HEAD" > "$changed_files"
+            git diff --name-only --diff-filter=ACMRT -z "$QODANA_PR_BASE_SHA...HEAD" > "$changed_files"
             echo "changed_files_path=$changed_files" >> "$GITHUB_OUTPUT"
             echo "pr_mode=true" >> "$GITHUB_OUTPUT"
           else
