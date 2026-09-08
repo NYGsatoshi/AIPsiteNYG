@@ -366,7 +366,7 @@ expect_failure_contains \
     --policy "$tmp/policy.json" \
     --addon-list-sha256 "$addon_sha"
 
-# The SEC-06 wrapper must refuse a public/non-allowlisted target before Docker or
+# The shared SEC-03 boundary must reject public targets before Docker or
 # authenticated traffic can be reached.
 # shellcheck source=scripts/security/scanner-harness.sh
 source scripts/security/scanner-harness.sh
@@ -375,15 +375,27 @@ source scripts/security/zap-runner.sh
 export ASPNETCORE_ENVIRONMENT=Test
 export AIP_SECURITY_CI_FIXTURE_ENABLED=true
 export AIP_SECURITY_CI_PASSWORD='contract-test-password'
-export SECURITY_SCAN_TARGET='https://production.example.com'
 export SECURITY_SCAN_TRANSPORT_KIND=compose
+export SECURITY_SCAN_TARGET='https://production.example.com'
 set +e
 target_rejection="$(security_zap_require_target 2>&1)"
 target_status=$?
 set -e
 (( target_status != 0 )) || test_fail "public target passed SEC-06 target preflight"
+[[ "$target_rejection" == *'SEC-03 target rejected before network access'* ]] ||
+  test_fail "unexpected public-target rejection: $target_rejection"
+
+# SEC-06 is intentionally narrower than the shared local-target allowlist: even
+# an otherwise allowed localhost origin must be rejected unless it is the
+# transport-bound SEC-02 Compose service alias.
+export SECURITY_SCAN_TARGET='http://localhost'
+set +e
+target_rejection="$(security_zap_require_target 2>&1)"
+target_status=$?
+set -e
+(( target_status != 0 )) || test_fail "non-Compose local target passed SEC-06 target preflight"
 [[ "$target_rejection" == *'required SEC-06 runtime accepts only the SEC-02 Compose service origin'* ]] ||
-  test_fail "unexpected target-preflight rejection: $target_rejection"
+  test_fail "unexpected SEC-06 target-preflight rejection: $target_rejection"
 
 export AIP_SECURITY_ZAP_FORBIDDEN_VALUES='["cookie-value-123","session=cookie-value-123","csrf-value-123"]'
 redacted="$(printf '%s\n' 'cookie-value-123 session=cookie-value-123 csrf-value-123 safe-marker' | security_zap_redact_stream)"
