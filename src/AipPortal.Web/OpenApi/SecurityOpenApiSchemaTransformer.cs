@@ -17,6 +17,9 @@ namespace AipPortal.Web.OpenApi;
 /// </summary>
 public sealed class SecurityOpenApiSchemaTransformer : IOpenApiSchemaTransformer
 {
+    private static readonly string[] ConversationScopeIdentifiers =
+        ["workspaceId", "projectId", "parentConversationId"];
+
     public Task TransformAsync(
         OpenApiSchema schema,
         OpenApiSchemaTransformerContext context,
@@ -132,7 +135,12 @@ public sealed class SecurityOpenApiSchemaTransformer : IOpenApiSchemaTransformer
             // AnnouncementService and AnnouncementContentContract trim before
             // rejecting blank values; advertise that constraint to API scanners.
             ConfigureNonBlankString(schema, "title");
-            ConfigureNonBlankString(schema, "body");
+            var bodyMaximumLength =
+                schema.Properties?.TryGetValue("body", out var bodyProperty) == true &&
+                bodyProperty is OpenApiSchema bodySchema
+                    ? bodySchema.MaxLength ?? AnnouncementContentContract.MaximumPersistedLength
+                    : AnnouncementContentContract.MaximumPersistedLength;
+            ConfigureNonBlankString(schema, "body", bodyMaximumLength);
             return;
         }
         if (requestType == typeof(AnnouncementActionLink))
@@ -146,12 +154,16 @@ public sealed class SecurityOpenApiSchemaTransformer : IOpenApiSchemaTransformer
 
     private static OpenApiSchema ConversationScope(string type, params string[] requiredIds)
     {
-        var properties = requiredIds.ToDictionary(name => name, _ => (IOpenApiSchema)new OpenApiSchema
-        {
-            Type = JsonSchemaType.String,
-            Format = "uuid",
-            Not = new OpenApiSchema { Enum = [JsonValue.Create(Guid.Empty.ToString())] }
-        });
+        var selectedIds = requiredIds.ToHashSet(StringComparer.Ordinal);
+        var properties = ConversationScopeIdentifiers.ToDictionary(name => name, name => (IOpenApiSchema)(
+            selectedIds.Contains(name)
+                ? new OpenApiSchema
+                {
+                    Type = JsonSchemaType.String,
+                    Format = "uuid",
+                    Not = new OpenApiSchema { Enum = [JsonValue.Create(Guid.Empty.ToString())] }
+                }
+                : new OpenApiSchema { Type = JsonSchemaType.Null }));
         properties["type"] = new OpenApiSchema { Enum = [JsonValue.Create(type)] };
         return new OpenApiSchema
         {
@@ -170,7 +182,10 @@ public sealed class SecurityOpenApiSchemaTransformer : IOpenApiSchemaTransformer
 
         stringSchema.MinLength = 1;
         stringSchema.Pattern = "[\\s\\S]*\\S[\\s\\S]*";
-        stringSchema.MaxLength = maximumLength;
+        if (maximumLength.HasValue)
+        {
+            stringSchema.MaxLength = maximumLength;
+        }
     }
 
     private static void ConfigureSafeActionUrl(OpenApiSchema schema)
