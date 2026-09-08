@@ -173,6 +173,6 @@ public sealed class SecurityOpenApiSchemaTransformer : IOpenApiSchemaTransformer
 
         urlSchema.MinLength = 1;
         urlSchema.MaxLength = AnnouncementContentContract.MaximumUrlLength;
-        urlSchema.Pattern = "^(?:/(?!/)(?!\\.\\.(?:/|$))(?!.*?/\\.\\.(?:/|$))[^\\s\\\\]*|[hH][tT][tT][pP][sS]://[^\\s/:?#@\\\\][^\\s/?#@\\\\]*(?:[/?#][^\\s\\\\]*)?)$";
+        urlSchema.Pattern = "^(?:/(?!/)(?!\\.\\.(?:/|$))(?!.*?/\\.\\.(?:/|$))[^\\s\\\\]*|[hH][tT][tT][pP][sS]://(?:\\[[0-9A-Fa-f:.]+\\]|[^\\s/:?#@\\\\][^\\s/:?#@\\\\]*)(?::[0-9]{1,5})?(?:[/?#][^\\s\\\\]*)?)$";
     }
 }
