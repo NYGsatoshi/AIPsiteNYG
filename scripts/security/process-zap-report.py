@@ -11,7 +11,7 @@ import re
 from collections import Counter
 from pathlib import Path
 from typing import Any, NoReturn
-from urllib.parse import parse_qsl, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, unquote, urlsplit, urlunsplit
 
 FORBIDDEN_VALUES_ENV = "AIP_SECURITY_ZAP_FORBIDDEN_VALUES"
 ALLOW_UNSANITIZED_ENV = "AIP_SECURITY_ZAP_ALLOW_UNSANITIZED"
@@ -324,9 +324,15 @@ def build_evidence(
 
 
 def assert_sanitized(rendered: str, forbidden_values: list[str]) -> None:
+    decoded_rendered = unquote(rendered)
     for value in forbidden_values:
         escaped_value = json.dumps(value)[1:-1]
-        if value in rendered or escaped_value in rendered:
+        if (
+            value in rendered
+            or escaped_value in rendered
+            or value in decoded_rendered
+            or escaped_value in decoded_rendered
+        ):
             fail("sanitized evidence still contains ephemeral authentication material")
 
 
