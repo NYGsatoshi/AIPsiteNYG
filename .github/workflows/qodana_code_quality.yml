@@ -26,4 +26,4 @@ jobs:
     name: Qodana Gate
     permissions:
       contents: read
-    uses: NYGsatoshi/AIPsiteNYG/.github/workflows/qodana_trusted_gate.yml@2495eb077b4c0cd0316f41a7aa4742b34ad5c4b0
+    uses: NYGsatoshi/AIPsiteNYG/.github/workflows/qodana_trusted_gate.yml@0c1c7881d9da8e86a31656925d5ec13d89eeeef7 # qodana-gate-v1
