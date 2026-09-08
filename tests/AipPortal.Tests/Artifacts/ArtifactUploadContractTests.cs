@@ -79,6 +79,13 @@ public sealed class ArtifactUploadContractTests
         Assert.IsType<BadRequestObjectResult>(await controller.UploadVersion(Guid.NewGuid(), new(), default));
     }
 
+    [Fact]
+    public async Task Attachment_missing_file_is_rejected_before_calling_service()
+    {
+        var controller = new AttachmentsController(null!);
+        Assert.IsType<BadRequestObjectResult>(await controller.Upload(new(), default));
+    }
+
     [Theory]
     [InlineData("Artifact not found.", StatusCodes.Status404NotFound)]
     [InlineData("Empty files are not allowed.", StatusCodes.Status400BadRequest)]
