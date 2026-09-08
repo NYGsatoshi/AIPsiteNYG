@@ -26,121 +26,89 @@ jobs:
           python3 - <<'PYTHON_SCRIPT'
           from pathlib import Path
 
+          def replace_once(text: str, old: str, new: str, label: str) -> str:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected 1 occurrence, found {count}")
+              return text.replace(old, new, 1)
+
           operation_path = Path("src/AipPortal.Web/OpenApi/SecurityOpenApiOperationTransformer.cs")
           operation = operation_path.read_text(encoding="utf-8")
-          old_loop = '''        foreach (var parameter in context.Description.ActionDescriptor.Parameters)
-          {
-              foreach (var property in RequiredProperties(parameter.ParameterType))
-              {
-                  if (formSchema.Properties?.ContainsKey(property.Name) != true)
-                  {
-                      continue;
-                  }
-
-                  formSchema.Required ??= new HashSet<string>();
-                  formSchema.Required.Add(property.Name);
-              }
-          }
-          '''
-          new_loop = '''        foreach (var parameter in context.Description.ActionDescriptor.Parameters)
-          {
-              foreach (var propertyName in RequiredProperties(parameter.ParameterType).Select(property => property.Name))
-              {
-                  if (formSchema.Properties?.ContainsKey(propertyName) != true)
-                  {
-                      continue;
-                  }
-
-                  formSchema.Required ??= new HashSet<string>();
-                  formSchema.Required.Add(propertyName);
-              }
-          }
-          '''
-          if operation.count(old_loop) != 1:
-              raise SystemExit("operation transformer loop shape drifted")
-          operation = operation.replace(old_loop, new_loop, 1)
+          operation = replace_once(
+              operation,
+              "foreach (var property in RequiredProperties(parameter.ParameterType))",
+              "foreach (var propertyName in RequiredProperties(parameter.ParameterType).Select(property => property.Name))",
+              "operation property loop",
+          )
+          operation = replace_once(
+              operation,
+              "ContainsKey(property.Name)",
+              "ContainsKey(propertyName)",
+              "operation property lookup",
+          )
+          operation = replace_once(
+              operation,
+              "Add(property.Name)",
+              "Add(propertyName)",
+              "operation required property add",
+          )
           if "using System.Linq;\n" not in operation:
-              operation = operation.replace(
+              operation = replace_once(
+                  operation,
                   "using System.ComponentModel.DataAnnotations;\n",
                   "using System.ComponentModel.DataAnnotations;\nusing System.Linq;\n",
-                  1,
+                  "operation using insertion",
               )
           operation_path.write_text(operation, encoding="utf-8")
 
           test_path = Path("scripts/security/test-zap-contract.sh")
           test = test_path.read_text(encoding="utf-8")
           image_literal = "'zaproxy/zap-stable:2.17.0@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'"
-          if test.count(image_literal) != 6:
-              raise SystemExit(f"expected 6 repeated scanner image literals, found {test.count(image_literal)}")
-          marker = "addon_sha=\"$(printf 'immutable-addon-inventory' | sha256sum | awk '{print $1}')\"\n"
-          if test.count(marker) != 1:
-              raise SystemExit("addon SHA marker drifted")
-          test = test.replace(marker, marker + "readonly TEST_SCANNER_IMAGE=" + image_literal + "\n", 1)
+          image_count = test.count(image_literal)
+          if image_count != 6:
+              raise SystemExit(f"scanner image literal: expected 6 occurrences, found {image_count}")
           test = test.replace(image_literal, '"$TEST_SCANNER_IMAGE"')
-          test = test.replace(
-              'readonly TEST_SCANNER_IMAGE="$TEST_SCANNER_IMAGE"',
-              "readonly TEST_SCANNER_IMAGE=" + image_literal,
-              1,
+          addon_marker = "addon_sha=\"$(printf 'immutable-addon-inventory' | sha256sum | awk '{print $1}')\"\n"
+          test = replace_once(
+              test,
+              addon_marker,
+              addon_marker + "readonly TEST_SCANNER_IMAGE=" + image_literal + "\n",
+              "test scanner image constant insertion",
           )
           test_path.write_text(test, encoding="utf-8")
 
           runner_path = Path("scripts/security/zap-runner.sh")
           runner = runner_path.read_text(encoding="utf-8")
           awk_literal = "awk '{print $1}'"
-          if runner.count(awk_literal) != 4:
-              raise SystemExit(f"expected 4 repeated SHA field literals, found {runner.count(awk_literal)}")
+          awk_count = runner.count(awk_literal)
+          if awk_count != 4:
+              raise SystemExit(f"SHA extraction literal: expected 4 occurrences, found {awk_count}")
           runner = runner.replace(awk_literal, "cut -d ' ' -f1")
 
-          contract_tail = '''  python3 scripts/ci/verify-openapi.py "$ZAP_CONTRACT" ||
-            security_zap_fail "authoritative SEC-01 OpenAPI artifact failed re-verification" || return 1
-          }
-          '''
-          contract_fixed = '''  python3 scripts/ci/verify-openapi.py "$ZAP_CONTRACT" ||
-            security_zap_fail "authoritative SEC-01 OpenAPI artifact failed re-verification" || return 1
-            return 0
-          }
-          '''
-          if runner.count(contract_tail) != 1:
-              raise SystemExit("require-contract tail drifted")
-          runner = runner.replace(contract_tail, contract_fixed, 1)
-
-          network_tail = '''' "$network" || return 1
-          }
-
-          security_zap_target_regex() {
-          '''
-          network_fixed = '''' "$network" || return 1
-            return 0
-          }
-
-          security_zap_target_regex() {
-          '''
-          if runner.count(network_tail) != 1:
-              raise SystemExit("internal-network tail drifted")
-          runner = runner.replace(network_tail, network_fixed, 1)
-
-          forbidden_command = '''    python3 - "$jar" <<'PY'
-          '''
-          if runner.count(forbidden_command) != 1:
-              raise SystemExit("forbidden-values Python command drifted")
-          runner = runner.replace(forbidden_command, '''    python3 - "$jar" <<'PY' || return 1
-          ''', 1)
-          forbidden_tail = '''print(json.dumps(sorted(value for value in values if value), separators=(",", ":")))
-          PY
-          }
-
-          security_zap_redact_stream() {
-          '''
-          forbidden_fixed = '''print(json.dumps(sorted(value for value in values if value), separators=(",", ":")))
-          PY
-            return 0
-          }
-
-          security_zap_redact_stream() {
-          '''
-          if runner.count(forbidden_tail) != 1:
-              raise SystemExit("forbidden-values function tail drifted")
-          runner = runner.replace(forbidden_tail, forbidden_fixed, 1)
+          runner = replace_once(
+              runner,
+              '    security_zap_fail "authoritative SEC-01 OpenAPI artifact failed re-verification" || return 1\n}\n\nsecurity_zap_roles() {',
+              '    security_zap_fail "authoritative SEC-01 OpenAPI artifact failed re-verification" || return 1\n  return 0\n}\n\nsecurity_zap_roles() {',
+              "require-contract return",
+          )
+          runner = replace_once(
+              runner,
+              "' \"$network\" || return 1\n}\n\nsecurity_zap_target_regex() {",
+              "' \"$network\" || return 1\n  return 0\n}\n\nsecurity_zap_target_regex() {",
+              "internal-network return",
+          )
+          runner = replace_once(
+              runner,
+              '    python3 - "$jar" <<\'PY\'\n',
+              '    python3 - "$jar" <<\'PY\' || return 1\n',
+              "forbidden-values Python guard",
+          )
+          runner = replace_once(
+              runner,
+              'print(json.dumps(sorted(value for value in values if value), separators=(",", ":")))\nPY\n}\n\nsecurity_zap_redact_stream() {',
+              'print(json.dumps(sorted(value for value in values if value), separators=(",", ":")))\nPY\n  return 0\n}\n\nsecurity_zap_redact_stream() {',
+              "forbidden-values return",
+          )
           runner_path.write_text(runner, encoding="utf-8")
           PYTHON_SCRIPT
 
