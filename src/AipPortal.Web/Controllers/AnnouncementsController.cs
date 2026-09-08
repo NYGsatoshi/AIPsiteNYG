@@ -1,5 +1,6 @@
 using AipPortal.Application.Announcements;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AipPortal.Web.Controllers;
@@ -37,7 +38,7 @@ public sealed class AnnouncementsController(
             cancellationToken);
         if (!authorization.IsSuccess || authorization.Value != true)
         {
-            return StatusCode(403, new { error = "Announcement audience is not authorized." });
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = "Announcement audience is not authorized." });
         }
 
         return ToActionResult(await announcements.CreateAsync(request, cancellationToken));
@@ -174,8 +175,8 @@ public sealed class AnnouncementsController(
         // never infer authorization or resource existence from arbitrary text.
         var status = error switch
         {
-            "Authentication is required." => 401,
-            "Announcement not found." => 404,
+            "Authentication is required." => StatusCodes.Status401Unauthorized,
+            "Announcement not found." => StatusCodes.Status404NotFound,
             "You are not allowed to update this announcement." or
             "You are not allowed to delete this announcement." or
             "You are not allowed to view read status." or
@@ -183,8 +184,8 @@ public sealed class AnnouncementsController(
             "You are not allowed to create channel announcements." or
             "You are not allowed to create group announcements." or
             "You are not allowed to create workspace announcements." or
-            "Only system admins can create global announcements." => 403,
-            _ => 400
+            "Only system admins can create global announcements." => StatusCodes.Status403Forbidden,
+            _ => StatusCodes.Status400BadRequest
         };
         return StatusCode(status, new { error });
     }
