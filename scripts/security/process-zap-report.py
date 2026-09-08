@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, NoReturn
 from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
+FORBIDDEN_VALUES_ENV = "AIP_SECURITY_ZAP_FORBIDDEN_VALUES"
 RISK_FROM_CODE = {
     "0": "Informational",
     "1": "Low",
@@ -90,15 +91,15 @@ def normalize_risk(alert: dict[str, Any]) -> str | None:
 
 
 def load_forbidden_values() -> list[str]:
-    raw = os.environ.get("AIP_SECURITY_ZAP_FORBIDDEN_VALUES", "")
+    raw = os.environ.get(FORBIDDEN_VALUES_ENV, "")
     if not raw:
         return []
     try:
         values = json.loads(raw)
     except json.JSONDecodeError as exc:
-        fail(f"AIP_SECURITY_ZAP_FORBIDDEN_VALUES is invalid JSON: {exc}")
+        fail(f"{FORBIDDEN_VALUES_ENV} is invalid JSON: {exc}")
     if not isinstance(values, list) or not all(isinstance(value, str) for value in values):
-        fail("AIP_SECURITY_ZAP_FORBIDDEN_VALUES must be a JSON array of strings")
+        fail(f"{FORBIDDEN_VALUES_ENV} must be a JSON array of strings")
     return sorted({value for value in values if value})
 
 
