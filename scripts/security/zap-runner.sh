@@ -190,7 +190,7 @@ security_zap_verify_toolchain() {
 security_zap_run_role() {
   local role=$1 network=$2 mount_root=$3
   local tenant cookie_header target_regex raw_host report_name output metadata
-  local forbidden_json status process_status role_timeout
+  local forbidden_json status process_status role_timeout container_name
 
   security_scan_verify_context "$role" ||
     security_zap_fail "SEC-03 authenticated context verification failed for '$role'" || return 1
@@ -222,12 +222,14 @@ security_zap_run_role() {
   export AIP_SECURITY_ZAP_FORBIDDEN_VALUES="$forbidden_json"
 
   role_timeout="${AIP_SECURITY_ZAP_ROLE_TIMEOUT:-15m}"
+  container_name="sec06-zap-${role}-$$"
   printf 'SEC-06 ZAP: role=%s target=%s policy=sec06-strict-api timeout=%s\n' \
     "$role" "$SECURITY_SCAN_TARGET" "$role_timeout"
 
   set +e
   timeout --signal=TERM --kill-after=30s "$role_timeout" \
     docker run --rm \
+      --name "$container_name" \
       --platform "$ZAP_PLATFORM" \
       --user "$(id -u):$(id -g)" \
       --network "$network" \
@@ -251,6 +253,9 @@ security_zap_run_role() {
       -lc 'mkdir -p /tmp/zap-home && exec /zap/zap.sh -cmd -silent -dir /tmp/zap-home -autorun /work/scripts/security/zap-automation.yaml' \
       2>&1 | security_zap_redact_stream
   status=${PIPESTATUS[0]}
+  if (( status != 0 )); then
+    docker rm -f "$container_name" >/dev/null 2>&1 || true
+  fi
   set -e
 
   set +e
