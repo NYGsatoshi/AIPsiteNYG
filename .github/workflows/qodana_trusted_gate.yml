@@ -37,7 +37,7 @@ jobs:
             sh -c "chown -R ${uid}:${gid} /workspace"
 
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
@@ -72,7 +72,7 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Set up .NET SDK
-        uses: actions/setup-dotnet@v6
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
         with:
           global-json-file: global.json
 
@@ -99,8 +99,7 @@ jobs:
 
       - name: Run strict Qodana inspection inventory
         id: qodana_scan
-        # Pinned to JetBrains/qodana-action v2026.2.1.
-        uses: JetBrains/qodana-action@10be11607eb323a180e2b76b26c9c5cdceac3e77
+        uses: JetBrains/qodana-action@10be11607eb323a180e2b76b26c9c5cdceac3e77 # v2026.2.1
         with:
           args: |
             --image jetbrains/qodana-cdnet:2026.2-privileged@sha256:21bbbfeac0e61fe8790cc27d5754b87d57b8032c0c32f84ddeb887027f83ec4f
@@ -125,7 +124,7 @@ jobs:
 
       - name: Set up Node.js for Qodana guard
         if: steps.qodana_scan.outcome == 'success'
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: "24"
 
@@ -154,7 +153,7 @@ jobs:
 
       - name: Upload Qodana inspection inventory
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: qodana-full-inventory
           path: ${{ runner.temp }}/qodana/results-${{ github.run_id }}-${{ github.run_attempt }}
@@ -163,7 +162,7 @@ jobs:
 
       - name: Upload Qodana project-model summary
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: qodana-project-model-summary
           path: ${{ runner.temp }}/qodana/project-model-summary.json
