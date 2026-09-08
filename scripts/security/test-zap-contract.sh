@@ -15,6 +15,19 @@ test_fail() {
   exit 1
 }
 
+expect_failure_contains() {
+  local expected=$1
+  shift
+  local output status
+  set +e
+  output="$("$@" 2>&1)"
+  status=$?
+  set -e
+  (( status != 0 )) || test_fail "command unexpectedly succeeded; expected rejection containing '$expected'"
+  [[ "$output" == *"$expected"* ]] ||
+    test_fail "expected rejection containing '$expected', got: $output"
+}
+
 for path in "$plan" "$policy" "$runner" "$processor"; do
   [[ -f "$path" ]] || test_fail "missing $path"
 done
@@ -124,6 +137,7 @@ cp "$plan" "$tmp/plan.yaml"
 cp "$policy" "$tmp/policy.json"
 addon_sha="$(printf 'immutable-addon-inventory' | sha256sum | awk '{print $1}')"
 readonly TEST_SCANNER_IMAGE='zaproxy/zap-stable:2.17.0@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+readonly TEST_FORBIDDEN_VALUES='["synthetic-secret","synthetic-cookie","synthetic-csrf"]'
 
 cat > "$tmp/medium.json" <<'JSON'
 {
@@ -155,7 +169,62 @@ cat > "$tmp/medium.json" <<'JSON'
 }
 JSON
 
-AIP_SECURITY_ZAP_FORBIDDEN_VALUES='["synthetic-secret","synthetic-cookie","synthetic-csrf"]' \
+expect_failure_contains \
+  'AIP_SECURITY_ZAP_FORBIDDEN_VALUES is not set' \
+  env -u AIP_SECURITY_ZAP_FORBIDDEN_VALUES -u AIP_SECURITY_ZAP_ALLOW_UNSANITIZED \
+  python3 "$processor" \
+    --raw-report "$tmp/medium.json" \
+    --output "$tmp/missing-forbidden-safe.json" \
+    --metadata "$tmp/missing-forbidden-meta.json" \
+    --role alpha-restricted \
+    --target http://app:8080 \
+    --scanner-version 2.17.0 \
+    --scanner-image "$TEST_SCANNER_IMAGE" \
+    --scanner-exit 0 \
+    --contract "$tmp/openapi.json" \
+    --automation-plan "$tmp/plan.yaml" \
+    --policy "$tmp/policy.json" \
+    --addon-list-sha256 "$addon_sha"
+[[ ! -e "$tmp/missing-forbidden-safe.json" && ! -e "$tmp/missing-forbidden-meta.json" ]] ||
+  test_fail "missing forbidden-value set wrote evidence"
+
+expect_failure_contains \
+  'AIP_SECURITY_ZAP_FORBIDDEN_VALUES contains no non-empty values' \
+  env -u AIP_SECURITY_ZAP_ALLOW_UNSANITIZED AIP_SECURITY_ZAP_FORBIDDEN_VALUES='[]' \
+  python3 "$processor" \
+    --raw-report "$tmp/medium.json" \
+    --output "$tmp/empty-forbidden-safe.json" \
+    --metadata "$tmp/empty-forbidden-meta.json" \
+    --role alpha-restricted \
+    --target http://app:8080 \
+    --scanner-version 2.17.0 \
+    --scanner-image "$TEST_SCANNER_IMAGE" \
+    --scanner-exit 0 \
+    --contract "$tmp/openapi.json" \
+    --automation-plan "$tmp/plan.yaml" \
+    --policy "$tmp/policy.json" \
+    --addon-list-sha256 "$addon_sha"
+[[ ! -e "$tmp/empty-forbidden-safe.json" && ! -e "$tmp/empty-forbidden-meta.json" ]] ||
+  test_fail "empty forbidden-value set wrote evidence without explicit opt-out"
+
+env -u AIP_SECURITY_ZAP_FORBIDDEN_VALUES AIP_SECURITY_ZAP_ALLOW_UNSANITIZED=1 \
+python3 "$processor" \
+  --raw-report "$tmp/medium.json" \
+  --output "$tmp/optout-safe.json" \
+  --metadata "$tmp/optout-meta.json" \
+  --role alpha-restricted \
+  --target http://app:8080 \
+  --scanner-version 2.17.0 \
+  --scanner-image "$TEST_SCANNER_IMAGE" \
+  --scanner-exit 0 \
+  --contract "$tmp/openapi.json" \
+  --automation-plan "$tmp/plan.yaml" \
+  --policy "$tmp/policy.json" \
+  --addon-list-sha256 "$addon_sha" >/dev/null
+grep -Fq '"forbiddenValueCount": 0' "$tmp/optout-safe.json" || test_fail "opt-out evidence did not record zero forbidden values"
+grep -Fq '"unsanitizedAllowed": true' "$tmp/optout-safe.json" || test_fail "opt-out evidence did not record the explicit decision"
+
+env -u AIP_SECURITY_ZAP_ALLOW_UNSANITIZED AIP_SECURITY_ZAP_FORBIDDEN_VALUES="$TEST_FORBIDDEN_VALUES" \
 python3 "$processor" \
   --raw-report "$tmp/medium.json" \
   --output "$tmp/medium-safe.json" \
@@ -171,6 +240,8 @@ python3 "$processor" \
   --addon-list-sha256 "$addon_sha"
 
 grep -Fq '"Medium": 1' "$tmp/medium-safe.json" || test_fail "Medium alert is not visible in sanitized evidence"
+grep -Fq '"forbiddenValueCount": 3' "$tmp/medium-safe.json" || test_fail "sanitization evidence did not record the forbidden-value count"
+grep -Fq '"unsanitizedAllowed": false' "$tmp/medium-safe.json" || test_fail "normal SEC-06 evidence incorrectly recorded sanitization opt-out"
 if grep -Fq 'synthetic-secret' "$tmp/medium-safe.json" || grep -Fq 'synthetic-cookie' "$tmp/medium-safe.json"; then
   test_fail "sanitized report persisted attack/evidence/session material"
 fi
@@ -186,38 +257,40 @@ alert["riskcode"] = "unexpected"
 alert["riskdesc"] = "Unexpected"
 Path(sys.argv[2]).write_text(json.dumps(doc), encoding="utf-8")
 PY
-if python3 "$processor" \
-  --raw-report "$tmp/unknown-risk.json" \
-  --output "$tmp/unknown-risk-safe.json" \
-  --metadata "$tmp/unknown-risk-meta.json" \
-  --role alpha-restricted \
-  --target http://app:8080 \
-  --scanner-version 2.17.0 \
-  --scanner-image "$TEST_SCANNER_IMAGE" \
-  --scanner-exit 0 \
-  --contract "$tmp/openapi.json" \
-  --automation-plan "$tmp/plan.yaml" \
-  --policy "$tmp/policy.json" \
-  --addon-list-sha256 "$addon_sha"; then
-  test_fail "unrecognized alert risk was incorrectly accepted"
-fi
+expect_failure_contains \
+  'unrecognized risk classification' \
+  env -u AIP_SECURITY_ZAP_ALLOW_UNSANITIZED AIP_SECURITY_ZAP_FORBIDDEN_VALUES="$TEST_FORBIDDEN_VALUES" \
+  python3 "$processor" \
+    --raw-report "$tmp/unknown-risk.json" \
+    --output "$tmp/unknown-risk-safe.json" \
+    --metadata "$tmp/unknown-risk-meta.json" \
+    --role alpha-restricted \
+    --target http://app:8080 \
+    --scanner-version 2.17.0 \
+    --scanner-image "$TEST_SCANNER_IMAGE" \
+    --scanner-exit 0 \
+    --contract "$tmp/openapi.json" \
+    --automation-plan "$tmp/plan.yaml" \
+    --policy "$tmp/policy.json" \
+    --addon-list-sha256 "$addon_sha"
 
 printf '{"site": []}\n' > "$tmp/empty-sites.json"
-if python3 "$processor" \
-  --raw-report "$tmp/empty-sites.json" \
-  --output "$tmp/empty-sites-safe.json" \
-  --metadata "$tmp/empty-sites-meta.json" \
-  --role alpha-restricted \
-  --target http://app:8080 \
-  --scanner-version 2.17.0 \
-  --scanner-image "$TEST_SCANNER_IMAGE" \
-  --scanner-exit 0 \
-  --contract "$tmp/openapi.json" \
-  --automation-plan "$tmp/plan.yaml" \
-  --policy "$tmp/policy.json" \
-  --addon-list-sha256 "$addon_sha"; then
-  test_fail "successful scanner exit without scanned-site coverage was incorrectly accepted"
-fi
+expect_failure_contains \
+  'scanner exited successfully without scanned-site coverage' \
+  env -u AIP_SECURITY_ZAP_ALLOW_UNSANITIZED AIP_SECURITY_ZAP_FORBIDDEN_VALUES="$TEST_FORBIDDEN_VALUES" \
+  python3 "$processor" \
+    --raw-report "$tmp/empty-sites.json" \
+    --output "$tmp/empty-sites-safe.json" \
+    --metadata "$tmp/empty-sites-meta.json" \
+    --role alpha-restricted \
+    --target http://app:8080 \
+    --scanner-version 2.17.0 \
+    --scanner-image "$TEST_SCANNER_IMAGE" \
+    --scanner-exit 0 \
+    --contract "$tmp/openapi.json" \
+    --automation-plan "$tmp/plan.yaml" \
+    --policy "$tmp/policy.json" \
+    --addon-list-sha256 "$addon_sha"
 
 python3 - "$tmp/medium.json" "$tmp/high.json" <<'PY'
 import json
@@ -232,7 +305,9 @@ alert["riskdesc"] = "High (Medium)"
 Path(sys.argv[2]).write_text(json.dumps(doc), encoding="utf-8")
 PY
 
-if AIP_SECURITY_ZAP_FORBIDDEN_VALUES='["synthetic-secret","synthetic-cookie"]' \
+expect_failure_contains \
+  'High findings are blocking' \
+  env -u AIP_SECURITY_ZAP_ALLOW_UNSANITIZED AIP_SECURITY_ZAP_FORBIDDEN_VALUES="$TEST_FORBIDDEN_VALUES" \
   python3 "$processor" \
     --raw-report "$tmp/high.json" \
     --output "$tmp/high-safe.json" \
@@ -245,27 +320,26 @@ if AIP_SECURITY_ZAP_FORBIDDEN_VALUES='["synthetic-secret","synthetic-cookie"]' \
     --contract "$tmp/openapi.json" \
     --automation-plan "$tmp/plan.yaml" \
     --policy "$tmp/policy.json" \
-    --addon-list-sha256 "$addon_sha"; then
-  test_fail "controlled High alert did not block"
-fi
+    --addon-list-sha256 "$addon_sha"
 [[ -s "$tmp/high-safe.json" ]] || test_fail "blocking High finding did not leave sanitized evidence"
 grep -Fq '"blockingHighAlerts": 1' "$tmp/high-safe.json" || test_fail "High blocker count missing"
 
-if python3 "$processor" \
-  --raw-report "$tmp/medium.json" \
-  --output "$tmp/timeout-safe.json" \
-  --metadata "$tmp/timeout-meta.json" \
-  --role beta-owner \
-  --target http://app:8080 \
-  --scanner-version 2.17.0 \
-  --scanner-image "$TEST_SCANNER_IMAGE" \
-  --scanner-exit 124 \
-  --contract "$tmp/openapi.json" \
-  --automation-plan "$tmp/plan.yaml" \
-  --policy "$tmp/policy.json" \
-  --addon-list-sha256 "$addon_sha"; then
-  test_fail "scanner timeout was incorrectly accepted"
-fi
+expect_failure_contains \
+  'ZAP failure/timeout cannot be green' \
+  env -u AIP_SECURITY_ZAP_ALLOW_UNSANITIZED AIP_SECURITY_ZAP_FORBIDDEN_VALUES="$TEST_FORBIDDEN_VALUES" \
+  python3 "$processor" \
+    --raw-report "$tmp/medium.json" \
+    --output "$tmp/timeout-safe.json" \
+    --metadata "$tmp/timeout-meta.json" \
+    --role beta-owner \
+    --target http://app:8080 \
+    --scanner-version 2.17.0 \
+    --scanner-image "$TEST_SCANNER_IMAGE" \
+    --scanner-exit 124 \
+    --contract "$tmp/openapi.json" \
+    --automation-plan "$tmp/plan.yaml" \
+    --policy "$tmp/policy.json" \
+    --addon-list-sha256 "$addon_sha"
 
 python3 - "$tmp/medium.json" "$tmp/cross-origin.json" <<'PY'
 import json
@@ -275,21 +349,22 @@ doc = json.loads(Path(sys.argv[1]).read_text())
 doc["site"][0]["alerts"][0]["instances"][0]["uri"] = "https://public.example.com/leak"
 Path(sys.argv[2]).write_text(json.dumps(doc), encoding="utf-8")
 PY
-if python3 "$processor" \
-  --raw-report "$tmp/cross-origin.json" \
-  --output "$tmp/cross-safe.json" \
-  --metadata "$tmp/cross-meta.json" \
-  --role alpha-owner \
-  --target http://app:8080 \
-  --scanner-version 2.17.0 \
-  --scanner-image "$TEST_SCANNER_IMAGE" \
-  --scanner-exit 0 \
-  --contract "$tmp/openapi.json" \
-  --automation-plan "$tmp/plan.yaml" \
-  --policy "$tmp/policy.json" \
-  --addon-list-sha256 "$addon_sha"; then
-  test_fail "cross-origin report evidence was incorrectly accepted"
-fi
+expect_failure_contains \
+  'cross-origin alert evidence observed' \
+  env -u AIP_SECURITY_ZAP_ALLOW_UNSANITIZED AIP_SECURITY_ZAP_FORBIDDEN_VALUES="$TEST_FORBIDDEN_VALUES" \
+  python3 "$processor" \
+    --raw-report "$tmp/cross-origin.json" \
+    --output "$tmp/cross-safe.json" \
+    --metadata "$tmp/cross-meta.json" \
+    --role alpha-owner \
+    --target http://app:8080 \
+    --scanner-version 2.17.0 \
+    --scanner-image "$TEST_SCANNER_IMAGE" \
+    --scanner-exit 0 \
+    --contract "$tmp/openapi.json" \
+    --automation-plan "$tmp/plan.yaml" \
+    --policy "$tmp/policy.json" \
+    --addon-list-sha256 "$addon_sha"
 
 # The SEC-06 wrapper must refuse a public/non-allowlisted target before Docker or
 # authenticated traffic can be reached.
@@ -302,9 +377,13 @@ export AIP_SECURITY_CI_FIXTURE_ENABLED=true
 export AIP_SECURITY_CI_PASSWORD='contract-test-password'
 export SECURITY_SCAN_TARGET='https://production.example.com'
 export SECURITY_SCAN_TRANSPORT_KIND=compose
-if security_zap_require_target >/dev/null 2>&1; then
-  test_fail "public target passed SEC-06 target preflight"
-fi
+set +e
+target_rejection="$(security_zap_require_target 2>&1)"
+target_status=$?
+set -e
+(( target_status != 0 )) || test_fail "public target passed SEC-06 target preflight"
+[[ "$target_rejection" == *'required SEC-06 runtime accepts only the SEC-02 Compose service origin'* ]] ||
+  test_fail "unexpected target-preflight rejection: $target_rejection"
 
 export AIP_SECURITY_ZAP_FORBIDDEN_VALUES='["cookie-value-123","session=cookie-value-123","csrf-value-123"]'
 redacted="$(printf '%s\n' 'cookie-value-123 session=cookie-value-123 csrf-value-123 safe-marker' | security_zap_redact_stream)"
