@@ -14,6 +14,7 @@ from typing import Any, NoReturn
 from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
 FORBIDDEN_VALUES_ENV = "AIP_SECURITY_ZAP_FORBIDDEN_VALUES"
+ALLOW_UNSANITIZED_ENV = "AIP_SECURITY_ZAP_ALLOW_UNSANITIZED"
 RISK_FROM_CODE = {
     "0": "Informational",
     "1": "Low",
@@ -90,17 +91,29 @@ def normalize_risk(alert: dict[str, Any]) -> str | None:
     return RISK_FROM_CODE.get(str(alert.get("riskcode", "")))
 
 
-def load_forbidden_values() -> list[str]:
+def load_forbidden_values() -> tuple[list[str], bool]:
     raw = os.environ.get(FORBIDDEN_VALUES_ENV, "")
+    allow_unsanitized = os.environ.get(ALLOW_UNSANITIZED_ENV) == "1"
     if not raw:
-        return []
+        if allow_unsanitized:
+            return [], True
+        fail(
+            f"{FORBIDDEN_VALUES_ENV} is not set; SEC-06 cannot prove the evidence "
+            "is free of ephemeral authentication material"
+        )
     try:
         values = json.loads(raw)
     except json.JSONDecodeError as exc:
         fail(f"{FORBIDDEN_VALUES_ENV} is invalid JSON: {exc}")
     if not isinstance(values, list) or not all(isinstance(value, str) for value in values):
         fail(f"{FORBIDDEN_VALUES_ENV} must be a JSON array of strings")
-    return sorted({value for value in values if value})
+    filtered = sorted({value for value in values if value})
+    if not filtered and not allow_unsanitized:
+        fail(
+            f"{FORBIDDEN_VALUES_ENV} contains no non-empty values; SEC-06 cannot "
+            "prove the evidence is free of ephemeral authentication material"
+        )
+    return filtered, allow_unsanitized
 
 
 def site_alerts(site: Any, target_origin: str) -> list[Any]:
@@ -270,6 +283,8 @@ def build_evidence(
     rule_counts: Counter[str],
     instance_counts: Counter[str],
     safe_alerts: list[dict[str, Any]],
+    forbidden_values: list[str],
+    allow_unsanitized: bool,
 ) -> dict[str, Any]:
     return {
         "schemaVersion": 1,
@@ -292,6 +307,10 @@ def build_evidence(
             "policySha256": sha256_file(args.policy),
             "addonListSha256": args.addon_list_sha256,
         },
+        "sanitization": {
+            "forbiddenValueCount": len(forbidden_values),
+            "unsanitizedAllowed": allow_unsanitized,
+        },
         "summary": {
             "uniqueAlertsByRisk": {
                 risk: risk_counts.get(risk, 0) for risk in RISK_ORDER
@@ -304,20 +323,23 @@ def build_evidence(
     }
 
 
-def assert_sanitized(rendered: str) -> None:
-    for value in load_forbidden_values():
+def assert_sanitized(rendered: str, forbidden_values: list[str]) -> None:
+    for value in forbidden_values:
         escaped_value = json.dumps(value)[1:-1]
         if value in rendered or escaped_value in rendered:
             fail("sanitized evidence still contains ephemeral authentication material")
 
 
 def write_evidence(
-    args: argparse.Namespace, evidence: dict[str, Any], risk_counts: Counter[str]
+    args: argparse.Namespace,
+    evidence: dict[str, Any],
+    risk_counts: Counter[str],
+    forbidden_values: list[str],
 ) -> None:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.metadata.parent.mkdir(parents=True, exist_ok=True)
     rendered = json.dumps(evidence, indent=2, sort_keys=True) + "\n"
-    assert_sanitized(rendered)
+    assert_sanitized(rendered, forbidden_values)
     args.output.write_text(rendered, encoding="utf-8")
 
     metadata = {
@@ -330,6 +352,8 @@ def write_evidence(
         "automationPlanSha256": evidence["inputs"]["automationPlanSha256"],
         "policySha256": evidence["inputs"]["policySha256"],
         "addonListSha256": args.addon_list_sha256,
+        "forbiddenValueCount": len(forbidden_values),
+        "unsanitizedAllowed": evidence["sanitization"]["unsanitizedAllowed"],
         "highAlerts": risk_counts.get("High", 0),
         "mediumAlerts": risk_counts.get("Medium", 0),
         "lowAlerts": risk_counts.get("Low", 0),
@@ -343,6 +367,7 @@ def write_evidence(
 
 def main() -> None:
     args = parse_args()
+    forbidden_values, allow_unsanitized = load_forbidden_values()
     target_origin, sites = load_report(args)
     risk_counts, rule_counts, instance_counts, safe_alerts = reduce_alerts(
         sites, target_origin
@@ -354,8 +379,10 @@ def main() -> None:
         rule_counts,
         instance_counts,
         safe_alerts,
+        forbidden_values,
+        allow_unsanitized,
     )
-    write_evidence(args, evidence, risk_counts)
+    write_evidence(args, evidence, risk_counts, forbidden_values)
     enforce_blocking_policy(args.scanner_exit, risk_counts)
     print(
         "SEC-06 ZAP report accepted: "
