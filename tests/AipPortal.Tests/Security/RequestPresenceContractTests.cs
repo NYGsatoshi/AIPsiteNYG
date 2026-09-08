@@ -6,14 +6,16 @@ namespace AipPortal.Tests.Security;
 
 public sealed class RequestPresenceContractTests
 {
+    private static readonly JsonSerializerOptions WebOptions = new(JsonSerializerDefaults.Web);
+
     [Fact]
     public void MessageNotificationPreferenceRequiresExplicitBoolean()
     {
         Assert.Throws<JsonException>(() =>
-            JsonSerializer.Deserialize<UpdateMessageNotificationPreferenceRequest>("{}"));
+            JsonSerializer.Deserialize<UpdateMessageNotificationPreferenceRequest>("{}", WebOptions));
 
         var request = JsonSerializer.Deserialize<UpdateMessageNotificationPreferenceRequest>(
-            "{\"messageNotificationsEnabled\":false}");
+            "{\"messageNotificationsEnabled\":false}", WebOptions);
         Assert.False(request!.MessageNotificationsEnabled);
     }
 
@@ -22,6 +24,6 @@ public sealed class RequestPresenceContractTests
     {
         Assert.Throws<JsonException>(() =>
             JsonSerializer.Deserialize<CreateIntegrationAccountRequest>(
-                "{\"displayName\":\"Example\",\"settingsJson\":null}"));
+                "{\"displayName\":\"Example\",\"settingsJson\":null}", WebOptions));
     }
 }
