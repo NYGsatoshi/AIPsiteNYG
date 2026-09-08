@@ -27,7 +27,8 @@ security_zap_require_contract() {
 security_zap_roles() {
   # alpha-restricted is the lower-privilege representative requested by SEC-06.
   # SEC-05 separately owns exhaustive actor x authorization semantics.
-  printf '%s\n' alpha-owner alpha-restricted beta-owner
+  printf '%s\n' alpha-owner alpha-restricted beta-owner || return 1
+  return 0
 }
 
 security_zap_require_target() {
@@ -78,11 +79,12 @@ if "app" not in aliases:
 }
 
 security_zap_target_regex() {
-  python3 - "$SECURITY_SCAN_TARGET" <<'PY'
+  python3 - "$SECURITY_SCAN_TARGET" <<'PY' || return 1
 import re
 import sys
 print(re.escape(sys.argv[1]))
 PY
+  return 0
 }
 
 security_zap_cookie_header() {
@@ -159,7 +161,8 @@ for value in values:
     if value:
         text = text.replace(value, "[REDACTED]")
 sys.stdout.write(text)
-'
+' || return 1
+  return 0
 }
 
 security_zap_verify_toolchain() {
