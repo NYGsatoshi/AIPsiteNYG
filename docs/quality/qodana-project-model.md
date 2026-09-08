@@ -1,6 +1,6 @@
 # Qodana project model
 
-Last updated: 2026-09-07.
+Last updated: 2026-09-08.
 
 ## Canonical roots
 
@@ -68,8 +68,10 @@ The Qodana workflow runs on pull requests targeting `main` with full Git history
 
 For PRs:
 
-- `pr-mode: true` limits Qodana findings to changed files.
-- `--fail-threshold 0` rejects any Qodana finding in changed code.
+- `pr-mode: true` supplies Qodana with pull-request comparison context while retaining the inspection inventory used by the repository guard.
+- Before Qodana starts, the workflow writes the exact `base...HEAD` changed-file set to a runner-temporary, NUL-delimited file.
+- After Qodana succeeds, `check-qodana-project-model.mjs` rejects any Qodana finding located in one of those changed files.
+- The native total-problem `--fail-threshold` is not used for the PR gate because, without a stable matching baseline, it also counts historical findings exposed by the strict profile.
 - Qodana execution failure is not masked with `continue-on-error`.
 - Repository permissions remain `contents: read`.
 - Qodana comments, annotations and quick-fix pushes are disabled.
@@ -77,7 +79,7 @@ For PRs:
 - Repository-owner PRs may exercise proposed Qodana policy changes directly.
 - For every other PR, `qodana.yaml`, the Qodana bootstrap/guard, and the repository helper scripts executed by this job are restored from the PR base SHA before execution; the guard is restored again after analysis before it consumes SARIF.
 
-This preserves analysis of submitted source while preventing an external PR from replacing the quality-policy scripts that enforce the result.
+This preserves analysis of submitted source while preventing an external PR from replacing the quality-policy scripts that enforce the result. Historical findings in untouched files remain visible without turning unrelated PRs red.
 
 ## Full-repository quality gate
 
@@ -92,7 +94,7 @@ The repository currently has historical non-critical Qodana debt, so an absolute
 - Missing or invalid SARIF: hard failure.
 - Qodana process failure: hard failure.
 
-All non-critical findings remain visible in the uploaded inventory and can be retired incrementally. Because PRs reject every changed-code finding, new debt is prevented at the merge boundary.
+All non-critical findings remain visible in the uploaded inventory and can be retired incrementally. Because PRs reject findings in changed files, new debt is prevented at the merge boundary without charging unrelated historical debt to the PR.
 
 ## Exclusion rationale
 
@@ -147,4 +149,4 @@ $env:QODANA_UNRESOLVED_FILE_THRESHOLD = "0"
 node scripts/quality/check-qodana-project-model.mjs .tmp/qodana/results/qodana.sarif.json
 ```
 
-A PR-equivalent local scan can additionally pass `--fail-threshold 0` while restricting analysis to the intended changed-code range.
+For a PR-equivalent guard run, generate the same NUL-delimited `base...HEAD` changed-file list used by CI, set `QODANA_CHANGED_FILES_PATH` to it, and run the SARIF guard against the completed Qodana report.
