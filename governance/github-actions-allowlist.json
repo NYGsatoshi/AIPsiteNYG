@@ -2,7 +2,9 @@
   "schemaVersion": 1,
   "requiredWorkflows": [
     ".github/workflows/ci.yml",
-    ".github/workflows/publication-readiness.yml"
+    ".github/workflows/publication-readiness.yml",
+    ".github/workflows/qodana_code_quality.yml",
+    ".github/workflows/qodana_trusted_gate.yml"
   ],
   "actions": {
     "actions/checkout": {
@@ -57,6 +59,12 @@
       "sha": "b282c67b1008fde9b60da4bdfcd8849613e293b2",
       "version": "v0.1.6",
       "purpose": "Trusted NuGet dependency snapshot submission",
+      "privilegedAllowed": true
+    },
+    "NYGsatoshi/AIPsiteNYG": {
+      "sha": "0c1c7881d9da8e86a31656925d5ec13d89eeeef7",
+      "version": "qodana-gate-v1",
+      "purpose": "Immutable same-repository reusable Qodana gate",
       "privilegedAllowed": true
     }
   }
