@@ -57,6 +57,16 @@ jobs:
         value: 0
         onFail: error
 
+  # Each role runs in a fresh ZAP process with role-specific replacer values.
+  # Require an actual protected request/response exchange so an imported-only
+  # OpenAPI surface cannot satisfy the SEC-06 coverage gate.
+  - type: requestor
+    requests:
+      - name: SEC-06 authenticated role coverage probe
+        url: "${AIP_SECURITY_ZAP_TARGET}/api/announcements/audiences"
+        method: GET
+        responseCode: 200
+
   - type: passiveScan-wait
     parameters:
       maxDuration: 3
@@ -117,9 +127,8 @@ jobs:
       context: sec06-api
       url: "${AIP_SECURITY_ZAP_TARGET}"
       policy: sec06-strict-api
-      # Per-rule time stats below are milliseconds and flow through the existing
-      # sanitized Automation Framework output. Increase this limit only after a
-      # completed, non-skipped CI scan records a required rule above 120000 ms.
+      # Keep each reviewed rule bounded. The started/skipped assertions below
+      # require every required rule to execute without being skipped.
       maxRuleDurationInMins: 2
       # A non-zero internal limit plus the host-side timeout in zap-runner.sh
       # prevents a hung scanner from running indefinitely. The tests below make
@@ -146,12 +155,6 @@ jobs:
         operator: "=="
         value: 0
         onFail: error
-      - name: Path Traversal rule runtime
-        type: stats
-        statistic: stats.ascan.6.time
-        operator: ">="
-        value: 0
-        onFail: error
       - name: CRLF Injection rule started
         type: stats
         statistic: stats.ascan.40003.started
@@ -162,12 +165,6 @@ jobs:
         type: stats
         statistic: stats.ascan.40003.skipped
         operator: "=="
-        value: 0
-        onFail: error
-      - name: CRLF Injection rule runtime
-        type: stats
-        statistic: stats.ascan.40003.time
-        operator: ">="
         value: 0
         onFail: error
       - name: Parameter Tampering rule started
@@ -182,28 +179,15 @@ jobs:
         operator: "=="
         value: 0
         onFail: error
-      - name: Parameter Tampering rule runtime
-        type: stats
-        statistic: stats.ascan.40008.time
-        operator: ">="
-        value: 0
-        onFail: error
       - name: Reflected XSS rule started
         type: stats
         statistic: stats.ascan.40012.started
-        operator: ">="
-        value: 1
+        operator: ">="n        value: 1
         onFail: error
       - name: Reflected XSS rule completed without skip
         type: stats
         statistic: stats.ascan.40012.skipped
         operator: "=="
-        value: 0
-        onFail: error
-      - name: Reflected XSS rule runtime
-        type: stats
-        statistic: stats.ascan.40012.time
-        operator: ">="
         value: 0
         onFail: error
       - name: Persistent XSS rule started
@@ -218,12 +202,6 @@ jobs:
         operator: "=="
         value: 0
         onFail: error
-      - name: Persistent XSS rule runtime
-        type: stats
-        statistic: stats.ascan.40014.time
-        operator: ">="
-        value: 0
-        onFail: error
       - name: SQL Injection rule started
         type: stats
         statistic: stats.ascan.40018.started
@@ -234,12 +212,6 @@ jobs:
         type: stats
         statistic: stats.ascan.40018.skipped
         operator: "=="
-        value: 0
-        onFail: error
-      - name: SQL Injection rule runtime
-        type: stats
-        statistic: stats.ascan.40018.time
-        operator: ">="
         value: 0
         onFail: error
       - name: PostgreSQL time-based SQL Injection rule started
@@ -254,12 +226,6 @@ jobs:
         operator: "=="
         value: 0
         onFail: error
-      - name: PostgreSQL time-based SQL Injection rule runtime
-        type: stats
-        statistic: stats.ascan.40022.time
-        operator: ">="
-        value: 0
-        onFail: error
       - name: Remote OS Command Injection rule started
         type: stats
         statistic: stats.ascan.90020.started
@@ -270,12 +236,6 @@ jobs:
         type: stats
         statistic: stats.ascan.90020.skipped
         operator: "=="
-        value: 0
-        onFail: error
-      - name: Remote OS Command Injection rule runtime
-        type: stats
-        statistic: stats.ascan.90020.time
-        operator: ">="
         value: 0
         onFail: error
 
