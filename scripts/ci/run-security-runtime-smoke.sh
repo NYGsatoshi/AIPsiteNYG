@@ -259,7 +259,7 @@ security_schemathesis_run_matrix "$network" "$state_dir"
 # route to public origins. The runner separately validates toolchain, policy,
 # OpenAPI non-zero coverage, session continuity, High-risk blockers, and evidence.
 prepare_zap_network
-security_zap_run_matrix "$zap_network" "$state_dir" "$app_container"
+security_zap_run_matrix "$zap_network" "$SECURITY_SCAN_STATE_DIR" "$app_container"
 release_zap_network
 
 aud02_capture_fixture_evidence
