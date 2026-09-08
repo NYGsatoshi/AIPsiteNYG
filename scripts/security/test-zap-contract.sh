@@ -28,12 +28,145 @@ expect_failure_contains() {
     test_fail "expected rejection containing '$expected', got: $output"
 }
 
+validate_automation_plan() {
+  local candidate=$1
+  ruby - "$candidate" "$required_active_rule_ids" <<'RUBY'
+require "yaml"
+
+path = ARGV.fetch(0)
+required_active_rule_ids = ARGV.fetch(1).split(",")
+
+def fail!(message)
+  warn message
+  exit 1
+end
+
+def only_job(jobs, type)
+  matches = jobs.select { |job| job.is_a?(Hash) && job["type"] == type }
+  fail!("Automation plan must contain exactly one #{type} job") unless matches.length == 1
+  matches.first
+end
+
+def hash_array(value, message)
+  fail!(message) unless value.is_a?(Array) && value.all? { |item| item.is_a?(Hash) }
+  value
+end
+
+begin
+  document = YAML.safe_load(File.read(path), aliases: false)
+rescue Psych::Exception => e
+  fail!("Automation plan YAML is invalid: #{e.message}")
+end
+fail!("Automation plan root must be a mapping") unless document.is_a?(Hash)
+jobs = hash_array(document["jobs"], "Automation plan jobs must be an array of mappings")
+
+openapi = only_job(jobs, "openapi")
+openapi_tests = hash_array(openapi["tests"], "OpenAPI job tests must be an array of mappings")
+unless openapi_tests.any? { |test| test["statistic"] == "openapi.urls.added" && test["operator"] == ">" }
+  fail!("Automation plan OpenAPI coverage invariant is missing")
+end
+
+requestor = only_job(jobs, "requestor")
+requests = hash_array(requestor["requests"], "requestor requests must be an array of mappings")
+unless requests.any? { |request|
+  request["url"] == "${AIP_SECURITY_ZAP_TARGET}/api/announcements/audiences" &&
+    request["responseCode"] == 200
+}
+  fail!("Automation plan authenticated request/response probe is missing")
+end
+
+unless jobs.any? { |job| job["type"] == "passiveScan-wait" }
+  fail!("Automation plan passiveScan-wait invariant is missing")
+end
+
+policy_job = only_job(jobs, "activeScan-policy")
+policy_definition = policy_job["policyDefinition"]
+fail!("Automation plan activeScan policyDefinition is missing") unless policy_definition.is_a?(Hash)
+default_threshold = policy_definition["defaultThreshold"]
+unless default_threshold == "Off" || default_threshold == false
+  fail!("Automation plan defaultThreshold must remain Off")
+end
+rules = hash_array(policy_definition["rules"], "Automation plan activeScan rules must be an array of mappings")
+plan_rule_ids = rules.map { |rule| rule["id"] }.compact.map(&:to_s)
+unless plan_rule_ids.length == required_active_rule_ids.length &&
+       plan_rule_ids.sort == required_active_rule_ids.sort
+  fail!(
+    "Automation plan rules must exactly match the independent SEC-06 required-rule set: " \
+    "expected=#{required_active_rule_ids} actual=#{plan_rule_ids}"
+  )
+end
+
+active_scan = only_job(jobs, "activeScan")
+active_tests = hash_array(active_scan["tests"], "activeScan tests must be an array of mappings")
+statistics = active_tests.map { |test| test["statistic"] }.compact.map(&:to_s)
+fail!("Active scan forced-stop invariant is missing") unless statistics.include?("stats.ascan.stopped")
+required_active_rule_ids.each do |rule_id|
+  %W[stats.ascan.#{rule_id}.started stats.ascan.#{rule_id}.skipped].each do |statistic|
+    fail!("Required active-rule completion invariant missing: #{statistic}") unless statistics.include?(statistic)
+  end
+  obsolete = "stats.ascan.#{rule_id}.time"
+  fail!("Obsolete per-rule time invariant must be absent: #{obsolete}") if statistics.include?(obsolete)
+end
+
+report = only_job(jobs, "report")
+unless report["parameters"].is_a?(Hash) && report["parameters"]["template"] == "traditional-json"
+  fail!("Automation plan report template must remain traditional-json")
+end
+
+exit_status = only_job(jobs, "exitStatus")
+exit_parameters = exit_status["parameters"]
+unless exit_parameters.is_a?(Hash) &&
+       exit_parameters["errorLevel"] == "High" &&
+       exit_parameters["warnExitValue"] == 1
+  fail!("Automation plan exitStatus blocking invariant is missing")
+end
+
+replacer = only_job(jobs, "replacer")
+replacer_rules = hash_array(replacer["rules"], "replacer rules must be an array of mappings")
+replacements = replacer_rules.map { |rule| rule["replacementString"] }.compact
+%w[${AIP_SECURITY_ZAP_COOKIE} ${AIP_SECURITY_ZAP_CSRF_TOKEN}].each do |replacement|
+  fail!("Automation plan replacer invariant missing: #{replacement}") unless replacements.include?(replacement)
+end
+RUBY
+}
+
+comment_out_exact_lines() {
+  local source=$1 destination=$2 needle=$3
+  python3 - "$source" "$destination" "$needle" <<'PY'
+from pathlib import Path
+import sys
+
+source = Path(sys.argv[1])
+destination = Path(sys.argv[2])
+needle = sys.argv[3]
+matched = 0
+rendered = []
+for line in source.read_text(encoding="utf-8").splitlines(keepends=True):
+    newline = "\n" if line.endswith("\n") else ""
+    body = line[:-1] if newline else line
+    if body.strip() == needle:
+        indent = body[: len(body) - len(body.lstrip())]
+        rendered.append(f"{indent}# {body.lstrip()}{newline}")
+        matched += 1
+    else:
+        rendered.append(line)
+if matched == 0:
+    raise SystemExit(f"fixture source line not found: {needle}")
+destination.write_text("".join(rendered), encoding="utf-8")
+PY
+}
+
 for path in "$plan" "$policy" "$runner" "$processor"; do
   [[ -f "$path" ]] || test_fail "missing $path"
 done
 
 bash -n "$runner"
 python3 -m py_compile "$processor"
+command -v ruby >/dev/null 2>&1 || test_fail "Ruby is required to parse the SEC-06 Automation Framework YAML"
+
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+
 python3 - "$policy" "$required_active_rule_ids" <<'PY'
 import json
 import re
@@ -85,75 +218,100 @@ if coverage.get("authenticatedRequestResponsePerRole") != expected_probe:
     raise SystemExit("SEC-06 coverage policy must require the protected per-role request/response probe")
 PY
 
-python3 - "$plan" "$required_active_rule_ids" <<'PY'
-from pathlib import Path
-import re
-import sys
-text = Path(sys.argv[1]).read_text(encoding="utf-8")
-required_active_rule_ids = tuple(sys.argv[2].split(","))
-checks = (
-    "type: openapi",
-    "statistic: openapi.urls.added",
-    'operator: ">"',
-    "type: requestor",
-    '${AIP_SECURITY_ZAP_TARGET}/api/announcements/audiences',
-    "responseCode: 200",
-    "type: passiveScan-wait",
-    "type: activeScan-policy",
-    "defaultThreshold: Off",
-    "type: activeScan",
-    "statistic: stats.ascan.stopped",
-    "template: traditional-json",
-    "type: exitStatus",
-    "errorLevel: High",
-    "warnExitValue: 1",
-    "${AIP_SECURITY_ZAP_COOKIE}",
-    "${AIP_SECURITY_ZAP_CSRF_TOKEN}",
-)
-for item in checks:
-    if item not in text:
-        raise SystemExit(f"Automation plan invariant missing: {item}")
-try:
-    policy_section = text.split("  - type: activeScan-policy\n", 1)[1].split(
-        "\n  - type: activeScan\n", 1
-    )[0]
-except IndexError as exc:
-    raise SystemExit("Automation plan activeScan-policy section is malformed") from exc
-plan_rule_ids = tuple(
-    re.findall(r"(?m)^\s+- id:\s*(\d+)\s*$", policy_section)
-)
-if (
-    len(plan_rule_ids) != len(required_active_rule_ids)
-    or set(plan_rule_ids) != set(required_active_rule_ids)
-):
-    raise SystemExit(
-        "Automation plan rules must exactly match the independent SEC-06 required-rule set: "
-        f"expected={required_active_rule_ids} actual={plan_rule_ids}"
-    )
-for rule_id in required_active_rule_ids:
-    for item in (
-        f"statistic: stats.ascan.{rule_id}.started",
-        f"statistic: stats.ascan.{rule_id}.skipped",
-    ):
-        if item not in text:
-            raise SystemExit(f"Required active-rule completion invariant missing: {item}")
-    obsolete_time = f"statistic: stats.ascan.{rule_id}.time"
-    if obsolete_time in text:
-        raise SystemExit(f"Obsolete per-rule time invariant must be absent: {obsolete_time}")
-if "traditional-json-plus" in text:
-    raise SystemExit("request/response-bearing ZAP report templates are forbidden")
-PY
+validate_automation_plan "$plan"
 
-grep -Fq 'export AIP_SECURITY_ZAP_FORBIDDEN_VALUES="$forbidden_json"' "$runner" || test_fail "full forbidden-value set is not exported for host-side redaction"
-grep -Fq 'values.add(f"{name}={value}")' "$runner" || test_fail "cookie name=value pairs are missing from the forbidden-value set"
-grep -Fq 'unset AIP_SECURITY_ZAP_FORBIDDEN_VALUES' "$runner" || test_fail "host-side forbidden-value set is not cleared after each role"
-! grep -Eq '^[[:space:]]*-e[[:space:]]+AIP_SECURITY_ZAP_FORBIDDEN_VALUES([[:space:]\\]|$)' "$runner" || test_fail "forbidden-value set must not be passed into the ZAP container"
-grep -Fq 'container_name="sec06-zap-${role}-$$"' "$runner" || test_fail "ZAP role container lacks a deterministic cleanup name"
-grep -Fq -- '--name "$container_name"' "$runner" || test_fail "named ZAP role container is not wired into docker run"
-grep -Fq 'docker rm -f "$container_name" >/dev/null 2>&1 || true' "$runner" || test_fail "non-zero ZAP exit does not force-remove its named container"
+plan_fixture_index=0
+expect_plan_comment_rejected() {
+  local needle=$1
+  plan_fixture_index=$((plan_fixture_index + 1))
+  local mutant="$tmp/plan-comment-required-${plan_fixture_index}.yaml"
+  comment_out_exact_lines "$plan" "$mutant" "$needle"
+  if validate_automation_plan "$mutant" >/dev/null 2>&1; then
+    test_fail "comment-only Automation Framework invariant was accepted: $needle"
+  fi
+}
 
-tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+for invariant in \
+  '- type: openapi' \
+  'statistic: openapi.urls.added' \
+  'operator: ">"' \
+  '- type: requestor' \
+  'url: "${AIP_SECURITY_ZAP_TARGET}/api/announcements/audiences"' \
+  'responseCode: 200' \
+  '- type: passiveScan-wait' \
+  '- type: activeScan-policy' \
+  'defaultThreshold: Off' \
+  '- type: activeScan' \
+  'statistic: stats.ascan.stopped' \
+  'template: traditional-json' \
+  '- type: exitStatus' \
+  'errorLevel: High' \
+  'warnExitValue: 1' \
+  'replacementString: "${AIP_SECURITY_ZAP_COOKIE}"' \
+  'replacementString: "${AIP_SECURITY_ZAP_CSRF_TOKEN}"'
+do
+  expect_plan_comment_rejected "$invariant"
+done
+
+IFS=',' read -r -a required_active_rules <<< "$required_active_rule_ids"
+for rule_id in "${required_active_rules[@]}"; do
+  expect_plan_comment_rejected "- id: $rule_id"
+  expect_plan_comment_rejected "statistic: stats.ascan.${rule_id}.started"
+  expect_plan_comment_rejected "statistic: stats.ascan.${rule_id}.skipped"
+
+  comment_only_obsolete="$tmp/plan-comment-obsolete-${rule_id}.yaml"
+  cp "$plan" "$comment_only_obsolete"
+  printf '\n# statistic: stats.ascan.%s.time\n' "$rule_id" >> "$comment_only_obsolete"
+  validate_automation_plan "$comment_only_obsolete" >/dev/null 2>&1 ||
+    test_fail "comment-only obsolete per-rule time marker affected parsed validation for rule $rule_id"
+done
+
+comment_only_report="$tmp/plan-comment-report-template.yaml"
+cp "$plan" "$comment_only_report"
+printf '\n# template: traditional-json-plus\n' >> "$comment_only_report"
+validate_automation_plan "$comment_only_report" >/dev/null 2>&1 ||
+  test_fail "comment-only request/response-bearing report template affected parsed validation"
+
+runner_export_pattern='^[[:space:]]*export[[:space:]]+AIP_SECURITY_ZAP_FORBIDDEN_VALUES="[$]forbidden_json"[[:space:]]*$'
+runner_cookie_pair_pattern='^[[:space:]]*values[.]add[(]f"[{]name[}]=[{]value[}]"[)][[:space:]]*$'
+runner_unset_pattern='^[[:space:]]*unset[[:space:]]+AIP_SECURITY_ZAP_FORBIDDEN_VALUES[[:space:]]*$'
+runner_container_name_pattern='^[[:space:]]*container_name="sec06-zap-[$][{]role[}]-[$][$]"[[:space:]]*$'
+runner_docker_name_pattern='^[[:space:]]*--name[[:space:]]+"[$]container_name"[[:space:]]+\\[[:space:]]*$'
+runner_cleanup_pattern='^[[:space:]]*docker[[:space:]]+rm[[:space:]]+-f[[:space:]]+"[$]container_name"[[:space:]]+>/dev/null[[:space:]]+2>&1[[:space:]]+\|\|[[:space:]]+true[[:space:]]*$'
+runner_forbidden_container_pattern='^[[:space:]]*-e[[:space:]]+AIP_SECURITY_ZAP_FORBIDDEN_VALUES([[:space:]\\]|$)'
+
+grep -Eq -- "$runner_export_pattern" "$runner" || test_fail "full forbidden-value set is not exported for host-side redaction"
+grep -Eq -- "$runner_cookie_pair_pattern" "$runner" || test_fail "cookie name=value pairs are missing from the forbidden-value set"
+grep -Eq -- "$runner_unset_pattern" "$runner" || test_fail "host-side forbidden-value set is not cleared after each role"
+! grep -Eq -- "$runner_forbidden_container_pattern" "$runner" || test_fail "forbidden-value set must not be passed into the ZAP container"
+grep -Eq -- "$runner_container_name_pattern" "$runner" || test_fail "ZAP role container lacks a deterministic cleanup name"
+grep -Eq -- "$runner_docker_name_pattern" "$runner" || test_fail "named ZAP role container is not wired into docker run"
+grep -Eq -- "$runner_cleanup_pattern" "$runner" || test_fail "non-zero ZAP exit does not force-remove its named container"
+
+runner_fixture_index=0
+expect_runner_comment_rejected() {
+  local needle=$1 pattern=$2
+  runner_fixture_index=$((runner_fixture_index + 1))
+  local mutant="$tmp/runner-comment-required-${runner_fixture_index}.sh"
+  comment_out_exact_lines "$runner" "$mutant" "$needle"
+  if grep -Eq -- "$pattern" "$mutant"; then
+    test_fail "comment-only runner safeguard was accepted: $needle"
+  fi
+}
+
+expect_runner_comment_rejected 'export AIP_SECURITY_ZAP_FORBIDDEN_VALUES="$forbidden_json"' "$runner_export_pattern"
+expect_runner_comment_rejected 'values.add(f"{name}={value}")' "$runner_cookie_pair_pattern"
+expect_runner_comment_rejected 'unset AIP_SECURITY_ZAP_FORBIDDEN_VALUES' "$runner_unset_pattern"
+expect_runner_comment_rejected 'container_name="sec06-zap-${role}-$$"' "$runner_container_name_pattern"
+expect_runner_comment_rejected '--name "$container_name" \' "$runner_docker_name_pattern"
+expect_runner_comment_rejected 'docker rm -f "$container_name" >/dev/null 2>&1 || true' "$runner_cleanup_pattern"
+
+runner_comment_forbidden="$tmp/runner-comment-forbidden-env.sh"
+cp "$runner" "$runner_comment_forbidden"
+printf '%s\n' '# -e AIP_SECURITY_ZAP_FORBIDDEN_VALUES \' >> "$runner_comment_forbidden"
+! grep -Eq -- "$runner_forbidden_container_pattern" "$runner_comment_forbidden" ||
+  test_fail "comment-only forbidden-value container argument was treated as executable"
+
 printf '{}\n' > "$tmp/openapi.json"
 cp "$plan" "$tmp/plan.yaml"
 cp "$policy" "$tmp/policy.json"
@@ -190,6 +348,46 @@ cat > "$tmp/medium.json" <<'JSON'
   ]
 }
 JSON
+
+: > "$tmp/empty-plan.yaml"
+expect_failure_contains \
+  "required input is empty: $tmp/empty-plan.yaml" \
+  env -u AIP_SECURITY_ZAP_ALLOW_UNSANITIZED AIP_SECURITY_ZAP_FORBIDDEN_VALUES="$TEST_FORBIDDEN_VALUES" \
+  python3 "$processor" \
+    --raw-report "$tmp/medium.json" \
+    --output "$tmp/empty-plan-safe.json" \
+    --metadata "$tmp/empty-plan-meta.json" \
+    --role alpha-restricted \
+    --target http://app:8080 \
+    --scanner-version 2.17.0 \
+    --scanner-image "$TEST_SCANNER_IMAGE" \
+    --scanner-exit 0 \
+    --contract "$tmp/openapi.json" \
+    --automation-plan "$tmp/empty-plan.yaml" \
+    --policy "$tmp/policy.json" \
+    --addon-list-sha256 "$addon_sha"
+[[ ! -e "$tmp/empty-plan-safe.json" && ! -e "$tmp/empty-plan-meta.json" ]] ||
+  test_fail "empty automation plan wrote evidence"
+
+: > "$tmp/empty-policy.json"
+expect_failure_contains \
+  "required input is empty: $tmp/empty-policy.json" \
+  env -u AIP_SECURITY_ZAP_ALLOW_UNSANITIZED AIP_SECURITY_ZAP_FORBIDDEN_VALUES="$TEST_FORBIDDEN_VALUES" \
+  python3 "$processor" \
+    --raw-report "$tmp/medium.json" \
+    --output "$tmp/empty-policy-safe.json" \
+    --metadata "$tmp/empty-policy-meta.json" \
+    --role alpha-restricted \
+    --target http://app:8080 \
+    --scanner-version 2.17.0 \
+    --scanner-image "$TEST_SCANNER_IMAGE" \
+    --scanner-exit 0 \
+    --contract "$tmp/openapi.json" \
+    --automation-plan "$tmp/plan.yaml" \
+    --policy "$tmp/empty-policy.json" \
+    --addon-list-sha256 "$addon_sha"
+[[ ! -e "$tmp/empty-policy-safe.json" && ! -e "$tmp/empty-policy-meta.json" ]] ||
+  test_fail "empty policy wrote evidence"
 
 expect_failure_contains \
   'AIP_SECURITY_ZAP_FORBIDDEN_VALUES is not set' \
