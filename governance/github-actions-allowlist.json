@@ -52,8 +52,8 @@
     "JetBrains/qodana-action": {
       "sha": "10be11607eb323a180e2b76b26c9c5cdceac3e77",
       "version": "v2026.2.1",
-      "purpose": "Optional Qodana deep analysis",
-      "privilegedAllowed": false
+      "purpose": "Pinned Qodana deep analysis in the protected read-only Qodana gate",
+      "privilegedAllowed": true
     },
     "advanced-security/component-detection-dependency-submission-action": {
       "sha": "b282c67b1008fde9b60da4bdfcd8849613e293b2",
