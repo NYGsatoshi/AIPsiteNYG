@@ -53,7 +53,8 @@ def require_operation(
 ) -> dict[str, object]:
     path_item = paths.get(path) if isinstance(paths, dict) else None
     operation = path_item.get(method) if isinstance(path_item, dict) else None
-    if not isinstance(operation, dict):
+    responses = operation.get("responses") if isinstance(operation, dict) else None
+    if not isinstance(operation, dict) or not isinstance(responses, dict) or not responses:
         fail(f"{description} operation must be present: {method.upper()} {path}")
     return operation
 
