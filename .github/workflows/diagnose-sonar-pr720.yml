@@ -1,4 +1,4 @@
-name: Diagnose remaining Sonar annotations
+name: Apply remaining Sonar return fixes
 
 on:
   push:
@@ -8,24 +8,102 @@ on:
       - .github/workflows/diagnose-sonar-pr720.yml
 
 permissions:
-  contents: read
-  checks: read
+  contents: write
 
 jobs:
-  annotations:
+  remediate:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
-      - name: Read SonarCloud annotations
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
-          CHECK_RUN_ID: "101928956883"
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: true
+
+      - name: Apply exact fixes and validate
         run: |
           set -euo pipefail
-          response="$(curl --fail-with-body --silent --show-error \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/${REPOSITORY}/check-runs/${CHECK_RUN_ID}/annotations?per_page=100")"
-          printf '%s\n' "$response" | jq -r '.[] | [.path, (.start_line|tostring), (.end_line|tostring), .annotation_level, .title, .message] | @tsv'
+          python3 - <<'PYTHON_SCRIPT'
+          from pathlib import Path
+
+          path = Path("scripts/security/zap-runner.sh")
+          text = path.read_text(encoding="utf-8")
+
+          replacements = [
+              (
+                  """security_zap_roles() {
+          # alpha-restricted is the lower-privilege representative requested by SEC-06.
+          # SEC-05 separately owns exhaustive actor x authorization semantics.
+          printf '%s\\n' alpha-owner alpha-restricted beta-owner
+          }
+          """,
+                  """security_zap_roles() {
+          # alpha-restricted is the lower-privilege representative requested by SEC-06.
+          # SEC-05 separately owns exhaustive actor x authorization semantics.
+          printf '%s\\n' alpha-owner alpha-restricted beta-owner || return 1
+          return 0
+          }
+          """,
+                  "security_zap_roles",
+              ),
+              (
+                  """security_zap_target_regex() {
+          python3 - "$SECURITY_SCAN_TARGET" <<'PY'
+          import re
+          import sys
+          print(re.escape(sys.argv[1]))
+          PY
+          }
+          """,
+                  """security_zap_target_regex() {
+          python3 - "$SECURITY_SCAN_TARGET" <<'PY' || return 1
+          import re
+          import sys
+          print(re.escape(sys.argv[1]))
+          PY
+          return 0
+          }
+          """,
+                  "security_zap_target_regex",
+              ),
+              (
+                  """sys.stdout.write(text)
+          '
+          }
+
+          security_zap_verify_toolchain() {
+          """,
+                  """sys.stdout.write(text)
+          ' || return 1
+          return 0
+          }
+
+          security_zap_verify_toolchain() {
+          """,
+                  "security_zap_redact_stream",
+              ),
+          ]
+
+          for old, new, label in replacements:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected exactly one match, found {count}")
+              text = text.replace(old, new, 1)
+
+          path.write_text(text, encoding="utf-8")
+          PYTHON_SCRIPT
+
+          bash -n scripts/security/zap-runner.sh
+          bash -n scripts/security/test-zap-contract.sh
+          bash scripts/security/test-zap-contract.sh
+          git diff --check
+          git diff -- scripts/security/zap-runner.sh
+
+      - name: Commit fixes
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add scripts/security/zap-runner.sh
+          git commit -m "fix remaining Sonar return findings"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
