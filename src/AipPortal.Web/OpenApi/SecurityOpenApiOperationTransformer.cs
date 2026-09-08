@@ -1,8 +1,11 @@
 using System.ComponentModel.DataAnnotations;
 using System.Linq;
 using System.Reflection;
+using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OpenApi;
+using Microsoft.Extensions.Options;
 using Microsoft.OpenApi;
 
 namespace AipPortal.Web.OpenApi;
@@ -130,8 +133,9 @@ public sealed class SecurityOpenApiOperationTransformer : IOpenApiOperationTrans
 
         foreach (var parameter in context.Description.ActionDescriptor.Parameters)
         {
-            foreach (var propertyName in RequiredProperties(parameter.ParameterType).Select(property => property.Name))
+            foreach (var property in RequiredProperties(parameter.ParameterType))
             {
+                var propertyName = SerializedPropertyName(property, context);
                 if (formSchema.Properties?.ContainsKey(propertyName) != true)
                 {
                     continue;
@@ -141,6 +145,21 @@ public sealed class SecurityOpenApiOperationTransformer : IOpenApiOperationTrans
                 formSchema.Required.Add(propertyName);
             }
         }
+    }
+
+    private static string SerializedPropertyName(
+        PropertyInfo property,
+        OpenApiOperationTransformerContext context)
+    {
+        var explicitName = property.GetCustomAttribute<JsonPropertyNameAttribute>()?.Name;
+        if (!string.IsNullOrEmpty(explicitName))
+        {
+            return explicitName;
+        }
+
+        var jsonOptions = context.ApplicationServices?.GetService(typeof(IOptions<JsonOptions>)) as IOptions<JsonOptions>;
+        return jsonOptions?.Value.JsonSerializerOptions.PropertyNamingPolicy?.ConvertName(property.Name)
+            ?? property.Name;
     }
 
     private static IEnumerable<PropertyInfo> RequiredProperties(Type parameterType) =>
