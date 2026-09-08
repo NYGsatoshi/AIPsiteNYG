@@ -10,7 +10,7 @@ import os
 import re
 from collections import Counter
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
 RISK_FROM_CODE = {
@@ -22,7 +22,7 @@ RISK_FROM_CODE = {
 RISK_ORDER = ("High", "Medium", "Low", "Informational")
 
 
-def fail(message: str) -> None:
+def fail(message: str) -> NoReturn:
     raise SystemExit(f"SEC-06 ZAP report rejected: {message}")
 
 
@@ -66,8 +66,9 @@ def safe_location(raw: Any, target_origin: str) -> dict[str, Any] | None:
     parsed = urlsplit(value)
     if not parsed.scheme or not parsed.netloc:
         fail("alert instance URI must be absolute")
-    if normalize_origin(value) != target_origin:
-        fail(f"cross-origin alert evidence observed: {normalize_origin(value)!r}")
+    location_origin = normalize_origin(value)
+    if location_origin != target_origin:
+        fail(f"cross-origin alert evidence observed: {location_origin!r}")
     query_names = sorted(
         {key[:80] for key, _ in parse_qsl(parsed.query, keep_blank_values=True) if key}
     )
@@ -101,6 +102,72 @@ def load_forbidden_values() -> list[str]:
     return sorted({value for value in values if value})
 
 
+def site_alerts(site: Any, target_origin: str) -> list[Any]:
+    if not isinstance(site, dict):
+        fail("site entry must be an object")
+    site_name = site.get("@name")
+    if site_name and normalize_origin(str(site_name)) != target_origin:
+        fail(f"report contains non-target site {site_name!r}")
+    alerts = site.get("alerts", []) or []
+    if not isinstance(alerts, list):
+        fail("site alerts must be an array")
+    return alerts
+
+
+def normalize_instances(instances: Any, target_origin: str) -> list[dict[str, Any]]:
+    if not isinstance(instances, list):
+        fail("alert instances must be an array")
+
+    safe_instances: list[dict[str, Any]] = []
+    for instance in instances:
+        if not isinstance(instance, dict):
+            fail("alert instance must be an object")
+        location = safe_location(instance.get("uri"), target_origin)
+        entry: dict[str, Any] = {
+            "method": safe_text(instance.get("method"), 16).upper() or "UNKNOWN",
+            "parameter": safe_text(instance.get("param"), 120),
+        }
+        if location is not None:
+            entry.update(location)
+        safe_instances.append(entry)
+    return safe_instances
+
+
+def normalized_instance_count(alert: dict[str, Any], instance_count: int, plugin_id: str) -> int:
+    declared_count = alert.get("count")
+    try:
+        count = int(declared_count) if declared_count is not None else instance_count
+    except (TypeError, ValueError):
+        fail(f"invalid instance count for rule {plugin_id!r}")
+    return max(count, instance_count, 0)
+
+
+def normalize_alert(
+    alert: Any, target_origin: str
+) -> tuple[str, str, int, dict[str, Any]]:
+    if not isinstance(alert, dict):
+        fail("alert entry must be an object")
+    plugin_id = safe_text(alert.get("pluginid") or alert.get("alertRef"), 40) or "unknown"
+    risk = normalize_risk(alert)
+    if risk is None:
+        fail(f"alert {plugin_id!r} has an unrecognized risk classification")
+    name = safe_text(alert.get("name") or alert.get("alert"), 160) or "Unnamed ZAP alert"
+    instances = alert.get("instances", []) or []
+    safe_instances = normalize_instances(instances, target_origin)
+    count = normalized_instance_count(alert, len(instances), plugin_id)
+    safe_alert = {
+        "ruleId": plugin_id,
+        "name": name,
+        "risk": risk,
+        "confidence": safe_text(alert.get("confidence"), 40),
+        "cweId": safe_text(alert.get("cweid"), 20),
+        "wascId": safe_text(alert.get("wascid"), 20),
+        "instanceCount": count,
+        "instances": safe_instances[:25],
+    }
+    return risk, plugin_id, count, safe_alert
+
+
 def reduce_alerts(
     sites: list[Any], target_origin: str
 ) -> tuple[Counter[str], Counter[str], Counter[str], list[dict[str, Any]]]:
@@ -111,66 +178,12 @@ def reduce_alerts(
     safe_alerts: list[dict[str, Any]] = []
 
     for site in sites:
-        if not isinstance(site, dict):
-            fail("site entry must be an object")
-        site_name = site.get("@name")
-        if site_name and normalize_origin(str(site_name)) != target_origin:
-            fail(f"report contains non-target site {site_name!r}")
-        alerts = site.get("alerts", []) or []
-        if not isinstance(alerts, list):
-            fail("site alerts must be an array")
-        for alert in alerts:
-            if not isinstance(alert, dict):
-                fail("alert entry must be an object")
-            plugin_id = (
-                safe_text(alert.get("pluginid") or alert.get("alertRef"), 40) or "unknown"
-            )
-            risk = normalize_risk(alert)
-            if risk is None:
-                fail(f"alert {plugin_id!r} has an unrecognized risk classification")
-            name = (
-                safe_text(alert.get("name") or alert.get("alert"), 160)
-                or "Unnamed ZAP alert"
-            )
-            instances = alert.get("instances", []) or []
-            if not isinstance(instances, list):
-                fail("alert instances must be an array")
-
-            safe_instances: list[dict[str, Any]] = []
-            for instance in instances:
-                if not isinstance(instance, dict):
-                    fail("alert instance must be an object")
-                location = safe_location(instance.get("uri"), target_origin)
-                entry: dict[str, Any] = {
-                    "method": safe_text(instance.get("method"), 16).upper() or "UNKNOWN",
-                    "parameter": safe_text(instance.get("param"), 120),
-                }
-                if location is not None:
-                    entry.update(location)
-                safe_instances.append(entry)
-
-            declared_count = alert.get("count")
-            try:
-                count = int(declared_count) if declared_count is not None else len(instances)
-            except (TypeError, ValueError):
-                fail(f"invalid instance count for rule {plugin_id!r}")
-            count = max(count, len(instances), 0)
-
+        for alert in site_alerts(site, target_origin):
+            risk, plugin_id, count, safe_alert = normalize_alert(alert, target_origin)
             risk_counts[risk] += 1
             rule_counts[plugin_id] += 1
             instance_counts[plugin_id] += count
-            safe_alerts.append(
-                {
-                    "ruleId": plugin_id,
-                    "name": name,
-                    "risk": risk,
-                    "confidence": safe_text(alert.get("confidence"), 40),
-                    "cweId": safe_text(alert.get("cweid"), 20),
-                    "wascId": safe_text(alert.get("wascid"), 20),
-                    "instanceCount": count,
-                    "instances": safe_instances[:25],
-                }
-            )
+            safe_alerts.append(safe_alert)
 
     safe_alerts.sort(
         key=lambda item: (
@@ -199,7 +212,7 @@ def enforce_blocking_policy(scanner_exit: int, risk_counts: Counter[str]) -> Non
         fail(f"{high_alerts} High-risk alert type(s) are blocking")
 
 
-def main() -> None:
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--raw-report", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
@@ -213,13 +226,13 @@ def main() -> None:
     parser.add_argument("--automation-plan", required=True, type=Path)
     parser.add_argument("--policy", required=True, type=Path)
     parser.add_argument("--addon-list-sha256", required=True)
-    args = parser.parse_args()
+    return parser.parse_args()
 
-    required = (args.contract, args.automation_plan, args.policy)
-    for path in required:
+
+def load_report(args: argparse.Namespace) -> tuple[dict[str, Any], str, list[Any]]:
+    for path in (args.contract, args.automation_plan, args.policy):
         if not path.is_file():
             fail(f"required input is missing: {path}")
-
     if not args.raw_report.is_file() or args.raw_report.stat().st_size == 0:
         fail("scanner reported without a non-empty JSON report")
 
@@ -238,12 +251,26 @@ def main() -> None:
         fail("raw ZAP report site field must be an array")
     if args.scanner_exit == 0 and not sites:
         fail("scanner exited successfully without scanned-site coverage")
+    return raw, target_origin, sites
 
-    risk_counts, rule_counts, instance_counts, safe_alerts = reduce_alerts(
-        sites, target_origin
-    )
 
-    evidence = {
+def scan_status(scanner_exit: int, high_alerts: int) -> str:
+    if high_alerts:
+        return "blocked-high"
+    if scanner_exit != 0:
+        return "scanner-failed"
+    return "passed"
+
+
+def build_evidence(
+    args: argparse.Namespace,
+    target_origin: str,
+    risk_counts: Counter[str],
+    rule_counts: Counter[str],
+    instance_counts: Counter[str],
+    safe_alerts: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return {
         "schemaVersion": 1,
         "control": "SEC-06",
         "scanner": {
@@ -275,47 +302,60 @@ def main() -> None:
         "alerts": safe_alerts,
     }
 
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.metadata.parent.mkdir(parents=True, exist_ok=True)
-    rendered = json.dumps(evidence, indent=2, sort_keys=True) + "\n"
 
-    forbidden = load_forbidden_values()
-    for value in forbidden:
+def assert_sanitized(rendered: str) -> None:
+    for value in load_forbidden_values():
         escaped_value = json.dumps(value)[1:-1]
         if value in rendered or escaped_value in rendered:
             fail("sanitized evidence still contains ephemeral authentication material")
 
+
+def write_evidence(
+    args: argparse.Namespace, evidence: dict[str, Any], risk_counts: Counter[str]
+) -> None:
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.metadata.parent.mkdir(parents=True, exist_ok=True)
+    rendered = json.dumps(evidence, indent=2, sort_keys=True) + "\n"
+    assert_sanitized(rendered)
     args.output.write_text(rendered, encoding="utf-8")
+
+    metadata = {
+        "control": "SEC-06",
+        "role": args.role,
+        "status": scan_status(args.scanner_exit, risk_counts.get("High", 0)),
+        "scannerVersion": args.scanner_version,
+        "scannerImage": args.scanner_image,
+        "openApiSha256": evidence["inputs"]["openApiSha256"],
+        "automationPlanSha256": evidence["inputs"]["automationPlanSha256"],
+        "policySha256": evidence["inputs"]["policySha256"],
+        "addonListSha256": args.addon_list_sha256,
+        "highAlerts": risk_counts.get("High", 0),
+        "mediumAlerts": risk_counts.get("Medium", 0),
+        "lowAlerts": risk_counts.get("Low", 0),
+        "informationalAlerts": risk_counts.get("Informational", 0),
+    }
     args.metadata.write_text(
-        json.dumps(
-            {
-                "control": "SEC-06",
-                "role": args.role,
-                "status": (
-                    "blocked-high"
-                    if risk_counts.get("High", 0)
-                    else ("scanner-failed" if args.scanner_exit != 0 else "passed")
-                ),
-                "scannerVersion": args.scanner_version,
-                "scannerImage": args.scanner_image,
-                "openApiSha256": evidence["inputs"]["openApiSha256"],
-                "automationPlanSha256": evidence["inputs"]["automationPlanSha256"],
-                "policySha256": evidence["inputs"]["policySha256"],
-                "addonListSha256": args.addon_list_sha256,
-                "highAlerts": risk_counts.get("High", 0),
-                "mediumAlerts": risk_counts.get("Medium", 0),
-                "lowAlerts": risk_counts.get("Low", 0),
-                "informationalAlerts": risk_counts.get("Informational", 0),
-            },
-            indent=2,
-            sort_keys=True,
-        )
-        + "\n",
+        json.dumps(metadata, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
 
-    enforce_blocking_policy(args.scanner_exit, risk_counts)
 
+def main() -> None:
+    args = parse_args()
+    _, target_origin, sites = load_report(args)
+    risk_counts, rule_counts, instance_counts, safe_alerts = reduce_alerts(
+        sites, target_origin
+    )
+    evidence = build_evidence(
+        args,
+        target_origin,
+        risk_counts,
+        rule_counts,
+        instance_counts,
+        safe_alerts,
+    )
+    write_evidence(args, evidence, risk_counts)
+    enforce_blocking_policy(args.scanner_exit, risk_counts)
     print(
         "SEC-06 ZAP report accepted: "
         f"role={args.role} high={risk_counts.get('High', 0)} "
