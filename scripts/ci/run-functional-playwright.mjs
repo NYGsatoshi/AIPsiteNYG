@@ -1,7 +1,9 @@
 import { spawnSync } from 'node:child_process';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { buildFunctionalGrep, parseFunctionalGrepArguments } from './build-functional-grep.mjs';
+
+const playwrightCli = fileURLToPath(new URL('../../node_modules/@playwright/test/cli.js', import.meta.url));
 
 export function parseFunctionalRunnerArguments(args) {
   const selectionArgs = [];
@@ -61,10 +63,9 @@ export function runFunctionalPlaywright(args = process.argv.slice(2)) {
     return 0;
   }
 
-  const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx';
   const result = spawnSync(
-    npx,
-    ['playwright', 'test', '--config', 'playwright.functional.config.ts', '--grep', grep, ...playwrightArgs],
+    process.execPath,
+    [playwrightCli, 'test', '--config', 'playwright.functional.config.ts', '--grep', grep, ...playwrightArgs],
     {
       env: functionalRunnerEnvironment(filters),
       stdio: 'inherit'
