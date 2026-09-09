@@ -46,7 +46,7 @@ jobs:
       - name: Install deployment-gate dependencies
         run: |
           npm ci
-          npx playwright install --with-deps chromium
+          node node_modules/@playwright/test/cli.js install --with-deps chromium
 
       - name: Verify protected deployment-gate configuration
         shell: bash
