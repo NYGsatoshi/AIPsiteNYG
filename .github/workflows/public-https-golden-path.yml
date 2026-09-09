@@ -43,9 +43,9 @@ jobs:
         with:
           node-version: '24'
 
-      - name: Install deployment-gate dependencies
+      - name: Install deployment-gate dependencies without lifecycle scripts
         run: |
-          npm ci
+          npm ci --ignore-scripts --no-audit --no-fund
           node node_modules/@playwright/test/cli.js install --with-deps chromium
 
       - name: Verify protected deployment-gate configuration
