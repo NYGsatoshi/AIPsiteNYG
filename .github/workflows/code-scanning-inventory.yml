@@ -1,0 +1,37 @@
+name: "Code Scanning Inventory"
+
+on:
+  # Vulnerability metadata must only be fetched from a trusted, explicitly
+  # started workflow. Never grant security-events read access to PR-controlled
+  # execution.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    name: Capture open Code Scanning baseline
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Test inventory sanitizer
+        run: python scripts/security/test-code-scanning-inventory.py
+
+      - name: Capture secret-safe default-branch inventory
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          python scripts/security/code-scanning-inventory.py \
+            --ref refs/heads/main \
+            --json-out "$RUNNER_TEMP/code-scanning-baseline.json" \
+            | tee "$RUNNER_TEMP/code-scanning-baseline.md"
+          cat "$RUNNER_TEMP/code-scanning-baseline.md" >> "$GITHUB_STEP_SUMMARY"
