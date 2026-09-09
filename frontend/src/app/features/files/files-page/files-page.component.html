@@ -438,12 +438,15 @@
                       />
                     }
                     @case ('pdf') {
-                      <iframe
-                        class="files-page__preview-document"
-                        [src]="previewResourceUrl()"
-                        [title]="i18n.translate('files.preview.title', { name: file.originalFileName })"
+                      <a
+                        class="files-page__preview-action"
+                        [href]="previewUrl()"
+                        target="_blank"
+                        rel="noopener noreferrer"
                         data-testid="files-preview-pdf"
-                      ></iframe>
+                      >
+                        {{ i18n.translate('files.preview.open') }}
+                      </a>
                     }
                     @case ('video') {
                       <video

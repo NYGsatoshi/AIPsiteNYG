@@ -94,6 +94,33 @@ const textContent = (fixture: ComponentFixture<FilesPageComponent>): string =>
 const downloadButton = (fixture: ComponentFixture<FilesPageComponent>): HTMLButtonElement =>
   (fixture.nativeElement as HTMLElement).querySelector('[data-testid="download-action"]') as HTMLButtonElement;
 
+const openAuthorizedPdfPreview = (
+  fixture: ComponentFixture<FilesPageComponent>,
+  http: HttpTestingController,
+): void => {
+  const { componentInstance: component } = fixture;
+  const file = component.page().recentFiles[0];
+  if (!file) {
+    throw new Error('Expected a PDF fixture.');
+  }
+
+  component.openPreview(file);
+  const grant = http.expectOne(`/api/files/${FILE_OBJECT_ID}/download-grants`);
+  expect(grant.request.body).toEqual({ purpose: 'files-page-preview' });
+  grant.flush({ fileDownloadGrantId: 'preview-grant', fileObjectId: FILE_OBJECT_ID, token: 'preview-token' });
+
+  http.expectOne('/api/file-download-grants/preview-grant/download')
+    .flush(new Blob(['pdf'], { type: 'application/pdf' }));
+};
+
+const pdfPreviewLink = (fixture: ComponentFixture<FilesPageComponent>): HTMLAnchorElement => {
+  const link = (fixture.nativeElement as HTMLElement).querySelector('[data-testid="files-preview-pdf"]');
+  if (!(link instanceof HTMLAnchorElement)) {
+    throw new Error('Expected an authorized PDF preview link.');
+  }
+  return link;
+};
+
 describe('FilesPageComponent', () => {
   beforeEach(() => window.localStorage.setItem('aip.locale', 'en'));
 
@@ -555,6 +582,23 @@ describe('FilesPageComponent', () => {
     const blocked = await renderMockFilesPage(FILES_PAGE_SCENARIOS.scanBlocked);
     expect(downloadButton(blocked).disabled).toBe(true);
     expect(textContent(blocked)).toContain('Download is blocked by file scan state.');
+  });
+
+  it('opens an authorized PDF in a separate protected browsing context without embedding it', async () => {
+    const { fixture, http } = await renderLiveFilesPage([
+      { ...backendFile, originalFileName: 'report.pdf', contentType: 'application/pdf', scanStatus: 'Allowed' },
+    ]);
+    const createObjectUrlSpy = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:authorized-pdf');
+
+    openAuthorizedPdfPreview(fixture, http);
+    fixture.detectChanges();
+
+    const pdfLink = pdfPreviewLink(fixture);
+    expect(pdfLink.getAttribute('href')).toBe('blob:authorized-pdf');
+    expect(pdfLink.getAttribute('target')).toBe('_blank');
+    expect(pdfLink.getAttribute('rel')).toContain('noopener');
+    expect((fixture.nativeElement as HTMLElement).querySelector('iframe')).toBeNull();
+    expect(createObjectUrlSpy).toHaveBeenCalledOnce();
   });
 
   it('does not render preview, SVG image, public link, or streaming elements', async () => {
