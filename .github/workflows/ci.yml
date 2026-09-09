@@ -180,8 +180,8 @@ jobs:
         with:
           node-version: "24"
 
-      - name: Use repository npm version
-        run: npm install --global npm@11.17.0
+      - name: Use repository npm version without lifecycle scripts
+        run: npm install --global npm@11.17.0 --ignore-scripts --no-audit --no-fund
 
       - name: Validate MVP-A CI helper syntax
         shell: bash
@@ -207,11 +207,11 @@ jobs:
       - name: Verify MVP-A accessibility coverage contract
         run: python3 scripts/ci/verify-mvp-a-required-a11y-tests.py
 
-      - name: Install UI runner dependencies
-        run: npm ci
+      - name: Install UI runner dependencies with reviewed lifecycle policy
+        run: bash scripts/ci/npm-ci-retry.sh .
 
-      - name: Install Angular dependencies
-        run: npm --prefix frontend ci
+      - name: Install Angular dependencies with reviewed lifecycle policy
+        run: bash scripts/ci/npm-ci-retry.sh frontend
 
       - name: Build Angular production bundle without repository secrets
         run: npm --prefix frontend run build
