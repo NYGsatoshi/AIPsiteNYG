@@ -88,6 +88,55 @@ public sealed class TaskExecutionSourcePolicyV2Tests
 
     [Fact]
     [Trait("Scope", "Issue361")]
+    [Trait("Scope", "CS01")]
+    public void NormalizeAcceptsExactlyTheMaximumBoundedItemRuleCount()
+    {
+        var items = Enumerable.Range(0, TaskExecutionSourcePolicyV2.MaxItemRules)
+            .Select(index => new TaskExecutionSourceRule(
+                TaskExecutionSourceKind.WebSite,
+                $"site:source-{index}.example",
+                TaskExecutionSourceState.Allow))
+            .ToArray();
+        var policy = new TaskExecutionSourcePolicyV2(
+            TaskExecutionSourcePolicyV2.CurrentSchemaVersion,
+            TaskExecutionSourceState.Exclude,
+            TaskExecutionSourceState.Exclude,
+            TaskExecutionSourceState.Exclude,
+            TaskExecutionSourceState.Exclude,
+            items);
+
+        Assert.True(policy.TryNormalize(out var normalized, out var target, out var message), message);
+        Assert.Null(target);
+        Assert.Equal(TaskExecutionSourcePolicyV2.MaxItemRules, normalized.Items.Count);
+    }
+
+    [Fact]
+    [Trait("Scope", "Issue361")]
+    [Trait("Scope", "CS01")]
+    public void NormalizeRejectsOversizedItemRulesBeforePerItemProcessing()
+    {
+        var items = Enumerable.Repeat(
+                new TaskExecutionSourceRule(
+                    TaskExecutionSourceKind.ProjectFile,
+                    "file:not-a-guid",
+                    TaskExecutionSourceState.Allow),
+                TaskExecutionSourcePolicyV2.MaxItemRules + 1)
+            .ToArray();
+        var policy = new TaskExecutionSourcePolicyV2(
+            TaskExecutionSourcePolicyV2.CurrentSchemaVersion,
+            TaskExecutionSourceState.Exclude,
+            TaskExecutionSourceState.Exclude,
+            TaskExecutionSourceState.Exclude,
+            TaskExecutionSourceState.Exclude,
+            items);
+
+        Assert.False(policy.TryNormalize(out _, out var target, out var message));
+        Assert.Equal("policyV2.items", target);
+        Assert.Contains(TaskExecutionSourcePolicyV2.MaxItemRules.ToString(), message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Scope", "Issue361")]
     public void InvalidSourceIdentifiersFailClosed()
     {
         var policy = new TaskExecutionSourcePolicyV2(

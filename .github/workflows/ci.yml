@@ -86,7 +86,7 @@ jobs:
         env:
           # Build-time contract generation must be read-only. Point database
           # access at an unreachable port so any accidental startup query fails.
-          ConnectionStrings__DefaultConnection: Host=127.0.0.1;Port=1;Database=sec01_openapi;Username=unused;Password=unused;Timeout=1;Command Timeout=1
+          ConnectionStrings__DefaultConnection: Host=127.0.0.1;Port=1;Database=sec01_openapi;Username=unused;Timeout=1;Command Timeout=1
           Tenancy__AppMode: SaaS
           Tenancy__SeedOnStartup: "false"
           UiShell__SeedOnStartup: "false"
@@ -180,8 +180,8 @@ jobs:
         with:
           node-version: "24"
 
-      - name: Use repository npm version
-        run: npm install --global npm@11.17.0
+      - name: Use repository npm version without lifecycle scripts
+        run: npm install --global npm@11.17.0 --ignore-scripts --no-audit --no-fund
 
       - name: Validate MVP-A CI helper syntax
         shell: bash
@@ -207,11 +207,11 @@ jobs:
       - name: Verify MVP-A accessibility coverage contract
         run: python3 scripts/ci/verify-mvp-a-required-a11y-tests.py
 
-      - name: Install UI runner dependencies
-        run: npm ci
+      - name: Install UI runner dependencies with reviewed lifecycle policy
+        run: bash scripts/ci/npm-ci-retry.sh .
 
-      - name: Install Angular dependencies
-        run: npm --prefix frontend ci
+      - name: Install Angular dependencies with reviewed lifecycle policy
+        run: bash scripts/ci/npm-ci-retry.sh frontend
 
       - name: Build Angular production bundle without repository secrets
         run: npm --prefix frontend run build
@@ -344,6 +344,15 @@ jobs:
           [[ -f gitleaks-report.json ]] || printf '[]\n' > gitleaks-report.json
           exit "$status"
 
+      - name: Upload SEC-06 sanitized ZAP evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: sec06-zap-evidence
+          path: artifacts/security/zap/
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Upload security reports on failure
         if: failure()
         continue-on-error: true
@@ -355,5 +364,6 @@ jobs:
             trivy-filesystem-report.txt
             gitleaks-report.json
             artifacts/security/schemathesis/
+            artifacts/security/zap/
           if-no-files-found: warn
           retention-days: 7

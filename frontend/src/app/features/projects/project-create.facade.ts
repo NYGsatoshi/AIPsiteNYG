@@ -6,6 +6,7 @@ import { normalizeApiError } from '../../core/api/api-error.adapter';
 import { FrontendApiError } from '../../core/api/api-error.model';
 import { AuthSessionFacade } from '../../core/auth/auth-session.facade';
 import { ProtectedStateClearReason, RealtimeFacade } from '../../core/realtime/realtime.facade';
+import { createCryptographicUuid } from '../../core/security/client-id';
 import { ActiveWorkspaceFacade } from '../../core/workspace/active-workspace.facade';
 import {
   canonicalizeProjectCreateInput,
@@ -672,11 +673,7 @@ function normalizeProjectCreateError(error: unknown): FrontendApiError {
 }
 
 function createProjectIdempotencyKey(): string {
-  const randomUuid = globalThis.crypto?.randomUUID?.();
-  if (randomUuid) {
-    return `project-create-${randomUuid}`;
-  }
-  return `project-create-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return `project-create-${createCryptographicUuid()}`;
 }
 
 function sameId(left: string, right: string): boolean {

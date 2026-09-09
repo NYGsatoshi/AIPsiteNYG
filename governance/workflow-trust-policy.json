@@ -42,13 +42,14 @@
         "analyze"
       ],
       "events": [
+        "pull_request",
         "push",
         "schedule"
       ],
       "permissions": [
         "security-events:write"
       ],
-      "reason": "Upload CodeQL SARIF only from trusted main pushes and the scheduled trusted scan."
+      "reason": "Publish CodeQL SARIF for pull requests, trusted main pushes, and the scheduled scan. On fork pull_request runs GitHub downgrades GITHUB_TOKEN writes while Code Scanning still permits PR result upload."
     },
     {
       "workflow": ".github/workflows/nuget-dependency-submission.yml",

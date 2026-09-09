@@ -70,7 +70,9 @@ public sealed class ArtifactEvidenceManifestService(
         }
 
         var claimOrdinals = new HashSet<int>();
-        var claims = new List<ArtifactClaim>(request.Claims.Count);
+        // MaxClaims is the repository-owned execution/allocation ceiling. The
+        // request count is validated above, but must not control allocation size.
+        var claims = new List<ArtifactClaim>(MaxClaims);
         var provenanceBySource = new Dictionary<(ArtifactEvidenceSourceKind Kind, string Reference), SourceProvenanceContract>();
         var findingCount = 0;
         foreach (var item in request.Claims)

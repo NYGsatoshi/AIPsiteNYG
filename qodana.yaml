@@ -1,21 +1,31 @@
 version: "1.0"
 
-# Qodana Community for .NET analyzes C#, ASP.NET Core and the .NET solution.
+# Qodana Community for .NET analyzes first-party C#/ASP.NET Core source and tests.
 linter: qodana-cdnet
 
-# Enable every inspection registered by the Community .NET linter. Generated,
-# dependency and runtime paths remain excluded below so the full profile stays
-# focused on first-party source and tests.
+# Start from JetBrains' recommended profile, then additionally enable every
+# inspection whose default IDE severity is ERROR, WARNING, or WEAK WARNING.
+# This is intentionally strict without enabling low-value TYPO/INFO-only rules.
 profile:
   base:
     name: qodana.recommended
+  groups:
+    - groupId: StrictDefaultSeverities
+      groups:
+        - "severity:ERROR"
+        - "severity:WARNING"
+        - "severity:WEAK WARNING"
   inspections:
-    - group: "ALL"
+    - group: StrictDefaultSeverities
       enabled: true
 
-# Delegate to Bash because the bootstrap uses pipefail and prepares the complete
-# .NET project model before inspections start.
+# Prepare the complete .NET project model before inspections start.
 bootstrap: bash scripts/quality/qodana-bootstrap.sh
+
+# Keep local and CI analysis on the same canonical solution/configuration.
+dotnet:
+  solution: AipPortal.slnx
+  configuration: Release
 
 exclude:
   - name: All

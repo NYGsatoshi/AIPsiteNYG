@@ -11,7 +11,34 @@ tmp_dir="$(mktemp -d)"
 trap 'rm -rf "$tmp_dir"' EXIT
 
 mkdir -p "$install_dir"
-curl --fail --silent --show-error --location "$URL" --output "$tmp_dir/$ARCHIVE"
+effective_url="$(
+  curl \
+    --fail \
+    --silent \
+    --show-error \
+    --location \
+    --proto '=https' \
+    --proto-redir '=https' \
+    --tlsv1.2 \
+    --max-redirs 5 \
+    --retry 3 \
+    --retry-all-errors \
+    --connect-timeout 10 \
+    --max-time 180 \
+    --write-out '%{url_effective}' \
+    "$URL" \
+    --output "$tmp_dir/$ARCHIVE"
+)"
+effective_host="${effective_url#https://}"
+effective_host="${effective_host%%/*}"
+case "$effective_host" in
+  github.com|*.githubusercontent.com)
+    ;;
+  *)
+    echo "Grype release download ended at an untrusted host." >&2
+    exit 1
+    ;;
+esac
 printf '%s  %s\n' "$GRYPE_LINUX_AMD64_ARCHIVE_SHA256" "$tmp_dir/$ARCHIVE" | sha256sum --check --strict
 tar -xzf "$tmp_dir/$ARCHIVE" -C "$tmp_dir" grype
 install -m 0755 "$tmp_dir/grype" "$install_dir/grype"

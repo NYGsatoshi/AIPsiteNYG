@@ -1,13 +1,26 @@
 #!/usr/bin/env node
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 
-const sarifPath =
-  process.argv[2] ||
-  process.env.QODANA_SARIF_PATH ||
-  (process.env.RUNNER_TEMP ? `${process.env.RUNNER_TEMP}/qodana/results/qodana.sarif.json` : undefined);
+const changedFilesPath = process.env.QODANA_CHANGED_FILES_PATH,
+  configuredThresholdParser = (name, defaultValue) => {
+    const rawValue = process.env[name] || defaultValue,
+      value = Number(rawValue);
 
-const unresolvedThreshold = Number.parseInt(process.env.QODANA_UNRESOLVED_THRESHOLD || '200', 10);
-const unresolvedFileThreshold = Number.parseInt(process.env.QODANA_UNRESOLVED_FILE_THRESHOLD || '40', 10);
+    if (!/^\d+$/u.test(rawValue) || !Number.isFinite(value) || !Number.isSafeInteger(value)) {
+      throw new TypeError(
+        `${name} must be a finite, non-negative integer; received ${JSON.stringify(rawValue)}.`
+      );
+    }
+
+    return value;
+  },
+  criticalThreshold = configuredThresholdParser('QODANA_CRITICAL_THRESHOLD', '0'),
+  sarifPath =
+    process.argv[2] ||
+    process.env.QODANA_SARIF_PATH ||
+    (process.env.RUNNER_TEMP ? `${process.env.RUNNER_TEMP}/qodana/results/qodana.sarif.json` : undefined),
+  unresolvedFileThreshold = configuredThresholdParser('QODANA_UNRESOLVED_FILE_THRESHOLD', '40'),
+  unresolvedThreshold = configuredThresholdParser('QODANA_UNRESOLVED_THRESHOLD', '200');
 
 if (!sarifPath) {
   console.error('Qodana SARIF path was not supplied.');
@@ -19,6 +32,10 @@ if (!existsSync(sarifPath)) {
   process.exit(1);
 }
 
+if (changedFilesPath && !existsSync(changedFilesPath)) {
+  throw new Error(`Qodana changed-files list was not found: ${changedFilesPath}`);
+}
+
 let sarif;
 try {
   sarif = JSON.parse(readFileSync(sarifPath, 'utf8'));
@@ -28,8 +45,11 @@ try {
   process.exit(1);
 }
 
-const results = (sarif.runs || []).flatMap((run) => run.results || []);
-const ruleIndex = new Map();
+const changedFiles = changedFilesPath
+    ? new Set(readFileSync(changedFilesPath, 'utf8').split('\0').filter(Boolean))
+    : null,
+  results = (sarif.runs || []).flatMap((run) => run.results || []),
+  ruleIndex = new Map();
 
 for (const run of sarif.runs || []) {
   for (const rule of run.tool?.driver?.rules || []) {
@@ -77,14 +97,28 @@ for (const result of results) {
   }
 }
 
-const unresolvedFiles = new Set(unresolvedResults.flatMap(resultFiles));
-const unresolvedDependencies = countBy(unresolvedResults.map(firstUnresolvedDependency));
-const categoryCounts = countBy(unresolvedResults.map(classifyUnresolved));
+const categoryCounts = countBy(unresolvedResults.map(classifyUnresolved)),
+  changedResults = changedFiles
+    ? results.filter((result) =>
+        (result.locations || []).some((location) =>
+          changedFiles.has(location.physicalLocation?.artifactLocation?.uri)
+        )
+      )
+    : [],
+  unresolvedDependencies = countBy(unresolvedResults.map(firstUnresolvedDependency)),
+  unresolvedFiles = new Set(unresolvedResults.flatMap(resultFiles));
 
 const summary = {
   sarifPath,
   totalFindings: results.length,
   severityCounts: Object.fromEntries([...severityCounts.entries()].sort()),
+  changedFiles: changedFiles?.size ?? Number(),
+  changedFindings: changedResults.length,
+  criticalFindings: ['critical', 'error'].reduce(
+    (count, severity) => count + (severityCounts.get(severity) || Number()),
+    Number()
+  ),
+  criticalThreshold,
   unresolvedSymbols: unresolvedResults.length,
   unresolvedAffectedFiles: unresolvedFiles.size,
   unresolvedThreshold,
@@ -105,12 +139,24 @@ if (modelFailureResults.length > 0) {
   process.exit(1);
 }
 
+if (summary.criticalFindings > criticalThreshold) {
+  throw new Error(
+    `Qodana critical findings exceed the configured threshold: ${summary.criticalFindings} > ${criticalThreshold}.`
+  );
+}
+
 if (unresolvedResults.length > unresolvedThreshold || unresolvedFiles.size > unresolvedFileThreshold) {
   console.error(
     `Qodana unresolved-symbol findings exceed the project-model collapse guard: ` +
       `${unresolvedResults.length} findings across ${unresolvedFiles.size} files.`
   );
   process.exit(1);
+}
+
+if (changedFiles && changedResults.length) {
+  throw new Error(
+    `Qodana reported ${changedResults.length} finding(s) in files changed by this pull request.`
+  );
 }
 
 function normalizeSeverity(result, rule) {

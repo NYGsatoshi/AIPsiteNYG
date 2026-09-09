@@ -14,9 +14,9 @@ SPEC.loader.exec_module(guard)
 
 
 class WorkflowParserTests(unittest.TestCase):
-    def errors(self, text: str) -> list[str]:
+    def errors(self, text: str, path: str = "test.yml") -> list[str]:
         return guard.workflow_errors(
-            guard.ROOT / ".github" / "workflows" / "test.yml", text
+            guard.ROOT / ".github" / "workflows" / path, text
         )
 
     def test_block_pull_request_trigger(self) -> None:
@@ -159,6 +159,63 @@ jobs:
       contents: write
 """
         errors = self.errors(text)
+        self.assertTrue(any("write permission" in error for error in errors))
+
+    def test_codeql_analyze_security_events_write_is_allowed(self) -> None:
+        text = """
+on:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+"""
+        self.assertEqual([], self.errors(text, "codeql.yml"))
+
+    def test_codeql_other_write_permission_is_rejected(self) -> None:
+        text = """
+on:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: write
+"""
+        errors = self.errors(text, "codeql.yml")
+        self.assertTrue(any("write permission" in error for error in errors))
+
+    def test_security_events_write_in_other_workflow_is_rejected(self) -> None:
+        text = """
+on:
+  pull_request:
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+"""
+        errors = self.errors(text)
+        self.assertTrue(any("write permission" in error for error in errors))
+
+    def test_security_events_write_in_other_codeql_job_is_rejected(self) -> None:
+        text = """
+on:
+  pull_request:
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+"""
+        errors = self.errors(text, "codeql.yml")
         self.assertTrue(any("write permission" in error for error in errors))
 
     def test_pull_request_target_is_rejected(self) -> None:

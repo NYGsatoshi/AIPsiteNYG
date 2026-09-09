@@ -378,7 +378,13 @@ public sealed class CommunicationPollingService(
             "CommunicationPoll",
             null,
             "Communication polling request processed.",
-            WorkspaceId: workspaceId,
+            // The requested Workspace scope is untrusted until the individual
+            // Conversation/Notification authorization checks have completed.
+            // Persisting it in the indexed foreign-key column made a missing or
+            // cross-Tenant UUID turn an otherwise redacted polling response into
+            // a database exception. Keep the opaque requested value only in the
+            // audit metadata; no resource relation is claimed by this event.
+            WorkspaceId: null,
             Metadata: new Dictionary<string, object?>
             {
                 ["operation"] = operation,

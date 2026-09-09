@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+readonly DEFAULT_RUNNER_VERSION="2.335.1"
+readonly DEFAULT_RUNNER_X64_SHA256="4ef2f25285f0ae4477f1fe1e346db76d2f3ebf03824e2ddd1973a2819bf6c8cf"
+readonly DEFAULT_RUNNER_ARM64_SHA256="6d1e85bfd1a506a8b17c1f1b9b57dba458ffed90898799aaa9f599520b0d9207"
+
 usage() {
   cat <<'EOF'
 Install additional GitHub Actions runners on the current Linux host.
@@ -14,7 +18,7 @@ Usage:
     --url https://github.com/NYGsatoshi/AIPsiteNYG
 
 Options:
-  --url URL               Repository or organization URL. Required.
+  --url URL               GitHub.com repository or organization URL. Required.
   --token TOKEN           Registration token. Prefer RUNNER_TOKEN instead.
   --count NUMBER          Additional runners to create. Default: 3.
   --start-index NUMBER    First numeric suffix. Default: 2.
@@ -22,9 +26,15 @@ Options:
   --user-prefix PREFIX    Linux account prefix. Default: aiprunner.
   --root PATH             Installation root. Default: /opt/aipsite-actions-runners.
   --version VERSION       actions/runner version. Default: 2.335.1.
+  --sha256 SHA256         Archive SHA256. Required for non-default versions.
+                          May also be supplied through RUNNER_SHA256.
   --labels LABELS         Additional comma-separated labels.
                           Default: aipsiteci-pool.
   -h, --help              Show this help.
+
+The default actions/runner release digests are repository-pinned from GitHub's
+release metadata. A custom runner version is never downloaded unless its SHA256
+is supplied explicitly.
 
 A repository registration token is short-lived. Generate it immediately before
 running this script from Settings > Actions > Runners > New self-hosted runner.
@@ -38,7 +48,8 @@ start_index=2
 name_prefix="aipsiteci"
 user_prefix="aiprunner"
 install_root="/opt/aipsite-actions-runners"
-runner_version="2.335.1"
+runner_version="$DEFAULT_RUNNER_VERSION"
+runner_sha256="${RUNNER_SHA256:-}"
 extra_labels="aipsiteci-pool"
 
 while [[ $# -gt 0 ]]; do
@@ -75,6 +86,10 @@ while [[ $# -gt 0 ]]; do
       runner_version="${2:-}"
       shift 2
       ;;
+    --sha256)
+      runner_sha256="${2:-}"
+      shift 2
+      ;;
     --labels)
       extra_labels="${2:-}"
       shift 2
@@ -101,6 +116,15 @@ if [[ -z "$repo_url" ]]; then
   exit 2
 fi
 
+case "$repo_url" in
+  https://github.com/*)
+    ;;
+  *)
+    echo "--url must use https://github.com/." >&2
+    exit 2
+    ;;
+esac
+
 if [[ -z "$runner_token" ]]; then
   echo "Set RUNNER_TOKEN or provide --token." >&2
   exit 2
@@ -116,7 +140,12 @@ if ! [[ "$start_index" =~ ^[1-9][0-9]*$ ]]; then
   exit 2
 fi
 
-for command_name in curl tar useradd usermod systemctl; do
+if ! [[ "$runner_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "--version must be a semantic version such as 2.335.1." >&2
+  exit 2
+fi
+
+for command_name in curl sha256sum tar useradd usermod systemctl; do
   if ! command -v "$command_name" >/dev/null 2>&1; then
     echo "Required command not found: $command_name" >&2
     exit 1
@@ -141,16 +170,74 @@ case "$(uname -m)" in
     ;;
 esac
 
+if [[ -z "$runner_sha256" ]]; then
+  case "${runner_version}:${runner_arch}" in
+    "${DEFAULT_RUNNER_VERSION}:x64")
+      runner_sha256="$DEFAULT_RUNNER_X64_SHA256"
+      ;;
+    "${DEFAULT_RUNNER_VERSION}:arm64")
+      runner_sha256="$DEFAULT_RUNNER_ARM64_SHA256"
+      ;;
+    *)
+      echo "A custom actions/runner version requires --sha256 or RUNNER_SHA256." >&2
+      exit 2
+      ;;
+  esac
+fi
+
+if ! [[ "$runner_sha256" =~ ^[0-9A-Fa-f]{64}$ ]]; then
+  echo "Runner archive SHA256 must be exactly 64 hexadecimal characters." >&2
+  exit 2
+fi
+runner_sha256="${runner_sha256,,}"
+
 cache_dir="$install_root/cache"
 archive_name="actions-runner-linux-${runner_arch}-${runner_version}.tar.gz"
 archive_path="$cache_dir/$archive_name"
+download_path="$cache_dir/.${archive_name}.download.$$"
 download_url="https://github.com/actions/runner/releases/download/v${runner_version}/${archive_name}"
 
 install -d -m 0755 "$cache_dir"
+trap 'rm -f "$download_path"' EXIT
 
 if [[ ! -s "$archive_path" ]]; then
   echo "Downloading actions/runner v${runner_version} for ${runner_arch}..."
-  curl --fail --location --retry 3 --output "$archive_path" "$download_url"
+  effective_url="$(
+    curl \
+      --fail \
+      --silent \
+      --show-error \
+      --location \
+      --proto '=https' \
+      --proto-redir '=https' \
+      --tlsv1.2 \
+      --max-redirs 5 \
+      --retry 3 \
+      --retry-all-errors \
+      --connect-timeout 10 \
+      --max-time 600 \
+      --write-out '%{url_effective}' \
+      --output "$download_path" \
+      "$download_url"
+  )"
+  effective_host="${effective_url#https://}"
+  effective_host="${effective_host%%/*}"
+  case "$effective_host" in
+    github.com|*.githubusercontent.com)
+      ;;
+    *)
+      echo "actions/runner download ended at an untrusted host." >&2
+      exit 1
+      ;;
+  esac
+  mv -f "$download_path" "$archive_path"
+  chmod 0644 "$archive_path"
+fi
+
+if ! printf '%s  %s\n' "$runner_sha256" "$archive_path" | sha256sum --check --strict; then
+  echo "actions/runner archive failed the pinned SHA256 check; refusing to extract it." >&2
+  rm -f "$archive_path"
+  exit 1
 fi
 
 last_index=$((start_index + runner_count - 1))
