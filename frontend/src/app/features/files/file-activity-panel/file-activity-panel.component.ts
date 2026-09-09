@@ -20,22 +20,25 @@ type ActivityState = 'idle' | 'loading' | 'ready' | 'empty' | 'error';
 type VersionPreviewState = 'idle' | 'loading' | 'ready' | 'unsupported' | 'error';
 type VersionPreviewRenderer = 'image' | 'pdf' | 'video' | 'text' | 'unsupported';
 
-const TEXT_PREVIEW_MAX_BYTES = 512 * 1024,
-  TEXT_CONTENT_TYPES: ReadonlySet<string> = new Set([
-    'application/json',
-    'application/ndjson',
-    'application/xml',
-    'application/x-ndjson',
-    'application/x-yaml',
-    'application/yaml',
-  ]),
-  previewContentTypeMatches = (renderer: VersionPreviewRenderer, contentType: string): boolean => {
+const PREVIEW_POLICY = {
+  matches: (renderer: VersionPreviewRenderer, contentType: string): boolean => {
     const normalized = contentType.toLowerCase().split(';', 1)[0]?.trim() ?? '';
     return (renderer === 'image' && normalized.startsWith('image/')) ||
       (renderer === 'pdf' && normalized === 'application/pdf') ||
       (renderer === 'video' && normalized.startsWith('video/')) ||
-      (renderer === 'text' && (normalized.startsWith('text/') || TEXT_CONTENT_TYPES.has(normalized)));
-  };
+      (renderer === 'text' && (
+        normalized.startsWith('text/') || [
+          'application/json',
+          'application/ndjson',
+          'application/xml',
+          'application/x-ndjson',
+          'application/x-yaml',
+          'application/yaml',
+        ].includes(normalized)
+      ));
+  },
+  textPreviewMaxBytes: 512 * 1024,
+} as const;
 
 interface FileActivityVersion {
   readonly versionId: string;
@@ -340,7 +343,7 @@ export class FileActivityPanelComponent implements OnChanges, OnDestroy {
         }
         this.versionRequest = null;
         const blob = response.body;
-        if (!previewContentTypeMatches(renderer, blob.type)) {
+        if (!PREVIEW_POLICY.matches(renderer, blob.type)) {
           this.versionPreviewState.set('error');
           this.versionPreviewMessage.set(this.text(
             'The returned file type did not match this version.',
@@ -350,7 +353,7 @@ export class FileActivityPanelComponent implements OnChanges, OnDestroy {
         }
 
         if (renderer === 'text') {
-          if (blob.size > TEXT_PREVIEW_MAX_BYTES) {
+          if (blob.size > PREVIEW_POLICY.textPreviewMaxBytes) {
             this.versionPreviewState.set('unsupported');
             return;
           }
@@ -485,6 +488,15 @@ export class FileActivityPanelComponent implements OnChanges, OnDestroy {
   }
 }
 
+const activityKind = (value: unknown): FileActivityKind | undefined =>
+    value === 'uploaded' || value === 'versionCreated' || value === 'sharingChanged' ? value : undefined,
+  sharingChange = (value: unknown): FileActivitySharing['change'] | undefined =>
+    value === 'policyChanged' || value === 'recipientGranted' || value === 'recipientRevoked' || value === 'changed'
+      ? value
+      : undefined,
+  sharingState = (value: unknown): FileActivitySharing['accessState'] | undefined =>
+    value === 'private' || value === 'workspace' || value === 'unavailable' ? value : undefined;
+
 function mapActivityResponse(value: unknown, expectedFileObjectId: string): readonly FileActivityEntry[] | null {
   if (!isObject(value) || normalizeIdentity(value['fileObjectId']) !== expectedFileObjectId || !Array.isArray(value['items'])) {
     return null;
@@ -574,24 +586,17 @@ function rendererFor(fileName: string, contentType: string): VersionPreviewRende
   if (normalized.startsWith('video/')) {
     return 'video';
   }
-  if (normalized.startsWith('text/') || TEXT_CONTENT_TYPES.has(normalized) || /\.(txt|md|json|csv|xml|log|yaml|yml)$/i.test(fileName)) {
+  if (normalized.startsWith('text/') || [
+    'application/json',
+    'application/ndjson',
+    'application/xml',
+    'application/x-ndjson',
+    'application/x-yaml',
+    'application/yaml',
+  ].includes(normalized) || /\.(txt|md|json|csv|xml|log|yaml|yml)$/i.test(fileName)) {
     return 'text';
   }
   return 'unsupported';
-}
-
-function activityKind(value: unknown): FileActivityKind | undefined {
-  return value === 'uploaded' || value === 'versionCreated' || value === 'sharingChanged' ? value : undefined;
-}
-
-function sharingChange(value: unknown): FileActivitySharing['change'] | undefined {
-  return value === 'policyChanged' || value === 'recipientGranted' || value === 'recipientRevoked' || value === 'changed'
-    ? value
-    : undefined;
-}
-
-function sharingState(value: unknown): FileActivitySharing['accessState'] | undefined {
-  return value === 'private' || value === 'workspace' || value === 'unavailable' ? value : undefined;
 }
 
 function normalizeIdentity(value: unknown): string | undefined {
