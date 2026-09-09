@@ -264,6 +264,53 @@ public sealed class AnnouncementDistributionStore(AppDbContext dbContext, IClock
         string json,
         CancellationToken cancellationToken)
     {
+        await ExecuteRequiredUpdateAsync(table switch
+        {
+            // Keep the SQL source adjacent to the command sink. The table is
+            // never derived from request data, and every request-derived value
+            // below remains a typed database parameter.
+            SidecarTable.Draft => command =>
+            {
+                command.CommandText = UpdateDraftTargetsSql;
+                AddUpdateParameters(command, tenantId, resourceId, json);
+            },
+            SidecarTable.Announcement => command =>
+            {
+                command.CommandText = UpdateAnnouncementTargetsSql;
+                AddUpdateParameters(command, tenantId, resourceId, json);
+            },
+            _ => throw new ArgumentOutOfRangeException(nameof(table), table, "Unsupported announcement sidecar table.")
+        }, cancellationToken);
+    }
+
+    private async Task<string?> ReadTargetJsonAsync(
+        SidecarTable table,
+        Guid tenantId,
+        Guid resourceId,
+        CancellationToken cancellationToken)
+    {
+        return await ExecuteScalarAsync(table switch
+        {
+            // See UpdateTargetJsonAsync: only these compile-time SQL constants
+            // may reach CommandText; resource scope is supplied as parameters.
+            SidecarTable.Draft => command =>
+            {
+                command.CommandText = ReadDraftTargetsSql;
+                AddReadParameters(command, tenantId, resourceId);
+            },
+            SidecarTable.Announcement => command =>
+            {
+                command.CommandText = ReadAnnouncementTargetsSql;
+                AddReadParameters(command, tenantId, resourceId);
+            },
+            _ => throw new ArgumentOutOfRangeException(nameof(table), table, "Unsupported announcement sidecar table.")
+        }, cancellationToken);
+    }
+
+    private async Task ExecuteRequiredUpdateAsync(
+        Action<System.Data.Common.DbCommand> configure,
+        CancellationToken cancellationToken)
+    {
         var connection = dbContext.Database.GetDbConnection();
         var openedHere = connection.State != ConnectionState.Open;
         if (openedHere)
@@ -275,15 +322,7 @@ public sealed class AnnouncementDistributionStore(AppDbContext dbContext, IClock
         {
             await using var command = connection.CreateCommand();
             command.Transaction = dbContext.Database.CurrentTransaction?.GetDbTransaction();
-            command.CommandText = table switch
-            {
-                SidecarTable.Draft => UpdateDraftTargetsSql,
-                SidecarTable.Announcement => UpdateAnnouncementTargetsSql,
-                _ => throw new ArgumentOutOfRangeException(nameof(table), table, "Unsupported announcement sidecar table.")
-            };
-            AddParameter(command, "targets", json);
-            AddParameter(command, "tenantId", tenantId);
-            AddParameter(command, "resourceId", resourceId);
+            configure(command);
             if (await command.ExecuteNonQueryAsync(cancellationToken) != 1)
             {
                 throw new InvalidOperationException("Announcement distribution target sidecar could not be persisted.");
@@ -298,10 +337,8 @@ public sealed class AnnouncementDistributionStore(AppDbContext dbContext, IClock
         }
     }
 
-    private async Task<string?> ReadTargetJsonAsync(
-        SidecarTable table,
-        Guid tenantId,
-        Guid resourceId,
+    private async Task<string?> ExecuteScalarAsync(
+        Action<System.Data.Common.DbCommand> configure,
         CancellationToken cancellationToken)
     {
         var connection = dbContext.Database.GetDbConnection();
@@ -315,14 +352,7 @@ public sealed class AnnouncementDistributionStore(AppDbContext dbContext, IClock
         {
             await using var command = connection.CreateCommand();
             command.Transaction = dbContext.Database.CurrentTransaction?.GetDbTransaction();
-            command.CommandText = table switch
-            {
-                SidecarTable.Draft => ReadDraftTargetsSql,
-                SidecarTable.Announcement => ReadAnnouncementTargetsSql,
-                _ => throw new ArgumentOutOfRangeException(nameof(table), table, "Unsupported announcement sidecar table.")
-            };
-            AddParameter(command, "tenantId", tenantId);
-            AddParameter(command, "resourceId", resourceId);
+            configure(command);
             var value = await command.ExecuteScalarAsync(cancellationToken);
             return value is null or DBNull ? null : Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture);
         }
@@ -333,6 +363,26 @@ public sealed class AnnouncementDistributionStore(AppDbContext dbContext, IClock
                 await connection.CloseAsync();
             }
         }
+    }
+
+    private static void AddUpdateParameters(
+        System.Data.Common.DbCommand command,
+        Guid tenantId,
+        Guid resourceId,
+        string json)
+    {
+        AddParameter(command, "targets", json);
+        AddParameter(command, "tenantId", tenantId);
+        AddParameter(command, "resourceId", resourceId);
+    }
+
+    private static void AddReadParameters(
+        System.Data.Common.DbCommand command,
+        Guid tenantId,
+        Guid resourceId)
+    {
+        AddParameter(command, "tenantId", tenantId);
+        AddParameter(command, "resourceId", resourceId);
     }
 
     private static string Serialize(IReadOnlyList<AnnouncementDraftTargetRequest> targets) =>
