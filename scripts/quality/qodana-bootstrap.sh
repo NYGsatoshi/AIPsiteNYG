@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+readonly DOTNET_INSTALL_SCRIPTS_COMMIT="47940ac9fc30a2f2dd19167165d0bb0774625f67"
+readonly DOTNET_INSTALL_SCRIPT_BLOB_SHA1="bd13ffa6656fe776c95b561fe4df640918867523"
+readonly DOTNET_INSTALL_SCRIPT_URL="https://raw.githubusercontent.com/dotnet/install-scripts/${DOTNET_INSTALL_SCRIPTS_COMMIT}/src/dotnet-install.sh"
+
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo_root"
 
@@ -13,13 +17,47 @@ if [[ -z "$required_sdk" ]]; then
   exit 1
 fi
 
+download_verified_dotnet_installer() {
+  local installer="$1"
+  local actual_blob_sha
+
+  for command_name in curl git; do
+    if ! command -v "$command_name" >/dev/null 2>&1; then
+      echo "Required command not found for verified .NET bootstrap: $command_name" >&2
+      exit 1
+    fi
+  done
+
+  curl \
+    --fail \
+    --silent \
+    --show-error \
+    --proto '=https' \
+    --tlsv1.2 \
+    --retry 3 \
+    --retry-all-errors \
+    --connect-timeout 10 \
+    --max-time 120 \
+    "$DOTNET_INSTALL_SCRIPT_URL" \
+    --output "$installer"
+
+  actual_blob_sha="$(git hash-object "$installer")"
+  if [[ "$actual_blob_sha" != "$DOTNET_INSTALL_SCRIPT_BLOB_SHA1" ]]; then
+    echo "Downloaded dotnet-install.sh does not match the repository-pinned Microsoft Git blob." >&2
+    rm -f "$installer"
+    exit 1
+  fi
+  chmod 0700 "$installer"
+}
+
 install_dotnet_sdk() {
   local install_dir="${QODANA_DOTNET_INSTALL_DIR:-/usr/share/dotnet}"
   local installer="/tmp/dotnet-install.sh"
 
+  download_verified_dotnet_installer "$installer"
+
   if [[ ! -w "$install_dir" ]]; then
     if command -v sudo >/dev/null 2>&1; then
-      curl -fsSL https://dot.net/v1/dotnet-install.sh -o "$installer"
       sudo bash "$installer" --version "$required_sdk" --install-dir "$install_dir" --no-path
       return
     fi
@@ -28,7 +66,6 @@ install_dotnet_sdk() {
     mkdir -p "$install_dir"
   fi
 
-  curl -fsSL https://dot.net/v1/dotnet-install.sh -o "$installer"
   bash "$installer" --version "$required_sdk" --install-dir "$install_dir" --no-path
   export DOTNET_ROOT="$install_dir"
   export PATH="$install_dir:$PATH"
