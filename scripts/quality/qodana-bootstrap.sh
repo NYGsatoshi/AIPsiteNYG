@@ -56,11 +56,11 @@ elif command -v npm >/dev/null 2>&1; then
   echo "Using Node.js $(node --version)"
   echo "Using npm $(npm --version)"
 
-  echo "Restoring root UI test dependencies"
-  npm ci --no-audit --no-fund
+  echo "Restoring root UI test dependencies with reviewed lifecycle policy"
+  bash scripts/ci/npm-ci-retry.sh .
 
-  echo "Restoring active Angular workspace dependencies"
-  npm --prefix frontend ci --no-audit --no-fund
+  echo "Restoring active Angular workspace dependencies with reviewed lifecycle policy"
+  bash scripts/ci/npm-ci-retry.sh frontend
 
   echo "Building active Angular workspace"
   npm --prefix frontend run build

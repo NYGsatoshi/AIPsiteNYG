@@ -64,7 +64,7 @@ jobs:
           }
 
       - name: Install acceptance runner dependencies
-        run: npm ci
+        run: bash scripts/ci/npm-ci-retry.sh .
 
       - name: Prune unused Docker networks
         run: docker network prune --force
