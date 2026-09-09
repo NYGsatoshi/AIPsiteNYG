@@ -20,6 +20,12 @@ public sealed class AnnouncementDistributionStore(AppDbContext dbContext, IClock
     private readonly Dictionary<Guid, IReadOnlyList<AnnouncementDraftTargetRequest>> inMemoryDraftTargets = [];
     private readonly Dictionary<Guid, IReadOnlyList<AnnouncementDraftTargetRequest>> inMemoryAnnouncementTargets = [];
 
+    private enum SidecarTable
+    {
+        Draft,
+        Announcement
+    }
+
     public async Task StageCreatedDraftTargetsAsync(
         Guid tenantId,
         Guid draftId,
@@ -39,7 +45,7 @@ public sealed class AnnouncementDistributionStore(AppDbContext dbContext, IClock
         }
 
         await UpdateTargetJsonAsync(
-            "announcement_drafts",
+            SidecarTable.Draft,
             tenantId,
             draftId,
             Serialize(targets),
@@ -68,7 +74,7 @@ public sealed class AnnouncementDistributionStore(AppDbContext dbContext, IClock
         {
             await dbContext.SaveChangesAsync(cancellationToken);
             await UpdateTargetJsonAsync(
-                "announcement_drafts",
+                SidecarTable.Draft,
                 tenantId,
                 draftId,
                 Serialize(targets),
@@ -106,7 +112,7 @@ public sealed class AnnouncementDistributionStore(AppDbContext dbContext, IClock
         }
 
         var json = await ReadTargetJsonAsync(
-            "announcement_drafts",
+            SidecarTable.Draft,
             tenantId,
             draftId,
             cancellationToken);
@@ -130,7 +136,7 @@ public sealed class AnnouncementDistributionStore(AppDbContext dbContext, IClock
         }
 
         var json = await ReadTargetJsonAsync(
-            "announcements",
+            SidecarTable.Announcement,
             tenantId,
             announcementId,
             cancellationToken);
@@ -170,7 +176,7 @@ public sealed class AnnouncementDistributionStore(AppDbContext dbContext, IClock
             // recipients, so an empty cohort cannot later drift with membership.
             await dbContext.SaveChangesAsync(cancellationToken);
             await UpdateTargetJsonAsync(
-                "announcements",
+                SidecarTable.Announcement,
                 tenantId,
                 announcementId,
                 Serialize(targets),
@@ -225,7 +231,7 @@ public sealed class AnnouncementDistributionStore(AppDbContext dbContext, IClock
         string.Equals(dbContext.Database.ProviderName, "Npgsql.EntityFrameworkCore.PostgreSQL", StringComparison.Ordinal);
 
     private async Task UpdateTargetJsonAsync(
-        string table,
+        SidecarTable table,
         Guid tenantId,
         Guid resourceId,
         string json,
@@ -242,12 +248,22 @@ public sealed class AnnouncementDistributionStore(AppDbContext dbContext, IClock
         {
             await using var command = connection.CreateCommand();
             command.Transaction = dbContext.Database.CurrentTransaction?.GetDbTransaction();
-            command.CommandText = $"""
-                UPDATE {table}
-                SET "DistributionTargetsJson" = @targets
-                WHERE "TenantId" = @tenantId
-                  AND "Id" = @resourceId
-                """;
+            command.CommandText = table switch
+            {
+                SidecarTable.Draft => """
+                    UPDATE announcement_drafts
+                    SET "DistributionTargetsJson" = @targets
+                    WHERE "TenantId" = @tenantId
+                      AND "Id" = @resourceId
+                    """,
+                SidecarTable.Announcement => """
+                    UPDATE announcements
+                    SET "DistributionTargetsJson" = @targets
+                    WHERE "TenantId" = @tenantId
+                      AND "Id" = @resourceId
+                    """,
+                _ => throw new ArgumentOutOfRangeException(nameof(table), table, "Unsupported announcement sidecar table.")
+            };
             AddParameter(command, "targets", json);
             AddParameter(command, "tenantId", tenantId);
             AddParameter(command, "resourceId", resourceId);
@@ -266,7 +282,7 @@ public sealed class AnnouncementDistributionStore(AppDbContext dbContext, IClock
     }
 
     private async Task<string?> ReadTargetJsonAsync(
-        string table,
+        SidecarTable table,
         Guid tenantId,
         Guid resourceId,
         CancellationToken cancellationToken)
@@ -282,13 +298,24 @@ public sealed class AnnouncementDistributionStore(AppDbContext dbContext, IClock
         {
             await using var command = connection.CreateCommand();
             command.Transaction = dbContext.Database.CurrentTransaction?.GetDbTransaction();
-            command.CommandText = $"""
-                SELECT "DistributionTargetsJson"
-                FROM {table}
-                WHERE "TenantId" = @tenantId
-                  AND "Id" = @resourceId
-                LIMIT 1
-                """;
+            command.CommandText = table switch
+            {
+                SidecarTable.Draft => """
+                    SELECT "DistributionTargetsJson"
+                    FROM announcement_drafts
+                    WHERE "TenantId" = @tenantId
+                      AND "Id" = @resourceId
+                    LIMIT 1
+                    """,
+                SidecarTable.Announcement => """
+                    SELECT "DistributionTargetsJson"
+                    FROM announcements
+                    WHERE "TenantId" = @tenantId
+                      AND "Id" = @resourceId
+                    LIMIT 1
+                    """,
+                _ => throw new ArgumentOutOfRangeException(nameof(table), table, "Unsupported announcement sidecar table.")
+            };
             AddParameter(command, "tenantId", tenantId);
             AddParameter(command, "resourceId", resourceId);
             var value = await command.ExecuteScalarAsync(cancellationToken);
