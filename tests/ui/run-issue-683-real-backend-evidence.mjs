@@ -1,4 +1,4 @@
-/* eslint-disable func-style, no-await-in-loop, no-console, no-magic-numbers, no-shadow, no-ternary, no-use-before-define, one-var, require-unicode-regexp, sort-imports, sort-keys -- Issue #683 evidence is intentionally sequential and imperative so every fresh Compose run is fully captured before the next run starts. */
+/* eslint-disable func-style, no-await-in-loop, no-console, no-magic-numbers, no-shadow, no-ternary, no-use-before-define, one-var, sort-imports, sort-keys -- Issue #683 evidence is intentionally sequential and imperative so every fresh Compose run is fully captured before the next run starts. */
 import { spawnSync } from 'node:child_process';
 import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
