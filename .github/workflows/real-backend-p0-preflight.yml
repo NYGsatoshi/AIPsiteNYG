@@ -14,6 +14,8 @@ on:
       - "scripts/ci/verify-playwright-required-tests.mjs"
       - "tests/ui/build-playwright-grep.node-test.mjs"
       - "tests/ui/verify-playwright-required-tests.node-test.mjs"
+      - "tests/ui/fixed-sha-evidence.mjs"
+      - "tests/ui/fixed-sha-evidence.node-test.mjs"
       - "tests/ui/issue-683-race-evidence.mjs"
       - "tests/ui/issue-683-race-evidence.node-test.mjs"
       - "tests/ui/issue-683-race-evidence-reporter.mjs"
@@ -40,6 +42,8 @@ on:
       - "scripts/ci/verify-playwright-required-tests.mjs"
       - "tests/ui/build-playwright-grep.node-test.mjs"
       - "tests/ui/verify-playwright-required-tests.node-test.mjs"
+      - "tests/ui/fixed-sha-evidence.mjs"
+      - "tests/ui/fixed-sha-evidence.node-test.mjs"
       - "tests/ui/issue-683-race-evidence.mjs"
       - "tests/ui/issue-683-race-evidence.node-test.mjs"
       - "tests/ui/issue-683-race-evidence-reporter.mjs"
@@ -83,6 +87,7 @@ jobs:
           tests/ui/real-backend-smoke-compose-helpers.node-test.mjs
           tests/ui/verify-playwright-required-tests.node-test.mjs
           tests/ui/real-backend-pr03c-failure-correlation.node-test.mjs
+          tests/ui/fixed-sha-evidence.node-test.mjs
           tests/ui/issue-683-race-evidence.node-test.mjs
 
       - name: Check P0 and Functional harness syntax
@@ -92,6 +97,7 @@ jobs:
           bash -n scripts/ci/verify-functional-trust-boundary.sh
           node --check tests/ui/prepare-real-backend-p0-state.mjs
           node --check tests/ui/real-backend-smoke-compose-helpers.mjs
+          node --check tests/ui/fixed-sha-evidence.mjs
           node --check tests/ui/issue-683-race-evidence.mjs
           node --check tests/ui/issue-683-race-evidence-reporter.mjs
           node --check tests/ui/run-issue-683-real-backend-evidence.mjs
@@ -119,7 +125,7 @@ jobs:
             echo "- Manifest titles verified against the real-backend Playwright spec"
             echo "- Focused grep generated successfully"
             echo "- Required JUnit result verifier unit-tested"
-            echo "- Issue #683 fixed-SHA/retry/race-observation policy unit-tested"
+            echo "- Issue #683 detached fixed-SHA/retry/race-observation policy unit-tested"
             echo "- Functional Compose isolation, fixture-profile, redaction, cleanup-command, and failure-classification invariants self-tested"
             echo "- Protected Syncfusion license lane verified as push/dispatch-only with exact-SHA checkout"
             echo "- Existing P0 JavaScript and Functional shell syntax checked"
