@@ -11,7 +11,6 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { Observable, Subscription } from 'rxjs';
 
 import { I18nService } from '../../../core/i18n/i18n.service';
@@ -79,7 +78,6 @@ export class FilesPageComponent {
   private readonly facade = inject(FilesFacade);
   private readonly fileFolders = inject(FileFolderStore);
   private readonly previewService = inject(FilePreviewService);
-  private readonly sanitizer = inject(DomSanitizer);
   private readonly destroyRef = inject(DestroyRef);
   private readonly flags = inject(FrontendFeatureFlagsService);
   private readonly activeWorkspace = inject(ActiveWorkspaceFacade);
@@ -188,7 +186,6 @@ export class FilesPageComponent {
   readonly previewState = signal<FilePreviewState>('idle');
   readonly previewRenderer = signal<FilePreviewRenderer>('unsupported');
   readonly previewUrl = signal<string | null>(null);
-  readonly previewResourceUrl = signal<SafeResourceUrl | null>(null);
   readonly previewText = signal('');
   readonly previewMessage = signal('');
   readonly previewActionStatus = signal('');
@@ -1046,7 +1043,6 @@ export class FilesPageComponent {
     }
     this.previewObjectUrl = null;
     this.previewUrl.set(null);
-    this.previewResourceUrl.set(null);
   }
 
   private previewAccessMessage(file: FileViewModel): string | null {
@@ -1115,7 +1111,6 @@ export class FilesPageComponent {
       const objectUrl = URL.createObjectURL(blob);
       this.previewObjectUrl = objectUrl;
       this.previewUrl.set(objectUrl);
-      this.previewResourceUrl.set(renderer === 'pdf' ? this.sanitizer.bypassSecurityTrustResourceUrl(objectUrl) : null);
     } else if (renderer !== 'text') {
       this.previewState.set('failed');
       this.previewMessage.set(this.i18n.translate('files.preview.localUrlUnavailable'));
