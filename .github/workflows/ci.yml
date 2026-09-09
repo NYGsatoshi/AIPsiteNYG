@@ -86,7 +86,7 @@ jobs:
         env:
           # Build-time contract generation must be read-only. Point database
           # access at an unreachable port so any accidental startup query fails.
-          ConnectionStrings__DefaultConnection: Host=127.0.0.1;Port=1;Database=sec01_openapi;Username=unused;Password=unused;Timeout=1;Command Timeout=1
+          ConnectionStrings__DefaultConnection: Host=127.0.0.1;Port=1;Database=sec01_openapi;Username=unused;Timeout=1;Command Timeout=1
           Tenancy__AppMode: SaaS
           Tenancy__SeedOnStartup: "false"
           UiShell__SeedOnStartup: "false"
