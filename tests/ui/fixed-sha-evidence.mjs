@@ -1,8 +1,8 @@
 const FULL_COMMIT_SHA = /^[0-9a-f]{40}$/u;
 
-export function validateDetachedFixedSha(detachedHead, workflowSha, evidenceLabel = 'Fixed-SHA evidence') {
-  const actualSha = String(detachedHead ?? '').trim();
-  const expectedSha = String(workflowSha ?? '').trim();
+export const validateDetachedFixedSha = (detachedHead, workflowSha, evidenceLabel = 'Fixed-SHA evidence') => {
+  const actualSha = String(detachedHead ?? '').trim(),
+    expectedSha = String(workflowSha ?? '').trim();
 
   if (!FULL_COMMIT_SHA.test(actualSha)) {
     throw new Error(`${evidenceLabel} requires a detached full 40-hex checkout SHA; received ${actualSha || '<empty>'}.`);
@@ -15,4 +15,4 @@ export function validateDetachedFixedSha(detachedHead, workflowSha, evidenceLabe
   }
 
   return actualSha;
-}
+};
