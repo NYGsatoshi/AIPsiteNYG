@@ -6,6 +6,7 @@
 98731d440ad73d67133f3ca33c80f342ef7cbe61:docs/verification/mvp-a/mvp-a-p0-blockers.md:generic-api-key:127
 
 # Docker's published apt signing-key fingerprint is public trust-root metadata,
-# not a credential. Keep this exact commit/path/rule/line fingerprint only; any
-# future key rotation or location change must be reviewed again.
+# not a credential. Keep these exact commit/path/rule/line fingerprints only;
+# any future key rotation or content-introducing commit must be reviewed again.
 735e92a1538be10a29ffd3c77ca2c083ebe541e5:deploy/gcp/bootstrap-vm.sh:generic-api-key:8
+1b029eced939f9593a4f935b541fbfcdd599f4e7:deploy/gcp/bootstrap-vm.sh:generic-api-key:8
