@@ -557,6 +557,34 @@ describe('FilesPageComponent', () => {
     expect(textContent(blocked)).toContain('Download is blocked by file scan state.');
   });
 
+  it('opens an authorized PDF in a separate protected browsing context without embedding it', async () => {
+    const { fixture, http } = await renderLiveFilesPage([
+      { ...backendFile, originalFileName: 'report.pdf', contentType: 'application/pdf', scanStatus: 'Allowed' },
+    ]);
+    const createObjectUrlSpy = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:authorized-pdf');
+    const file = fixture.componentInstance.page().recentFiles[0];
+    if (!file) {
+      throw new Error('Expected a PDF fixture.');
+    }
+
+    fixture.componentInstance.openPreview(file);
+    const grant = http.expectOne(`/api/files/${FILE_OBJECT_ID}/download-grants`);
+    expect(grant.request.body).toEqual({ purpose: 'files-page-preview' });
+    grant.flush({ fileDownloadGrantId: 'preview-grant', fileObjectId: FILE_OBJECT_ID, token: 'preview-token' });
+
+    const download = http.expectOne('/api/file-download-grants/preview-grant/download');
+    download.flush(new Blob(['pdf'], { type: 'application/pdf' }));
+    fixture.detectChanges();
+
+    const host = fixture.nativeElement as HTMLElement;
+    const pdfLink = host.querySelector('[data-testid="files-preview-pdf"]') as HTMLAnchorElement;
+    expect(pdfLink.getAttribute('href')).toBe('blob:authorized-pdf');
+    expect(pdfLink.getAttribute('target')).toBe('_blank');
+    expect(pdfLink.getAttribute('rel')).toContain('noopener');
+    expect(host.querySelector('iframe')).toBeNull();
+    expect(createObjectUrlSpy).toHaveBeenCalledOnce();
+  });
+
   it('does not render preview, SVG image, public link, or streaming elements', async () => {
     const fixture = await renderMockFilesPage(FILES_PAGE_SCENARIOS.previewDisabled);
     const host = fixture.nativeElement as HTMLElement;
