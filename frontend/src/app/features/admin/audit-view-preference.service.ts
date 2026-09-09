@@ -1,6 +1,7 @@
 import { Injectable, InjectionToken, inject } from '@angular/core';
 
 import { AuthSessionFacade } from '../../core/auth/auth-session.facade';
+import { createLocalOpaqueId } from '../../core/security/client-id';
 import { AuditFilterSnapshot, AuditSavedView } from './admin.types';
 
 export interface AuditViewStorage {
@@ -210,8 +211,7 @@ function isValidName(value: string): boolean {
 }
 
 function createId(): string {
-  const uuid = globalThis.crypto?.randomUUID?.();
-  return uuid ? `audit-${uuid}` : `audit-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+  return createLocalOpaqueId('audit');
 }
 
 function browserLocalStorage(): AuditViewStorage | null {

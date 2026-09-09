@@ -1,5 +1,6 @@
 import { HttpErrorResponse } from '@angular/common/http';
 
+import { createLocalOpaqueId } from '../security/client-id';
 import { ApiErrorDisplayModel, FrontendApiError, FrontendApiErrorDetail } from './api-error.model';
 
 interface ErrorEnvelope {
@@ -210,10 +211,5 @@ function firstBoolean(...values: readonly unknown[]): boolean | undefined {
 }
 
 function createLocalErrorId(): string {
-  const cryptoApi = globalThis.crypto;
-  if (cryptoApi && typeof cryptoApi.randomUUID === 'function') {
-    return cryptoApi.randomUUID();
-  }
-
-  return `local-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  return createLocalOpaqueId('local');
 }
