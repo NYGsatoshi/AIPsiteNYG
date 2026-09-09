@@ -1,14 +1,9 @@
 name: "Code Scanning Inventory"
 
 on:
-  # CS-00 bootstrap: run once from the repository-owned remediation branch so
-  # untrusted pull-request code never receives security-events read access.
-  push:
-    branches: [ "chore/cs00-code-scanning-inventory" ]
-    paths:
-      - ".github/workflows/code-scanning-inventory.yml"
-      - "scripts/security/code-scanning-inventory.py"
-      - "scripts/security/test-code-scanning-inventory.py"
+  # Vulnerability metadata must only be fetched from a trusted, explicitly
+  # started workflow. Never grant security-events read access to PR-controlled
+  # execution.
   workflow_dispatch:
 
 permissions:
