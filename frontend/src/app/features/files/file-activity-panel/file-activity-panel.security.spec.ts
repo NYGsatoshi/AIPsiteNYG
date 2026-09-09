@@ -11,61 +11,63 @@ const CONFIG = {
     versionId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
     versionNumber: 2,
   } as const,
-  setupVersion = async (options: Readonly<{ contentType: string; fileName: string }>) => {
-    await TestBed.configureTestingModule({
-      imports: [FileActivityPanelComponent],
-      providers: [provideHttpClient(), provideHttpClientTesting()],
-    }).compileComponents();
-    const state = {
-      createObjectUrl: vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:historical-pdf'),
-      fixture: TestBed.createComponent(FileActivityPanelComponent),
-      http: TestBed.inject(HttpTestingController),
-      scenarioFile: FILES_PAGE_SCENARIOS.default.recentFiles[0],
-    };
-    if (!state.scenarioFile) {
-      throw new Error('Expected the Files fixture to contain a recent file.');
-    }
-    state.fixture.componentRef.setInput('file', {
-      ...state.scenarioFile,
-      canonicalFileId: CONFIG.fileId,
-      capabilities: ['download'],
-      contentType: 'text/plain',
-      downloadPolicy: 'available',
-      id: 'activity-file',
-      kind: 'document',
-      originalFileName: 'research-notes.txt',
-      scanStatus: 'allowed',
-      sizeBytes: CONFIG.fileSizeBytes,
-    });
-    state.fixture.detectChanges();
-    state.http.expectOne(`/api/files/${CONFIG.fileId}/activity`).flush({
-      fileObjectId: CONFIG.fileId,
-      items: [{
-        actorDisplayName: 'File Editor',
-        id: CONFIG.versionId,
-        kind: 'versionCreated',
-        occurredAt: '2026-09-01T13:00:00Z',
-        version: {
-          contentType: options.contentType,
-          createdAt: '2026-09-01T13:00:00Z',
-          fileName: options.fileName,
-          isCurrent: true,
-          sizeBytes: CONFIG.fileSizeBytes,
-          versionId: CONFIG.versionId,
-          versionNumber: CONFIG.versionNumber,
-        },
-      }],
-    });
-    state.fixture.detectChanges();
-    (state.fixture.nativeElement instanceof HTMLElement ? state.fixture.nativeElement : null)
-      ?.querySelector<HTMLButtonElement>('[data-testid="files-activity-view-version"]')
-      ?.click();
-    state.fixture.detectChanges();
-    return {
-      ...state,
-      host: state.fixture.nativeElement instanceof HTMLElement ? state.fixture.nativeElement : null,
-    };
+  SCENARIO_FILE = FILES_PAGE_SCENARIOS.default.recentFiles.at(0);
+
+if (!SCENARIO_FILE) {
+  throw new Error('Expected the Files fixture to contain a recent file.');
+}
+
+const setupVersion = async (options: Readonly<{ contentType: string; fileName: string }>) => {
+  await TestBed.configureTestingModule({
+    imports: [FileActivityPanelComponent],
+    providers: [provideHttpClient(), provideHttpClientTesting()],
+  }).compileComponents();
+  const state = {
+    createObjectUrl: vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:historical-pdf'),
+    fixture: TestBed.createComponent(FileActivityPanelComponent),
+    http: TestBed.inject(HttpTestingController),
   };
+  state.fixture.componentRef.setInput('file', {
+    ...SCENARIO_FILE,
+    canonicalFileId: CONFIG.fileId,
+    capabilities: ['download'],
+    contentType: 'text/plain',
+    downloadPolicy: 'available',
+    id: 'activity-file',
+    kind: 'document',
+    originalFileName: 'research-notes.txt',
+    scanStatus: 'allowed',
+    sizeBytes: CONFIG.fileSizeBytes,
+  });
+  state.fixture.detectChanges();
+  state.http.expectOne(`/api/files/${CONFIG.fileId}/activity`).flush({
+    fileObjectId: CONFIG.fileId,
+    items: [{
+      actorDisplayName: 'File Editor',
+      id: CONFIG.versionId,
+      kind: 'versionCreated',
+      occurredAt: '2026-09-01T13:00:00Z',
+      version: {
+        contentType: options.contentType,
+        createdAt: '2026-09-01T13:00:00Z',
+        fileName: options.fileName,
+        isCurrent: true,
+        sizeBytes: CONFIG.fileSizeBytes,
+        versionId: CONFIG.versionId,
+        versionNumber: CONFIG.versionNumber,
+      },
+    }],
+  });
+  state.fixture.detectChanges();
+  (state.fixture.nativeElement instanceof HTMLElement ? state.fixture.nativeElement : null)
+    ?.querySelector<HTMLButtonElement>('[data-testid="files-activity-view-version"]')
+    ?.click();
+  state.fixture.detectChanges();
+  return {
+    ...state,
+    host: state.fixture.nativeElement instanceof HTMLElement ? state.fixture.nativeElement : null,
+  };
+};
 
 beforeEach(() => {
   window.localStorage.setItem('aip.locale', 'en');
