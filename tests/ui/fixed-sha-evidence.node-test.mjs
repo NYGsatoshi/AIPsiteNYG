@@ -3,8 +3,8 @@ import test from 'node:test';
 
 import { validateDetachedFixedSha } from './fixed-sha-evidence.mjs';
 
-const CHECKOUT_SHA = 'a'.repeat(40);
-const DIFFERENT_SHA = 'b'.repeat(40);
+const CHECKOUT_SHA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+  DIFFERENT_SHA = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
 
 test('accepts a detached checkout SHA that exactly matches GITHUB_SHA', () => {
   assert.equal(validateDetachedFixedSha(`${CHECKOUT_SHA}\n`, CHECKOUT_SHA, 'Issue #683 evidence'), CHECKOUT_SHA);
