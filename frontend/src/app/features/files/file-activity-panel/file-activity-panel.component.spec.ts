@@ -45,12 +45,45 @@ function browserTextBlob(text: string, type: string): Blob {
   return blob;
 }
 
+function flushActivityWithVersion(
+  http: HttpTestingController,
+  options: { fileName: string; contentType: string },
+): void {
+  http.expectOne(`/api/files/${FILE_ID}/activity`).flush({
+    fileObjectId: FILE_ID,
+    items: [{
+      id: VERSION_ID,
+      kind: 'versionCreated',
+      actorDisplayName: 'File Editor',
+      occurredAt: '2026-09-01T13:00:00Z',
+      version: {
+        versionId: VERSION_ID,
+        versionNumber: 2,
+        fileName: options.fileName,
+        contentType: options.contentType,
+        sizeBytes: 128,
+        createdAt: '2026-09-01T13:00:00Z',
+        isCurrent: true,
+      },
+    }],
+  });
+}
+
+function clickVersion(fixture: ComponentFixture<FileActivityPanelComponent>): void {
+  const button = (fixture.nativeElement as HTMLElement).querySelector(
+    '[data-testid="files-activity-view-version"]',
+  ) as HTMLButtonElement;
+  button.click();
+  fixture.detectChanges();
+}
+
 describe('FileActivityPanelComponent issue #363', () => {
   beforeEach(() => window.localStorage.setItem('aip.locale', 'en'));
 
   afterEach(() => {
     window.localStorage.removeItem('aip.locale');
     TestBed.inject(HttpTestingController).verify();
+    vi.restoreAllMocks();
     TestBed.resetTestingModule();
   });
 
@@ -144,11 +177,7 @@ describe('FileActivityPanelComponent issue #363', () => {
     });
     fixture.detectChanges();
 
-    const button = (fixture.nativeElement as HTMLElement).querySelector(
-      '[data-testid="files-activity-view-version"]',
-    ) as HTMLButtonElement;
-    button.click();
-    fixture.detectChanges();
+    clickVersion(fixture);
 
     const versionRequest = http.expectOne(`/api/files/${FILE_ID}/versions/${VERSION_ID}/content`);
     expect(versionRequest.request.method).toBe('GET');
@@ -161,6 +190,62 @@ describe('FileActivityPanelComponent issue #363', () => {
     const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
     expect(text).toContain('Version 2');
     expect(text).toContain('version two');
+  });
+
+  it('opens a historical PDF only after the returned Blob MIME matches the PDF metadata', async () => {
+    const fixture = await render();
+    const http = TestBed.inject(HttpTestingController);
+    flushActivityWithVersion(http, { fileName: 'brief.pdf', contentType: 'application/pdf' });
+    fixture.detectChanges();
+
+    const createObjectUrl = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:historical-pdf');
+    clickVersion(fixture);
+    const versionRequest = http.expectOne(`/api/files/${FILE_ID}/versions/${VERSION_ID}/content`);
+    versionRequest.flush(new Blob(['pdf'], { type: 'application/pdf' }));
+    fixture.detectChanges();
+
+    const host = fixture.nativeElement as HTMLElement;
+    const link = host.querySelector('[data-testid="files-version-preview-pdf-link"]') as HTMLAnchorElement;
+    expect(link).not.toBeNull();
+    expect(link.getAttribute('href')).toBe('blob:historical-pdf');
+    expect(link.getAttribute('target')).toBe('_blank');
+    expect(link.getAttribute('rel')).toContain('noopener');
+    expect(host.querySelector('iframe')).toBeNull();
+    expect(createObjectUrl).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails closed when historical PDF metadata does not match the returned Blob MIME', async () => {
+    const fixture = await render();
+    const http = TestBed.inject(HttpTestingController);
+    flushActivityWithVersion(http, { fileName: 'brief.pdf', contentType: 'application/pdf' });
+    fixture.detectChanges();
+
+    const createObjectUrl = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:must-not-be-used');
+    clickVersion(fixture);
+    const versionRequest = http.expectOne(`/api/files/${FILE_ID}/versions/${VERSION_ID}/content`);
+    versionRequest.flush(new Blob(['<html>active</html>'], { type: 'text/html' }));
+    fixture.detectChanges();
+
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.querySelector('[data-testid="files-version-preview-pdf-link"]')).toBeNull();
+    expect(host.textContent).toContain('The returned file type did not match this version.');
+    expect(createObjectUrl).not.toHaveBeenCalled();
+  });
+
+  it('does not fetch or mint a Blob URL for an unsupported historical active-content type', async () => {
+    const fixture = await render();
+    const http = TestBed.inject(HttpTestingController);
+    flushActivityWithVersion(http, { fileName: 'payload.xhtml', contentType: 'application/xhtml+xml' });
+    fixture.detectChanges();
+
+    const createObjectUrl = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:must-not-be-used');
+    clickVersion(fixture);
+
+    http.expectNone(`/api/files/${FILE_ID}/versions/${VERSION_ID}/content`);
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.textContent).toContain('Preview is not available for this file type.');
+    expect(host.querySelector('a[href^="blob:"]')).toBeNull();
+    expect(createObjectUrl).not.toHaveBeenCalled();
   });
 
   it('fails closed when activity access is revoked', async () => {
