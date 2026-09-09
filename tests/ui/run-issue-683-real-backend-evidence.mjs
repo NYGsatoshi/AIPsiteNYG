@@ -1,5 +1,5 @@
 /* eslint-disable func-style, no-await-in-loop, no-console, no-magic-numbers, no-shadow, no-ternary, no-use-before-define, one-var, require-unicode-regexp, sort-imports, sort-keys -- Issue #683 evidence is intentionally sequential and imperative so every fresh Compose run is fully captured before the next run starts. */
-import { spawnSync, execFileSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import {
@@ -10,13 +10,13 @@ import {
   isPassingIssue683Iteration,
   summarizeIssue683Iterations
 } from './issue-683-race-evidence.mjs';
+import { validateDetachedFixedSha } from './fixed-sha-evidence.mjs';
 
 const ISSUE_ID = '#683';
 const EVIDENCE_ROOT = 'issue-683-evidence';
 const JUNIT_SOURCE = join('test-results', 'playwright-results.xml');
 const ITERATION_PAD_WIDTH = 2;
 const ITERATION_PAD_CHARACTER = '0';
-const FULL_COMMIT_SHA = /^[0-9a-f]{40}$/;
 const FALLBACK_FAILURE_EXIT_CODE = 1;
 const FIRST_ITERATION = 1;
 const ITERATION_INCREMENT = 1;
@@ -24,9 +24,12 @@ const ZERO_COUNT = 0;
 const NO_ITERATION_RETRIES = 0;
 const ENABLED_ENVIRONMENT_VALUE = '1';
 
-const candidateSha = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
 const expectedSha = process.env.GITHUB_SHA?.trim() ?? '';
-validateFixedSha(candidateSha, expectedSha);
+const candidateSha = validateDetachedFixedSha(
+  await readFile('.git/HEAD', 'utf8'),
+  expectedSha,
+  `Issue ${ISSUE_ID} evidence`
+);
 
 await rm(EVIDENCE_ROOT, { recursive: true, force: true });
 await mkdir(EVIDENCE_ROOT, { recursive: true });
@@ -155,24 +158,6 @@ if (!summary.accepted) {
 console.log(
   `Issue ${ISSUE_ID} evidence accepted for ${candidateSha}: ${summary.completedIterations} clean iterations, retries=0, race observed in ${summary.raceObservedIterations} iteration(s).`
 );
-
-/**
- * Validate that the checked-out commit SHA matches the workflow SHA and both are full 40-character hex values.
- * @param {string} actualSha - The checked-out commit SHA from git
- * @param {string} workflowSha - The GITHUB_SHA environment variable value
- * @throws {Error} If either SHA is invalid or they don't match
- */
-function validateFixedSha(actualSha, workflowSha) {
-  if (!FULL_COMMIT_SHA.test(actualSha)) {
-    throw new Error(`Issue ${ISSUE_ID} evidence requires a full 40-hex checkout SHA; received ${actualSha || '<empty>'}.`);
-  }
-  if (!FULL_COMMIT_SHA.test(workflowSha)) {
-    throw new Error(`Issue ${ISSUE_ID} evidence requires GITHUB_SHA to be a full 40-hex SHA; received ${workflowSha || '<empty>'}.`);
-  }
-  if (actualSha !== workflowSha) {
-    throw new Error(`Issue ${ISSUE_ID} fixed-SHA mismatch: checkout=${actualSha}, GITHUB_SHA=${workflowSha}.`);
-  }
-}
 
 /**
  * Read and parse a JSON file, returning null if the file doesn't exist or parsing fails.
