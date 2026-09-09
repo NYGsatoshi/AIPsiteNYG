@@ -45,6 +45,20 @@ def require_wire_schema(
         )
 
 
+def require_operation(
+    paths: object,
+    path: str,
+    method: str,
+    description: str,
+) -> dict[str, object]:
+    path_item = paths.get(path) if isinstance(paths, dict) else None
+    operation = path_item.get(method) if isinstance(path_item, dict) else None
+    responses = operation.get("responses") if isinstance(operation, dict) else None
+    if not isinstance(operation, dict) or not isinstance(responses, dict) or not responses:
+        fail(f"{description} operation must be present: {method.upper()} {path}")
+    return operation
+
+
 def require_security_contract(document: dict[str, object]) -> None:
     components = document.get("components")
     security_schemes = components.get("securitySchemes") if isinstance(components, dict) else None
@@ -64,6 +78,17 @@ def require_security_contract(document: dict[str, object]) -> None:
                 "navigation and static aliases must not be advertised as API operations: "
                 f"{sorted(non_api_paths)!r}"
             )
+
+    # SEC-04 excludes the announcement collection from destructive fuzzing and
+    # relies on SEC-06's OpenAPI-driven authenticated scan as the compensating
+    # control. Keep that dependency fail-closed by requiring the operations that
+    # exercise announcement audience lookup, object reads, and read mutation.
+    for method, path, description in (
+        ("get", "/api/announcements/audiences", "announcement audiences"),
+        ("get", "/api/announcements/{announcementId}", "announcement detail"),
+        ("post", "/api/announcements/{announcementId}/read", "announcement read marker"),
+    ):
+        require_operation(paths, path, method, description)
 
     export_path = paths.get("/api/admin/audit/package-exports") if isinstance(paths, dict) else None
     export_operation = export_path.get("post") if isinstance(export_path, dict) else None

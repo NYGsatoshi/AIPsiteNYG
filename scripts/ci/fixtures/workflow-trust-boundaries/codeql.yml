@@ -1,0 +1,21 @@
+name: CodeQL fixture
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    - cron: '27 17 * * 0'
+permissions:
+  contents: read
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+    steps:
+      - uses: actions/checkout@0123456789012345678901234567890123456789
+        with:
+          persist-credentials: false
+      - run: echo codeql

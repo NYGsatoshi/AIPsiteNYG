@@ -1,0 +1,108 @@
+{
+  "schemaVersion": 1,
+  "control": "SEC-06",
+  "scanner": {
+    "name": "OWASP ZAP",
+    "version": "2.17.0",
+    "image": "zaproxy/zap-stable:2.17.0@sha256:781a2bdaea47324e7bab583e2263f21d257b0aee61ed51521a5be45f5f5081ef",
+    "platform": "linux/amd64",
+    "requiredAddons": [
+      "automation",
+      "openapi",
+      "pscan",
+      "pscanrules",
+      "ascanrules",
+      "reports",
+      "replacer"
+    ]
+  },
+  "roles": [
+    "alpha-owner",
+    "alpha-restricted",
+    "beta-owner"
+  ],
+  "activeRules": [
+    {
+      "id": 6,
+      "class": "path traversal",
+      "reason": "Path and route input handling is relevant to the HTTP API surface."
+    },
+    {
+      "id": 40003,
+      "class": "CRLF injection",
+      "reason": "Header and reflected response handling is part of the API boundary."
+    },
+    {
+      "id": 40008,
+      "class": "parameter tampering",
+      "reason": "Query/body/header parameter mutation is a required SEC-06 class."
+    },
+    {
+      "id": 40012,
+      "class": "reflected XSS",
+      "reason": "API error and text responses can reflect attacker-controlled input."
+    },
+    {
+      "id": 40014,
+      "class": "stored XSS",
+      "reason": "Disposable SEC-02 data permits safe persistent-input testing."
+    },
+    {
+      "id": 40018,
+      "class": "SQL injection",
+      "reason": "The application persists data through EF Core/PostgreSQL and must fail closed around raw-query edges."
+    },
+    {
+      "id": 40022,
+      "class": "PostgreSQL time-based SQL injection",
+      "reason": "Database-specific release rule; Low attack strength limits CI cost."
+    },
+    {
+      "id": 90020,
+      "class": "OS command injection",
+      "reason": "Server-side integration and file-processing boundaries warrant the release rule."
+    }
+  ],
+  "explicitlyDisabledClasses": [
+    {
+      "class": "SSRF/OAST callbacks",
+      "reason": "Required CI forbids external callback traffic; the ZAP container is attached only to an internal Docker network."
+    },
+    {
+      "class": "request smuggling/desynchronization",
+      "reason": "The isolated SEC-02 target has no representative front-proxy chain; enabling desync probes would not produce valid evidence."
+    },
+    {
+      "class": "ASP/PHP server-side code injection",
+      "reason": "AIPsiteNYG runs ASP.NET Core; rules specific to classic ASP/PHP are not stack-relevant."
+    },
+    {
+      "class": "XPath/XXE",
+      "reason": "The authoritative OpenAPI API contract does not define an XML request surface."
+    },
+    {
+      "class": "NoSQL injection beta rules",
+      "reason": "The application persistence target is PostgreSQL and required CI does not enable beta scan rules implicitly."
+    }
+  ],
+  "coveragePolicy": {
+    "zeroOpenApiCoverage": {
+      "openApiStatistic": "openapi.urls.added > 0",
+      "authenticatedRequestResponsePerRole": {
+        "method": "GET",
+        "path": "/api/announcements/audiences",
+        "expectedStatus": 200
+      }
+    }
+  },
+  "blockingPolicy": {
+    "high": "block",
+    "scannerFailure": "block",
+    "authenticationOrPreflightFailure": "block",
+    "zeroOpenApiCoverage": "block",
+    "crossOriginEvidence": "block",
+    "medium": "report",
+    "low": "report",
+    "informational": "report"
+  }
+}

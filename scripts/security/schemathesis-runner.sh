@@ -183,12 +183,18 @@ security_schemathesis_run_role() {
   safe_report="$artifact_dir/${role}.ndjson"
   metadata="$artifact_dir/${role}.metadata.json"
 
+  printf 'SECURITY_SCAN_PROGRESS role_auth_prepare_start role=%s\n' "$role"
   security_schemathesis_prepare_auth_file "$role" "$auth_host" || return 1
+  printf 'SECURITY_SCAN_PROGRESS role_auth_prepare_ok role=%s\n' "$role"
   : > "$evidence_host"
   chmod 600 "$evidence_host"
   rm -f "$raw_host" "$safe_report" "$metadata"
   mkdir -p "$artifact_dir"
 
+  # SEC-03 owns authentication lifecycle verification. Excluding login from the
+  # high-volume API fuzz lanes prevents shared auth/rate-limit state from being
+  # mutated between principals while preserving dedicated login negative tests.
+  operation_filters+=(--exclude-path /api/auth/login)
   if [[ "$role" != "anonymous" ]]; then
     operation_filters+=(--exclude-path /api/auth/logout)
     operation_filters+=(--exclude-path /api/auth/change-password)
@@ -206,6 +212,7 @@ security_schemathesis_run_role() {
     fi
   fi
 
+  printf 'SECURITY_SCAN_PROGRESS role_scan_start role=%s\n' "$role"
   printf 'SEC-04 Schemathesis: lane=%s role=%s seed=%s phases=%s max-examples=%s\n' \
     "$lane" "$role" "$seed" "$phases" "$examples"
 
@@ -235,7 +242,7 @@ security_schemathesis_run_role() {
       --max-examples "$examples" \
       --seed "$seed" \
       --workers 1 \
-      --max-failures 1 \
+      --max-failures 20 \
       --request-timeout 10 \
       --request-retries 0 \
       --max-redirects 0 \
@@ -279,6 +286,23 @@ security_schemathesis_run_role() {
   fi
 
   (( status == 0 )) || security_schemathesis_fail "role '$role' found a blocking contract/property failure (seed $seed)" || return 1
+  printf 'SECURITY_SCAN_PROGRESS role_scan_complete role=%s\n' "$role"
+}
+
+security_schemathesis_wait_healthy() {
+  local role=$1 attempt
+  printf 'SECURITY_SCAN_PROGRESS post_role_readiness_start role=%s\n' "$role"
+  for attempt in 1 2 3 4 5; do
+    if security_scan_health; then
+      printf 'SECURITY_SCAN_PROGRESS post_role_readiness_ok role=%s\n' "$role"
+      return 0
+    fi
+    if (( attempt < 5 )); then
+      sleep 2
+    fi
+  done
+  printf 'SECURITY_SCAN_PROGRESS post_role_readiness_failed role=%s\n' "$role"
+  security_schemathesis_fail "application remained unhealthy after role '$role'"
 }
 
 security_schemathesis_run_matrix() {
@@ -299,11 +323,14 @@ security_schemathesis_run_matrix() {
   [[ "$version" == *"$SCHEMATHESIS_VERSION"* ]] ||
     security_schemathesis_fail "pinned image did not report Schemathesis $SCHEMATHESIS_VERSION" || return 1
 
-  while IFS= read -r role; do
+  # Keep the role list on a dedicated descriptor. SEC-03 uses `docker run -i`
+  # for HTTP probes, and inheriting the loop on stdin lets those probes consume
+  # the next role name before the shell can read it.
+  while IFS= read -r role <&3; do
     [[ -n "$role" ]] || continue
     security_schemathesis_run_role "$lane" "$role" "$base_seed" "$network" "$mount_root" || return 1
-    security_scan_health || security_schemathesis_fail "application became unhealthy after role '$role'" || return 1
-  done < <(security_schemathesis_roles "$lane")
+    security_schemathesis_wait_healthy "$role" || return 1
+  done 3< <(security_schemathesis_roles "$lane")
 
   printf 'SEC-04 Schemathesis contract fuzzing passed: lane=%s roles=%s\n' \
     "$lane" "$(security_schemathesis_roles "$lane" | paste -sd, -)"

@@ -40,6 +40,9 @@ class WorkflowTrustValidator
   SECRET_OBJECT_DUMP_REFERENCE = /\btojson\(secrets\)/i
   WORKFLOW_RUN_HEAD_REFERENCE = /(?:\A|[^A-Za-z0-9_])github\.event\.workflow_run\.(?:head_sha|head_branch)\b/i
   WORKFLOW_RUN_DYNAMIC_FIELD_REFERENCE = /(?:\A|[^A-Za-z0-9_])github\.event\.workflow_run\[/i
+  CODEQL_PR_WORKFLOW = '.github/workflows/codeql.yml'
+  CODEQL_PR_JOB = 'analyze'
+  CODEQL_PR_WRITE_PERMISSION = 'security-events:write'
 
   private
 
@@ -126,12 +129,13 @@ class WorkflowTrustValidator
   def validate_untrusted_job(path, job_id, job)
     permissions = job['permissions'] || @documents[path]['permissions']
     writes = write_permissions(permissions)
-    unless writes.empty?
+    forbidden_writes = writes - permitted_untrusted_writes(path, job_id)
+    unless forbidden_writes.empty?
       add(
         CONTROL_TRUST,
         path,
         permissions.line,
-        "untrusted PR/review job #{job_id} must not receive write permissions: #{writes.to_a.sort.join(', ')}"
+        "untrusted PR/review job #{job_id} must not receive write permissions: #{forbidden_writes.to_a.sort.join(', ')}"
       )
     end
 
@@ -154,6 +158,24 @@ class WorkflowTrustValidator
     if secrets_node && (!secrets_node.map? || !secrets_node.value.empty?)
       add(CONTROL_TRUST, path, secrets_node.line, "untrusted reusable-workflow caller #{job_id} must not pass secrets")
     end
+  end
+
+  # GitHub requires security-events:write to publish advanced CodeQL results.
+  # For pull_request runs from forks the token is still downgraded to read-only,
+  # while the Code Scanning service explicitly accepts the PR result upload.
+  # Keep this exception bound to the canonical CodeQL job and exact write scope.
+  def permitted_untrusted_writes(path, job_id)
+    return Set.new unless path == CODEQL_PR_WORKFLOW && job_id == CODEQL_PR_JOB
+
+    entry = @allowlist.find do |candidate|
+      candidate['workflow'] == path && candidate['jobs'].include?(job_id)
+    end
+    return Set.new unless entry && entry['events'].include?('pull_request')
+
+    allowed = Set.new(entry['permissions'])
+    return Set.new unless allowed == Set[CODEQL_PR_WRITE_PERMISSION]
+
+    allowed
   end
 
   def validate_workflow_run_job(path, job_id, job, writes)

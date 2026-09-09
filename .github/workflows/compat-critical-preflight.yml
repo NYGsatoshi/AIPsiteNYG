@@ -175,7 +175,7 @@ jobs:
         run: npm --prefix frontend ci --prefer-offline --ignore-scripts --no-audit --no-fund
 
       - name: Install ${{ matrix.engine }} browser and system dependencies
-        run: npx playwright install --with-deps "${{ matrix.browser }}"
+        run: node node_modules/@playwright/test/cli.js install --with-deps "${{ matrix.browser }}"
 
       - name: Run compat-critical on ${{ matrix.engine }} with zero retries
         run: npm run test:ui:compat-critical -- --profile browser-engine -- --project=${{ matrix.project }}

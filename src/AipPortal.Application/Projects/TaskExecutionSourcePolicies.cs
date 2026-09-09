@@ -103,17 +103,34 @@ public sealed record TaskExecutionSourcePolicyV2(
             return false;
         }
 
-        if (Items is null || Items.Count > MaxItemRules)
+        if (Items is null)
         {
             target = "policyV2.items";
             message = $"Source policy may contain at most {MaxItemRules} item rules.";
             return false;
         }
 
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        var normalizedItems = new List<TaskExecutionSourceRule>(Items.Count);
-        for (var index = 0; index < Items.Count; index++)
+        var itemCount = Items.Count;
+        if (itemCount > MaxItemRules)
         {
+            target = "policyV2.items";
+            message = $"Source policy may contain at most {MaxItemRules} item rules.";
+            return false;
+        }
+
+        // Treat MaxItemRules as an execution-resource boundary, not merely a
+        // validation hint. Request-bound itemCount is used only to detect the
+        // end of the already-bounded input; it never controls allocation size
+        // or the loop's maximum number of iterations.
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var normalizedItems = new List<TaskExecutionSourceRule>(MaxItemRules);
+        for (var index = 0; index < MaxItemRules; index++)
+        {
+            if (index == itemCount)
+            {
+                break;
+            }
+
             var rule = Items[index];
             if (!TryNormalizeSourceId(rule.Kind, rule.SourceId, out var sourceId))
             {
