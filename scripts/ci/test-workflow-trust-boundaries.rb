@@ -77,6 +77,17 @@ class WorkflowTrustBoundaryTests < Minitest::Test
     assert_empty validate('valid-untrusted.yml')
   end
 
+  def test_codeql_pull_request_security_events_write_is_narrowly_allowed
+    allow = [{
+      'workflow' => '.github/workflows/codeql.yml',
+      'permissions' => ['security-events:write'],
+      'events' => ['pull_request', 'push', 'schedule'],
+      'jobs' => ['analyze'],
+      'reason' => 'publish CodeQL findings on pull requests and trusted scans'
+    }]
+    assert_empty validate('codeql.yml', allowlist: allow)
+  end
+
   def test_write_all_fails
     result = validate('invalid-write-all.yml')
     assert_includes messages(result), 'write-all is forbidden'

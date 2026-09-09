@@ -87,7 +87,7 @@ jobs:
           bash scripts/ci/npm-ci-retry.sh frontend
 
       - name: Install Chromium runtime
-        run: npx playwright install --with-deps chromium
+        run: node node_modules/@playwright/test/cli.js install --with-deps chromium
 
       - name: Build active Angular frontend
         run: npm --prefix frontend run build

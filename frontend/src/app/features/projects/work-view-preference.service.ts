@@ -1,6 +1,7 @@
 import { Injectable, InjectionToken, inject } from '@angular/core';
 
 import { AuthSessionFacade } from '../../core/auth/auth-session.facade';
+import { createLocalOpaqueId } from '../../core/security/client-id';
 import {
   MyTasksBlockedFilter,
   MyTasksPriorityFilter,
@@ -276,10 +277,7 @@ function isIdentityPart(value: unknown): value is string {
 }
 
 function createSavedFilterId(): string {
-  const uuid = globalThis.crypto?.randomUUID?.();
-  return uuid
-    ? `saved-${uuid}`
-    : `saved-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+  return createLocalOpaqueId('saved');
 }
 
 function browserLocalStorage(): WorkViewPreferenceStorage | null {

@@ -62,7 +62,7 @@ jobs:
       - name: Load Functional Playwright config and discover an actual spec
         shell: bash
         run: |
-          discovery="$(npx playwright test --config playwright.functional.config.ts --list)"
+          discovery="$(node node_modules/@playwright/test/cli.js test --config playwright.functional.config.ts --list)"
           printf '%s\n' "$discovery"
           grep -Fq \
             "FCI-03 discovers FUNC-AUTH-001 metadata without claiming real-backend coverage" \

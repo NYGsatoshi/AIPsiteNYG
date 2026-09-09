@@ -3,6 +3,7 @@ import { ChangeDetectionStrategy, Component, Input, OnChanges, OnDestroy, Simple
 import { Subscription } from 'rxjs';
 
 import { normalizeApiError } from '../../../core/api/api-error.adapter';
+import { createCryptographicUuid } from '../../../core/security/client-id';
 
 type RunStatus = 'Accepted' | 'Queued' | 'Running' | 'Succeeded' | 'Failed' | 'Stopped' | 'Redirected';
 type InterventionAction = 'stop' | 'correct';
@@ -410,9 +411,7 @@ function startFeedbackMessage(status: RunStatus): string {
 }
 
 function createExecutionIdempotencyKey(): string {
-  const randomId = globalThis.crypto?.randomUUID?.()
-    ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  return `task-execution-ui-${randomId}`;
+  return `task-execution-ui-${createCryptographicUuid()}`;
 }
 
 function mapExecutionResult(value: unknown): ExecutionResultProjection {

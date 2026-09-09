@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using AipPortal.Application.Files;
 using AipPortal.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
@@ -11,6 +12,7 @@ namespace AipPortal.Web.Controllers;
 public sealed class AttachmentsController(IFileService files) : ControllerBase
 {
     [HttpPost("api/attachments")]
+    [Consumes("multipart/form-data")]
     [EnableRateLimiting("file-upload")]
     public async Task<IActionResult> Upload([FromForm] UploadAttachmentForm form, CancellationToken cancellationToken)
     {
@@ -105,5 +107,6 @@ public sealed class UploadAttachmentForm
 
     public Guid OwnerId { get; set; }
 
+    [Required]
     public IFormFile? File { get; set; }
 }

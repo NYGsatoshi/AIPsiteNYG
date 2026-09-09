@@ -7,6 +7,7 @@ import { FrontendApiError } from '../../core/api/api-error.model';
 import { AuthSessionFacade } from '../../core/auth/auth-session.facade';
 import { ProtectedStateClearReason, RealtimeFacade } from '../../core/realtime/realtime.facade';
 import { DurableRealtimeEvent } from '../../core/realtime/realtime.models';
+import { createCryptographicUuid } from '../../core/security/client-id';
 import { ActiveWorkspaceFacade } from '../../core/workspace/active-workspace.facade';
 import { TASK_BRIEF_FIELD_MAX_LENGTH } from './projects.types';
 import {
@@ -845,11 +846,7 @@ function normalizeTaskCreateError(error: unknown): FrontendApiError {
 }
 
 function createTaskIdempotencyKey(): string {
-  const randomUuid = globalThis.crypto?.randomUUID?.();
-  if (randomUuid) {
-    return `task-create-${randomUuid}`;
-  }
-  return `task-create-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return `task-create-${createCryptographicUuid()}`;
 }
 
 function sameId(left: string, right: string): boolean {

@@ -1,5 +1,6 @@
 using AipPortal.Application.Announcements;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AipPortal.Web.Controllers;
@@ -37,7 +38,7 @@ public sealed class AnnouncementsController(
             cancellationToken);
         if (!authorization.IsSuccess || authorization.Value != true)
         {
-            return BadRequest(new { error = "Announcement audience is not authorized." });
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = "Announcement audience is not authorized." });
         }
 
         return ToActionResult(await announcements.CreateAsync(request, cancellationToken));
@@ -126,28 +127,28 @@ public sealed class AnnouncementsController(
     public async Task<IActionResult> Delete(Guid announcementId, CancellationToken cancellationToken)
     {
         var result = await announcements.DeleteAsync(announcementId, cancellationToken);
-        return result.IsSuccess ? Ok(new { status = "OK" }) : BadRequest(new { error = result.Error });
+        return result.IsSuccess ? Ok(new { status = "OK" }) : ToFailureResult(result.Error);
     }
 
     [HttpPost("api/announcements/{announcementId:guid}/read")]
     public async Task<IActionResult> MarkRead(Guid announcementId, CancellationToken cancellationToken)
     {
         var result = await announcements.MarkReadAsync(announcementId, cancellationToken);
-        return result.IsSuccess ? Ok(new { status = "OK" }) : BadRequest(new { error = result.Error });
+        return result.IsSuccess ? Ok(new { status = "OK" }) : ToFailureResult(result.Error);
     }
 
     [HttpPost("api/announcements/{announcementId:guid}/acknowledge")]
     public async Task<IActionResult> Acknowledge(Guid announcementId, CancellationToken cancellationToken)
     {
         var result = await analytics.AcknowledgeAsync(announcementId, cancellationToken);
-        return result.IsSuccess ? Ok(new { status = "OK" }) : BadRequest(new { error = result.Error });
+        return result.IsSuccess ? Ok(new { status = "OK" }) : ToFailureResult(result.Error);
     }
 
     [HttpPost("api/announcements/{announcementId:guid}/cta-click")]
     public async Task<IActionResult> TrackCtaClick(Guid announcementId, CancellationToken cancellationToken)
     {
         var result = await analytics.TrackCtaClickAsync(announcementId, cancellationToken);
-        return result.IsSuccess ? Ok(new { status = "OK" }) : BadRequest(new { error = result.Error });
+        return result.IsSuccess ? Ok(new { status = "OK" }) : ToFailureResult(result.Error);
     }
 
     [HttpGet("api/announcements/{announcementId:guid}/read-status")]
@@ -160,12 +161,33 @@ public sealed class AnnouncementsController(
     public async Task<IActionResult> ResendUnread(Guid announcementId, CancellationToken cancellationToken)
     {
         var result = await announcements.ResendUnreadAsync(announcementId, cancellationToken);
-        return result.IsSuccess ? Ok(new { status = "OK" }) : BadRequest(new { error = result.Error });
+        return result.IsSuccess ? Ok(new { status = "OK" }) : ToFailureResult(result.Error);
     }
 
     private IActionResult ToActionResult<T>(AipPortal.Application.Common.Result<T> result)
     {
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(new { error = result.Error });
+        return result.IsSuccess ? Ok(result.Value) : ToFailureResult(result.Error);
+    }
+
+    private IActionResult ToFailureResult(string? error)
+    {
+        // Match only established public errors. Unknown failures remain 400;
+        // never infer authorization or resource existence from arbitrary text.
+        var status = error switch
+        {
+            "Authentication is required." => StatusCodes.Status401Unauthorized,
+            "Announcement not found." => StatusCodes.Status404NotFound,
+            "You are not allowed to update this announcement." or
+            "You are not allowed to delete this announcement." or
+            "You are not allowed to view read status." or
+            "You are not allowed to view announcement analytics." or
+            "You are not allowed to create channel announcements." or
+            "You are not allowed to create group announcements." or
+            "You are not allowed to create workspace announcements." or
+            "Only system admins can create global announcements." => StatusCodes.Status403Forbidden,
+            _ => StatusCodes.Status400BadRequest
+        };
+        return StatusCode(status, new { error });
     }
 
     private IActionResult ToWorkflowActionResult<T>(AipPortal.Application.Common.Result<T> result)
@@ -175,7 +197,7 @@ public sealed class AnnouncementsController(
             return Ok(result.Value);
         }
 
-        // The legacy announcement controller uses a broad 400 error mapping.
+        // The draft workflow retains its legacy 400 error mapping.
         // Keep redaction consistent for denied/not-found drafts while exposing
         // explicit client-recoverable conflict semantics for optimistic edits
         // and idempotent replay mismatches.

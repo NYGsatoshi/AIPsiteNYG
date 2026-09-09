@@ -2,6 +2,8 @@ import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { map, Observable } from 'rxjs';
 
+import { createCryptographicUuid } from '../../core/security/client-id';
+
 interface ProjectCreateEnvelopeDto {
   readonly requestId?: unknown;
   readonly data?: unknown;
@@ -133,10 +135,5 @@ function invalidCreateResponse(
 }
 
 export function createQuickResearchIdempotencyKey(): string {
-  const randomUuid = globalThis.crypto?.randomUUID?.();
-  if (randomUuid) {
-    return `workspace-research-${randomUuid}`;
-  }
-
-  return `workspace-research-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return `workspace-research-${createCryptographicUuid()}`;
 }
