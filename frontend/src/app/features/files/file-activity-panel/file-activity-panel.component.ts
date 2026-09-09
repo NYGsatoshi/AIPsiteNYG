@@ -1,5 +1,4 @@
 import { HttpClient } from '@angular/common/http';
-import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -20,6 +19,8 @@ type FileActivityKind = 'uploaded' | 'versionCreated' | 'sharingChanged';
 type ActivityState = 'idle' | 'loading' | 'ready' | 'empty' | 'error';
 type VersionPreviewState = 'idle' | 'loading' | 'ready' | 'unsupported' | 'error';
 type VersionPreviewRenderer = 'image' | 'pdf' | 'video' | 'text' | 'unsupported';
+
+const TEXT_PREVIEW_MAX_BYTES = 512 * 1024;
 
 interface FileActivityVersion {
   readonly versionId: string;
@@ -147,19 +148,21 @@ interface FileActivityEntry {
           } @else if (versionPreviewState() === 'error') {
             <p role="alert">{{ versionPreviewMessage() }}</p>
           } @else if (versionPreviewState() === 'unsupported') {
-            <p>{{ text('Inline preview is not available for this file type.', 'このファイル形式はインライン表示に対応していません。') }}</p>
-            @if (versionObjectUrl()) {
-              <a [href]="versionObjectUrl()" target="_blank" rel="noopener">
-                {{ text('Open version', 'バージョンを開く') }}
-              </a>
-            }
+            <p>{{ text('Preview is not available for this file type.', 'このファイル形式はプレビューに対応していません。') }}</p>
           } @else if (versionPreviewState() === 'ready') {
             @switch (versionRenderer()) {
               @case ('image') {
                 <img [src]="versionObjectUrl()" [alt]="viewingVersion()?.fileName ?? ''" />
               }
               @case ('pdf') {
-                <iframe [src]="versionResourceUrl()" [title]="viewingVersion()?.fileName ?? ''"></iframe>
+                <a
+                  [href]="versionObjectUrl()"
+                  target="_blank"
+                  rel="noopener"
+                  data-testid="files-version-preview-pdf-link"
+                >
+                  {{ text('Open PDF version', 'PDFバージョンを開く') }}
+                </a>
               }
               @case ('video') {
                 <video [src]="versionObjectUrl()" controls preload="metadata"></video>
@@ -199,8 +202,7 @@ interface FileActivityEntry {
     .activity__current { margin-left: 0.35rem; font-size: 0.75rem; font-weight: 600; padding: 0.1rem 0.35rem; border-radius: 999px; background: var(--aip-color-bg-surface-subtle); }
     .activity__privacy-note { padding-top: 0.75rem; border-top: 1px solid var(--aip-color-border-default); }
     .version-preview { display: grid; gap: 0.75rem; padding-top: 0.9rem; border-top: 1px solid var(--aip-color-border-default); }
-    .version-preview img, .version-preview video, .version-preview iframe { display: block; width: 100%; max-height: 26rem; border: 0; border-radius: 0.5rem; object-fit: contain; background: #fff; }
-    .version-preview iframe { min-height: 24rem; }
+    .version-preview img, .version-preview video { display: block; width: 100%; max-height: 26rem; border: 0; border-radius: 0.5rem; object-fit: contain; background: #fff; }
     .version-preview pre { max-height: 26rem; overflow: auto; margin: 0; padding: 0.75rem; white-space: pre-wrap; overflow-wrap: anywhere; border-radius: 0.5rem; background: var(--aip-color-bg-surface-subtle); }
     @media (max-width: 520px) {
       .activity__event-header, .activity__version { align-items: stretch; flex-direction: column; }
@@ -212,7 +214,6 @@ export class FileActivityPanelComponent implements OnChanges, OnDestroy {
   @Input({ required: true }) file!: FileViewModel;
 
   private readonly http = inject(HttpClient);
-  private readonly sanitizer = inject(DomSanitizer);
   readonly i18n = inject(I18nService);
 
   readonly state = signal<ActivityState>('idle');
@@ -223,7 +224,6 @@ export class FileActivityPanelComponent implements OnChanges, OnDestroy {
   readonly versionPreviewState = signal<VersionPreviewState>('idle');
   readonly versionRenderer = signal<VersionPreviewRenderer>('unsupported');
   readonly versionObjectUrl = signal<string | null>(null);
-  readonly versionResourceUrl = signal<SafeResourceUrl | null>(null);
   readonly versionText = signal('');
   readonly versionPreviewMessage = signal('');
 
@@ -305,9 +305,15 @@ export class FileActivityPanelComponent implements OnChanges, OnDestroy {
     this.viewingVersion.set(version);
     this.viewingVersionId.set(versionId);
     this.versionPreviewState.set('loading');
-    this.versionRenderer.set(rendererFor(version.fileName, version.contentType));
+    const renderer = rendererFor(version.fileName, version.contentType);
+    this.versionRenderer.set(renderer);
     this.versionText.set('');
     this.versionPreviewMessage.set('');
+
+    if (renderer === 'unsupported') {
+      this.versionPreviewState.set('unsupported');
+      return;
+    }
 
     const request = this.http.get(
       `/api/files/${encodeURIComponent(fileObjectId)}/versions/${encodeURIComponent(versionId)}/content`,
@@ -319,11 +325,18 @@ export class FileActivityPanelComponent implements OnChanges, OnDestroy {
         }
         this.versionRequest = null;
         const blob = response.body;
-        const renderer = this.versionRenderer();
+        if (!previewContentTypeMatches(renderer, blob.type)) {
+          this.versionPreviewState.set('error');
+          this.versionPreviewMessage.set(this.text(
+            'The returned file type did not match this version.',
+            '返されたファイル形式がこのバージョンと一致しません。',
+          ));
+          return;
+        }
+
         if (renderer === 'text') {
-          if (blob.size > 512 * 1024) {
+          if (blob.size > TEXT_PREVIEW_MAX_BYTES) {
             this.versionPreviewState.set('unsupported');
-            this.installObjectUrl(blob);
             return;
           }
           void blob.text().then((text) => {
@@ -332,15 +345,19 @@ export class FileActivityPanelComponent implements OnChanges, OnDestroy {
             }
             this.versionText.set(text);
             this.versionPreviewState.set('ready');
+          }).catch(() => {
+            if (generation === this.versionGeneration && this.viewingVersionId() === versionId) {
+              this.versionPreviewState.set('error');
+              this.versionPreviewMessage.set(this.text(
+                'This version could not be decoded as text.',
+                'このバージョンをテキストとして読み込めませんでした。',
+              ));
+            }
           });
           return;
         }
 
         this.installObjectUrl(blob);
-        if (renderer === 'unsupported') {
-          this.versionPreviewState.set('unsupported');
-          return;
-        }
         this.versionPreviewState.set('ready');
       },
       error: (error: unknown) => {
@@ -430,7 +447,6 @@ export class FileActivityPanelComponent implements OnChanges, OnDestroy {
     const url = URL.createObjectURL(blob);
     this.objectUrl = url;
     this.versionObjectUrl.set(url);
-    this.versionResourceUrl.set(this.sanitizer.bypassSecurityTrustResourceUrl(url));
   }
 
   private revokeObjectUrl(): void {
@@ -439,7 +455,6 @@ export class FileActivityPanelComponent implements OnChanges, OnDestroy {
     }
     this.objectUrl = null;
     this.versionObjectUrl.set(null);
-    this.versionResourceUrl.set(null);
   }
 
   private cancelActivityRequest(): void {
@@ -534,7 +549,7 @@ function mapSharing(value: unknown): FileActivitySharing | undefined {
 }
 
 function rendererFor(fileName: string, contentType: string): VersionPreviewRenderer {
-  const normalized = contentType.toLowerCase();
+  const normalized = normalizeContentType(contentType);
   if (normalized.startsWith('image/')) {
     return 'image';
   }
@@ -544,10 +559,40 @@ function rendererFor(fileName: string, contentType: string): VersionPreviewRende
   if (normalized.startsWith('video/')) {
     return 'video';
   }
-  if (normalized.startsWith('text/') || /\.(txt|md|json|csv|xml|log|yaml|yml)$/i.test(fileName)) {
+  if (isTextContentType(normalized) || /\.(txt|md|json|csv|xml|log|yaml|yml)$/i.test(fileName)) {
     return 'text';
   }
   return 'unsupported';
+}
+
+function previewContentTypeMatches(renderer: VersionPreviewRenderer, contentType: string): boolean {
+  const normalized = normalizeContentType(contentType);
+  switch (renderer) {
+    case 'image':
+      return normalized.startsWith('image/');
+    case 'pdf':
+      return normalized === 'application/pdf';
+    case 'video':
+      return normalized.startsWith('video/');
+    case 'text':
+      return isTextContentType(normalized);
+    default:
+      return false;
+  }
+}
+
+function normalizeContentType(contentType: string): string {
+  return contentType.toLowerCase().split(';', 1)[0]?.trim() ?? '';
+}
+
+function isTextContentType(contentType: string): boolean {
+  return contentType.startsWith('text/') || [
+    'application/json',
+    'application/xml',
+    'application/yaml',
+    'application/x-yaml',
+    'application/x-ndjson',
+  ].includes(contentType);
 }
 
 function activityKind(value: unknown): FileActivityKind | undefined {
