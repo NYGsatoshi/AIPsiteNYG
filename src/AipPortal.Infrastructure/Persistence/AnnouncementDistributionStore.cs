@@ -17,6 +17,33 @@ namespace AipPortal.Infrastructure.Persistence;
 /// </summary>
 public sealed class AnnouncementDistributionStore(AppDbContext dbContext, IClock clock) : IAnnouncementDistributionStore
 {
+    private const string UpdateDraftTargetsSql = """
+        UPDATE announcement_drafts
+        SET "DistributionTargetsJson" = @targets
+        WHERE "TenantId" = @tenantId
+          AND "Id" = @resourceId
+        """;
+    private const string UpdateAnnouncementTargetsSql = """
+        UPDATE announcements
+        SET "DistributionTargetsJson" = @targets
+        WHERE "TenantId" = @tenantId
+          AND "Id" = @resourceId
+        """;
+    private const string ReadDraftTargetsSql = """
+        SELECT "DistributionTargetsJson"
+        FROM announcement_drafts
+        WHERE "TenantId" = @tenantId
+          AND "Id" = @resourceId
+        LIMIT 1
+        """;
+    private const string ReadAnnouncementTargetsSql = """
+        SELECT "DistributionTargetsJson"
+        FROM announcements
+        WHERE "TenantId" = @tenantId
+          AND "Id" = @resourceId
+        LIMIT 1
+        """;
+
     private readonly Dictionary<Guid, IReadOnlyList<AnnouncementDraftTargetRequest>> inMemoryDraftTargets = [];
     private readonly Dictionary<Guid, IReadOnlyList<AnnouncementDraftTargetRequest>> inMemoryAnnouncementTargets = [];
 
@@ -250,18 +277,8 @@ public sealed class AnnouncementDistributionStore(AppDbContext dbContext, IClock
             command.Transaction = dbContext.Database.CurrentTransaction?.GetDbTransaction();
             command.CommandText = table switch
             {
-                SidecarTable.Draft => """
-                    UPDATE announcement_drafts
-                    SET "DistributionTargetsJson" = @targets
-                    WHERE "TenantId" = @tenantId
-                      AND "Id" = @resourceId
-                    """,
-                SidecarTable.Announcement => """
-                    UPDATE announcements
-                    SET "DistributionTargetsJson" = @targets
-                    WHERE "TenantId" = @tenantId
-                      AND "Id" = @resourceId
-                    """,
+                SidecarTable.Draft => UpdateDraftTargetsSql,
+                SidecarTable.Announcement => UpdateAnnouncementTargetsSql,
                 _ => throw new ArgumentOutOfRangeException(nameof(table), table, "Unsupported announcement sidecar table.")
             };
             AddParameter(command, "targets", json);
@@ -300,20 +317,8 @@ public sealed class AnnouncementDistributionStore(AppDbContext dbContext, IClock
             command.Transaction = dbContext.Database.CurrentTransaction?.GetDbTransaction();
             command.CommandText = table switch
             {
-                SidecarTable.Draft => """
-                    SELECT "DistributionTargetsJson"
-                    FROM announcement_drafts
-                    WHERE "TenantId" = @tenantId
-                      AND "Id" = @resourceId
-                    LIMIT 1
-                    """,
-                SidecarTable.Announcement => """
-                    SELECT "DistributionTargetsJson"
-                    FROM announcements
-                    WHERE "TenantId" = @tenantId
-                      AND "Id" = @resourceId
-                    LIMIT 1
-                    """,
+                SidecarTable.Draft => ReadDraftTargetsSql,
+                SidecarTable.Announcement => ReadAnnouncementTargetsSql,
                 _ => throw new ArgumentOutOfRangeException(nameof(table), table, "Unsupported announcement sidecar table.")
             };
             AddParameter(command, "tenantId", tenantId);
