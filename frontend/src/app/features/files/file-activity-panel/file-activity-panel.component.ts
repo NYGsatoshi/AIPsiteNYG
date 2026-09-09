@@ -20,7 +20,22 @@ type ActivityState = 'idle' | 'loading' | 'ready' | 'empty' | 'error';
 type VersionPreviewState = 'idle' | 'loading' | 'ready' | 'unsupported' | 'error';
 type VersionPreviewRenderer = 'image' | 'pdf' | 'video' | 'text' | 'unsupported';
 
-const TEXT_PREVIEW_MAX_BYTES = 512 * 1024;
+const TEXT_PREVIEW_MAX_BYTES = 512 * 1024,
+  TEXT_CONTENT_TYPES: ReadonlySet<string> = new Set([
+    'application/json',
+    'application/ndjson',
+    'application/xml',
+    'application/x-ndjson',
+    'application/x-yaml',
+    'application/yaml',
+  ]),
+  previewContentTypeMatches = (renderer: VersionPreviewRenderer, contentType: string): boolean => {
+    const normalized = contentType.toLowerCase().split(';', 1)[0]?.trim() ?? '';
+    return (renderer === 'image' && normalized.startsWith('image/')) ||
+      (renderer === 'pdf' && normalized === 'application/pdf') ||
+      (renderer === 'video' && normalized.startsWith('video/')) ||
+      (renderer === 'text' && (normalized.startsWith('text/') || TEXT_CONTENT_TYPES.has(normalized)));
+  };
 
 interface FileActivityVersion {
   readonly versionId: string;
@@ -549,7 +564,7 @@ function mapSharing(value: unknown): FileActivitySharing | undefined {
 }
 
 function rendererFor(fileName: string, contentType: string): VersionPreviewRenderer {
-  const normalized = normalizeContentType(contentType);
+  const normalized = contentType.toLowerCase().split(';', 1)[0]?.trim() ?? '';
   if (normalized.startsWith('image/')) {
     return 'image';
   }
@@ -559,40 +574,10 @@ function rendererFor(fileName: string, contentType: string): VersionPreviewRende
   if (normalized.startsWith('video/')) {
     return 'video';
   }
-  if (isTextContentType(normalized) || /\.(txt|md|json|csv|xml|log|yaml|yml)$/i.test(fileName)) {
+  if (normalized.startsWith('text/') || TEXT_CONTENT_TYPES.has(normalized) || /\.(txt|md|json|csv|xml|log|yaml|yml)$/i.test(fileName)) {
     return 'text';
   }
   return 'unsupported';
-}
-
-function previewContentTypeMatches(renderer: VersionPreviewRenderer, contentType: string): boolean {
-  const normalized = normalizeContentType(contentType);
-  switch (renderer) {
-    case 'image':
-      return normalized.startsWith('image/');
-    case 'pdf':
-      return normalized === 'application/pdf';
-    case 'video':
-      return normalized.startsWith('video/');
-    case 'text':
-      return isTextContentType(normalized);
-    default:
-      return false;
-  }
-}
-
-function normalizeContentType(contentType: string): string {
-  return contentType.toLowerCase().split(';', 1)[0]?.trim() ?? '';
-}
-
-function isTextContentType(contentType: string): boolean {
-  return contentType.startsWith('text/') || [
-    'application/json',
-    'application/xml',
-    'application/yaml',
-    'application/x-yaml',
-    'application/x-ndjson',
-  ].includes(contentType);
 }
 
 function activityKind(value: unknown): FileActivityKind | undefined {
