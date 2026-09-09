@@ -94,6 +94,33 @@ const textContent = (fixture: ComponentFixture<FilesPageComponent>): string =>
 const downloadButton = (fixture: ComponentFixture<FilesPageComponent>): HTMLButtonElement =>
   (fixture.nativeElement as HTMLElement).querySelector('[data-testid="download-action"]') as HTMLButtonElement;
 
+const openAuthorizedPdfPreview = (
+  fixture: ComponentFixture<FilesPageComponent>,
+  http: HttpTestingController,
+): void => {
+  const { componentInstance: component } = fixture;
+  const file = component.page().recentFiles[0];
+  if (!file) {
+    throw new Error('Expected a PDF fixture.');
+  }
+
+  component.openPreview(file);
+  const grant = http.expectOne(`/api/files/${FILE_OBJECT_ID}/download-grants`);
+  expect(grant.request.body).toEqual({ purpose: 'files-page-preview' });
+  grant.flush({ fileDownloadGrantId: 'preview-grant', fileObjectId: FILE_OBJECT_ID, token: 'preview-token' });
+
+  http.expectOne('/api/file-download-grants/preview-grant/download')
+    .flush(new Blob(['pdf'], { type: 'application/pdf' }));
+};
+
+const pdfPreviewLink = (fixture: ComponentFixture<FilesPageComponent>): HTMLAnchorElement => {
+  const link = (fixture.nativeElement as HTMLElement).querySelector('[data-testid="files-preview-pdf"]');
+  if (!(link instanceof HTMLAnchorElement)) {
+    throw new Error('Expected an authorized PDF preview link.');
+  }
+  return link;
+};
+
 describe('FilesPageComponent', () => {
   beforeEach(() => window.localStorage.setItem('aip.locale', 'en'));
 
@@ -562,26 +589,15 @@ describe('FilesPageComponent', () => {
       { ...backendFile, originalFileName: 'report.pdf', contentType: 'application/pdf', scanStatus: 'Allowed' },
     ]);
     const createObjectUrlSpy = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:authorized-pdf');
-    const file = fixture.componentInstance.page().recentFiles[0];
-    if (!file) {
-      throw new Error('Expected a PDF fixture.');
-    }
 
-    fixture.componentInstance.openPreview(file);
-    const grant = http.expectOne(`/api/files/${FILE_OBJECT_ID}/download-grants`);
-    expect(grant.request.body).toEqual({ purpose: 'files-page-preview' });
-    grant.flush({ fileDownloadGrantId: 'preview-grant', fileObjectId: FILE_OBJECT_ID, token: 'preview-token' });
-
-    const download = http.expectOne('/api/file-download-grants/preview-grant/download');
-    download.flush(new Blob(['pdf'], { type: 'application/pdf' }));
+    openAuthorizedPdfPreview(fixture, http);
     fixture.detectChanges();
 
-    const host = fixture.nativeElement as HTMLElement;
-    const pdfLink = host.querySelector('[data-testid="files-preview-pdf"]') as HTMLAnchorElement;
+    const pdfLink = pdfPreviewLink(fixture);
     expect(pdfLink.getAttribute('href')).toBe('blob:authorized-pdf');
     expect(pdfLink.getAttribute('target')).toBe('_blank');
     expect(pdfLink.getAttribute('rel')).toContain('noopener');
-    expect(host.querySelector('iframe')).toBeNull();
+    expect((fixture.nativeElement as HTMLElement).querySelector('iframe')).toBeNull();
     expect(createObjectUrlSpy).toHaveBeenCalledOnce();
   });
 
