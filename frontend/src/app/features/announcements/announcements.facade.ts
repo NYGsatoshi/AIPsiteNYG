@@ -7,6 +7,7 @@ import {
   RealtimeFacade,
 } from '../../core/realtime/realtime.facade';
 import { DurableRealtimeEvent } from '../../core/realtime/realtime.models';
+import { createCryptographicUuid } from '../../core/security/client-id';
 
 import {
   AnnouncementAudienceOption,
@@ -569,9 +570,7 @@ export class AnnouncementsFacade {
   }
 
   private newIdempotencyKey(operation: 'create' | 'transition'): string {
-    const random = globalThis.crypto?.randomUUID?.() ??
-      `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 14)}`;
-    return `announcement-draft-${operation}-${random}`.slice(0, 128);
+    return `announcement-draft-${operation}-${createCryptographicUuid()}`.slice(0, 128);
   }
 
   private isWorkflowAudienceAuthorizationFailure(error: ReturnType<typeof normalizeApiError>): boolean {
