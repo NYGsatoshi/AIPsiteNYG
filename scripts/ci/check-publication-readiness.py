@@ -35,6 +35,9 @@ SECRET_CONTEXT_PATTERN = re.compile(r"\$\{\{\s*secrets\s*(?:\.|\[)")
 SELF_HOSTED_PATTERN = re.compile(
     r"(^|[\s,\[\]{}'\"-])self-hosted(?=$|[\s,\[\]{}'\",])"
 )
+CODEQL_PR_WORKFLOW = ".github/workflows/codeql.yml"
+CODEQL_PR_JOB = "analyze"
+CODEQL_PR_WRITE_PATTERN = re.compile(r"^security-events\s*:\s*write$")
 
 
 def _without_comment(line: str) -> str:
@@ -289,6 +292,28 @@ def _permission_write_lines(text: str) -> list[int]:
     return result
 
 
+def _allowed_pull_request_write(
+    relative: str,
+    lines: list[str],
+    job_blocks: list[tuple[str, int, int, int]],
+    line_number: int,
+) -> bool:
+    """Allow only CodeQL's SARIF publication permission on its canonical PR job."""
+    if relative != CODEQL_PR_WORKFLOW:
+        return False
+
+    index = line_number - 1
+    if not (0 <= index < len(lines)):
+        return False
+    if not CODEQL_PR_WRITE_PATTERN.fullmatch(_without_comment(lines[index]).strip()):
+        return False
+
+    return any(
+        job_id == CODEQL_PR_JOB and start < index < end
+        for job_id, start, end, _ in job_blocks
+    )
+
+
 def tracked_files() -> list[str]:
     result = subprocess.run(
         ["git", "ls-files", "-z"],
@@ -349,6 +374,8 @@ def workflow_errors(path: Path, text: str) -> list[str]:
 
     if triggers_pr:
         for line_number in _permission_write_lines(text):
+            if _allowed_pull_request_write(relative, lines, job_blocks, line_number):
+                continue
             errors.append(
                 f"{relative}:{line_number}: pull-request workflow requests write permission"
             )

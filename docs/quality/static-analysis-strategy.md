@@ -8,7 +8,7 @@
 | ESLint + angular-eslint | JavaScript, TypeScript and Angular template policy | `Frontend Static Analysis` on every PR and `main` push; blocking |
 | Stylelint | CSS and SCSS policy | `Frontend Static Analysis` on every PR and `main` push; blocking |
 | Qodana Community for .NET | JetBrains/ReSharper second-opinion and deep .NET inspection | Every PR, `main`, weekly schedule and manual dispatch; blocking for changed-code findings on PRs, Critical findings, scanner failure and project-model failure |
-| CodeQL | Security-oriented semantic/data-flow analysis | trusted `main` pushes and weekly schedule |
+| CodeQL | Security-oriented semantic/data-flow analysis | Every PR targeting `main`, trusted `main` pushes and weekly schedule |
 
 The tools intentionally overlap at the language level but not at the policy level. SonarQube is the primary cross-stack quality view, ESLint/Stylelint enforce frontend-specific rules, CodeQL owns security analysis, and Qodana supplies an independent JetBrains/ReSharper inspection lane for .NET.
 
@@ -56,7 +56,9 @@ Automatic Analysis should then run on each push to `main` and on each update to 
 
 ## Pull-request merge gates
 
-Repository-defined blocking checks remain read-only on public pull requests:
+Repository-defined pull-request checks must not gain general repository mutation authority. The CodeQL workflow is the single narrow exception: GitHub's advanced CodeQL setup requires `security-events: write` so SARIF can be published to Code Scanning, while fork `pull_request` runs still receive a read-only `GITHUB_TOKEN` and GitHub explicitly permits Code Scanning result upload for that event.
+
+The PR-stage gates include:
 
 - backend build/test
 - frontend build/test
@@ -64,6 +66,7 @@ Repository-defined blocking checks remain read-only on public pull requests:
 - publication readiness
 - frontend static analysis (`ESLint` + `Stylelint`)
 - Qodana Community / .NET
+- CodeQL semantic/data-flow analysis
 
 The SonarQube Quality Gate is supplied by the SonarQube Cloud GitHub integration rather than by a secret-bearing workflow in this repository.
 
