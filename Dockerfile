@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM node:24 AS frontend-build
+FROM node:24@sha256:6dac556d980b7f0e5498d08f08cee0ca67798b4ad6c23964a9214920e67758d0 AS frontend-build
 WORKDIR /src/frontend
 COPY frontend/package.json frontend/package-lock.json frontend/.npmrc ./
 COPY scripts/ci/verify-npm-lockfile.mjs /usr/local/lib/aipsite/verify-npm-lockfile.mjs
@@ -32,7 +32,7 @@ RUN --mount=type=secret,id=syncfusion_license,required=true \
     ! grep -R -F -q -- "$SYNCFUSION_LICENSE" dist || { echo "Syncfusion license material was found in frontend build output." >&2; exit 1; }; \
     unset SYNCFUSION_LICENSE
 
-FROM mcr.microsoft.com/dotnet/sdk:10.0.400 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0.400@sha256:4beef5b8919dcaa2dc924233bd069257e883cc7a061e09088a97d152d6a48510 AS build
 WORKDIR /src
 
 COPY AipPortal.slnx ./
@@ -53,7 +53,7 @@ RUN --mount=type=cache,id=aipsite-docker-nuget,target=/root/.nuget/packages,shar
     dotnet restore src/AipPortal.Web/AipPortal.Web.csproj --force && \
     dotnet publish src/AipPortal.Web/AipPortal.Web.csproj -c Release -o /app/publish --no-restore
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0.11 AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:10.0.11@sha256:011bb5f30180717b1c8b65822ff2c99bcb96bc65af0164589751b83c7b4949f7 AS runtime
 WORKDIR /app
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \

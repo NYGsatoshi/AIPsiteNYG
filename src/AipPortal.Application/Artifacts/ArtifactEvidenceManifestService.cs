@@ -75,8 +75,18 @@ public sealed class ArtifactEvidenceManifestService(
         var claims = new List<ArtifactClaim>(MaxClaims);
         var provenanceBySource = new Dictionary<(ArtifactEvidenceSourceKind Kind, string Reference), SourceProvenanceContract>();
         var findingCount = 0;
-        foreach (var item in request.Claims)
+        // The request count is only an end marker for already-validated input.
+        // MaxClaims remains the execution bound even if a custom collection
+        // implementation is supplied to the application boundary.
+        var requestClaimCount = request.Claims.Count;
+        for (var claimIndex = 0; claimIndex < MaxClaims; claimIndex++)
         {
+            if (claimIndex == requestClaimCount)
+            {
+                break;
+            }
+
+            var item = request.Claims[claimIndex];
             if (item.Ordinal <= 0 || !claimOrdinals.Add(item.Ordinal))
             {
                 return Failure("ValidationFailed", "Claim ordinals must be positive and unique.");

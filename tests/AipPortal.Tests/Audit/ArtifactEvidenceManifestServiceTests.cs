@@ -165,6 +165,35 @@ public sealed class ArtifactEvidenceManifestServiceTests
         Assert.Equal(1, fixture.UnitOfWork.SaveCount);
     }
 
+    [Fact]
+    public async Task AttachAcceptsTheExactClaimExecutionLimit()
+    {
+        await using var fixture = await Fixture.CreateAsync(canReview: true, canUpdateArtifact: true);
+        var request = new AttachArtifactEvidenceManifestRequest(
+            Enumerable.Range(1, 200)
+                .Select(ordinal => new ArtifactClaimManifestItem(
+                    ordinal,
+                    $"Bounded claim {ordinal}.",
+                    true,
+                    ArtifactClaimSupportStatus.Supported.ToString(),
+                    ArtifactClaimReviewStatus.Reviewed.ToString(),
+                    [new ArtifactEvidenceManifestItem(
+                        1,
+                        ArtifactEvidenceSourceKind.WebSnapshot.ToString(),
+                        $"web:bounded-{ordinal}",
+                        "Authorized source",
+                        "Bounded evidence passage.",
+                        "Section 1",
+                        null)]))
+                .ToArray());
+
+        var result = await fixture.Service.AttachAsync(fixture.Version.Id, request);
+
+        Assert.True(result.IsSuccess, result.Error ?? result.ErrorDetail?.Message);
+        Assert.Equal(200, result.Value!.ClaimCount);
+        Assert.Equal(200, (await fixture.Evidence.ListClaimsAsync(fixture.Version.Id)).Count);
+    }
+
     private static AttachArtifactEvidenceManifestRequest WebSnapshotRequest(
         string claimText = "Audited claim.",
         string passage = "Bounded evidence passage.") =>
