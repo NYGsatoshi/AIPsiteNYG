@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "Dockerfile"
+      - "backend.Dockerfile"
       - "frontend.Dockerfile"
       - "package.json"
       - "frontend/package.json"
@@ -13,6 +14,7 @@ on:
     branches: ["main"]
     paths:
       - "Dockerfile"
+      - "backend.Dockerfile"
       - "frontend.Dockerfile"
       - "package.json"
       - "frontend/package.json"
