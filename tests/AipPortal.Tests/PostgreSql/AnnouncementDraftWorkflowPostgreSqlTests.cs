@@ -1,4 +1,6 @@
+using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Common.Tenancy;
+using AipPortal.Application.Announcements;
 using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
 using AipPortal.Infrastructure.Persistence;
@@ -129,6 +131,84 @@ public sealed class AnnouncementDraftWorkflowPostgreSqlTests
         Assert.Contains(persisted.PublicationClaimOwner, new[] { "announcement-worker-one", "announcement-worker-two" });
     }
 
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    public async Task DistributionTargetSidecarUsesFixedSqlForBothWriteAndReadPaths()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+        var tenantScope = new CurrentTenantService();
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseNpgsql(connectionString)
+            .Options;
+        await using var context = new AppDbContext(options, tenantScope);
+        Assert.Empty(await context.Database.GetPendingMigrationsAsync());
+
+        var runId = Guid.NewGuid().ToString("N");
+        var now = new DateTimeOffset(2026, 9, 9, 0, 0, 0, TimeSpan.Zero);
+        var tenant = new Tenant
+        {
+            Name = $"Announcement sidecar {runId}",
+            DisplayName = "Announcement sidecar",
+            Slug = $"announcement-sidecar-{runId}",
+            Status = TenantStatus.Active
+        };
+        var author = new User
+        {
+            DisplayName = "Announcement author",
+            Email = $"announcement-sidecar-{runId}@example.test",
+            NormalizedEmail = $"ANNOUNCEMENT-SIDECAR-{runId}@EXAMPLE.TEST",
+            Status = UserStatus.Active
+        };
+
+        tenantScope.SetPlatformScope();
+        context.Tenants.Add(tenant);
+        context.Users.Add(author);
+        await context.SaveChangesAsync();
+
+        tenantScope.SetTenant(tenant.Id, tenant.Slug);
+        var workspace = new Workspace
+        {
+            Name = "Announcement sidecar workspace",
+            Slug = $"announcement-sidecar-workspace-{runId}",
+            CreatedByUserId = author.Id,
+            Status = WorkspaceStatus.Active
+        };
+        context.Workspaces.Add(workspace);
+        context.TenantUsers.Add(new TenantUser
+        {
+            UserId = author.Id,
+            Status = TenantUserStatus.Active,
+            JoinedAt = now
+        });
+        await context.SaveChangesAsync();
+
+        var draft = new AnnouncementDraft
+        {
+            TenantId = tenant.Id,
+            AuthorUserId = author.Id,
+            WorkspaceId = workspace.Id,
+            Title = "Fixed SQL sidecar",
+            Body = "Distribution sidecar values must remain database parameters.",
+            Status = AnnouncementDraftStatus.Draft,
+            VersionNo = 1
+        };
+        context.AnnouncementDrafts.Add(draft);
+        await context.SaveChangesAsync();
+
+        var store = new AnnouncementDistributionStore(context, new FixedClock(now));
+        await store.CommitDraftSaveAsync(
+            tenant.Id,
+            draft.Id,
+            [new AnnouncementDraftTargetRequest(workspace.Id, null, null)]);
+
+        context.ChangeTracker.Clear();
+        var targets = await store.GetDraftTargetsAsync(tenant.Id, draft.Id);
+        var target = Assert.Single(targets);
+        Assert.Equal(workspace.Id, target.WorkspaceId);
+        Assert.Null(target.GroupId);
+        Assert.Null(target.ChannelId);
+    }
+
     private static Task<long> TableCountAsync(string database) =>
         PostgreSqlMigrationTestDatabase.ScalarAsync<long>(
             database,
@@ -173,4 +253,9 @@ public sealed class AnnouncementDraftWorkflowPostgreSqlTests
               AND confrelid IN ('workspaces'::regclass, 'groups'::regclass, 'channels'::regclass)
               AND confdeltype = 'r'
             """);
+
+    private sealed class FixedClock(DateTimeOffset utcNow) : IClock
+    {
+        public DateTimeOffset UtcNow { get; } = utcNow;
+    }
 }
