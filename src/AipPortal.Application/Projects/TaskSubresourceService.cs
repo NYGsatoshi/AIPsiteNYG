@@ -630,5 +630,9 @@ public sealed class TaskSubresourceService(
     }
     private static IReadOnlyList<Guid> MentionIds(string? body) => MentionPattern.Matches(body ?? string.Empty).Select(match => Guid.TryParse(match.Groups["id"].Value, out var id) ? id : Guid.Empty).Where(id => id != Guid.Empty).Distinct().ToArray();
     private static Result<T> Fail<T>(string code,string message)=>Result<T>.Failure($"{code}|{message}");private static Result Fail(string code,string message)=>Result.Failure($"{code}|{message}");
-    private static readonly Regex MentionPattern = new("@\\{(?<id>[0-9a-fA-F-]{36})\\}", RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    private static readonly TimeSpan MentionPatternTimeout = TimeSpan.FromMilliseconds(100);
+    private static readonly Regex MentionPattern = new(
+        "@\\{(?<id>[0-9a-fA-F-]{36})\\}",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled | RegexOptions.NonBacktracking,
+        MentionPatternTimeout);
 }
