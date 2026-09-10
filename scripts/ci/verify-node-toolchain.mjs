@@ -6,8 +6,12 @@ const expectedPackageManager = 'npm@11.17.0';
 const failures = [];
 const observations = [];
 
-await verifyDockerBase('Dockerfile', /^FROM\s+node:(\d+)(?:\.[^\s]*)?\s+AS\s+frontend-build\s*$/m, 'production frontend-build');
-await verifyDockerBase('frontend.Dockerfile', /^FROM\s+node:(\d+)(?:\.[^-\s]*)?-alpine\s*$/m, 'frontend development container');
+const digest = '@sha256:[a-f0-9]{64}';
+await verifyDockerBase('Dockerfile', new RegExp(`^FROM\\s+node:(\\d+)(?:\\.[^@\\s]*)?${digest}\\s+AS\\s+frontend-build\\s*$`, 'm'), 'production frontend-build');
+await verifyDockerBase('frontend.Dockerfile', new RegExp(`^FROM\\s+node:(\\d+)(?:\\.[^-@\\s]*)?-alpine${digest}\\s*$`, 'm'), 'frontend development container');
+await verifyPinnedDockerBase('Dockerfile', new RegExp(`^FROM\\s+mcr\\.microsoft\\.com/dotnet/sdk:10\\.0\\.400${digest}\\s+AS\\s+build\\s*$`, 'm'), 'production build SDK');
+await verifyPinnedDockerBase('Dockerfile', new RegExp(`^FROM\\s+mcr\\.microsoft\\.com/dotnet/aspnet:10\\.0\\.11${digest}\\s+AS\\s+runtime\\s*$`, 'm'), 'production runtime');
+await verifyPinnedDockerBase('backend.Dockerfile', new RegExp(`^FROM\\s+mcr\\.microsoft\\.com/dotnet/sdk:10\\.0\\.400${digest}\\s*$`, 'm'), 'development SDK');
 await verifyPackageManager('package.json');
 await verifyPackageManager('frontend/package.json');
 await verifyWorkflowNodeVersions('.github/workflows');
@@ -38,6 +42,16 @@ async function verifyDockerBase(filePath, pattern, label) {
   if (major !== expectedNodeMajor) {
     failures.push(`${filePath} uses Node ${major}; repository standard is Node ${expectedNodeMajor}.`);
   }
+}
+
+async function verifyPinnedDockerBase(filePath, pattern, label) {
+  const content = await readFile(filePath, 'utf8');
+  if (!pattern.test(content)) {
+    failures.push(`${filePath} does not declare an immutable ${label} base image digest.`);
+    return;
+  }
+
+  observations.push(`${filePath}: immutable ${label} base image`);
 }
 
 async function verifyPackageManager(filePath) {
