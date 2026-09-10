@@ -49,13 +49,14 @@ public sealed class StrictQueryParameterFilter : IAsyncActionFilter
 
             var attribute = parameter.ParameterInfo.GetCustomAttribute<FromQueryAttribute>();
             var parameterName = attribute?.Name ?? parameter.BindingInfo?.BinderModelName ?? parameter.Name;
-            if (IsSimpleQueryType(parameter.ParameterType))
+            var parameterType = parameter.ParameterInfo.ParameterType;
+            if (IsSimpleQueryType(parameterType))
             {
-                allowed[parameterName] = parameter.ParameterType;
+                allowed[parameterName] = parameterType;
                 continue;
             }
 
-            foreach (var property in parameter.ParameterType.GetProperties(BindingFlags.Instance | BindingFlags.Public))
+            foreach (var property in parameterType.GetProperties(BindingFlags.Instance | BindingFlags.Public))
             {
                 // Derived display/safety properties (for example SafePage)
                 // have no setter and are not request inputs.
