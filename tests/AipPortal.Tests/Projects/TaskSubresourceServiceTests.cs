@@ -86,6 +86,22 @@ public sealed class TaskSubresourceServiceTests
 
     [Fact]
     [Trait("Scope", "TaskV1PR07B")]
+    public async Task MalformedLongMentionLikeTextIsStoredAsOrdinaryComment()
+    {
+        var fixture = new Fixture();
+        var malformedBody = "@" + new string('{', 4096) + "not-a-mention";
+
+        var result = await fixture.Service.CreateCommentAsync(
+            fixture.Task.Id,
+            new CreateTaskCommentRequest(malformedBody));
+
+        Assert.True(result.IsSuccess);
+        Assert.Empty(fixture.Notifications.Requests);
+        Assert.Equal(malformedBody, Assert.Single(fixture.Projects.Comments.Values).BodyPlainText);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
     public async Task DirectMentionAndImportantMarkerUseOneSignificantRequestWithDeduplicatedMentions()
     {
         var fixture = new Fixture();
