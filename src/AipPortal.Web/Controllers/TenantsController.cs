@@ -1,6 +1,7 @@
 using AipPortal.Application.Common;
 using AipPortal.Application.Common.Tenancy;
 using AipPortal.Application.Tenancy;
+using AipPortal.Web.Configuration;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
@@ -12,7 +13,8 @@ namespace AipPortal.Web.Controllers;
 [Route("api/tenants")]
 public sealed class TenantsController(
     ITenantService tenantService,
-    IOptions<TenancyOptions> tenancyOptions) : ControllerBase
+    IOptions<TenancyOptions> tenancyOptions,
+    IOptions<SecurityOptions> securityOptions) : ControllerBase
 {
     [HttpGet("current")]
     public async Task<IActionResult> Current(CancellationToken cancellationToken)
@@ -38,13 +40,7 @@ public sealed class TenantsController(
         Response.Cookies.Append(
             tenancyOptions.Value.TenantCookieName,
             result.Value.Slug,
-            new CookieOptions
-            {
-                HttpOnly = true,
-                SameSite = SameSiteMode.Lax,
-                Secure = !HttpContext.Request.IsHttps ? false : true,
-                IsEssential = true
-            });
+            TenantCookiePolicy.Build(HttpContext, securityOptions.Value));
 
         return Ok(result.Value);
     }
