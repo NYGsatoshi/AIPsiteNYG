@@ -64,7 +64,7 @@ Restore, build, SDK, package-resolution, solution-load and project-model failure
 
 ## Pull-request quality gate
 
-`.github/workflows/qodana_code_quality.yml` runs only for pull requests. It delegates analysis to the immutable reusable workflow `qodana_trusted_gate.yml`, pinned to the approved full commit SHA.
+`.github/workflows/qodana_code_quality.yml` retains the established caller for pull requests, `main` pushes, the weekly schedule and manual dispatch. It delegates analysis to the immutable reusable workflow `qodana_trusted_gate.yml`, pinned to the approved full commit SHA. This existing lane remains tokenless; Qodana Cloud credentials are never passed to it.
 
 For PRs:
 
@@ -83,17 +83,19 @@ This preserves analysis of submitted source while preventing an external PR from
 
 ## Full-repository quality gate and Qodana Cloud
 
-`.github/workflows/qodana_cloud_quality.yml` is a separate trusted workflow. It has no `pull_request` or review trigger and runs only for:
+`.github/workflows/qodana_cloud_quality.yml` is a separate trusted Cloud-publishing workflow. It has no `pull_request` or review trigger and runs only for:
 
 - pushes to `main`;
 - the weekly schedule;
 - manual dispatches on `main`.
 
-The Cloud workflow performs a full repository analysis with `pr-mode: false`, passes the repository secret `QODANA_TOKEN` directly to the pinned Qodana action, and therefore publishes the report to Qodana Cloud. Manual dispatches on non-`main` refs are blocked by the job-level ref guard.
+The Cloud workflow performs a full repository analysis with `pr-mode: false`, passes `QODANA_TOKEN` directly to the pinned Qodana action, and therefore publishes the report to Qodana Cloud. Manual dispatches on non-`main` refs are blocked by the job-level ref guard.
 
-The Cloud lane fails before Qodana starts if `QODANA_TOKEN` is empty. The secret must contain the Qodana Cloud project token for this repository. This prevents a green trusted run from silently producing only a local/GitHub report while Qodana Cloud receives nothing.
+Because repository publication policy requires every secret-bearing job to use a static protected environment, the Cloud job is bound to the repository's existing `syncfusion-licensed-build` protected environment. Qodana does not consume the Syncfusion secret; the environment is reused solely as the already-established trusted secret boundary. A dedicated Qodana environment may replace it later if one is created with equivalent protection.
 
-Keeping Cloud publication in a workflow with no PR trigger is deliberate: repository secrets never enter the pull-request trust boundary, while the existing immutable PR gate remains unprivileged.
+The Cloud lane fails before Qodana starts if `QODANA_TOKEN` is empty. The token must be available to the job as the Qodana Cloud project token for this repository. This prevents a green trusted run from silently producing only a local/GitHub report while Qodana Cloud receives nothing.
+
+Keeping Cloud publication in a workflow with no PR trigger is deliberate: Qodana Cloud credentials never enter the pull-request trust boundary, while the existing immutable PR gate remains unprivileged.
 
 The repository currently has historical non-critical Qodana debt, so an absolute repository-wide `failThreshold: 0` would make the lane permanently red and would not distinguish regressions from existing findings. Instead the SARIF guard enforces hard invariants while preserving the full report:
 
@@ -105,7 +107,7 @@ The repository currently has historical non-critical Qodana debt, so an absolute
 - Qodana process failure: hard failure.
 - Missing `QODANA_TOKEN` on a trusted Cloud run: hard failure.
 
-All non-critical findings remain visible in the GitHub Actions inventory artifact, and trusted full-repository runs are also published to Qodana Cloud. Because PRs reject findings in changed files, new debt is prevented at the merge boundary without charging unrelated historical debt to the PR.
+All non-critical findings remain visible in the GitHub Actions inventory artifact, and trusted Cloud runs publish the full-repository result to Qodana Cloud. The existing tokenless full-repository lane remains in place for compatibility with the established immutable gate and repository policy; the Cloud lane adds publication without expanding the PR secret boundary.
 
 ## Exclusion rationale
 
