@@ -1,6 +1,6 @@
 # Qodana project model
 
-Last updated: 2026-09-08.
+Last updated: 2026-09-12.
 
 ## Canonical roots
 
@@ -75,15 +75,19 @@ For PRs:
 - Qodana execution failure is not masked with `continue-on-error`.
 - Repository permissions remain `contents: read`.
 - Qodana comments, annotations and quick-fix pushes are disabled.
-- No `QODANA_TOKEN` is required for the Community linter.
+- `QODANA_TOKEN` is not passed to pull-request analysis. Community analysis therefore remains isolated from Qodana Cloud credentials, including repository-owner PRs.
 - Repository-owner PRs may exercise proposed Qodana policy changes directly.
 - For every other PR, `qodana.yaml`, the Qodana bootstrap/guard, and the repository helper scripts executed by this job are restored from the PR base SHA before execution; the guard is restored again after analysis before it consumes SARIF.
 
 This preserves analysis of submitted source while preventing an external PR from replacing the quality-policy scripts that enforce the result. Historical findings in untouched files remain visible without turning unrelated PRs red.
 
-## Full-repository quality gate
+## Full-repository quality gate and Qodana Cloud
 
 Pushes to `main`, the weekly schedule and manual dispatch run a full inventory with `pr-mode: false`.
+
+These trusted non-PR runs set `publish_to_cloud: true` on the immutable reusable gate and pass the repository secret `QODANA_TOKEN`. The token must contain the Qodana Cloud project token for this repository. The reusable gate fails before analysis when trusted Cloud publishing is requested but the secret is empty, preventing a green CI run from silently omitting the Qodana Cloud report.
+
+The token is only passed by the trusted caller lane. Pull-request jobs call the same immutable reusable gate without a secret mapping and with Cloud publishing disabled.
 
 The repository currently has historical non-critical Qodana debt, so an absolute repository-wide `failThreshold: 0` would make the lane permanently red and would not distinguish regressions from existing findings. Instead the SARIF guard enforces hard invariants while preserving the full report:
 
@@ -93,8 +97,9 @@ The repository currently has historical non-critical Qodana debt, so an absolute
 - Project-model/restore/build/SDK/package-resolution failures: `0` allowed.
 - Missing or invalid SARIF: hard failure.
 - Qodana process failure: hard failure.
+- Missing `QODANA_TOKEN` on a trusted Cloud-publishing run: hard failure.
 
-All non-critical findings remain visible in the uploaded inventory and can be retired incrementally. Because PRs reject findings in changed files, new debt is prevented at the merge boundary without charging unrelated historical debt to the PR.
+All non-critical findings remain visible in the GitHub Actions inventory artifact, and trusted full-repository runs are also published to Qodana Cloud. Because PRs reject findings in changed files, new debt is prevented at the merge boundary without charging unrelated historical debt to the PR.
 
 ## Exclusion rationale
 
