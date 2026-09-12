@@ -23,6 +23,9 @@ jobs:
     name: Qodana Cloud / Full Repository
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    # Reuse the repository's existing protected trusted-build environment so
+    # secret-bearing Qodana publication remains behind an established boundary.
+    environment: syncfusion-licensed-build
     timeout-minutes: 120
     permissions:
       contents: read
