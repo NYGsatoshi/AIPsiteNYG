@@ -64,7 +64,7 @@ Restore, build, SDK, package-resolution, solution-load and project-model failure
 
 ## Pull-request quality gate
 
-The Qodana workflow runs on every pull request, regardless of target branch, with full Git history and checks out the actual pull-request HEAD for analysis.
+`.github/workflows/qodana_code_quality.yml` runs only for pull requests. It delegates analysis to the immutable reusable workflow `qodana_trusted_gate.yml`, pinned to the approved full commit SHA.
 
 For PRs:
 
@@ -75,7 +75,7 @@ For PRs:
 - Qodana execution failure is not masked with `continue-on-error`.
 - Repository permissions remain `contents: read`.
 - Qodana comments, annotations and quick-fix pushes are disabled.
-- `QODANA_TOKEN` is not passed to pull-request analysis. Community analysis therefore remains isolated from Qodana Cloud credentials, including repository-owner PRs.
+- `QODANA_TOKEN` is never passed to the pull-request workflow, including repository-owner PRs.
 - Repository-owner PRs may exercise proposed Qodana policy changes directly.
 - For every other PR, `qodana.yaml`, the Qodana bootstrap/guard, and the repository helper scripts executed by this job are restored from the PR base SHA before execution; the guard is restored again after analysis before it consumes SARIF.
 
@@ -83,11 +83,17 @@ This preserves analysis of submitted source while preventing an external PR from
 
 ## Full-repository quality gate and Qodana Cloud
 
-Pushes to `main`, the weekly schedule and manual dispatch run a full inventory with `pr-mode: false`.
+`.github/workflows/qodana_cloud_quality.yml` is a separate trusted workflow. It has no `pull_request` or review trigger and runs only for:
 
-These trusted non-PR runs set `publish_to_cloud: true` on the immutable reusable gate and pass the repository secret `QODANA_TOKEN`. The token must contain the Qodana Cloud project token for this repository. The reusable gate fails before analysis when trusted Cloud publishing is requested but the secret is empty, preventing a green CI run from silently omitting the Qodana Cloud report.
+- pushes to `main`;
+- the weekly schedule;
+- manual dispatches on `main`.
 
-The token is only passed by the trusted caller lane. Pull-request jobs call the same immutable reusable gate without a secret mapping and with Cloud publishing disabled.
+The Cloud workflow performs a full repository analysis with `pr-mode: false`, passes the repository secret `QODANA_TOKEN` directly to the pinned Qodana action, and therefore publishes the report to Qodana Cloud. Manual dispatches on non-`main` refs are blocked by the job-level ref guard.
+
+The Cloud lane fails before Qodana starts if `QODANA_TOKEN` is empty. The secret must contain the Qodana Cloud project token for this repository. This prevents a green trusted run from silently producing only a local/GitHub report while Qodana Cloud receives nothing.
+
+Keeping Cloud publication in a workflow with no PR trigger is deliberate: repository secrets never enter the pull-request trust boundary, while the existing immutable PR gate remains unprivileged.
 
 The repository currently has historical non-critical Qodana debt, so an absolute repository-wide `failThreshold: 0` would make the lane permanently red and would not distinguish regressions from existing findings. Instead the SARIF guard enforces hard invariants while preserving the full report:
 
@@ -97,7 +103,7 @@ The repository currently has historical non-critical Qodana debt, so an absolute
 - Project-model/restore/build/SDK/package-resolution failures: `0` allowed.
 - Missing or invalid SARIF: hard failure.
 - Qodana process failure: hard failure.
-- Missing `QODANA_TOKEN` on a trusted Cloud-publishing run: hard failure.
+- Missing `QODANA_TOKEN` on a trusted Cloud run: hard failure.
 
 All non-critical findings remain visible in the GitHub Actions inventory artifact, and trusted full-repository runs are also published to Qodana Cloud. Because PRs reject findings in changed files, new debt is prevented at the merge boundary without charging unrelated historical debt to the PR.
 
