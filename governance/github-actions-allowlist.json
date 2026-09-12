@@ -63,9 +63,9 @@
       "privilegedAllowed": true
     },
     "NYGsatoshi/AIPsiteNYG": {
-      "sha": "9def3cb0a74ddb68842268070aee5668c56b76a4",
+      "sha": "05833d4b0b5a4f9fb468c0db48c76f1bc723a872",
       "version": "qodana-gate-v1",
-      "purpose": "Immutable same-repository reusable Qodana pull-request gate",
+      "purpose": "Immutable same-repository reusable Qodana gate pinned to the main-reachable #724 snapshot",
       "privilegedAllowed": true,
       "path": ".github/workflows/qodana_trusted_gate.yml"
     }
