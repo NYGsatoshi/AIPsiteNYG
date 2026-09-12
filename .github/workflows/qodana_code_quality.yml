@@ -1,16 +1,10 @@
 name: Qodana Deep Analysis
 
-# Qodana policy execution is intentionally kept out of this PR-mutable caller.
-# The reusable gate is pinned to an immutable commit so an external PR cannot
-# edit or remove its restore, scan, or SARIF-guard steps.
+# Pull-request Qodana policy execution is intentionally kept out of this
+# PR-mutable caller. The reusable gate is pinned to an immutable commit so an
+# external PR cannot edit or remove its restore, scan, or SARIF-guard steps.
 on:
-  workflow_dispatch:
   pull_request:
-  push:
-    branches:
-      - main
-  schedule:
-    - cron: "17 18 * * 0"
 
 concurrency:
   group: qodana-deep-${{ github.ref }}
@@ -20,20 +14,8 @@ permissions:
   contents: read
 
 jobs:
-  qodana-pr:
-    if: github.event_name == 'pull_request'
-    name: Qodana Gate / PR
+  qodana-dotnet-community:
+    name: Qodana Gate
     permissions:
       contents: read
-    uses: NYGsatoshi/AIPsiteNYG/.github/workflows/qodana_trusted_gate.yml@1c86f73e41d4a3fab1200a1034512e2454a75b70 # qodana-gate-v2
-
-  qodana-trusted-cloud:
-    if: github.event_name != 'pull_request'
-    name: Qodana Gate / Trusted Cloud
-    permissions:
-      contents: read
-    uses: NYGsatoshi/AIPsiteNYG/.github/workflows/qodana_trusted_gate.yml@1c86f73e41d4a3fab1200a1034512e2454a75b70 # qodana-gate-v2
-    with:
-      publish_to_cloud: true
-    secrets:
-      QODANA_TOKEN: ${{ secrets.QODANA_TOKEN }}
+    uses: NYGsatoshi/AIPsiteNYG/.github/workflows/qodana_trusted_gate.yml@9def3cb0a74ddb68842268070aee5668c56b76a4 # qodana-gate-v1
