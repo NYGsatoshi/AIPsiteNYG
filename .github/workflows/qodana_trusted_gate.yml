@@ -2,15 +2,6 @@ name: Trusted Qodana Gate
 
 on:
   workflow_call:
-    inputs:
-      publish_to_cloud:
-        description: Publish this trusted full-repository analysis to Qodana Cloud.
-        required: false
-        type: boolean
-        default: false
-    secrets:
-      QODANA_TOKEN:
-        required: false
 
 permissions:
   contents: read
@@ -123,24 +114,9 @@ jobs:
             echo "pr_mode=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Require Qodana Cloud token for trusted publishing
-        if: inputs.publish_to_cloud
-        env:
-          QODANA_TOKEN: ${{ secrets.QODANA_TOKEN }}
-        shell: bash
-        run: |
-          if [[ -z "${QODANA_TOKEN:-}" ]]; then
-            echo "::error::QODANA_TOKEN is required for trusted Qodana Cloud publishing. Add the Qodana Cloud project token as the repository secret QODANA_TOKEN."
-            exit 1
-          fi
-
       - name: Run strict Qodana inspection inventory
         id: qodana_scan
         uses: JetBrains/qodana-action@10be11607eb323a180e2b76b26c9c5cdceac3e77 # v2026.2.1
-        env:
-          # The caller only passes this secret for trusted non-PR events. An empty
-          # value keeps pull-request analysis local to the GitHub Actions runner.
-          QODANA_TOKEN: ${{ inputs.publish_to_cloud && secrets.QODANA_TOKEN || '' }}
         with:
           args: |
             --image jetbrains/qodana-cdnet:2026.2-privileged@sha256:21bbbfeac0e61fe8790cc27d5754b87d57b8032c0c32f84ddeb887027f83ec4f
