@@ -1,10 +1,16 @@
 name: Qodana Deep Analysis
 
-# Pull-request Qodana policy execution is intentionally kept out of this
-# PR-mutable caller. The reusable gate is pinned to an immutable commit so an
-# external PR cannot edit or remove its restore, scan, or SARIF-guard steps.
+# Qodana policy execution is intentionally kept out of this PR-mutable caller.
+# The reusable gate is pinned to an immutable commit so an external PR cannot
+# edit or remove its restore, scan, or SARIF-guard steps.
 on:
+  workflow_dispatch:
   pull_request:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: "17 18 * * 0"
 
 concurrency:
   group: qodana-deep-${{ github.ref }}
