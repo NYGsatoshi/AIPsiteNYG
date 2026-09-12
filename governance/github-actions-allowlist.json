@@ -4,6 +4,7 @@
     ".github/workflows/ci.yml",
     ".github/workflows/publication-readiness.yml",
     ".github/workflows/qodana_code_quality.yml",
+    ".github/workflows/qodana_cloud_quality.yml",
     ".github/workflows/qodana_trusted_gate.yml"
   ],
   "actions": {
@@ -52,7 +53,7 @@
     "JetBrains/qodana-action": {
       "sha": "10be11607eb323a180e2b76b26c9c5cdceac3e77",
       "version": "v2026.2.1",
-      "purpose": "Pinned Qodana deep analysis in the protected read-only Qodana gate",
+      "purpose": "Pinned Qodana deep analysis in protected PR and trusted Cloud lanes",
       "privilegedAllowed": true
     },
     "advanced-security/component-detection-dependency-submission-action": {
@@ -62,9 +63,9 @@
       "privilegedAllowed": true
     },
     "NYGsatoshi/AIPsiteNYG": {
-      "sha": "9def3cb0a74ddb68842268070aee5668c56b76a4",
+      "sha": "05833d4b0b5a4f9fb468c0db48c76f1bc723a872",
       "version": "qodana-gate-v1",
-      "purpose": "Immutable same-repository reusable Qodana gate",
+      "purpose": "Immutable same-repository reusable Qodana gate pinned to the main-reachable #724 snapshot",
       "privilegedAllowed": true,
       "path": ".github/workflows/qodana_trusted_gate.yml"
     }
