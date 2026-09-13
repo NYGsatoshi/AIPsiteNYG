@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
-"""Validate the SEC-01 build-time OpenAPI contract."""
+"""Validate the SEC-01 build-time OpenAPI contract and AV-MIG P0 boundary."""
 
 from __future__ import annotations
 
 import json
 import sys
 from pathlib import Path
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+AVALONIA_BOUNDARY_POLICY = REPO_ROOT / "docs/migration/avalonia/p0-api-boundary.json"
 
 
 def fail(message: str) -> None:
@@ -177,6 +181,102 @@ def require_security_contract(document: dict[str, object]) -> None:
             fail(f"invite 404 responses must document application/problem+json for {path_name}")
 
 
+def require_avalonia_contract_boundary(document: dict[str, object]) -> None:
+    """Fail closed when a migration-blocking client-independent API disappears."""
+    if not AVALONIA_BOUNDARY_POLICY.is_file():
+        fail(f"AV-MIG boundary policy is missing: {AVALONIA_BOUNDARY_POLICY}")
+
+    try:
+        policy = json.loads(AVALONIA_BOUNDARY_POLICY.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        fail(f"AV-MIG boundary policy is not valid UTF-8 JSON: {exc}")
+
+    if not isinstance(policy, dict) or policy.get("version") != 1:
+        fail("AV-MIG boundary policy must be an object with version=1")
+
+    openapi_policy = policy.get("openapi")
+    if not isinstance(openapi_policy, dict):
+        fail("AV-MIG boundary policy openapi section is missing")
+
+    required_version_prefix = openapi_policy.get("requiredVersionPrefix")
+    actual_version = document.get("openapi")
+    if not isinstance(required_version_prefix, str) or not isinstance(actual_version, str):
+        fail("AV-MIG OpenAPI version policy is invalid")
+    if not actual_version.startswith(required_version_prefix):
+        fail(
+            "AV-MIG client boundary requires OpenAPI version prefix "
+            f"{required_version_prefix!r}, got {actual_version!r}"
+        )
+
+    security_policy = openapi_policy.get("requiredSecurityScheme")
+    components = document.get("components")
+    security_schemes = components.get("securitySchemes") if isinstance(components, dict) else None
+    if not isinstance(security_policy, dict) or not isinstance(security_schemes, dict):
+        fail("AV-MIG CookieAuth policy or OpenAPI securitySchemes are missing")
+
+    scheme_name = security_policy.get("name")
+    scheme = security_schemes.get(scheme_name) if isinstance(scheme_name, str) else None
+    if not isinstance(scheme, dict):
+        fail(f"AV-MIG required security scheme is missing: {scheme_name!r}")
+
+    expected_security = {
+        "type": security_policy.get("type"),
+        "in": security_policy.get("in"),
+        "name": security_policy.get("parameterName"),
+    }
+    actual_security = {
+        "type": scheme.get("type"),
+        "in": scheme.get("in"),
+        "name": scheme.get("name"),
+    }
+    if actual_security != expected_security:
+        fail(
+            "AV-MIG CookieAuth scheme drifted: "
+            f"expected {expected_security!r}, got {actual_security!r}"
+        )
+
+    paths = document.get("paths")
+    if not isinstance(paths, dict):
+        fail("AV-MIG boundary requires OpenAPI paths")
+
+    required_operations = policy.get("requiredOperations")
+    if not isinstance(required_operations, list) or not required_operations:
+        fail("AV-MIG boundary policy must define requiredOperations")
+
+    seen_ids: set[str] = set()
+    for entry in required_operations:
+        if not isinstance(entry, dict):
+            fail("AV-MIG requiredOperations entries must be objects")
+
+        operation_id = entry.get("id")
+        path = entry.get("path")
+        method = entry.get("method")
+        anonymous = entry.get("anonymous")
+        if (
+            not isinstance(operation_id, str)
+            or not operation_id
+            or operation_id in seen_ids
+            or not isinstance(path, str)
+            or not path.startswith("/api/")
+            or not isinstance(method, str)
+            or method.lower() not in {"get", "post", "put", "patch", "delete"}
+            or not isinstance(anonymous, bool)
+        ):
+            fail(f"invalid AV-MIG required operation entry: {entry!r}")
+        seen_ids.add(operation_id)
+
+        operation = require_operation(paths, path, method.lower(), f"AV-MIG {operation_id}")
+
+        # A protected sentinel must not explicitly opt out of operation-level
+        # security. Absence is allowed because OpenAPI may inherit a document-
+        # level security requirement; an explicit empty list means anonymous.
+        if not anonymous and operation.get("security") == []:
+            fail(
+                f"AV-MIG protected operation became explicitly anonymous: "
+                f"{method.upper()} {path} ({operation_id})"
+            )
+
+
 def main() -> None:
     if len(sys.argv) != 2:
         fail("usage: verify-openapi.py <openapi.json>")
@@ -185,7 +285,7 @@ def main() -> None:
     if not path.is_file():
         fail(f"document is missing: {path}")
     if path.stat().st_size == 0:
-        fail(f"document is empty: {path}")
+        fail("document is empty: {path}")
 
     try:
         document = json.loads(path.read_text(encoding="utf-8"))
@@ -216,10 +316,12 @@ def main() -> None:
     )
     require_wire_schema(schemas, "OptionalString", {"null", "string"})
     require_security_contract(document)
+    require_avalonia_contract_boundary(document)
 
     print(
         "SEC-01 OpenAPI verification passed: "
-        f"version={version}, paths={len(paths)}, bytes={path.stat().st_size}"
+        f"version={version}, paths={len(paths)}, bytes={path.stat().st_size}, "
+        "av-mig-boundary=pass"
     )
 
 
