@@ -44,7 +44,15 @@ public sealed class SecurityOpenApiOperationTransformer : IOpenApiOperationTrans
         var allowsAnonymousTransport = endpointMetadata.OfType<IAllowAnonymous>().Any();
         var requiresAuthorization = hasAuthorizationBoundary && !allowsAnonymousTransport;
 
-        if (requiresAuthorization)
+        if (allowsAnonymousTransport)
+        {
+            // Emit an explicit operation-level anonymous override. OpenAPI
+            // security is inherited from the document when the property is
+            // omitted, so [] is required to keep [AllowAnonymous] endpoints
+            // anonymous if a document-level security requirement is added.
+            operation.Security = [];
+        }
+        else if (requiresAuthorization)
         {
             operation.Security ??= [];
             operation.Security.Add(new OpenApiSecurityRequirement
