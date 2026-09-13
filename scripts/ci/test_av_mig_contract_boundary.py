@@ -164,21 +164,58 @@ class ContractBoundaryMutationTests(unittest.TestCase):
         temp, root, document = self.make_fixture()
         self.addCleanup(temp.cleanup)
         self.protected_operation(document).pop("security")
-        with self.assertRaisesRegex(verifier.BoundaryViolation, "explicitly require CookieAuth"):
+        with self.assertRaisesRegex(verifier.BoundaryViolation, "non-empty security"):
             verifier.verify_boundary(document, self.policy, root)
 
     def test_protected_empty_security_fails(self) -> None:
         temp, root, document = self.make_fixture()
         self.addCleanup(temp.cleanup)
         self.protected_operation(document)["security"] = []
-        with self.assertRaisesRegex(verifier.BoundaryViolation, "explicitly require CookieAuth"):
+        with self.assertRaisesRegex(verifier.BoundaryViolation, "non-empty security"):
+            verifier.verify_boundary(document, self.policy, root)
+
+    def test_protected_anonymous_alternative_fails(self) -> None:
+        temp, root, document = self.make_fixture()
+        self.addCleanup(temp.cleanup)
+        self.protected_operation(document)["security"] = [
+            {"CookieAuth": []},
+            {},
+        ]
+        with self.assertRaisesRegex(verifier.BoundaryViolation, "alternative 1 must require CookieAuth"):
+            verifier.verify_boundary(document, self.policy, root)
+
+    def test_protected_other_scheme_alternative_fails(self) -> None:
+        temp, root, document = self.make_fixture()
+        self.addCleanup(temp.cleanup)
+        components = document["components"]
+        assert isinstance(components, dict)
+        security_schemes = components["securitySchemes"]
+        assert isinstance(security_schemes, dict)
+        security_schemes["OtherScheme"] = {
+            "type": "apiKey",
+            "in": "header",
+            "name": "X-Other-Auth",
+        }
+        self.protected_operation(document)["security"] = [
+            {"CookieAuth": []},
+            {"OtherScheme": []},
+        ]
+        with self.assertRaisesRegex(verifier.BoundaryViolation, "alternative 1 must require CookieAuth"):
             verifier.verify_boundary(document, self.policy, root)
 
     def test_anonymous_cookie_auth_fails(self) -> None:
         temp, root, document = self.make_fixture()
         self.addCleanup(temp.cleanup)
         self.anonymous_operation(document)["security"] = [{"CookieAuth": []}]
-        with self.assertRaisesRegex(verifier.BoundaryViolation, "anonymous operation must not require CookieAuth"):
+        with self.assertRaisesRegex(verifier.BoundaryViolation, "explicitly declare security"):
+            verifier.verify_boundary(document, self.policy, root)
+
+    def test_anonymous_root_security_inheritance_fails(self) -> None:
+        temp, root, document = self.make_fixture()
+        self.addCleanup(temp.cleanup)
+        document["security"] = [{"CookieAuth": []}]
+        self.anonymous_operation(document).pop("security")
+        with self.assertRaisesRegex(verifier.BoundaryViolation, "explicitly declare security"):
             verifier.verify_boundary(document, self.policy, root)
 
     def test_hub_method_change_fails(self) -> None:
