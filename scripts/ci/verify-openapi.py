@@ -285,7 +285,7 @@ def main() -> None:
     if not path.is_file():
         fail(f"document is missing: {path}")
     if path.stat().st_size == 0:
-        fail("document is empty: {path}")
+        fail(f"document is empty: {path}")
 
     try:
         document = json.loads(path.read_text(encoding="utf-8"))
