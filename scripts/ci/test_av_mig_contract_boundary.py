@@ -228,6 +228,20 @@ class ContractBoundaryMutationTests(unittest.TestCase):
         with self.assertRaisesRegex(verifier.BoundaryViolation, "client method is missing"):
             verifier.verify_boundary(document, self.policy, root)
 
+    def test_hub_method_commented_out_fails(self) -> None:
+        temp, root, document = self.make_fixture()
+        self.addCleanup(temp.cleanup)
+        hub = root / "src/AipPortal.Web/Realtime/AppHub.cs"
+        source = hub.read_text(encoding="utf-8")
+        method = self.policy["nonOpenApiContracts"]["signalR"]["clientMethods"][0]
+        lines = source.splitlines()
+        hub.write_text(
+            "\n".join("// " + line if f" {method}(" in line else line for line in lines) + "\n",
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(verifier.BoundaryViolation, "client method is missing"):
+            verifier.verify_boundary(document, self.policy, root)
+
     def test_hub_event_change_fails(self) -> None:
         temp, root, document = self.make_fixture()
         self.addCleanup(temp.cleanup)
@@ -237,6 +251,19 @@ class ContractBoundaryMutationTests(unittest.TestCase):
             source = path.read_text(encoding="utf-8")
             if event_name in source:
                 path.write_text(source.replace(event_name, event_name + "Changed"), encoding="utf-8")
+                break
+        with self.assertRaisesRegex(verifier.BoundaryViolation, "server event is not emitted"):
+            verifier.verify_boundary(document, self.policy, root)
+
+    def test_hub_event_commented_out_fails(self) -> None:
+        temp, root, document = self.make_fixture()
+        self.addCleanup(temp.cleanup)
+        realtime = root / "src/AipPortal.Web/Realtime"
+        event_name = self.policy["nonOpenApiContracts"]["signalR"]["serverEvents"][0]
+        for path in realtime.glob("*.cs"):
+            source = path.read_text(encoding="utf-8")
+            if event_name in source:
+                path.write_text(source.replace(source, f"/* {source} */\n"), encoding="utf-8")
                 break
         with self.assertRaisesRegex(verifier.BoundaryViolation, "server event is not emitted"):
             verifier.verify_boundary(document, self.policy, root)
@@ -251,6 +278,15 @@ class ContractBoundaryMutationTests(unittest.TestCase):
         with self.assertRaisesRegex(verifier.BoundaryViolation, "AppHub path drifted"):
             verifier.verify_boundary(document, self.policy, root)
 
+    def test_hub_path_commented_out_fails(self) -> None:
+        temp, root, document = self.make_fixture()
+        self.addCleanup(temp.cleanup)
+        program = root / "src/AipPortal.Web/Program.cs"
+        source = program.read_text(encoding="utf-8")
+        program.write_text("// " + source, encoding="utf-8")
+        with self.assertRaisesRegex(verifier.BoundaryViolation, "AppHub path drifted"):
+            verifier.verify_boundary(document, self.policy, root)
+
     def test_csrf_header_change_fails(self) -> None:
         temp, root, document = self.make_fixture()
         self.addCleanup(temp.cleanup)
@@ -259,6 +295,15 @@ class ContractBoundaryMutationTests(unittest.TestCase):
         expected = self.policy["nonOpenApiContracts"]["csrf"]["headerName"]
         options.write_text(source.replace(expected, expected + "-Changed"), encoding="utf-8")
         with self.assertRaisesRegex(verifier.BoundaryViolation, "CSRF header drifted"):
+            verifier.verify_boundary(document, self.policy, root)
+
+    def test_csrf_header_commented_out_fails(self) -> None:
+        temp, root, document = self.make_fixture()
+        self.addCleanup(temp.cleanup)
+        options = root / "src/AipPortal.Web/Configuration/SecurityOptions.cs"
+        source = options.read_text(encoding="utf-8")
+        options.write_text("// " + source, encoding="utf-8")
+        with self.assertRaisesRegex(verifier.BoundaryViolation, "CsrfHeaderName is missing"):
             verifier.verify_boundary(document, self.policy, root)
 
     def test_csrf_endpoint_change_fails(self) -> None:
@@ -271,6 +316,18 @@ class ContractBoundaryMutationTests(unittest.TestCase):
             encoding="utf-8",
         )
         with self.assertRaisesRegex(verifier.BoundaryViolation, "CSRF token endpoint drifted"):
+            verifier.verify_boundary(document, self.policy, root)
+
+    def test_csrf_endpoint_commented_out_fails(self) -> None:
+        temp, root, document = self.make_fixture()
+        self.addCleanup(temp.cleanup)
+        controller = root / "src/AipPortal.Web/Controllers/SecurityController.cs"
+        source = controller.read_text(encoding="utf-8")
+        controller.write_text(
+            source.replace('    [HttpGet("csrf-token")]', '    /* [HttpGet("csrf-token")] */'),
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(verifier.BoundaryViolation, "controller route/action contract is missing"):
             verifier.verify_boundary(document, self.policy, root)
 
 
