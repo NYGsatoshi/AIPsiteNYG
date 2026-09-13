@@ -325,7 +325,15 @@ Normally additive, subject to client exhaustive-switch review:
 
 `p0-api-boundary.json` is intentionally smaller than the full OpenAPI document. It pins the migration-blocking operations whose accidental disappearance would prevent the Avalonia foundation/core vertical slice.
 
-`scripts/ci/verify-openapi.py` validates this policy in addition to the existing SEC-01 OpenAPI checks. Therefore the existing deterministic OpenAPI CI path also detects removal of a pinned P0 operation or drift of the production cookie security scheme.
+`scripts/ci/verify-openapi.py` remains the SEC-01 OpenAPI verifier. AV-MIG-02 uses the separate `scripts/ci/verify_av_mig_contract_boundary.py` so migration-specific policy does not get conflated with the general security OpenAPI contract.
+
+The AV-MIG verifier requires every protected P0 operation to contain an explicit operation-level `CookieAuth` requirement. A missing `security` member, `security: []`, or an unrelated security scheme fails. An `anonymous: true` operation must not contain a `CookieAuth` requirement. Document-level inheritance is intentionally not accepted because the current generator emits operation-level requirements.
+
+The same verifier checks `nonOpenApiContracts.signalR` against the backend sources for the exact `/hubs/app` mapping, required public hub method names, and emitted server event names. It also checks `nonOpenApiContracts.csrf` against `SecurityController` and `SecurityOptions` for the exact token endpoint and header contract.
+
+`scripts/ci/test_av_mig_contract_boundary.py` is the deterministic fail-closed mutation harness. It fixes a passing baseline and verifies that protected security deletion, protected `security: []`, CookieAuth added to an anonymous operation, hub method/event/path drift, and CSRF endpoint/header drift each fail verification.
+
+`scripts/ci/generate-security-openapi-contract.sh` runs the mutation harness before contract generation and runs the AV-MIG verifier against both deterministic generated OpenAPI copies. The required security CI path invokes that generator, so these are CI-enforced sentinels rather than inventory-only metadata.
 
 This is a baseline breaking-change detector, not a complete semantic diff engine. #772 may add generated-client drift checks and a richer OpenAPI diff gate once the exact Kiota toolchain is pinned.
 
@@ -359,6 +367,6 @@ An Avalonia feature is allowed to implement from this boundary when all applicab
 | no client-side authorization dependency plan | explicit backend-authority rules and class 4 migration rule |
 | error/date/enum/pagination documented | dedicated sections above |
 | OpenAPI -> C# generation decision | Kiota selected; implementation delegated to #772 |
-| SignalR/File contract integrated | dedicated sections above + non-OpenAPI JSON sentinels |
-| breaking/additive policy exists | dedicated compatibility policy above + CI route sentinel gate |
+| SignalR/File contract integrated | dedicated sections above + deterministic non-OpenAPI source checks |
+| breaking/additive policy exists | dedicated compatibility policy above + deterministic contract sentinel gate |
 | Avalonia can implement without Angular source | contract source order and client-independent checklist above |
