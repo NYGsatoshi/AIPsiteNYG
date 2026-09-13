@@ -1,0 +1,201 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "repository": "NYGsatoshi/AIPsiteNYG",
+    "branch": "main",
+    "commit": "4e6a10903a5a472ca89f833aba993a29e1b2cf73",
+    "inventoryDate": "2026-09-13",
+    "issue": 765,
+    "parentIssue": 798
+  },
+  "ngrx": {
+    "declaredDependencies": [
+      "@ngrx/component-store@22.0.0",
+      "@ngrx/effects@22.0.0",
+      "@ngrx/entity@22.0.0",
+      "@ngrx/store@22.0.0"
+    ],
+    "productionImportsFound": false,
+    "status": "dependency-only-at-snapshot",
+    "note": "No production @ngrx/* imports, reducer/effect/store implementation, or ComponentStore implementation were found at the pinned snapshot. Application state is predominantly Angular Signals plus RxJS in facades/services."
+  },
+  "routes": [
+    {"path":"/signin","kind":"redirect","redirectTo":"/login","access":"public","stateOwners":["Router"],"integrations":[]},
+    {"path":"/login","kind":"screen","component":"LoginPageComponent","access":"public","stateOwners":["AuthSessionFacade"],"integrations":["rest-auth"],"demoScope":"critical"},
+    {"path":"/session-expired","kind":"screen","component":"SessionExpiredPageComponent","access":"public","stateOwners":["AuthSessionFacade"],"integrations":[]},
+    {"path":"/register/invite","kind":"screen","component":"InviteRegistrationPageComponent","access":"public","stateOwners":["InviteRegistrationFacade","AuthSessionFacade"],"integrations":["rest"]},
+    {"path":"/permission-denied","kind":"screen","component":"AppPermissionDeniedComponent","access":"public-system","stateOwners":[],"integrations":[]},
+    {"path":"/","kind":"redirect","redirectTo":"/workspaces","access":"protected","stateOwners":["AuthSessionFacade","AppShellFacade"],"integrations":[]},
+    {"path":"/messages/saved","kind":"screen","component":"MessageFollowUpsPageComponent","access":"protected","stateOwners":["MessageFollowUpFacade"],"integrations":["rest","signalr"]},
+    {"path":"/messages/settings","kind":"screen","component":"MessageSettingsPageComponent","access":"protected","stateOwners":["MessagingFacade"],"integrations":["rest"]},
+    {"path":"/messages","kind":"screen","component":"MessagesPageComponent","access":"protected","stateOwners":["MessagingFacade"],"integrations":["rest","signalr"],"demoScope":"critical"},
+    {"path":"/conversations/:conversationId","kind":"screen","component":"ChannelMessagingPageComponent","access":"protected","stateOwners":["MessagingFacade"],"integrations":["rest","signalr"],"demoScope":"critical"},
+    {"path":"/workspaces/:workspaceId/channels/:conversationId","kind":"screen","component":"ChannelMessagingPageComponent","access":"protected-workspace","stateOwners":["MessagingFacade","WorkspaceSelectionFacade"],"integrations":["rest","signalr"],"demoScope":"critical"},
+    {"path":"/dm/:conversationId","kind":"screen","component":"DmPageComponent","access":"protected","stateOwners":["MessagingFacade"],"integrations":["rest","signalr"],"demoScope":"critical"},
+    {"path":"/workspaces/:workspaceId/research/new","kind":"screen","component":"WorkspaceResearchQuickCreatePageComponent","access":"protected-workspace","stateOwners":[],"integrations":["rest"]},
+    {"path":"/workspaces/:workspaceId/projects","kind":"screen","component":"ProjectsOverviewPageComponent","access":"protected-workspace","stateOwners":["ProjectsFacade","ActiveWorkspaceFacade"],"integrations":["rest","signalr"]},
+    {"path":"/workspaces/:workspaceId/files","kind":"screen","component":"FilesPageComponent","access":"protected-workspace","stateOwners":["FilesFacade","FileFolderStore","ActiveWorkspaceFacade"],"integrations":["rest","signalr","file-io"]},
+    {"path":"/workspaces/:workspaceId/members","kind":"screen","component":"WorkspaceMembersPageComponent","access":"protected-workspace","stateOwners":["WorkspaceMembersFacade"],"integrations":["rest","signalr"]},
+    {"path":"/workspaces","kind":"screen","component":"WorkspaceDashboardPageComponent","access":"protected","stateOwners":["WorkspacesFacade","ActiveWorkspaceFacade","WorkspaceSelectionFacade"],"integrations":["rest","signalr"],"demoScope":"critical"},
+    {"path":"/announcements","kind":"screen","component":"AnnouncementsPageComponent","access":"protected","stateOwners":["AnnouncementsFacade"],"integrations":["rest"]},
+    {"path":"/announcements/:announcementId","kind":"screen","component":"AnnouncementsPageComponent","access":"protected","stateOwners":["AnnouncementsFacade"],"integrations":["rest"]},
+    {"path":"/app/projects/:projectId/tasks/:taskId/reports/:artifactVersionId","kind":"screen","component":"ReportReaderPageComponent","access":"protected","stateOwners":[],"integrations":["rest"],"compatibilityAlias":true},
+    {"path":"/app/projects/:projectId/reports/:artifactVersionId","kind":"screen","component":"ReportReaderPageComponent","access":"protected","stateOwners":[],"integrations":["rest"],"compatibilityAlias":true},
+    {"path":"/projects/:projectId/tasks/:taskId/reports/:artifactVersionId","kind":"screen","component":"ReportReaderPageComponent","access":"protected","stateOwners":[],"integrations":["rest"]},
+    {"path":"/projects/:projectId/reports/:artifactVersionId","kind":"screen","component":"ReportReaderPageComponent","access":"protected","stateOwners":[],"integrations":["rest"]},
+    {"path":"/projects/:projectId/tasks/new","kind":"screen","component":"TaskCreatePageComponent","access":"protected","stateOwners":["TaskCreateFacade"],"integrations":["rest","signalr"]},
+    {"path":"/projects/:projectId/tasks/:taskId","kind":"screen","component":"TaskDetailPageComponent","access":"protected","stateOwners":["FilesFacade"],"integrations":["rest","signalr","file-io"]},
+    {"path":"/projects/:projectId","kind":"screen","component":"ProjectDetailPageComponent","access":"protected","stateOwners":["ProjectDetailFacade"],"integrations":["rest","signalr"]},
+    {"path":"/tasks","kind":"screen","component":"MyTasksPageComponent","access":"protected","stateOwners":["MyTasksFacade"],"integrations":["rest","signalr"]},
+    {"path":"/projects","kind":"screen","component":"ProjectsOverviewPageComponent","access":"protected","stateOwners":["ProjectsFacade"],"integrations":["rest","signalr"]},
+    {"path":"/artifacts/:artifactId","kind":"screen","component":"ArtifactDetailPageComponent","access":"protected","stateOwners":[],"integrations":["rest"]},
+    {"path":"/files","kind":"screen","component":"FilesPageComponent","access":"protected","stateOwners":["FilesFacade","FileFolderStore","ActiveWorkspaceFacade"],"integrations":["rest","signalr","file-io"]},
+    {"path":"/account","kind":"screen","component":"AccountPageComponent","access":"protected","stateOwners":["AccountFacade","TaskNotificationPreferencesFacade"],"integrations":["rest"]},
+    {"path":"/admin/audit/findings","kind":"screen","component":"AuditFindingsPageComponent","access":"protected","stateOwners":["AuditFindingsFacade"],"integrations":["rest"],"demoScope":"critical-admin-candidate"},
+    {"path":"/admin/audit/claims-evidence","kind":"screen","component":"AuditClaimsEvidencePageComponent","access":"protected","stateOwners":["AuditClaimsEvidenceFacade"],"integrations":["rest"],"demoScope":"critical-admin-candidate"},
+    {"path":"/admin/audit/package-export","kind":"screen","component":"AuditPackageExportPageComponent","access":"protected","stateOwners":[],"integrations":["rest","file-io"],"demoScope":"critical-admin-candidate"},
+    {"path":"/admin/audit","kind":"screen","component":"AuditLogPageComponent","access":"protected","stateOwners":["AdminFacade"],"integrations":["rest","signalr"],"demoScope":"critical-admin-candidate"},
+    {"path":"/admin/invites","kind":"screen","component":"InviteAdminPageComponent","access":"protected","stateOwners":["AdminFacade"],"integrations":["rest"],"demoScope":"critical-admin-candidate"},
+    {"path":"/admin/export-diagnostics","kind":"screen","component":"ExportDiagnosticsPageComponent","access":"protected","stateOwners":[],"integrations":["rest"],"demoScope":"critical-admin-candidate"},
+    {"path":"**","kind":"fallback","component":"PagePlaceholderComponent","access":"fallback","stateOwners":[],"integrations":[]}
+  ],
+  "stateOwners": [
+    {"name":"AuthSessionFacade","kind":"signals","scope":"cross-cutting","routes":["/login","protected:*"],"migrationConcern":"Session and identity root; migrate before protected screens."},
+    {"name":"ActiveWorkspaceFacade","kind":"signals","scope":"cross-cutting","routes":["/workspaces","/workspaces/:workspaceId/*","/files","/projects*","/tasks"],"migrationConcern":"Workspace scope is shared across feature state."},
+    {"name":"WorkspaceSelectionFacade","kind":"signals-service-realtime","scope":"cross-cutting","routes":["/workspaces","/workspaces/:workspaceId/*"],"migrationConcern":"Selection and authorization invalidation are coupled."},
+    {"name":"WorkspacesFacade","kind":"signals-rest-realtime","scope":"feature","routes":["/workspaces"],"migrationConcern":"Main dashboard state."},
+    {"name":"AppShellFacade","kind":"derived-signals","scope":"cross-cutting","routes":["protected:*"],"migrationConcern":"Global navigation and shell view model."},
+    {"name":"TenantSwitchFacade","kind":"signals-rest-realtime","scope":"cross-cutting","routes":["protected:*"],"migrationConcern":"Tenant transition must clear protected state fail-closed."},
+    {"name":"TenantScopedStateFacade","kind":"signals","scope":"cross-cutting","routes":["protected:*"],"migrationConcern":"Tenant-scoped state reset boundary."},
+    {"name":"RealtimeFacade","kind":"rxjs-owned-subscriptions","scope":"cross-cutting","routes":["protected:*"],"migrationConcern":"Durable events, authorization invalidation, scoped subscriptions and stale epochs."},
+    {"name":"MessagingFacade","kind":"signals-rxjs-rest-realtime","scope":"feature","routes":["/messages","/conversations/:conversationId","/workspaces/:workspaceId/channels/:conversationId","/dm/:conversationId"],"migrationConcern":"Conversation/message state, paging and route ownership."},
+    {"name":"MessageFollowUpFacade","kind":"signals-rest-realtime","scope":"feature","routes":["/messages/saved"],"migrationConcern":"Saved-message projection."},
+    {"name":"ProjectsFacade","kind":"signals-rest-realtime","scope":"feature","routes":["/projects","/workspaces/:workspaceId/projects"],"migrationConcern":"Project collection state."},
+    {"name":"ProjectDetailFacade","kind":"signals-rest-realtime","scope":"feature","routes":["/projects/:projectId"],"migrationConcern":"Project board/detail state."},
+    {"name":"ProjectCreateFacade","kind":"signals-api-router","scope":"feature","routes":[],"migrationConcern":"Feature exists without a dedicated top-level route."},
+    {"name":"TaskCreateFacade","kind":"signals-api-router-realtime","scope":"feature","routes":["/projects/:projectId/tasks/new"],"migrationConcern":"Authorization-sensitive task creation state."},
+    {"name":"MyTasksFacade","kind":"signals-rest-realtime","scope":"feature","routes":["/tasks"],"migrationConcern":"Server paging/filter projection."},
+    {"name":"FilesFacade","kind":"signals-rxjs-rest-realtime","scope":"feature-cross-screen","routes":["/files","/workspaces/:workspaceId/files","/projects/:projectId/tasks/:taskId"],"migrationConcern":"Independent state epochs, cancellation, stale-result protection, upload/download and task picker."},
+    {"name":"FileFolderStore","kind":"signals-rest-service","scope":"feature","routes":["/files","/workspaces/:workspaceId/files"],"migrationConcern":"Not an NgRx Store despite the class name."},
+    {"name":"AnnouncementsFacade","kind":"signals-rest","scope":"feature","routes":["/announcements","/announcements/:announcementId"],"migrationConcern":"List/detail state."},
+    {"name":"AccountFacade","kind":"signals-rest","scope":"feature","routes":["/account"],"migrationConcern":"Account state."},
+    {"name":"TaskNotificationPreferencesFacade","kind":"signals-rest","scope":"feature","routes":["/account"],"migrationConcern":"Task preference state."},
+    {"name":"AdminFacade","kind":"signals-rest-realtime","scope":"feature","routes":["/admin/audit","/admin/invites"],"migrationConcern":"Admin/audit state."},
+    {"name":"AuditFindingsFacade","kind":"signals-rest","scope":"feature","routes":["/admin/audit/findings"],"migrationConcern":"Audit finding triage state."},
+    {"name":"AuditClaimsEvidenceFacade","kind":"signals-rest","scope":"feature","routes":["/admin/audit/claims-evidence"],"migrationConcern":"Claims/evidence state."},
+    {"name":"RightPanelFacade","kind":"signals-rest-realtime-router","scope":"cross-cutting","routes":["protected:*"],"migrationConcern":"Contextual shell panel."},
+    {"name":"ContinueWorkingFacade","kind":"signals-rest-file-grants","scope":"cross-cutting","routes":["protected:*"],"migrationConcern":"Recent-work projection and file download grants."}
+  ],
+  "integrations": [
+    {
+      "id": "rest",
+      "kind": "REST",
+      "currentClient": "Angular HttpClient",
+      "base": "/api/*",
+      "authentication": ["same-origin cookies", "CSRF token for unsafe requests"],
+      "migrationConcern": "Preserve server DTO and authorization semantics while replacing browser-specific interceptor/session plumbing."
+    },
+    {
+      "id": "rest-auth",
+      "kind": "REST-authentication",
+      "currentClient": "Angular HttpClient plus auth/session interceptors",
+      "base": "/api/auth/*",
+      "migrationConcern": "Desktop session bootstrap, expiration, logout and CSRF behavior must remain compatible with the backend contract."
+    },
+    {
+      "id": "signalr",
+      "kind": "SignalR",
+      "currentClient": "@microsoft/signalr@10.0.11",
+      "endpoint": "/hubs/app",
+      "events": ["DurableEvent", "AuthorizationInvalidated"],
+      "statuses": ["connecting", "reconnecting", "reconnected", "closed"],
+      "subscriptions": ["user", "tenant", "workspace", "conversation", "project"],
+      "automaticReconnectDelayMs": [0, 1000, 3000, 7000],
+      "migrationConcern": "Use the .NET SignalR client but preserve CSRF/auth negotiation, subscription authorization, protected-state invalidation and stale-connection isolation."
+    },
+    {
+      "id": "file-io",
+      "kind": "file-and-binary-io",
+      "operations": [
+        "multipart POST /api/files with progress",
+        "GET /api/files inventory and task picker pagination",
+        "/api/search file search",
+        "server-issued file and attachment download grants",
+        "preview and download",
+        "folder and move operations",
+        "sharing and deletion",
+        "version and activity history",
+        "selection snapshot",
+        "task attachment integration",
+        "cancellation and stale-response protection",
+        "realtime inventory refresh"
+      ],
+      "migrationConcern": "Replace browser File/FormData/Blob/object-URL/download primitives with native desktop I/O without weakening grant or cancellation semantics."
+    }
+  ],
+  "dependencies": [
+    {"name":"Angular","version":"22.1.5","purpose":"component model, DI, routing, forms and browser runtime","avaloniaConcern":"Replace with Avalonia controls, navigation, DI/bootstrap and view models."},
+    {"name":"@angular/cdk","version":"22.1.5","purpose":"UI primitives and behavior","avaloniaConcern":"Audit each consumer; there is no direct runtime portability."},
+    {"name":"rxjs","version":"7.8.2","purpose":"async composition and subscriptions","avaloniaConcern":"Preserve cancellation/ordering semantics using .NET async/observable patterns."},
+    {"name":"@microsoft/signalr","version":"10.0.11","purpose":"browser SignalR client","avaloniaConcern":"Replace with .NET SignalR client while preserving the hub contract."},
+    {"name":"NgRx packages","version":"22.0.0","purpose":"declared dependencies; no production imports found","avaloniaConcern":"Do not invent reducer/effect migration work from this snapshot."},
+    {"name":"Syncfusion Angular","version":"34.2.6","purpose":"Gantt, grids, inputs and popups","avaloniaConcern":"Angular wrappers cannot move; migrate behavior and performance contracts."},
+    {"name":"AG Grid Angular/community","version":"36.1.0","purpose":"grid UI","avaloniaConcern":"DOM/Angular renderer cannot move; inventory behavior before replacement."},
+    {"name":"@lucide/angular","version":"1.39.0","purpose":"icons","avaloniaConcern":"Replace wrapper while preserving semantic/accessibility usage."},
+    {"name":"zone.js","version":"0.16.3","purpose":"Angular browser runtime support","avaloniaConcern":"Not required by Avalonia."},
+    {"name":"Storybook Angular","version":"10.6.0","purpose":"component catalog and visual development","avaloniaConcern":"Replace with Avalonia component-gallery/visual-regression workflow."},
+    {"name":"Vitest and jsdom","version":"4.1.11 / 30.0.1","purpose":"unit/component tests","avaloniaConcern":"Move business/view-model tests to .NET tests and renderer tests to Avalonia-specific UI tests."},
+    {"name":"Playwright and axe-core","version":"1.62.1 / 4.13.0","purpose":"browser E2E, snapshots and accessibility","avaloniaConcern":"Retain backend contract scenarios where useful; replace DOM/browser-only desktop UI evidence."}
+  ],
+  "tests": {
+    "frontendScripts": [
+      "npm --prefix frontend test",
+      "npm --prefix frontend run test:architecture",
+      "npm --prefix frontend run analyze:bundle",
+      "npm --prefix frontend run build-storybook"
+    ],
+    "rootFrameworks": ["Playwright", "axe-core", "functional compose harness", "real-backend smoke harness"],
+    "representativeUiFiles": [
+      "tests/ui/angular-smoke.spec.ts",
+      "tests/ui/real-backend-smoke.spec.ts",
+      "tests/ui/public-https-golden-path.spec.ts",
+      "tests/ui/message-actions.spec.ts",
+      "tests/ui/message-follow-ups.spec.ts",
+      "tests/ui/message-mobile-navigation.spec.ts",
+      "tests/ui/message-search-filters.spec.ts",
+      "tests/ui/message-thread-context.spec.ts",
+      "tests/ui/file-sharing-mainline-regression.spec.ts",
+      "tests/ui/file-activity-version-history.spec.ts",
+      "tests/ui/workspace-needs-attention.spec.ts",
+      "tests/ui/task-execution-source-policy-v2.spec.ts",
+      "tests/ui/audit-accessibility.spec.ts",
+      "tests/ui/audit-claims-evidence.spec.ts",
+      "tests/ui/audit-findings-triage.spec.ts"
+    ],
+    "gaps": [
+      "No Avalonia test harness exists yet.",
+      "Route equivalence is not machine-enforced yet.",
+      "The graph demo surface required by #798 has no standalone route in app.routes.ts and must be traced to its owning component/state/tests.",
+      "Some deep-link/admin/report surfaces do not have an obviously named dedicated top-level Playwright spec; later issues must cite exact cases rather than infer coverage.",
+      "Browser file primitives require native desktop upload/download/preview/cancel/error-path tests.",
+      "Realtime authorization, protected-state clearing and stale-epoch behavior require dedicated desktop coverage.",
+      "Declared-but-unused NgRx dependencies can mislead migration planning and should be rechecked before dependency cleanup."
+    ]
+  },
+  "unresolvedSurfaces": [
+    {
+      "name": "graph",
+      "requiredByIssue": 798,
+      "status": "owner-not-yet-identified",
+      "reason": "No standalone graph route exists in frontend/src/app/app.routes.ts at the pinned snapshot."
+    }
+  ],
+  "recommendedMigrationFoundationOrder": [
+    "auth-session",
+    "tenant-workspace-context",
+    "desktop-http-session-csrf-adapter",
+    "signalr-realtime",
+    "shell-navigation",
+    "feature-screens"
+  ]
+}
