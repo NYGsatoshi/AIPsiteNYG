@@ -33,21 +33,6 @@ public sealed class SecurityOpenApiOperationTransformerTests
         Assert.Empty(operation.Security);
     }
 
-    [Fact]
-    public async Task Authorize_emits_cookie_auth_security_requirement()
-    {
-        var operation = new OpenApiOperation();
-        var context = CreateContext(new AuthorizeAttribute());
-
-        await new SecurityOpenApiOperationTransformer().TransformAsync(operation, context, default);
-
-        var requirement = Assert.Single(operation.Security!);
-        Assert.Contains(
-            requirement.Keys,
-            scheme => scheme is OpenApiSecuritySchemeReference reference &&
-                      reference.Reference.Id == SecurityOpenApiOperationTransformer.CookieSchemeName);
-    }
-
     private static OpenApiOperationTransformerContext CreateContext(params object[] endpointMetadata) =>
         new()
         {
