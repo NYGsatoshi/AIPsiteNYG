@@ -10,6 +10,18 @@ namespace AipPortal.Tests.OpenApi;
 public sealed class SecurityOpenApiOperationTransformerTests
 {
     [Fact]
+    public async Task Public_operation_without_authorization_metadata_emits_explicit_empty_security()
+    {
+        var operation = new OpenApiOperation();
+        var context = CreateContext();
+
+        await new SecurityOpenApiOperationTransformer().TransformAsync(operation, context, default);
+
+        Assert.NotNull(operation.Security);
+        Assert.Empty(operation.Security);
+    }
+
+    [Fact]
     public async Task AllowAnonymous_emits_explicit_empty_operation_security()
     {
         var operation = new OpenApiOperation();
