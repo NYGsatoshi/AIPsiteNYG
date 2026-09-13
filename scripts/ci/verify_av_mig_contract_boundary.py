@@ -33,14 +33,43 @@ def load_policy(path: Path) -> dict[str, Any]:
     return policy
 
 
-def has_security_requirement(operation: dict[str, Any], scheme_name: str) -> bool:
+def verify_operation_security(
+    operation: dict[str, Any],
+    scheme_name: str,
+    anonymous: bool,
+    method: str,
+    path: str,
+    operation_id: str,
+) -> None:
+    """Verify operation-level security using OpenAPI Security Requirement OR semantics.
+
+    Security Requirement objects inside the ``security`` array are alternatives
+    (logical OR). A protected operation therefore remains CookieAuth-protected
+    only when every alternative requires CookieAuth. An empty requirement object
+    is an anonymous alternative and must fail. Anonymous sentinels intentionally
+    require explicit ``security: []`` so future document-level security cannot be
+    inherited accidentally.
+    """
     security = operation.get("security")
-    if not isinstance(security, list):
-        return False
-    return any(
-        isinstance(requirement, dict) and scheme_name in requirement
-        for requirement in security
+    description = f"{method.upper()} {path} ({operation_id})"
+
+    if anonymous:
+        require(
+            security == [],
+            f"anonymous operation must explicitly declare security: []: {description}",
+        )
+        return
+
+    require(
+        isinstance(security, list) and bool(security),
+        f"protected operation must explicitly declare non-empty security: {description}",
     )
+    for index, requirement in enumerate(security):
+        require(
+            isinstance(requirement, dict) and scheme_name in requirement,
+            f"protected operation security alternative {index} must require "
+            f"{scheme_name}: {description}",
+        )
 
 
 def verify_openapi_contract(document: dict[str, Any], policy: dict[str, Any]) -> None:
@@ -117,21 +146,14 @@ def verify_openapi_contract(document: dict[str, Any], policy: dict[str, Any]) ->
             f"required operation is missing: {method.upper()} {path} ({operation_id})",
         )
 
-        has_cookie_auth = has_security_requirement(operation, scheme_name)
-        if anonymous:
-            require(
-                not has_cookie_auth,
-                f"anonymous operation must not require {scheme_name}: "
-                f"{method.upper()} {path} ({operation_id})",
-            )
-        else:
-            # The generator emits operation-level security. Do not accept
-            # document-level inheritance or merely non-empty security here.
-            require(
-                has_cookie_auth,
-                f"protected operation must explicitly require {scheme_name}: "
-                f"{method.upper()} {path} ({operation_id})",
-            )
+        verify_operation_security(
+            operation,
+            scheme_name,
+            anonymous,
+            method,
+            path,
+            operation_id,
+        )
 
 
 def read_source(repo_root: Path, relative_path: str) -> str:
@@ -289,7 +311,8 @@ def main() -> int:
 
     print(
         "AV-MIG contract boundary verification passed: "
-        "CookieAuth operations, SignalR path/method/events, and CSRF endpoint/header are pinned"
+        "effective CookieAuth operation security, SignalR path/method/events, "
+        "and CSRF endpoint/header are pinned"
     )
     return 0
 
