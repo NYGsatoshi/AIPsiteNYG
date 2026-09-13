@@ -164,6 +164,107 @@ def read_source(repo_root: Path, relative_path: str) -> str:
         raise BoundaryViolation(f"required source file is unreadable: {relative_path}: {exc}") from exc
 
 
+def strip_csharp_comments(source: str) -> str:
+    """Remove C# line/block comments while preserving executable source text.
+
+    The contract verifier intentionally remains dependency-free, so this small
+    lexer protects regex sentinels from treating commented-out declarations,
+    mappings, or SendAsync calls as live code. It preserves normal/verbatim
+    string and character literals so the pinned route/event/header values remain
+    visible to the subsequent checks.
+    """
+    output: list[str] = []
+    index = 0
+    length = len(source)
+    state = "code"
+
+    while index < length:
+        char = source[index]
+        next_char = source[index + 1] if index + 1 < length else ""
+
+        if state == "line_comment":
+            if char in "\r\n":
+                output.append(char)
+                state = "code"
+            else:
+                output.append(" ")
+            index += 1
+            continue
+
+        if state == "block_comment":
+            if char == "*" and next_char == "/":
+                output.extend((" ", " "))
+                index += 2
+                state = "code"
+                continue
+            output.append(char if char in "\r\n" else " ")
+            index += 1
+            continue
+
+        if state == "string":
+            output.append(char)
+            if char == "\\" and index + 1 < length:
+                output.append(source[index + 1])
+                index += 2
+                continue
+            if char == '"':
+                state = "code"
+            index += 1
+            continue
+
+        if state == "verbatim_string":
+            output.append(char)
+            if char == '"' and next_char == '"':
+                output.append(next_char)
+                index += 2
+                continue
+            if char == '"':
+                state = "code"
+            index += 1
+            continue
+
+        if state == "char":
+            output.append(char)
+            if char == "\\" and index + 1 < length:
+                output.append(source[index + 1])
+                index += 2
+                continue
+            if char == "'":
+                state = "code"
+            index += 1
+            continue
+
+        if char == "/" and next_char == "/":
+            output.extend((" ", " "))
+            index += 2
+            state = "line_comment"
+            continue
+        if char == "/" and next_char == "*":
+            output.extend((" ", " "))
+            index += 2
+            state = "block_comment"
+            continue
+        if char == '"':
+            output.append(char)
+            state = "verbatim_string" if index > 0 and source[index - 1] == "@" else "string"
+            index += 1
+            continue
+        if char == "'":
+            output.append(char)
+            state = "char"
+            index += 1
+            continue
+
+        output.append(char)
+        index += 1
+
+    return "".join(output)
+
+
+def read_live_csharp_source(repo_root: Path, relative_path: str) -> str:
+    return strip_csharp_comments(read_source(repo_root, relative_path))
+
+
 def verify_signalr_contract(policy: dict[str, Any], repo_root: Path) -> None:
     contracts = policy.get("nonOpenApiContracts")
     signalr = contracts.get("signalR") if isinstance(contracts, dict) else None
@@ -189,8 +290,8 @@ def verify_signalr_contract(policy: dict[str, Any], repo_root: Path) -> None:
         "signalR.serverEvents must be a non-empty unique string array",
     )
 
-    program = read_source(repo_root, "src/AipPortal.Web/Program.cs")
-    hub = read_source(repo_root, "src/AipPortal.Web/Realtime/AppHub.cs")
+    program = read_live_csharp_source(repo_root, "src/AipPortal.Web/Program.cs")
+    hub = read_live_csharp_source(repo_root, "src/AipPortal.Web/Realtime/AppHub.cs")
     realtime_dir = repo_root / "src/AipPortal.Web/Realtime"
     require(realtime_dir.is_dir(), "Realtime source directory is missing")
 
@@ -215,7 +316,7 @@ def verify_signalr_contract(policy: dict[str, Any], repo_root: Path) -> None:
 
     emitted_events: set[str] = set()
     for source_path in sorted(realtime_dir.glob("*.cs")):
-        source = read_source(repo_root, str(source_path.relative_to(repo_root)))
+        source = read_live_csharp_source(repo_root, str(source_path.relative_to(repo_root)))
         emitted_events.update(
             re.findall(r'\.SendAsync\(\s*"([^"]+)"', source, flags=re.MULTILINE)
         )
@@ -239,8 +340,8 @@ def verify_csrf_contract(policy: dict[str, Any], repo_root: Path) -> None:
     require(isinstance(expected_header, str) and bool(expected_header),
             "csrf.headerName must be a non-empty string")
 
-    controller = read_source(repo_root, "src/AipPortal.Web/Controllers/SecurityController.cs")
-    options = read_source(repo_root, "src/AipPortal.Web/Configuration/SecurityOptions.cs")
+    controller = read_live_csharp_source(repo_root, "src/AipPortal.Web/Controllers/SecurityController.cs")
+    options = read_live_csharp_source(repo_root, "src/AipPortal.Web/Configuration/SecurityOptions.cs")
 
     controller_route = re.search(r'\[Route\("([^"]+)"\)\]', controller)
     csrf_action = re.search(
@@ -311,8 +412,8 @@ def main() -> int:
 
     print(
         "AV-MIG contract boundary verification passed: "
-        "effective CookieAuth operation security, SignalR path/method/events, "
-        "and CSRF endpoint/header are pinned"
+        "effective CookieAuth operation security, live SignalR path/method/events, "
+        "and live CSRF endpoint/header are pinned"
     )
     return 0
 
