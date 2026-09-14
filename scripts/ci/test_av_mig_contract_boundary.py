@@ -311,8 +311,14 @@ class ContractBoundaryMutationTests(unittest.TestCase):
         self.addCleanup(temp.cleanup)
         controller = root / "src/AipPortal.Web/Controllers/SecurityController.cs"
         source = controller.read_text(encoding="utf-8")
+        token_endpoint = self.policy["nonOpenApiContracts"]["csrf"]["tokenEndpoint"]
+        assert isinstance(token_endpoint, str)
+        _, action_route = token_endpoint.removeprefix("/").rsplit("/", 1)
         controller.write_text(
-            source.replace('HttpGet("csrf-token")', 'HttpGet("csrf-token-changed")'),
+            source.replace(
+                f'HttpGet("{action_route}")',
+                f'HttpGet("{action_route}-changed")',
+            ),
             encoding="utf-8",
         )
         with self.assertRaisesRegex(verifier.BoundaryViolation, "CSRF token endpoint drifted"):
@@ -323,8 +329,14 @@ class ContractBoundaryMutationTests(unittest.TestCase):
         self.addCleanup(temp.cleanup)
         controller = root / "src/AipPortal.Web/Controllers/SecurityController.cs"
         source = controller.read_text(encoding="utf-8")
+        token_endpoint = self.policy["nonOpenApiContracts"]["csrf"]["tokenEndpoint"]
+        assert isinstance(token_endpoint, str)
+        _, action_route = token_endpoint.removeprefix("/").rsplit("/", 1)
         controller.write_text(
-            source.replace('    [HttpGet("csrf-token")]', '    /* [HttpGet("csrf-token")] */'),
+            source.replace(
+                f'    [HttpGet("{action_route}")]',
+                f'    /* [HttpGet("{action_route}")] */',
+            ),
             encoding="utf-8",
         )
         with self.assertRaisesRegex(verifier.BoundaryViolation, "controller route/action contract is missing"):
