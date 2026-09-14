@@ -87,12 +87,14 @@ def write_source_fixture(root: Path, policy: dict[str, object]) -> None:
     client_methods = signalr["clientMethods"]
     assert isinstance(client_methods, list)
     hub.write_text(
-        "\n".join(
-            f"public Task<HubSubscriptionResult> {method}(Guid value) => "
+        "public sealed class AppHub\n"
+        "{\n"
+        + "\n".join(
+            f"    public Task<HubSubscriptionResult> {method}(Guid value) => "
             "Task.FromResult(new HubSubscriptionResult(true, \"ok\"));"
             for method in client_methods
         )
-        + "\n",
+        + "\n}\n",
         encoding="utf-8",
     )
 
@@ -237,6 +239,28 @@ class ContractBoundaryMutationTests(unittest.TestCase):
         lines = source.splitlines()
         hub.write_text(
             "\n".join("// " + line if f" {method}(" in line else line for line in lines) + "\n",
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(verifier.BoundaryViolation, "client method is missing"):
+            verifier.verify_boundary(document, self.policy, root)
+
+    def test_hub_method_in_other_class_does_not_satisfy_contract(self) -> None:
+        temp, root, document = self.make_fixture()
+        self.addCleanup(temp.cleanup)
+        hub = root / "src/AipPortal.Web/Realtime/AppHub.cs"
+        source = hub.read_text(encoding="utf-8")
+        method = self.policy["nonOpenApiContracts"]["signalR"]["clientMethods"][0]
+        lines = source.splitlines()
+        method_line = next(line for line in lines if f" {method}(" in line)
+        app_hub_without_method = "\n".join(
+            line for line in lines if f" {method}(" not in line
+        )
+        hub.write_text(
+            app_hub_without_method
+            + "\npublic sealed class DecoyHub\n"
+            "{\n"
+            f"    {method_line.strip()}\n"
+            "}\n",
             encoding="utf-8",
         )
         with self.assertRaisesRegex(verifier.BoundaryViolation, "client method is missing"):
