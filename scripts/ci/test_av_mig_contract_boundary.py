@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,6 +13,7 @@ import verify_av_mig_contract_boundary as verifier
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 POLICY_PATH = REPO_ROOT / "docs/migration/avalonia/p0-api-boundary.json"
+TEST_DEFINE_CONSTANTS = "TRACE;NET;NET10_0;NET10_0_OR_GREATER"
 
 
 def build_document(policy: dict[str, object]) -> dict[str, object]:
@@ -85,15 +87,36 @@ def write_source_fixture(root: Path, policy: dict[str, object]) -> None:
     )
 
     client_methods = signalr["clientMethods"]
+    client_signatures = signalr["clientMethodSignatures"]
     assert isinstance(client_methods, list)
+    assert isinstance(client_signatures, list)
+    signatures_by_name = {
+        item["name"]: item
+        for item in client_signatures
+        if isinstance(item, dict) and isinstance(item.get("name"), str)
+    }
+    method_lines: list[str] = []
+    for method in client_methods:
+        assert isinstance(method, str)
+        signature = signatures_by_name[method]
+        return_type = signature["returnType"]
+        parameter_types = signature["parameterTypes"]
+        assert isinstance(return_type, str)
+        assert isinstance(parameter_types, list)
+        parameters = ", ".join(
+            f"{parameter_type} value{index}"
+            for index, parameter_type in enumerate(parameter_types)
+        )
+        method_lines.append(
+            f"    public {return_type} {method}({parameters}) => "
+            "Task.FromResult(new HubSubscriptionResult(true, \"ok\"));"
+        )
+
     hub.write_text(
+        "[Authorize]\n"
         "public sealed class AppHub\n"
         "{\n"
-        + "\n".join(
-            f"    public Task<HubSubscriptionResult> {method}(Guid value) => "
-            "Task.FromResult(new HubSubscriptionResult(true, \"ok\"));"
-            for method in client_methods
-        )
+        + "\n".join(method_lines)
         + "\n}\n",
         encoding="utf-8",
     )
@@ -139,6 +162,15 @@ class ContractBoundaryMutationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.policy = verifier.load_policy(POLICY_PATH)
+        cls._previous_define_constants = os.environ.get("AV_MIG_CSHARP_DEFINE_CONSTANTS")
+        os.environ["AV_MIG_CSHARP_DEFINE_CONSTANTS"] = TEST_DEFINE_CONSTANTS
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        if cls._previous_define_constants is None:
+            os.environ.pop("AV_MIG_CSHARP_DEFINE_CONSTANTS", None)
+        else:
+            os.environ["AV_MIG_CSHARP_DEFINE_CONSTANTS"] = cls._previous_define_constants
 
     def make_fixture(self):
         temp = tempfile.TemporaryDirectory()
@@ -157,9 +189,22 @@ class ContractBoundaryMutationTests(unittest.TestCase):
         entry = next(item for item in required if item.get("anonymous") is True)
         return document["paths"][entry["path"]][entry["method"].lower()]
 
+    def signalr_method_name(self, index: int = 0) -> str:
+        method = self.policy["nonOpenApiContracts"]["signalR"]["clientMethods"][index]
+        assert isinstance(method, str)
+        return method
+
     def test_positive_fixture_passes(self) -> None:
         temp, root, document = self.make_fixture()
         self.addCleanup(temp.cleanup)
+        verifier.verify_boundary(document, self.policy, root)
+
+    def test_active_conditional_branch_is_preserved(self) -> None:
+        temp, root, document = self.make_fixture()
+        self.addCleanup(temp.cleanup)
+        program = root / "src/AipPortal.Web/Program.cs"
+        source = program.read_text(encoding="utf-8")
+        program.write_text(f"#if NET10_0\n{source}#endif\n", encoding="utf-8")
         verifier.verify_boundary(document, self.policy, root)
 
     def test_protected_security_deletion_fails(self) -> None:
@@ -220,14 +265,62 @@ class ContractBoundaryMutationTests(unittest.TestCase):
         with self.assertRaisesRegex(verifier.BoundaryViolation, "explicitly declare security"):
             verifier.verify_boundary(document, self.policy, root)
 
+    def test_hub_authorize_attribute_removal_fails(self) -> None:
+        temp, root, document = self.make_fixture()
+        self.addCleanup(temp.cleanup)
+        hub = root / "src/AipPortal.Web/Realtime/AppHub.cs"
+        source = hub.read_text(encoding="utf-8")
+        hub.write_text(source.replace("[Authorize]\n", ""), encoding="utf-8")
+        with self.assertRaisesRegex(verifier.BoundaryViolation, r"must require \[Authorize\]"):
+            verifier.verify_boundary(document, self.policy, root)
+
     def test_hub_method_change_fails(self) -> None:
         temp, root, document = self.make_fixture()
         self.addCleanup(temp.cleanup)
         hub = root / "src/AipPortal.Web/Realtime/AppHub.cs"
         source = hub.read_text(encoding="utf-8")
-        method = self.policy["nonOpenApiContracts"]["signalR"]["clientMethods"][0]
+        method = self.signalr_method_name()
         hub.write_text(source.replace(f" {method}(", f" {method}Changed("), encoding="utf-8")
         with self.assertRaisesRegex(verifier.BoundaryViolation, "client method is missing"):
+            verifier.verify_boundary(document, self.policy, root)
+
+    def test_hub_method_parameter_count_drift_fails(self) -> None:
+        temp, root, document = self.make_fixture()
+        self.addCleanup(temp.cleanup)
+        hub = root / "src/AipPortal.Web/Realtime/AppHub.cs"
+        source = hub.read_text(encoding="utf-8")
+        method = self.signalr_method_name()
+        hub.write_text(source.replace(f" {method}()", f" {method}(Guid extra)"), encoding="utf-8")
+        with self.assertRaisesRegex(verifier.BoundaryViolation, "signature drifted"):
+            verifier.verify_boundary(document, self.policy, root)
+
+    def test_hub_method_parameter_type_drift_fails(self) -> None:
+        temp, root, document = self.make_fixture()
+        self.addCleanup(temp.cleanup)
+        hub = root / "src/AipPortal.Web/Realtime/AppHub.cs"
+        source = hub.read_text(encoding="utf-8")
+        method = self.signalr_method_name(2)
+        hub.write_text(
+            source.replace(f" {method}(Guid value0)", f" {method}(string value0)"),
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(verifier.BoundaryViolation, "signature drifted"):
+            verifier.verify_boundary(document, self.policy, root)
+
+    def test_hub_method_return_type_drift_fails(self) -> None:
+        temp, root, document = self.make_fixture()
+        self.addCleanup(temp.cleanup)
+        hub = root / "src/AipPortal.Web/Realtime/AppHub.cs"
+        source = hub.read_text(encoding="utf-8")
+        method = self.signalr_method_name()
+        hub.write_text(
+            source.replace(
+                f"public Task<HubSubscriptionResult> {method}()",
+                f"public ValueTask<HubSubscriptionResult> {method}()",
+            ),
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(verifier.BoundaryViolation, "signature drifted"):
             verifier.verify_boundary(document, self.policy, root)
 
     def test_hub_method_commented_out_fails(self) -> None:
@@ -235,7 +328,7 @@ class ContractBoundaryMutationTests(unittest.TestCase):
         self.addCleanup(temp.cleanup)
         hub = root / "src/AipPortal.Web/Realtime/AppHub.cs"
         source = hub.read_text(encoding="utf-8")
-        method = self.policy["nonOpenApiContracts"]["signalR"]["clientMethods"][0]
+        method = self.signalr_method_name()
         lines = source.splitlines()
         hub.write_text(
             "\n".join("// " + line if f" {method}(" in line else line for line in lines) + "\n",
@@ -244,12 +337,29 @@ class ContractBoundaryMutationTests(unittest.TestCase):
         with self.assertRaisesRegex(verifier.BoundaryViolation, "client method is missing"):
             verifier.verify_boundary(document, self.policy, root)
 
+    def test_hub_method_disabled_branch_fails(self) -> None:
+        temp, root, document = self.make_fixture()
+        self.addCleanup(temp.cleanup)
+        hub = root / "src/AipPortal.Web/Realtime/AppHub.cs"
+        source = hub.read_text(encoding="utf-8")
+        method = self.signalr_method_name()
+        lines = source.splitlines()
+        mutated: list[str] = []
+        for line in lines:
+            if f" {method}(" in line:
+                mutated.extend(("#if false", line, "#endif"))
+            else:
+                mutated.append(line)
+        hub.write_text("\n".join(mutated) + "\n", encoding="utf-8")
+        with self.assertRaisesRegex(verifier.BoundaryViolation, "client method is missing"):
+            verifier.verify_boundary(document, self.policy, root)
+
     def test_hub_method_in_other_class_does_not_satisfy_contract(self) -> None:
         temp, root, document = self.make_fixture()
         self.addCleanup(temp.cleanup)
         hub = root / "src/AipPortal.Web/Realtime/AppHub.cs"
         source = hub.read_text(encoding="utf-8")
-        method = self.policy["nonOpenApiContracts"]["signalR"]["clientMethods"][0]
+        method = self.signalr_method_name()
         lines = source.splitlines()
         method_line = next(line for line in lines if f" {method}(" in line)
         app_hub_without_method = "\n".join(
@@ -263,6 +373,26 @@ class ContractBoundaryMutationTests(unittest.TestCase):
             "}\n",
             encoding="utf-8",
         )
+        with self.assertRaisesRegex(verifier.BoundaryViolation, "client method is missing"):
+            verifier.verify_boundary(document, self.policy, root)
+
+    def test_hub_method_in_nested_class_does_not_satisfy_contract(self) -> None:
+        temp, root, document = self.make_fixture()
+        self.addCleanup(temp.cleanup)
+        hub = root / "src/AipPortal.Web/Realtime/AppHub.cs"
+        source = hub.read_text(encoding="utf-8")
+        method = self.signalr_method_name()
+        lines = source.splitlines()
+        method_line = next(line for line in lines if f" {method}(" in line)
+        lines = [line for line in lines if f" {method}(" not in line]
+        closing_index = max(index for index, line in enumerate(lines) if line == "}")
+        lines[closing_index:closing_index] = [
+            "    public sealed class NestedDecoy",
+            "    {",
+            f"        {method_line.strip()}",
+            "    }",
+        ]
+        hub.write_text("\n".join(lines) + "\n", encoding="utf-8")
         with self.assertRaisesRegex(verifier.BoundaryViolation, "client method is missing"):
             verifier.verify_boundary(document, self.policy, root)
 
@@ -292,6 +422,19 @@ class ContractBoundaryMutationTests(unittest.TestCase):
         with self.assertRaisesRegex(verifier.BoundaryViolation, "server event is not emitted"):
             verifier.verify_boundary(document, self.policy, root)
 
+    def test_hub_event_disabled_branch_fails(self) -> None:
+        temp, root, document = self.make_fixture()
+        self.addCleanup(temp.cleanup)
+        realtime = root / "src/AipPortal.Web/Realtime"
+        event_name = self.policy["nonOpenApiContracts"]["signalR"]["serverEvents"][0]
+        for path in realtime.glob("*.cs"):
+            source = path.read_text(encoding="utf-8")
+            if event_name in source:
+                path.write_text(f"#if false\n{source}#endif\n", encoding="utf-8")
+                break
+        with self.assertRaisesRegex(verifier.BoundaryViolation, "server event is not emitted"):
+            verifier.verify_boundary(document, self.policy, root)
+
     def test_hub_path_change_fails(self) -> None:
         temp, root, document = self.make_fixture()
         self.addCleanup(temp.cleanup)
@@ -311,6 +454,15 @@ class ContractBoundaryMutationTests(unittest.TestCase):
         with self.assertRaisesRegex(verifier.BoundaryViolation, "AppHub path drifted"):
             verifier.verify_boundary(document, self.policy, root)
 
+    def test_hub_path_disabled_branch_fails(self) -> None:
+        temp, root, document = self.make_fixture()
+        self.addCleanup(temp.cleanup)
+        program = root / "src/AipPortal.Web/Program.cs"
+        source = program.read_text(encoding="utf-8")
+        program.write_text(f"#if false\n{source}#endif\n", encoding="utf-8")
+        with self.assertRaisesRegex(verifier.BoundaryViolation, "AppHub path drifted"):
+            verifier.verify_boundary(document, self.policy, root)
+
     def test_csrf_header_change_fails(self) -> None:
         temp, root, document = self.make_fixture()
         self.addCleanup(temp.cleanup)
@@ -327,6 +479,15 @@ class ContractBoundaryMutationTests(unittest.TestCase):
         options = root / "src/AipPortal.Web/Configuration/SecurityOptions.cs"
         source = options.read_text(encoding="utf-8")
         options.write_text("// " + source, encoding="utf-8")
+        with self.assertRaisesRegex(verifier.BoundaryViolation, "CsrfHeaderName is missing"):
+            verifier.verify_boundary(document, self.policy, root)
+
+    def test_csrf_header_disabled_branch_fails(self) -> None:
+        temp, root, document = self.make_fixture()
+        self.addCleanup(temp.cleanup)
+        options = root / "src/AipPortal.Web/Configuration/SecurityOptions.cs"
+        source = options.read_text(encoding="utf-8")
+        options.write_text(f"#if false\n{source}#endif\n", encoding="utf-8")
         with self.assertRaisesRegex(verifier.BoundaryViolation, "CsrfHeaderName is missing"):
             verifier.verify_boundary(document, self.policy, root)
 
@@ -363,6 +524,15 @@ class ContractBoundaryMutationTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
+        with self.assertRaisesRegex(verifier.BoundaryViolation, "controller route/action contract is missing"):
+            verifier.verify_boundary(document, self.policy, root)
+
+    def test_csrf_endpoint_disabled_branch_fails(self) -> None:
+        temp, root, document = self.make_fixture()
+        self.addCleanup(temp.cleanup)
+        controller = root / "src/AipPortal.Web/Controllers/SecurityController.cs"
+        source = controller.read_text(encoding="utf-8")
+        controller.write_text(f"#if false\n{source}#endif\n", encoding="utf-8")
         with self.assertRaisesRegex(verifier.BoundaryViolation, "controller route/action contract is missing"):
             verifier.verify_boundary(document, self.policy, root)
 
