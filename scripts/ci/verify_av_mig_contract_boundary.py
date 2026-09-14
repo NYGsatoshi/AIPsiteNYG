@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -41,15 +43,7 @@ def verify_operation_security(
     path: str,
     operation_id: str,
 ) -> None:
-    """Verify operation-level security using OpenAPI Security Requirement OR semantics.
-
-    Security Requirement objects inside the ``security`` array are alternatives
-    (logical OR). A protected operation therefore remains CookieAuth-protected
-    only when every alternative requires CookieAuth. An empty requirement object
-    is an anonymous alternative and must fail. Anonymous sentinels intentionally
-    require explicit ``security: []`` so future document-level security cannot be
-    inherited accidentally.
-    """
+    """Verify operation-level security using OpenAPI Security Requirement OR semantics."""
     security = operation.get("security")
     description = f"{method.upper()} {path} ({operation_id})"
 
@@ -165,14 +159,7 @@ def read_source(repo_root: Path, relative_path: str) -> str:
 
 
 def strip_csharp_comments(source: str) -> str:
-    """Remove C# line/block comments while preserving executable source text.
-
-    The contract verifier intentionally remains dependency-free, so this small
-    lexer protects regex sentinels from treating commented-out declarations,
-    mappings, or SendAsync calls as live code. It preserves normal/verbatim
-    string and character literals so the pinned route/event/header values remain
-    visible to the subsequent checks.
-    """
+    """Remove C# line/block comments while preserving executable source text."""
     output: list[str] = []
     index = 0
     length = len(source)
@@ -261,8 +248,205 @@ def strip_csharp_comments(source: str) -> str:
     return "".join(output)
 
 
-def read_live_csharp_source(repo_root: Path, relative_path: str) -> str:
-    return strip_csharp_comments(read_source(repo_root, relative_path))
+_PREPROCESSOR_TOKEN = re.compile(r"\s*(\|\||&&|==|!=|!|\(|\)|true\b|false\b|[A-Za-z_]\w*)")
+
+
+def evaluate_csharp_preprocessor_expression(expression: str, symbols: set[str]) -> bool:
+    """Evaluate the boolean expression subset accepted by C# #if/#elif."""
+    tokens: list[str] = []
+    position = 0
+    while position < len(expression):
+        match = _PREPROCESSOR_TOKEN.match(expression, position)
+        require(match is not None, f"unsupported C# preprocessor expression: {expression!r}")
+        tokens.append(match.group(1))
+        position = match.end()
+    index = 0
+
+    def peek() -> str | None:
+        return tokens[index] if index < len(tokens) else None
+
+    def consume(expected: str | None = None) -> str:
+        nonlocal index
+        token = peek()
+        require(token is not None, f"incomplete C# preprocessor expression: {expression!r}")
+        if expected is not None:
+            require(token == expected, f"invalid C# preprocessor expression: {expression!r}")
+        index += 1
+        return token
+
+    def parse_primary() -> bool:
+        token = peek()
+        if token == "(":
+            consume("(")
+            value = parse_or()
+            consume(")")
+            return value
+        token = consume()
+        if token == "true":
+            return True
+        if token == "false":
+            return False
+        return token in symbols
+
+    def parse_unary() -> bool:
+        if peek() == "!":
+            consume("!")
+            return not parse_unary()
+        return parse_primary()
+
+    def parse_equality() -> bool:
+        value = parse_unary()
+        while peek() in {"==", "!="}:
+            operator = consume()
+            right = parse_unary()
+            value = value == right if operator == "==" else value != right
+        return value
+
+    def parse_and() -> bool:
+        value = parse_equality()
+        while peek() == "&&":
+            consume("&&")
+            right = parse_equality()
+            value = value and right
+        return value
+
+    def parse_or() -> bool:
+        value = parse_and()
+        while peek() == "||":
+            consume("||")
+            right = parse_and()
+            value = value or right
+        return value
+
+    result = parse_or()
+    require(index == len(tokens), f"invalid C# preprocessor expression: {expression!r}")
+    return result
+
+
+def preprocess_csharp_conditionals(source: str, defined_symbols: set[str]) -> str:
+    """Blank inactive conditional-compilation regions while preserving line shape."""
+    symbols = set(defined_symbols)
+    output: list[str] = []
+    stack: list[dict[str, bool]] = []
+    active = True
+
+    for line in source.splitlines(keepends=True):
+        directive_match = re.match(
+            r"^\s*#\s*(if|elif|else|endif|define|undef)\b(?:\s+(.*?))?\s*(?:\r?\n)?$",
+            line,
+        )
+        if directive_match is not None:
+            directive = directive_match.group(1)
+            argument = (directive_match.group(2) or "").strip()
+            if directive == "if":
+                condition = evaluate_csharp_preprocessor_expression(argument, symbols)
+                frame = {
+                    "parent_active": active,
+                    "branch_taken": condition,
+                    "current_active": active and condition,
+                    "seen_else": False,
+                }
+                stack.append(frame)
+                active = frame["current_active"]
+            elif directive == "elif":
+                require(bool(stack), "C# #elif without matching #if")
+                frame = stack[-1]
+                require(not frame["seen_else"], "C# #elif after #else")
+                condition = evaluate_csharp_preprocessor_expression(argument, symbols)
+                selected = not frame["branch_taken"] and condition
+                frame["branch_taken"] = frame["branch_taken"] or condition
+                frame["current_active"] = frame["parent_active"] and selected
+                active = frame["current_active"]
+            elif directive == "else":
+                require(bool(stack), "C# #else without matching #if")
+                frame = stack[-1]
+                require(not frame["seen_else"], "duplicate C# #else")
+                frame["seen_else"] = True
+                selected = not frame["branch_taken"]
+                frame["branch_taken"] = True
+                frame["current_active"] = frame["parent_active"] and selected
+                active = frame["current_active"]
+            elif directive == "endif":
+                require(bool(stack), "C# #endif without matching #if")
+                stack.pop()
+                active = stack[-1]["current_active"] if stack else True
+            elif directive in {"define", "undef"}:
+                require(re.fullmatch(r"[A-Za-z_]\w*", argument) is not None,
+                        f"invalid C# #{directive} symbol: {argument!r}")
+                if active:
+                    if directive == "define":
+                        symbols.add(argument)
+                    else:
+                        symbols.discard(argument)
+            output.append("".join("\n" if char == "\n" else "\r" if char == "\r" else " " for char in line))
+            continue
+
+        if active:
+            output.append(line)
+        else:
+            output.append("".join("\n" if char == "\n" else "\r" if char == "\r" else " " for char in line))
+
+    require(not stack, "unterminated C# conditional-compilation region")
+    return "".join(output)
+
+
+def resolve_effective_csharp_symbols(policy: dict[str, Any], repo_root: Path) -> set[str]:
+    """Resolve the same DefineConstants used by the Release contract build."""
+    override = os.environ.get("AV_MIG_CSHARP_DEFINE_CONSTANTS")
+    if override is not None:
+        return {item.strip() for item in override.split(";") if item.strip()}
+
+    source_build = policy.get("sourceBuild")
+    require(isinstance(source_build, dict), "sourceBuild policy section is missing")
+    project = source_build.get("project")
+    configuration = source_build.get("configuration")
+    target_framework = source_build.get("targetFramework")
+    require(
+        isinstance(project, str) and bool(project)
+        and isinstance(configuration, str) and bool(configuration)
+        and isinstance(target_framework, str) and bool(target_framework),
+        "sourceBuild project/configuration/targetFramework are required",
+    )
+
+    project_path = repo_root / project
+    require(project_path.is_file(), f"sourceBuild project is missing: {project}")
+    command = [
+        "dotnet",
+        "msbuild",
+        str(project_path),
+        "-nologo",
+        "-getProperty:DefineConstants",
+        f"-p:Configuration={configuration}",
+        f"-p:TargetFramework={target_framework}",
+    ]
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=repo_root,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise BoundaryViolation(f"failed to resolve effective C# build symbols: {exc}") from exc
+    require(
+        completed.returncode == 0,
+        "failed to resolve effective C# build symbols from MSBuild: "
+        + (completed.stderr.strip() or completed.stdout.strip()),
+    )
+    lines = [line.strip() for line in completed.stdout.splitlines() if line.strip()]
+    require(bool(lines), "MSBuild returned no DefineConstants for the source build")
+    return {item.strip() for item in lines[-1].split(";") if item.strip()}
+
+
+def read_live_csharp_source(
+    repo_root: Path,
+    relative_path: str,
+    defined_symbols: set[str],
+) -> str:
+    source = strip_csharp_comments(read_source(repo_root, relative_path))
+    return preprocess_csharp_conditionals(source, defined_symbols)
 
 
 def extract_csharp_class_body(source: str, class_name: str) -> str:
@@ -334,22 +518,192 @@ def extract_csharp_class_body(source: str, class_name: str) -> str:
     raise BoundaryViolation(f"SignalR {class_name} class body is not balanced")
 
 
-def verify_signalr_contract(policy: dict[str, Any], repo_root: Path) -> None:
+def csharp_top_level_text(source: str) -> str:
+    """Keep direct-member headers while blanking nested blocks and method bodies."""
+    output: list[str] = []
+    depth = 0
+    index = 0
+    state = "code"
+    while index < len(source):
+        char = source[index]
+        next_char = source[index + 1] if index + 1 < len(source) else ""
+        visible = depth == 0
+
+        if state == "string":
+            output.append(char if char in "\r\n" else " ")
+            if char == "\\" and index + 1 < len(source):
+                output.append(" ")
+                index += 2
+                continue
+            if char == '"':
+                state = "code"
+            index += 1
+            continue
+        if state == "verbatim_string":
+            output.append(char if char in "\r\n" else " ")
+            if char == '"' and next_char == '"':
+                output.append(" ")
+                index += 2
+                continue
+            if char == '"':
+                state = "code"
+            index += 1
+            continue
+        if state == "char":
+            output.append(char if char in "\r\n" else " ")
+            if char == "\\" and index + 1 < len(source):
+                output.append(" ")
+                index += 2
+                continue
+            if char == "'":
+                state = "code"
+            index += 1
+            continue
+
+        if char == '"':
+            is_verbatim = (
+                (index > 0 and source[index - 1] == "@")
+                or (index > 1 and source[index - 2:index] == "@$")
+            )
+            state = "verbatim_string" if is_verbatim else "string"
+            output.append(" ")
+            index += 1
+            continue
+        if char == "'":
+            state = "char"
+            output.append(" ")
+            index += 1
+            continue
+        if char == "{":
+            output.append(char if visible else " ")
+            depth += 1
+            index += 1
+            continue
+        if char == "}":
+            depth = max(0, depth - 1)
+            output.append(char if depth == 0 else " ")
+            index += 1
+            continue
+
+        output.append(char if visible or char in "\r\n" else " ")
+        index += 1
+
+    return "".join(output)
+
+
+def normalize_csharp_type(type_name: str) -> str:
+    return re.sub(r"\s+", "", type_name)
+
+
+def split_csharp_parameters(parameters: str) -> list[str]:
+    if not parameters.strip():
+        return []
+    result: list[str] = []
+    start = 0
+    depth = 0
+    for index, char in enumerate(parameters):
+        if char in "<[((":
+            depth += 1
+        elif char in ">])":
+            depth = max(0, depth - 1)
+        elif char == "," and depth == 0:
+            result.append(parameters[start:index].strip())
+            start = index + 1
+    result.append(parameters[start:].strip())
+    return result
+
+
+def csharp_parameter_type(parameter: str) -> str:
+    value = parameter.split("=", 1)[0].strip()
+    while value.startswith("["):
+        closing = value.find("]")
+        require(closing >= 0, f"invalid C# parameter attribute: {parameter!r}")
+        value = value[closing + 1:].strip()
+    match = re.match(r"(?P<type>.+\S)\s+[A-Za-z_]\w*$", value)
+    require(match is not None, f"unable to parse C# parameter: {parameter!r}")
+    return normalize_csharp_type(match.group("type"))
+
+
+def extract_direct_public_method_signatures(
+    class_body: str,
+) -> dict[str, set[tuple[str, tuple[str, ...]]]]:
+    direct = csharp_top_level_text(class_body)
+    pattern = re.compile(
+        r"\bpublic\s+"
+        r"(?:(?:static|virtual|override|sealed|async|new|unsafe|extern|partial)\s+)*"
+        r"(?P<return>[^(){};=\r\n]+?)\s+"
+        r"(?P<name>[A-Za-z_]\w*)\s*"
+        r"\((?P<parameters>[^()]*)\)",
+        flags=re.MULTILINE,
+    )
+    methods: dict[str, set[tuple[str, tuple[str, ...]]]] = {}
+    for match in pattern.finditer(direct):
+        return_type = normalize_csharp_type(match.group("return"))
+        parameter_types = tuple(
+            csharp_parameter_type(item)
+            for item in split_csharp_parameters(match.group("parameters"))
+        )
+        methods.setdefault(match.group("name"), set()).add((return_type, parameter_types))
+    return methods
+
+
+def verify_signalr_contract(
+    policy: dict[str, Any],
+    repo_root: Path,
+    defined_symbols: set[str],
+) -> None:
     contracts = policy.get("nonOpenApiContracts")
     signalr = contracts.get("signalR") if isinstance(contracts, dict) else None
     require(isinstance(signalr, dict), "nonOpenApiContracts.signalR is missing")
 
     expected_path = signalr.get("path")
+    authorization = signalr.get("authorization")
     client_methods = signalr.get("clientMethods")
+    client_signatures = signalr.get("clientMethodSignatures")
     server_events = signalr.get("serverEvents")
     require(isinstance(expected_path, str) and expected_path.startswith("/"),
             "signalR.path must be an absolute path")
+    require(
+        isinstance(authorization, dict)
+        and authorization.get("requiredHubAttribute") == "Authorize",
+        "signalR.authorization.requiredHubAttribute must be 'Authorize'",
+    )
     require(
         isinstance(client_methods, list)
         and bool(client_methods)
         and all(isinstance(item, str) and item for item in client_methods)
         and len(set(client_methods)) == len(client_methods),
         "signalR.clientMethods must be a non-empty unique string array",
+    )
+    require(
+        isinstance(client_signatures, list) and bool(client_signatures),
+        "signalR.clientMethodSignatures must be a non-empty array",
+    )
+
+    normalized_signatures: list[tuple[str, str, tuple[str, ...]]] = []
+    for item in client_signatures:
+        require(isinstance(item, dict), "signalR.clientMethodSignatures entries must be objects")
+        name = item.get("name")
+        return_type = item.get("returnType")
+        parameter_types = item.get("parameterTypes")
+        require(
+            isinstance(name, str) and bool(name)
+            and isinstance(return_type, str) and bool(return_type)
+            and isinstance(parameter_types, list)
+            and all(isinstance(parameter, str) and parameter for parameter in parameter_types),
+            f"invalid SignalR client method signature: {item!r}",
+        )
+        normalized_signatures.append(
+            (
+                name,
+                normalize_csharp_type(return_type),
+                tuple(normalize_csharp_type(parameter) for parameter in parameter_types),
+            )
+        )
+    signature_names = [item[0] for item in normalized_signatures]
+    require(
+        signature_names == client_methods and len(set(signature_names)) == len(signature_names),
+        "signalR.clientMethodSignatures must exactly correspond to clientMethods in order",
     )
     require(
         isinstance(server_events, list)
@@ -359,9 +713,26 @@ def verify_signalr_contract(policy: dict[str, Any], repo_root: Path) -> None:
         "signalR.serverEvents must be a non-empty unique string array",
     )
 
-    program = read_live_csharp_source(repo_root, "src/AipPortal.Web/Program.cs")
-    hub_source = read_live_csharp_source(repo_root, "src/AipPortal.Web/Realtime/AppHub.cs")
+    program = read_live_csharp_source(repo_root, "src/AipPortal.Web/Program.cs", defined_symbols)
+    hub_source = read_live_csharp_source(
+        repo_root,
+        "src/AipPortal.Web/Realtime/AppHub.cs",
+        defined_symbols,
+    )
+    hub_declaration = re.search(
+        r"(?P<attributes>(?:\s*\[[^\]]+\])*)\s*public\s+sealed\s+class\s+AppHub\b",
+        hub_source,
+        flags=re.MULTILINE,
+    )
+    require(hub_declaration is not None, "SignalR AppHub public sealed class declaration is missing")
+    attributes = hub_declaration.group("attributes")
+    require(
+        re.search(r"\[\s*Authorize(?:Attribute)?(?:\s*\([^\]]*\))?\s*\]", attributes) is not None,
+        "SignalR AppHub must require [Authorize]",
+    )
+
     hub = extract_csharp_class_body(hub_source, "AppHub")
+    direct_methods = extract_direct_public_method_signatures(hub)
     realtime_dir = repo_root / "src/AipPortal.Web/Realtime"
     require(realtime_dir.is_dir(), "Realtime source directory is missing")
 
@@ -374,19 +745,26 @@ def verify_signalr_contract(policy: dict[str, Any], repo_root: Path) -> None:
         f"SignalR AppHub path drifted: expected {[expected_path]!r}, got {mapped_paths!r}",
     )
 
-    for method in client_methods:
-        pattern = re.compile(
-            rf"public\s+[^\n{{;=]+\b{re.escape(method)}\s*\(",
-            re.MULTILINE,
-        )
+    for method, return_type, parameter_types in normalized_signatures:
+        actual_signatures = direct_methods.get(method)
         require(
-            pattern.search(hub) is not None,
+            actual_signatures is not None,
             f"SignalR client method is missing from AppHub: {method}",
+        )
+        expected_signature = (return_type, parameter_types)
+        require(
+            expected_signature in actual_signatures,
+            f"SignalR client method signature drifted for AppHub.{method}: "
+            f"expected {expected_signature!r}, got {sorted(actual_signatures)!r}",
         )
 
     emitted_events: set[str] = set()
     for source_path in sorted(realtime_dir.glob("*.cs")):
-        source = read_live_csharp_source(repo_root, str(source_path.relative_to(repo_root)))
+        source = read_live_csharp_source(
+            repo_root,
+            str(source_path.relative_to(repo_root)),
+            defined_symbols,
+        )
         emitted_events.update(
             re.findall(r'\.SendAsync\(\s*"([^"]+)"', source, flags=re.MULTILINE)
         )
@@ -398,7 +776,11 @@ def verify_signalr_contract(policy: dict[str, Any], repo_root: Path) -> None:
         )
 
 
-def verify_csrf_contract(policy: dict[str, Any], repo_root: Path) -> None:
+def verify_csrf_contract(
+    policy: dict[str, Any],
+    repo_root: Path,
+    defined_symbols: set[str],
+) -> None:
     contracts = policy.get("nonOpenApiContracts")
     csrf = contracts.get("csrf") if isinstance(contracts, dict) else None
     require(isinstance(csrf, dict), "nonOpenApiContracts.csrf is missing")
@@ -410,8 +792,16 @@ def verify_csrf_contract(policy: dict[str, Any], repo_root: Path) -> None:
     require(isinstance(expected_header, str) and bool(expected_header),
             "csrf.headerName must be a non-empty string")
 
-    controller = read_live_csharp_source(repo_root, "src/AipPortal.Web/Controllers/SecurityController.cs")
-    options = read_live_csharp_source(repo_root, "src/AipPortal.Web/Configuration/SecurityOptions.cs")
+    controller = read_live_csharp_source(
+        repo_root,
+        "src/AipPortal.Web/Controllers/SecurityController.cs",
+        defined_symbols,
+    )
+    options = read_live_csharp_source(
+        repo_root,
+        "src/AipPortal.Web/Configuration/SecurityOptions.cs",
+        defined_symbols,
+    )
 
     controller_route = re.search(r'\[Route\("([^"]+)"\)\]', controller)
     csrf_action = re.search(
@@ -456,9 +846,10 @@ def verify_csrf_contract(policy: dict[str, Any], repo_root: Path) -> None:
 
 
 def verify_boundary(document: dict[str, Any], policy: dict[str, Any], repo_root: Path) -> None:
+    defined_symbols = resolve_effective_csharp_symbols(policy, repo_root)
     verify_openapi_contract(document, policy)
-    verify_signalr_contract(policy, repo_root)
-    verify_csrf_contract(policy, repo_root)
+    verify_signalr_contract(policy, repo_root, defined_symbols)
+    verify_csrf_contract(policy, repo_root, defined_symbols)
 
 
 def main() -> int:
@@ -482,7 +873,7 @@ def main() -> int:
 
     print(
         "AV-MIG contract boundary verification passed: "
-        "effective CookieAuth operation security, live SignalR path/method/events, "
+        "effective CookieAuth operation security, preprocessed live SignalR path/auth/signatures/events, "
         "and live CSRF endpoint/header are pinned"
     )
     return 0
