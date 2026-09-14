@@ -214,16 +214,18 @@ SignalR is not represented by ordinary OpenAPI paths, so it is pinned separately
 
 Endpoint: `/hubs/app`
 
-Client-invoked methods:
+Authentication requirement: `AppHub` is an authenticated hub and must carry `[Authorize]`.
 
-- `SubscribeUser()`
-- `SubscribeTenant()`
-- `SubscribeWorkspace(Guid)`
-- `SubscribeConversation(Guid)`
-- `SubscribeProject(Guid)`
-- `UnsubscribeWorkspace(Guid)`
-- `UnsubscribeConversation(Guid)`
-- `UnsubscribeProject(Guid)`
+Client-invoked direct public method signatures:
+
+- `Task<HubSubscriptionResult> SubscribeUser()`
+- `Task<HubSubscriptionResult> SubscribeTenant()`
+- `Task<HubSubscriptionResult> SubscribeWorkspace(Guid)`
+- `Task<HubSubscriptionResult> SubscribeConversation(Guid)`
+- `Task<HubSubscriptionResult> SubscribeProject(Guid)`
+- `Task<HubSubscriptionResult> UnsubscribeWorkspace(Guid)`
+- `Task<HubSubscriptionResult> UnsubscribeConversation(Guid)`
+- `Task<HubSubscriptionResult> UnsubscribeProject(Guid)`
 
 Server events:
 
@@ -329,9 +331,9 @@ Normally additive, subject to client exhaustive-switch review:
 
 The AV-MIG verifier evaluates operation-level security using OpenAPI Security Requirement OR semantics. Every protected P0 operation must declare a non-empty `security` array and every alternative branch must require `CookieAuth`; missing security, `security: []`, `{}` anonymous alternatives, and unrelated-scheme alternatives fail. Every `anonymous: true` P0 operation must declare operation-level `security: []` exactly so it cannot accidentally inherit a future document-level requirement. `SecurityOpenApiOperationTransformer` emits this explicit empty override for `[AllowAnonymous]` endpoints.
 
-The same verifier checks `nonOpenApiContracts.signalR` against live backend C# source for the exact `/hubs/app` mapping, required public hub method names, and emitted server event names. It checks `nonOpenApiContracts.csrf` against `SecurityController` and `SecurityOptions` for the exact token endpoint and header contract. Line and block comments are removed before these source sentinels run so commented-out mappings, methods, event emissions, endpoints, or header constants cannot satisfy the contract.
+The same verifier resolves the effective Release/net10.0 C# `DefineConstants` from MSBuild, removes comments, excludes inactive conditional-compilation branches, and then checks `nonOpenApiContracts.signalR` against live backend source for the exact `/hubs/app` mapping, the required `[Authorize]` hub control, exact direct-public method signatures, and emitted server event names. Nested type methods cannot satisfy an `AppHub` method sentinel. The CSRF checks use the same preprocessed live-source view for the exact token endpoint and header contract, so declarations hidden behind inactive `#if` branches cannot satisfy either contract family.
 
-`scripts/ci/test_av_mig_contract_boundary.py` is the deterministic fail-closed mutation harness. It contains 17 tests: one passing baseline and sixteen negative mutations covering protected security deletion/empty security, `CookieAuth OR anonymous`, `CookieAuth OR OtherScheme`, anonymous CookieAuth, document-level inheritance after anonymous security omission, SignalR method/event/path drift, CSRF endpoint/header drift, and comment-out variants for the SignalR and CSRF source sentinels.
+`scripts/ci/test_av_mig_contract_boundary.py` is the deterministic fail-closed mutation harness. It includes positive baseline/active-symbol coverage plus negative mutations for OpenAPI security drift, SignalR authorization removal, method removal/rename, parameter-count/type and return-type drift, top-level and nested decoy types, route/event drift, comment-out mutations, inactive `#if` mutations across SignalR and CSRF sentinel families, and CSRF endpoint/header drift. The documentation intentionally does not hard-code the mutation count so adding a new sentinel cannot make this description stale.
 
 `scripts/ci/generate-security-openapi-contract.sh` runs the mutation harness before contract generation and runs the AV-MIG verifier against both deterministic generated OpenAPI copies. Focused C# transformer tests also pin the `[AllowAnonymous]` explicit-empty-security behavior. The required security CI path invokes the generator, so these are CI-enforced sentinels rather than inventory-only metadata.
 
