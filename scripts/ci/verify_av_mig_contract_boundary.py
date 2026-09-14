@@ -265,6 +265,75 @@ def read_live_csharp_source(repo_root: Path, relative_path: str) -> str:
     return strip_csharp_comments(read_source(repo_root, relative_path))
 
 
+def extract_csharp_class_body(source: str, class_name: str) -> str:
+    """Return one named C# class body while ignoring braces inside literals."""
+    declarations = list(re.finditer(rf"\bclass\s+{re.escape(class_name)}\b", source))
+    require(
+        len(declarations) == 1,
+        f"SignalR {class_name} class declaration must appear exactly once",
+    )
+
+    body_start = source.find("{", declarations[0].end())
+    require(body_start >= 0, f"SignalR {class_name} class body is missing")
+
+    depth = 1
+    index = body_start + 1
+    state = "code"
+    length = len(source)
+    while index < length:
+        char = source[index]
+        next_char = source[index + 1] if index + 1 < length else ""
+
+        if state == "string":
+            if char == "\\" and index + 1 < length:
+                index += 2
+                continue
+            if char == '"':
+                state = "code"
+            index += 1
+            continue
+
+        if state == "verbatim_string":
+            if char == '"' and next_char == '"':
+                index += 2
+                continue
+            if char == '"':
+                state = "code"
+            index += 1
+            continue
+
+        if state == "char":
+            if char == "\\" and index + 1 < length:
+                index += 2
+                continue
+            if char == "'":
+                state = "code"
+            index += 1
+            continue
+
+        if char == '"':
+            is_verbatim = (
+                (index > 0 and source[index - 1] == "@")
+                or (index > 1 and source[index - 2:index] == "@$")
+            )
+            state = "verbatim_string" if is_verbatim else "string"
+            index += 1
+            continue
+        if char == "'":
+            state = "char"
+            index += 1
+            continue
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return source[body_start + 1:index]
+        index += 1
+
+    raise BoundaryViolation(f"SignalR {class_name} class body is not balanced")
+
+
 def verify_signalr_contract(policy: dict[str, Any], repo_root: Path) -> None:
     contracts = policy.get("nonOpenApiContracts")
     signalr = contracts.get("signalR") if isinstance(contracts, dict) else None
@@ -291,7 +360,8 @@ def verify_signalr_contract(policy: dict[str, Any], repo_root: Path) -> None:
     )
 
     program = read_live_csharp_source(repo_root, "src/AipPortal.Web/Program.cs")
-    hub = read_live_csharp_source(repo_root, "src/AipPortal.Web/Realtime/AppHub.cs")
+    hub_source = read_live_csharp_source(repo_root, "src/AipPortal.Web/Realtime/AppHub.cs")
+    hub = extract_csharp_class_body(hub_source, "AppHub")
     realtime_dir = repo_root / "src/AipPortal.Web/Realtime"
     require(realtime_dir.is_dir(), "Realtime source directory is missing")
 
