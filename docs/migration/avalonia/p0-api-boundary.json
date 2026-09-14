@@ -1,6 +1,11 @@
 {
   "version": 1,
   "issue": 766,
+  "sourceBuild": {
+    "project": "src/AipPortal.Web/AipPortal.Web.csproj",
+    "configuration": "Release",
+    "targetFramework": "net10.0"
+  },
   "openapi": {
     "requiredVersionPrefix": "3.1.",
     "requiredSecurityScheme": {
@@ -40,6 +45,9 @@
   "nonOpenApiContracts": {
     "signalR": {
       "path": "/hubs/app",
+      "authorization": {
+        "requiredHubAttribute": "Authorize"
+      },
       "clientMethods": [
         "SubscribeUser",
         "SubscribeTenant",
@@ -49,6 +57,16 @@
         "UnsubscribeWorkspace",
         "UnsubscribeConversation",
         "UnsubscribeProject"
+      ],
+      "clientMethodSignatures": [
+        { "name": "SubscribeUser", "returnType": "Task<HubSubscriptionResult>", "parameterTypes": [] },
+        { "name": "SubscribeTenant", "returnType": "Task<HubSubscriptionResult>", "parameterTypes": [] },
+        { "name": "SubscribeWorkspace", "returnType": "Task<HubSubscriptionResult>", "parameterTypes": ["Guid"] },
+        { "name": "SubscribeConversation", "returnType": "Task<HubSubscriptionResult>", "parameterTypes": ["Guid"] },
+        { "name": "SubscribeProject", "returnType": "Task<HubSubscriptionResult>", "parameterTypes": ["Guid"] },
+        { "name": "UnsubscribeWorkspace", "returnType": "Task<HubSubscriptionResult>", "parameterTypes": ["Guid"] },
+        { "name": "UnsubscribeConversation", "returnType": "Task<HubSubscriptionResult>", "parameterTypes": ["Guid"] },
+        { "name": "UnsubscribeProject", "returnType": "Task<HubSubscriptionResult>", "parameterTypes": ["Guid"] }
       ],
       "serverEvents": ["DurableEvent", "AuthorizationInvalidated"]
     },
