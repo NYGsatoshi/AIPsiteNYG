@@ -41,14 +41,22 @@ generate_openapi() {
     -p:GenerateSecurityOpenApiContract=true
 }
 
+# Mutation tests prove the verifier itself fails closed before it is trusted as
+# a CI boundary. They cover protected/anonymous CookieAuth semantics plus the
+# non-OpenAPI SignalR and CSRF source sentinels.
+python3 scripts/ci/test_av_mig_contract_boundary.py
+python3 scripts/ci/test_av_mig_contract_boundary_hardening.py
+
 rm -f "$spec"
 generate_openapi
 python3 scripts/ci/verify-openapi.py "$spec"
+python3 scripts/ci/verify_av_mig_contract_boundary.py "$spec"
 cp "$spec" "$first"
 
 rm "$spec"
 generate_openapi
 python3 scripts/ci/verify-openapi.py "$spec"
+python3 scripts/ci/verify_av_mig_contract_boundary.py "$spec"
 if ! cmp --silent "$first" "$spec"; then
   echo "SEC-01 OpenAPI output is not deterministic across repeated builds." >&2
   diff -u "$first" "$spec" || true
