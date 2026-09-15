@@ -1,5 +1,4 @@
 using System.ComponentModel.DataAnnotations;
-using System.Linq;
 using System.Reflection;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authorization;
@@ -16,7 +15,7 @@ namespace AipPortal.Web.OpenApi;
 /// </summary>
 public sealed class SecurityOpenApiOperationTransformer : IOpenApiOperationTransformer
 {
-    public const string CookieSchemeName = "CookieAuth";
+    private const string CookieSchemeName = "CookieAuth";
     private const string AuthenticationCookieName = ".AipPortal.Auth";
 
     public Task TransformAsync(
@@ -104,7 +103,8 @@ public sealed class SecurityOpenApiOperationTransformer : IOpenApiOperationTrans
     }
 
     private static bool IsLegacyProjectCreate(OpenApiOperationTransformerContext context) =>
-        HttpMethods.IsPost(context.Description.HttpMethod) &&
+        context.Description.HttpMethod is { } method &&
+        HttpMethods.IsPost(method) &&
         string.Equals(
             context.Description.RelativePath?.TrimEnd('/'),
             "api/projects",
@@ -136,6 +136,7 @@ public sealed class SecurityOpenApiOperationTransformer : IOpenApiOperationTrans
         // Required attributes. Preserve those runtime validation rules in
         // the multipart schema used by clients and scanners.
         if (operation.RequestBody?.Content?.TryGetValue("multipart/form-data", out var multipart) != true ||
+            multipart is null ||
             multipart.Schema is not OpenApiSchema formSchema)
         {
             return;
@@ -167,7 +168,7 @@ public sealed class SecurityOpenApiOperationTransformer : IOpenApiOperationTrans
             return explicitName;
         }
 
-        var jsonOptions = context.ApplicationServices?.GetService(typeof(IOptions<JsonOptions>)) as IOptions<JsonOptions>;
+        var jsonOptions = context.ApplicationServices.GetService(typeof(IOptions<JsonOptions>)) as IOptions<JsonOptions>;
         return jsonOptions?.Value.JsonSerializerOptions.PropertyNamingPolicy?.ConvertName(property.Name)
             ?? property.Name;
     }
