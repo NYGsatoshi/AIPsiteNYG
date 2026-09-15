@@ -15,7 +15,7 @@ public sealed class SecurityOpenApiOperationTransformerTests
         var operation = new OpenApiOperation();
         var context = CreateContext();
 
-        await new SecurityOpenApiOperationTransformer().TransformAsync(operation, context, default);
+        await new SecurityOpenApiOperationTransformer().TransformAsync(operation, context, CancellationToken.None);
 
         Assert.NotNull(operation.Security);
         Assert.Empty(operation.Security);
@@ -27,7 +27,7 @@ public sealed class SecurityOpenApiOperationTransformerTests
         var operation = new OpenApiOperation();
         var context = CreateContext(new AllowAnonymousAttribute());
 
-        await new SecurityOpenApiOperationTransformer().TransformAsync(operation, context, default);
+        await new SecurityOpenApiOperationTransformer().TransformAsync(operation, context, CancellationToken.None);
 
         Assert.NotNull(operation.Security);
         Assert.Empty(operation.Security);
@@ -39,7 +39,7 @@ public sealed class SecurityOpenApiOperationTransformerTests
         var operation = new OpenApiOperation();
         var context = CreateContext(new AuthorizeAttribute(), new AllowAnonymousAttribute());
 
-        await new SecurityOpenApiOperationTransformer().TransformAsync(operation, context, default);
+        await new SecurityOpenApiOperationTransformer().TransformAsync(operation, context, CancellationToken.None);
 
         Assert.NotNull(operation.Security);
         Assert.Empty(operation.Security);
