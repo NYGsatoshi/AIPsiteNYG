@@ -45,6 +45,7 @@ generate_openapi() {
 # a CI boundary. They cover protected/anonymous CookieAuth semantics plus the
 # non-OpenAPI SignalR and CSRF source sentinels.
 python3 scripts/ci/test_av_mig_contract_boundary.py
+python3 scripts/ci/test_av_mig_contract_boundary_hardening.py
 
 rm -f "$spec"
 generate_openapi
