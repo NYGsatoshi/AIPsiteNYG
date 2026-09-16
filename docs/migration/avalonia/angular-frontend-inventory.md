@@ -16,7 +16,7 @@ This document is a point-in-time inventory of the production Angular frontend un
 - REST calls use relative `/api/*` URLs and browser cookie credentials. Unsafe calls participate in the existing CSRF/auth interceptor contract. Avalonia must preserve the server contract while replacing browser-only cookie/CSRF plumbing with an explicit desktop HTTP/session implementation.
 - File flows are not simple CRUD. They include multipart upload, server-authorized download grants, preview/download Blob handling, sharing/folder state, search, task attachment selection, progress/cancellation, and realtime invalidation.
 - Existing tests are substantial but Angular/browser-specific at the UI layer. The migration must preserve contract tests and real-backend evidence while replacing DOM/Playwright/Storybook-specific assertions with Avalonia equivalents.
-- #798 names auth/login, the main dashboard, graph, chat, and critical admin as demo-critical. There is no standalone graph route in `app.routes.ts`; the graph surface must be traced inside its owning routed page before the corresponding Avalonia screen issue is accepted.
+- #798 is the roadmap authority for timing. Its November technical-preview core is `Launch -> Login -> Workspace -> Project -> Task`. Conversation/Channel/DM are Wave 6 (post-November daily work), and Audit/Admin are Wave 7. There is no standalone graph route in `app.routes.ts`; graph ownership remains unresolved, but it is not a November-required route under the current #798 roadmap unless that roadmap is amended.
 
 ## Production route and screen inventory
 
@@ -25,42 +25,42 @@ This document is a point-in-time inventory of the production Angular frontend un
 | Route | Screen / behavior | Access | State / integration owner | Migration note |
 | --- | --- | --- | --- | --- |
 | `/signin` | Redirect to `/login` | Public | Router | Preserve compatibility redirect. |
-| `/login` | `LoginPageComponent` | Public | Auth session / REST | Demo-critical. |
-| `/session-expired` | `SessionExpiredPageComponent` | Public | Auth session | Preserve explicit expired-session state. |
-| `/register/invite` | `InviteRegistrationPageComponent` | Public | `InviteRegistrationFacade` / REST | Invite bootstrap path. |
-| `/permission-denied` | `AppPermissionDeniedComponent` | Public/system | Authorization | Preserve fail-closed navigation. |
-| `/` | Redirect to `/workspaces` | Protected | App shell | Desktop startup target should be equivalent. |
-| `/messages/saved` | `MessageFollowUpsPageComponent` | Protected | `MessageFollowUpFacade`, `MessagingApi`, realtime | Saved/follow-up messages. |
-| `/messages/settings` | `MessageSettingsPageComponent` | Protected | Messaging preferences REST | Messaging notification preferences. |
-| `/messages` | `MessagesPageComponent` | Protected | `MessagingFacade`, `MessagingApi`, realtime | Demo-critical chat entry. |
-| `/conversations/:conversationId` | `ChannelMessagingPageComponent` | Protected | `MessagingFacade`, `MessagingApi`, realtime | Conversation route. |
-| `/workspaces/:workspaceId/channels/:conversationId` | `ChannelMessagingPageComponent` | Protected + workspace guard | Workspace + messaging + realtime | Workspace-scoped conversation route. |
-| `/dm/:conversationId` | `DmPageComponent` | Protected | `MessagingFacade`, `MessagingApi`, realtime | Direct-message route. |
-| `/workspaces/:workspaceId/research/new` | `WorkspaceResearchQuickCreatePageComponent` | Protected + workspace guard | research quick-create service / REST | Workspace context is mandatory. |
-| `/workspaces/:workspaceId/projects` | `ProjectsOverviewPageComponent` | Protected + workspace guard | `ProjectsFacade` / REST / realtime | Workspace-scoped project list. |
-| `/workspaces/:workspaceId/files` | `FilesPageComponent` | Protected + workspace guard | `FilesFacade`, `FileFolderStore` / REST / realtime / file I/O | File surface. |
+| `/login` | `LoginPageComponent` | Public | `AuthSessionFacade` / REST | November core. |
+| `/session-expired` | `SessionExpiredPageComponent` | Public | `AuthSessionFacade` | Preserve explicit expired-session state. |
+| `/register/invite` | `InviteRegistrationPageComponent` | Public | `InviteRegistrationFacade`, `AuthSessionFacade` / REST | Invite bootstrap path. |
+| `/permission-denied` | `AppPermissionDeniedComponent` | Public/system | component/input state | November shell fail-closed state. |
+| `/` | Redirect to `/workspaces` | Protected | `AuthSessionFacade`, `AppShellFacade` | Desktop startup target should be equivalent. |
+| `/messages/saved` | `MessageFollowUpsPageComponent` | Protected | `MessageFollowUpFacade`, `MessagingApi`, realtime | Post-November Wave 6. |
+| `/messages/settings` | `MessageSettingsPageComponent` | Protected | `MessagingFacade` / REST | Post-November Wave 6. |
+| `/messages` | `MessagesPageComponent` | Protected | `MessagingFacade`, `MessagingApi`, realtime | Post-November Wave 6 Conversation scope; not November Required under current #798. |
+| `/conversations/:conversationId` | `ChannelMessagingPageComponent` | Protected | `MessagingFacade`, `MessagingApi`, realtime | Post-November Wave 6. |
+| `/workspaces/:workspaceId/channels/:conversationId` | `ChannelMessagingPageComponent` | Protected + workspace guard | `MessagingFacade`, `WorkspaceSelectionFacade`, realtime | Post-November Wave 6. |
+| `/dm/:conversationId` | `DmPageComponent` | Protected | `MessagingFacade`, realtime | Post-November Wave 6. |
+| `/workspaces/:workspaceId/research/new` | `WorkspaceResearchQuickCreatePageComponent` | Protected + workspace guard | component/local state, `WorkspacesFacade`, quick-create service / REST | Workspace context is mandatory; Maintenance Only on Angular. |
+| `/workspaces/:workspaceId/projects` | `ProjectsOverviewPageComponent` | Protected + workspace guard | `ProjectsFacade`, `ActiveWorkspaceFacade` / REST / realtime | November core Project surface. |
+| `/workspaces/:workspaceId/files` | `FilesPageComponent` | Protected + workspace guard | `FilesFacade`, `FileFolderStore`, `ActiveWorkspaceFacade` / REST / realtime / file I/O | Post-November file surface. |
 | `/workspaces/:workspaceId/members` | `WorkspaceMembersPageComponent` | Protected + workspace guard | `WorkspaceMembersFacade` / REST / realtime | Membership/authorization surface. |
-| `/workspaces` | `WorkspaceDashboardPageComponent` | Protected | `WorkspacesFacade`, active/selected workspace state | Demo-critical main dashboard. |
+| `/workspaces` | `WorkspaceDashboardPageComponent` | Protected | `WorkspacesFacade`, active/selected workspace state | November core Workspace surface. |
 | `/announcements` | `AnnouncementsPageComponent` | Protected | `AnnouncementsFacade` / REST | List/default detail behavior. |
 | `/announcements/:announcementId` | `AnnouncementsPageComponent` | Protected | `AnnouncementsFacade` / REST | Deep-link detail. |
-| `/app/projects/:projectId/tasks/:taskId/reports/:artifactVersionId` | `ReportReaderPageComponent` | Protected | report REST | Compatibility alias. |
-| `/app/projects/:projectId/reports/:artifactVersionId` | `ReportReaderPageComponent` | Protected | report REST | Compatibility alias. |
-| `/projects/:projectId/tasks/:taskId/reports/:artifactVersionId` | `ReportReaderPageComponent` | Protected | report REST | Task-scoped report deep link. |
-| `/projects/:projectId/reports/:artifactVersionId` | `ReportReaderPageComponent` | Protected | report REST | Project-scoped report deep link. |
-| `/projects/:projectId/tasks/new` | `TaskCreatePageComponent` | Protected | `TaskCreateFacade`, `TaskCreateApi`, realtime | Task creation. |
-| `/projects/:projectId/tasks/:taskId` | `TaskDetailPageComponent` | Protected | task/detail state, files picker, realtime | High-complexity migration surface. |
-| `/projects/:projectId` | `ProjectDetailPageComponent` | Protected | `ProjectDetailFacade` / REST / realtime | Project board/detail; trace graph ownership here or adjacent surfaces. |
-| `/tasks` | `MyTasksPageComponent` | Protected | `MyTasksFacade` / REST / realtime | Server-paged My Tasks projection. |
-| `/projects` | `ProjectsOverviewPageComponent` | Protected | `ProjectsFacade` / REST / realtime | Cross-workspace project entry. |
-| `/artifacts/:artifactId` | `ArtifactDetailPageComponent` | Protected | artifact REST | Artifact deep link. |
-| `/files` | `FilesPageComponent` | Protected | `FilesFacade`, `FileFolderStore` / REST / realtime / file I/O | Uses active workspace context. |
-| `/account` | `AccountPageComponent` | Protected | `AccountFacade`, notification preference facade / REST | User settings. |
-| `/admin/audit/findings` | `AuditFindingsPageComponent` | Protected | `AuditFindingsFacade` / REST | Critical admin candidate. |
-| `/admin/audit/claims-evidence` | `AuditClaimsEvidencePageComponent` | Protected | `AuditClaimsEvidenceFacade` / REST | Critical admin candidate. |
-| `/admin/audit/package-export` | `AuditPackageExportPageComponent` | Protected | audit export REST / file download | Admin export flow. |
-| `/admin/audit` | `AuditLogPageComponent` | Protected | `AdminFacade` / REST / realtime | Audit log. |
-| `/admin/invites` | `InviteAdminPageComponent` | Protected | admin/invite REST | Invite administration. |
-| `/admin/export-diagnostics` | `ExportDiagnosticsPageComponent` | Protected | diagnostics REST | Administrative diagnostics. |
+| `/app/projects/:projectId/tasks/:taskId/reports/:artifactVersionId` | `ReportReaderPageComponent` | Protected | component/local state / report REST | Compatibility alias. |
+| `/app/projects/:projectId/reports/:artifactVersionId` | `ReportReaderPageComponent` | Protected | component/local state / report REST | Compatibility alias. |
+| `/projects/:projectId/tasks/:taskId/reports/:artifactVersionId` | `ReportReaderPageComponent` | Protected | component/local state / report REST | Task-scoped report deep link. |
+| `/projects/:projectId/reports/:artifactVersionId` | `ReportReaderPageComponent` | Protected | component/local state / report REST | Project-scoped report deep link. |
+| `/projects/:projectId/tasks/new` | `TaskCreatePageComponent` | Protected | `TaskCreateFacade`, `TaskCreateApi`, realtime | November core Task creation. |
+| `/projects/:projectId/tasks/:taskId` | `TaskDetailPageComponent` | Protected | task/detail local services, `FilesFacade`, realtime | November core Task detail; high-complexity migration surface. |
+| `/projects/:projectId` | `ProjectDetailPageComponent` | Protected | `ProjectDetailFacade` / REST / realtime | November core Project detail. |
+| `/tasks` | `MyTasksPageComponent` | Protected | `MyTasksFacade` / REST / realtime | Wave 6 daily-work scope. |
+| `/projects` | `ProjectsOverviewPageComponent` | Protected | `ProjectsFacade` / REST / realtime | November core Project entry. |
+| `/artifacts/:artifactId` | `ArtifactDetailPageComponent` | Protected | component/local state / artifact REST | Artifact deep link. |
+| `/files` | `FilesPageComponent` | Protected | `FilesFacade`, `FileFolderStore`, `ActiveWorkspaceFacade` / REST / realtime / file I/O | Wave 6 daily-work scope. |
+| `/account` | `AccountPageComponent` | Protected | `AccountFacade`, notification preference facade / REST | Wave 7 management scope. |
+| `/admin/audit/findings` | `AuditFindingsPageComponent` | Protected | `AuditFindingsFacade` / REST | Post-November Wave 7. |
+| `/admin/audit/claims-evidence` | `AuditClaimsEvidencePageComponent` | Protected | `AuditClaimsEvidenceFacade` / REST | Post-November Wave 7. |
+| `/admin/audit/package-export` | `AuditPackageExportPageComponent` | Protected | component/local state / audit export REST / file download | Post-November Wave 7. |
+| `/admin/audit` | `AuditLogPageComponent` | Protected | `AdminFacade` / REST / realtime | Post-November Wave 7. |
+| `/admin/invites` | `InviteAdminPageComponent` | Protected | `AdminFacade` / REST | Post-November Wave 7. |
+| `/admin/export-diagnostics` | `ExportDiagnosticsPageComponent` | Protected | `AdminFacade` / REST | Post-November Wave 7; implementation injects `AdminFacade`. |
 | `**` | `PagePlaceholderComponent` | Fallback | Router | Current not-implemented fallback; do not silently turn this into a desktop success path. |
 
 ## State ownership
@@ -76,7 +76,7 @@ The frontend declares NgRx 22 packages, but no production `@ngrx/*` import was f
 | `AuthSessionFacade` | Angular Signals | login, guards, shell, most authenticated features | Session/identity root; must be migrated before protected screens. |
 | `ActiveWorkspaceFacade` | Signals | shell and workspace/project/file/task features | Cross-feature workspace scope. |
 | `WorkspaceSelectionFacade` | Signals + service state + realtime | shell/workspace navigation | Selection and authorization invalidation coupling. |
-| `WorkspacesFacade` | Signals + REST/realtime | `/workspaces` | Dashboard state. |
+| `WorkspacesFacade` | Signals + REST/realtime | `/workspaces`, workspace research quick-create capability lookup | Dashboard/workspace state. |
 | `AppShellFacade` | derived Signals | all protected routes | Global navigation/view model. |
 | `TenantSwitchFacade` / `TenantScopedStateFacade` | Signals + REST/realtime | cross-cutting | Tenant boundary reset must remain fail-closed. |
 | `RealtimeFacade` | RxJS/owned subscriptions | cross-cutting | Central durable-event and authorization-invalidation fan-out. |
@@ -92,13 +92,13 @@ The frontend declares NgRx 22 packages, but no production `@ngrx/*` import was f
 | `AnnouncementsFacade` | Signals + REST | announcements routes | Announcement list/detail state. |
 | `AccountFacade` | Signals + REST | `/account` | Account state. |
 | `TaskNotificationPreferencesFacade` | Signals + REST | account/task settings | Preference state. |
-| `AdminFacade` | Signals + REST/realtime | audit/admin surfaces | Admin/audit state. |
+| `AdminFacade` | Signals + REST/realtime | `/admin/audit`, `/admin/invites`, `/admin/export-diagnostics` | Admin/audit/diagnostics state. |
 | `AuditFindingsFacade` | Signals + REST | `/admin/audit/findings` | Triage state. |
 | `AuditClaimsEvidenceFacade` | Signals + REST | `/admin/audit/claims-evidence` | Claims/evidence state. |
 | `RightPanelFacade` | Signals + REST/realtime/router | shell/right panel | Cross-screen contextual panel. |
 | `ContinueWorkingFacade` | Signals + REST/file grants | shell/shared surface | Cross-screen recent-work projection. |
 
-Local component Signals also exist for ephemeral UI state (drawers, form fields, selection, dialog state, search input, etc.). These should become Avalonia view-model properties rather than a global store unless a later issue establishes a cross-screen ownership requirement.
+Local component Signals/fields also own route-local ephemeral state in `AppPermissionDeniedComponent`, `WorkspaceResearchQuickCreatePageComponent`, `ReportReaderPageComponent`, `ArtifactDetailPageComponent`, and `AuditPackageExportPageComponent`. These should become Avalonia view-model properties rather than a global store unless a later issue establishes a cross-screen ownership requirement.
 
 ## External integration inventory
 
@@ -166,7 +166,7 @@ These are desktop-native I/O migration concerns even when the REST contract itse
 
 1. **No Avalonia test harness exists yet.** Current component and E2E evidence assumes Angular/DOM/Playwright.
 2. **Route equivalence is not machine-enforced.** The companion JSON provides a baseline, but a later migration gate should assert that every required Angular route/surface is either mapped to an Avalonia screen, explicitly retired, or retained as a compatibility deep link.
-3. **No standalone graph route is visible.** #798 requires a graph demo surface; its actual owning component/state/test must be identified before graph migration can be marked complete.
+3. **No standalone graph route is visible.** Graph ownership still needs to be identified for its later migration issue. Under the current #798 roadmap it is not part of the November `Login -> Workspace -> Project -> Task` core preview unless #798 is amended.
 4. **Several deep-link/admin/report surfaces do not have an obviously named dedicated Playwright spec in the `tests/ui` top-level inventory.** Existing large smoke suites may cover them, but later screen issues should cite exact test cases rather than infer coverage from suite size.
 5. **Browser file behavior is highly coupled to browser primitives.** REST tests alone are insufficient; Avalonia needs native upload/download/preview/cancel/error-path tests.
 6. **Realtime authorization and stale-epoch behavior require dedicated desktop coverage.** A successful SignalR connection is not equivalent to preserving protected-state clearing, authorization invalidation, and scoped subscription semantics.
@@ -174,7 +174,7 @@ These are desktop-native I/O migration concerns even when the REST contract itse
 
 ## How later migration issues should use this inventory
 
-- Use `angular-frontend-inventory.json` as the baseline for route/surface accounting.
+- Use `angular-frontend-inventory.json` as the baseline for route/surface accounting and `angular-feature-freeze-matrix.json` as the authoritative per-route timing/freeze classification derived from #798.
 - Record the source Angular route(s), state owners, REST/realtime/file dependencies, and existing test evidence in each Avalonia screen issue.
 - Migrate cross-cutting foundations first: auth/session -> tenant/workspace context -> HTTP/CSRF/session adapter -> realtime -> shell/navigation. Feature screens should not duplicate these concerns.
 - Treat file handling and realtime as behavioral contracts, not UI-only work.
