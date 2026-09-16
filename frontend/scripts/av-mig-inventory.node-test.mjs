@@ -1,3 +1,4 @@
+/* eslint-disable complexity, func-style, max-statements, no-magic-numbers, one-var, require-unicode-regexp, sort-imports */
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
