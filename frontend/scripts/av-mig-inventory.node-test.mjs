@@ -11,7 +11,9 @@ async function readJson(relativePath) {
 }
 
 const inventoryPath = 'docs/migration/avalonia/angular-frontend-inventory.json';
-const freezePath = 'docs/migration/avalonia/angular-feature-freeze-matrix.json';
+const legacyFreezePath = 'docs/migration/avalonia/angular-feature-freeze-matrix.json';
+const targetMapPath = 'docs/migration/avalonia/angular-target-surface-map-v5.8.1.json';
+const persistedStatePath = 'docs/migration/avalonia/angular-persisted-state-inventory.json';
 
 const novemberCoreRoutes = new Set([
   '/login',
@@ -39,74 +41,179 @@ const postNovemberRoutes = new Set([
   '/admin/export-diagnostics',
 ]);
 
-test('AV-MIG inventory and freeze matrix cover the same production routes', async () => {
-  const [inventory, freeze] = await Promise.all([readJson(inventoryPath), readJson(freezePath)]);
-  assert.equal(inventory.routes.length, 38, 'inventory route count must remain the pinned 38-route snapshot');
-  assert.equal(freeze.routes.length, 38, 'freeze matrix must classify every pinned production route');
+function byPath(entries) {
+  return new Map(entries.map((entry) => [entry.path, entry]));
+}
+
+test('source inventory, legacy freeze snapshot and v5.8.1 target map cover the same pinned 38-route source', async () => {
+  const [inventory, legacyFreeze, targetMap] = await Promise.all([
+    readJson(inventoryPath),
+    readJson(legacyFreezePath),
+    readJson(targetMapPath),
+  ]);
+
+  assert.equal(inventory.routes.length, 38, 'source inventory route count must remain the pinned 38-route snapshot');
+  assert.equal(legacyFreeze.routes.length, 38, 'legacy freeze snapshot must still cover every pinned route');
+  assert.equal(targetMap.routes.length, 38, 'v5.8.1 target map must classify every pinned route');
 
   const inventoryPaths = inventory.routes.map((route) => route.path).sort();
-  const freezePaths = freeze.routes.map((route) => route.path).sort();
-  assert.deepEqual(freezePaths, inventoryPaths, 'inventory and freeze matrix route sets must match exactly');
+  const legacyPaths = legacyFreeze.routes.map((route) => route.path).sort();
+  const targetPaths = targetMap.routes.map((route) => route.path).sort();
+  assert.deepEqual(legacyPaths, inventoryPaths, 'legacy source/freeze route sets must match exactly');
+  assert.deepEqual(targetPaths, inventoryPaths, 'v5.8.1 target map must match the pinned source route set exactly');
+  assert.equal(new Set(targetPaths).size, 38, 'pinned target route set must not contain duplicates');
+  assert.equal(targetMap.sourceSnapshot, inventory.source.commit);
 });
 
-test('every routed screen has an explicit state owner', async () => {
-  const [inventory, freeze] = await Promise.all([readJson(inventoryPath), readJson(freezePath)]);
-  const freezeByPath = new Map(freeze.routes.map((route) => [route.path, route]));
-
-  for (const route of inventory.routes) {
-    if (route.kind !== 'screen') {
-      continue;
-    }
-    assert.ok(
-      Array.isArray(route.stateOwners) && route.stateOwners.length > 0,
-      `${route.path} must declare at least one inventory state owner`,
-    );
-    const matrixRoute = freezeByPath.get(route.path);
-    assert.ok(matrixRoute, `${route.path} must exist in the freeze matrix`);
-    assert.ok(
-      typeof matrixRoute.stateOwner === 'string' && matrixRoute.stateOwner.trim() !== '' && matrixRoute.stateOwner !== 'none',
-      `${route.path} must declare a concrete freeze-matrix state owner`,
-    );
+test('every v5.8.1 target route has PNL/mode, disposition and execution owner', async () => {
+  const targetMap = await readJson(targetMapPath);
+  for (const route of targetMap.routes) {
+    assert.ok(typeof route.targetPnlMode === 'string' && route.targetPnlMode.trim(), `${route.path} missing targetPnlMode`);
+    assert.ok(typeof route.disposition === 'string' && route.disposition.trim(), `${route.path} missing disposition`);
+    assert.ok(Number.isInteger(route.owner) && route.owner > 0, `${route.path} missing Avalonia execution owner`);
+    assert.ok(Array.isArray(route.support), `${route.path} support must be an array`);
   }
-
-  const diagnostics = inventory.routes.find((route) => route.path === '/admin/export-diagnostics');
-  assert.ok(diagnostics?.stateOwners.includes('AdminFacade'), '/admin/export-diagnostics must be owned by AdminFacade');
-  assert.equal(
-    freezeByPath.get('/admin/export-diagnostics')?.stateOwner,
-    'AdminFacade',
-    '/admin/export-diagnostics freeze ownership must match its implementation',
-  );
 });
 
-test('November scope stays aligned with the #798 core roadmap', async () => {
-  const [inventory, freeze] = await Promise.all([readJson(inventoryPath), readJson(freezePath)]);
-  const freezeByPath = new Map(freeze.routes.map((route) => [route.path, route]));
+test('November scope remains aligned with #798 core roadmap', async () => {
+  const legacyFreeze = await readJson(legacyFreezePath);
+  const freezeByPath = byPath(legacyFreeze.routes);
 
   for (const path of novemberCoreRoutes) {
     const route = freezeByPath.get(path);
-    assert.ok(route, `${path} must exist in the freeze matrix`);
+    assert.ok(route, `${path} must exist`);
     assert.equal(route.november, true, `${path} must remain November-required`);
-    assert.equal(route.freeze, 'November Required', `${path} must use the November Required freeze class`);
+    assert.equal(route.freeze, 'November Required', `${path} must use November Required freeze class`);
   }
 
   for (const path of postNovemberRoutes) {
     const route = freezeByPath.get(path);
-    assert.ok(route, `${path} must exist in the freeze matrix`);
+    assert.ok(route, `${path} must exist`);
     assert.equal(route.november, false, `${path} must remain outside the November core preview`);
   }
+});
 
-  for (const route of inventory.routes) {
-    const matrixRoute = freezeByPath.get(route.path);
-    if (route.demoScope === 'november-core') {
-      assert.equal(matrixRoute?.november, true, `${route.path} demoScope conflicts with the freeze matrix`);
-    }
-    if (typeof route.demoScope === 'string' && route.demoScope.startsWith('post-november-')) {
-      assert.equal(matrixRoute?.november, false, `${route.path} post-November scope conflicts with the freeze matrix`);
-    }
+test('v5.8.1 corrections bind invite, artifact/report and communication owners', async () => {
+  const targetMap = await readJson(targetMapPath);
+  const routes = byPath(targetMap.routes);
+
+  assert.equal(routes.get('/register/invite')?.owner, 780);
+  assert.match(routes.get('/register/invite')?.targetPnlMode ?? '', /PNL-00/);
+
+  const artifactRoutes = [
+    '/artifacts/:artifactId',
+    '/app/projects/:projectId/tasks/:taskId/reports/:artifactVersionId',
+    '/app/projects/:projectId/reports/:artifactVersionId',
+    '/projects/:projectId/tasks/:taskId/reports/:artifactVersionId',
+    '/projects/:projectId/reports/:artifactVersionId',
+  ];
+  for (const path of artifactRoutes) {
+    assert.equal(routes.get(path)?.owner, 817, `${path} must be owned by #817`);
+    assert.match(routes.get(path)?.targetPnlMode ?? '', /PNL-47/);
   }
 
-  const graph = freeze.nonRouteSurfaces.find((surface) => surface.surface.startsWith('Graph surface'));
-  assert.ok(graph, 'graph non-route surface must remain inventoried');
-  assert.equal(graph.november, false, 'graph is not November-required under the current #798 roadmap');
-  assert.equal(graph.freeze, 'Avalonia First');
+  assert.equal(routes.get('/messages')?.disposition, 'IntentionallyChanged');
+  assert.match(routes.get('/messages')?.targetPnlMode ?? '', /Team Chat/);
+  assert.match(routes.get('/messages')?.targetPnlMode ?? '', /DM Inbox/);
+  assert.match(routes.get('/conversations/:conversationId')?.targetPnlMode ?? '', /Team Chat/);
+  assert.match(routes.get('/dm/:conversationId')?.targetPnlMode ?? '', /Direct Message/);
+  assert.equal(routes.get('/messages/settings')?.owner, 791);
+  assert.match(routes.get('/messages/settings')?.targetPnlMode ?? '', /PNL-35/);
+
+  for (const route of targetMap.routes) {
+    assert.doesNotMatch(
+      route.targetPnlMode,
+      /\bConversation\b/u,
+      `${route.path} must not use generic Conversation as a target product surface`,
+    );
+  }
+});
+
+test('embedded Project WorkSurface surfaces are explicit migration units', async () => {
+  const targetMap = await readJson(targetMapPath);
+  const embedded = new Map(targetMap.embeddedSurfaces.map((surface) => [surface.id, surface]));
+
+  const kanban = embedded.get('project-kanban');
+  assert.equal(kanban?.owner, 782);
+  assert.ok(kanban?.support.includes(814));
+
+  const gantt = embedded.get('project-gantt');
+  assert.equal(gantt?.owner, 787);
+  assert.ok(gantt?.support.includes(777));
+  assert.ok(gantt?.support.includes(782));
+
+  const table = embedded.get('project-table');
+  assert.equal(table?.owner, 782);
+  assert.ok(table?.support.includes(776));
+});
+
+test('Graph/Dock are owned Avalonia-first capabilities and Calendar remains promotion-gated', async () => {
+  const targetMap = await readJson(targetMapPath);
+  const embedded = new Map(targetMap.embeddedSurfaces.map((surface) => [surface.id, surface]));
+  const graph = embedded.get('relation-graph');
+  const dock = embedded.get('dock-layout');
+  const calendar = embedded.get('calendar');
+
+  assert.equal(graph?.owner, 816);
+  assert.equal(graph?.disposition, 'AvaloniaFirst');
+  assert.equal(dock?.owner, 815);
+  assert.equal(dock?.disposition, 'AvaloniaFirst');
+  assert.equal(calendar?.disposition, 'Deferred');
+  assert.equal(calendar?.owner, null);
+  assert.deepEqual(calendar?.semanticOwners, [782, 784]);
+  assert.match(calendar?.promotionRule ?? '', /dedicated implementation Issue/);
+});
+
+test('browser/session persisted state is fully classified and never claims authorization authority', async () => {
+  const persistedState = await readJson(persistedStatePath);
+  const persisted = new Map(persistedState.entries.map((entry) => [entry.id, entry]));
+  const required = [
+    'theme',
+    'locale',
+    'last-workspace',
+    'my-work-projection',
+    'my-work-saved-filters',
+    'message-global-settings',
+    'messaging-drafts',
+    'messaging-navigation',
+    'right-panel-mode',
+    'audit-saved-views',
+    'continue-working',
+  ];
+
+  for (const id of required) {
+    const entry = persisted.get(id);
+    assert.ok(entry, `persisted-state family ${id} must be inventoried`);
+    assert.ok(typeof entry.disposition === 'string' && entry.disposition.length > 0, `${id} missing disposition`);
+    assert.ok(Number.isInteger(entry.targetOwner) && entry.targetOwner > 0, `${id} missing target owner`);
+  }
+
+  assert.equal(persistedState.assertions.classifiedFamilies, required.length);
+  assert.equal(persistedState.assertions.authTokenOrCookieStorage, 'none identified in localStorage/sessionStorage inventory');
+  assert.equal(persistedState.assertions.teamChatDmDraftTargetSeparation, true);
+  assert.equal(persistedState.assertions.rendererLocalNavigationIsNotSemanticState, true);
+
+  const draft = persisted.get('messaging-drafts');
+  assert.equal(draft?.storage, 'sessionStorage');
+  assert.equal(draft?.targetOwner, 785);
+  assert.match(draft?.security ?? '', /separate Team Chat and DM draft owners/);
+
+  const nav = persisted.get('messaging-navigation');
+  assert.equal(nav?.disposition, 'RetireAndRebuild');
+  assert.match(nav?.targetFamily ?? '', /renderer-local/);
+});
+
+test('active target inventory has no owner-TBD and does not invent NgRx migration work', async () => {
+  const [inventory, targetMap] = await Promise.all([readJson(inventoryPath), readJson(targetMapPath)]);
+  assert.equal(targetMap.assertions.routeCount, 38);
+  assert.equal(targetMap.assertions.artifactReportOwner, 817);
+  assert.equal(targetMap.assertions.graphOwner, 816);
+  assert.equal(targetMap.assertions.inviteRegistrationOwner, 780);
+  assert.equal(targetMap.assertions.mixedConversationTargetForbidden, true);
+
+  const angularDependencies = new Map(inventory.dependencies.map((dependency) => [dependency.name, dependency]));
+  assert.equal(angularDependencies.get('NgRx packages')?.purpose, 'declared dependencies; no production imports found');
+
+  const activeUnknownOwners = targetMap.routes.filter((route) => !Number.isInteger(route.owner));
+  assert.deepEqual(activeUnknownOwners, []);
 });
