@@ -81,7 +81,7 @@ No auth token/session authority was identified in browser `localStorage`/`sessio
 | My Work projection | `aipsite.work-view.v1.<tenant>.<user>.my-tasks` | #784 | Intentionally changed to renderer-local preference |
 | My Work saved filters | `aipsite.work-view.saved-filters.v1:<tenant>:<user>:my-tasks` | #784/#814 | Preserve semantic descriptors if import is possible; never persist rows/permissions |
 | Message display settings | `aip.messaging.global-settings.v2.<tenant>.<user>` | #791/#785 | Import or reset; server notification state remains authoritative |
-| Message drafts | `aip.messaging.draft:<tenant>:<user>:<workspace|dm>:<conversationId>` | #785 | Session-only source; reset at Desktop cutover; target Team Chat and DM draft owners are separate |
+| Message drafts | `aip.messaging.draft:<tenant>:<user>:<workspace\|dm>:<conversationId>` | #785 | Session-only source; reset at Desktop cutover; target Team Chat and DM draft owners are separate |
 | Message list scroll/focus | `aip.messaging.list-*` session keys | #785 | Retire/rebuild as renderer-local navigation state |
 | Right Panel mode | `aipsite.rightPanel.mode` | #780 | Session presentation; safe reset |
 | Audit saved views | `aipsite.audit.saved-views.v1:<scope>:<user>` | #790 | Import semantic filter snapshots if possible; reauthorize data query |
@@ -135,3 +135,20 @@ At this pinned snapshot:
 - PNL-16 Calendar and architecture-only deferred PNLs remain non-active until explicit promotion.
 
 This does **not** by itself close #765. The PR must pass the strengthened machine assertions and review against the same pinned source before #765 is marked complete.
+
+## Source ownership verification
+
+The source checker parses `app.routes.ts` with TypeScript and compares the exact
+route set with the inventory, legacy freeze snapshot and v5.8.1 target map. It
+checks component source paths, directly injected registered state owners, duplicate
+and missing entries, and November flags. Message Settings uses its component and
+`MessageGlobalSettingsService`; Invite Admin is component-local with direct HTTP;
+Session Expired is a stateless presentation component. The freeze owner column
+now follows those source facts.
+
+This checks direct ownership, not exhaustive transitive/embedded behavioral
+classification. Cross-cutting owners retain explicit non-route status. #765 and
+#766 remain open until every P0 API/DTO and class-3/4 rule is reconciled with
+backend authority. The v5.8.1 target map remains authoritative for future owners.
+Angular primary-demo acceptance and Avalonia core technical preview require
+separate scope decisions under #798; no additional November scope is inferred.
