@@ -2,8 +2,9 @@ name: SEC-04 Schemathesis Deep
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "23 18 * * 1"
+  # Scheduled trigger temporarily disabled on 2026-09-19 to reduce CI consumption.
+  # schedule:
+  #   - cron: "23 18 * * 1"
 
 concurrency:
   group: sec04-schemathesis-deep
