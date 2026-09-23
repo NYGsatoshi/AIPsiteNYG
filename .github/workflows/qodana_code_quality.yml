@@ -9,8 +9,9 @@ on:
   push:
     branches:
       - main
-  schedule:
-    - cron: "17 18 * * 0"
+  # Scheduled trigger temporarily disabled on 2026-09-19 to reduce CI consumption.
+  # schedule:
+  #   - cron: "17 18 * * 0"
 
 concurrency:
   group: qodana-deep-${{ github.ref }}
