@@ -65,6 +65,19 @@ export default tseslint.config(
     }
   }),
 
+  {
+    files: ['frontend/scripts/av-mig-inventory.node-test.mjs'],
+    rules: {
+      complexity: 'off',
+      'func-style': 'off',
+      'max-statements': 'off',
+      'no-magic-numbers': 'off',
+      'one-var': 'off',
+      'require-unicode-regexp': 'off',
+      'sort-imports': 'off'
+    }
+  },
+
   ...scope(
     [
       js.configs.all,

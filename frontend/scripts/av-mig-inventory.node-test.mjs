@@ -1,9 +1,9 @@
-/* eslint-disable complexity, func-style, max-statements, no-magic-numbers, one-var, require-unicode-regexp, sort-imports */
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { SourceInventory } from './check-av-mig-source.mjs';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -57,9 +57,16 @@ test('source inventory, legacy freeze snapshot and v5.8.1 target map cover the s
   assert.equal(legacyFreeze.routes.length, 38, 'legacy freeze snapshot must still cover every pinned route');
   assert.equal(targetMap.routes.length, 38, 'v5.8.1 target map must classify every pinned route');
 
+  const declaredPaths = SourceInventory.unique(
+    SourceInventory.routesFrom(
+      SourceInventory.parse(resolve(repoRoot, legacyFreeze.routeDefinition)),
+    ),
+    'pinned production routes',
+  );
   const inventoryPaths = inventory.routes.map((route) => route.path).sort();
   const legacyPaths = legacyFreeze.routes.map((route) => route.path).sort();
   const targetPaths = targetMap.routes.map((route) => route.path).sort();
+  assert.deepEqual(inventoryPaths, declaredPaths, 'source inventory must match the production route declaration');
   assert.deepEqual(legacyPaths, inventoryPaths, 'legacy source/freeze route sets must match exactly');
   assert.deepEqual(targetPaths, inventoryPaths, 'v5.8.1 target map must match the pinned source route set exactly');
   assert.equal(new Set(targetPaths).size, 38, 'pinned target route set must not contain duplicates');
