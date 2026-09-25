@@ -35,6 +35,12 @@ cleanup() {
   trap - EXIT
   if (( status != 0 )); then
     echo "SEC-03/SEC-04/SEC-05/SEC-06/AUD-02 runtime gate failed; dumping redacted Compose state." >&2
+    # Retain only exception class names in the failure artifact; the full
+    # application log may contain sensitive request data and is not uploaded.
+    mkdir -p artifacts/security/schemathesis
+    "${compose[@]}" logs --no-color app 2>/dev/null |
+      python3 scripts/security/summarize-app-exceptions.py \
+        > artifacts/security/schemathesis/app-exception-types.txt || true
     "${compose[@]}" ps 2>&1 | security_scan_redact_stream >&2 || true
     "${compose[@]}" logs --no-color postgres migrate app 2>&1 | security_scan_redact_stream >&2 || true
   fi
