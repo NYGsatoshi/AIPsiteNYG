@@ -17,6 +17,7 @@ def main() -> None:
     counts: collections.Counter[str] = collections.Counter()
     other_counts: collections.Counter[str] = collections.Counter()
     origins: collections.Counter[tuple[str, str]] = collections.Counter()
+    first_frames: collections.Counter[tuple[str, str]] = collections.Counter()
     after_unhandled = 0
     pending_exception: str | None = None
     fallback_method: str | None = None
@@ -35,7 +36,9 @@ def main() -> None:
                 frame = STACK_METHOD.search(line)
                 if frame:
                     method = frame.group(1)
-                    fallback_method = fallback_method or method
+                    if fallback_method is None:
+                        fallback_method = method
+                        first_frames[(pending_exception, method)] += 1
                     if method.startswith("AipPortal."):
                         origins[(pending_exception, method)] += 1
                         pending_exception = None
@@ -64,6 +67,8 @@ def main() -> None:
         origins[(pending_exception, fallback_method or "no-stack-frame")] += 1
     for (name, method), count in origins.most_common(30):
         print(f"origin {name} {method}: {count}")
+    for (name, method), count in first_frames.most_common(30):
+        print(f"first-frame {name} {method}: {count}")
 
 
 if __name__ == "__main__":
