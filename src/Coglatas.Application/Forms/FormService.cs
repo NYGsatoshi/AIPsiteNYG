@@ -527,7 +527,7 @@ public sealed class FormService(
         DateTimeOffset? closesAt,
         CancellationToken cancellationToken)
     {
-        if (!HasExactlyOneScope(workspaceId, groupId, projectId))
+        if (!ScopedResourceValidation.HasExactlyOneScope(workspaceId, groupId, projectId))
         {
             return Result.Failure("Exactly one of WorkspaceId, GroupId, or ProjectId must be set.");
         }
@@ -542,34 +542,14 @@ public sealed class FormService(
             return Result.Failure("Form open time must be before the close time.");
         }
 
-        if (workspaceId.HasValue)
-        {
-            var workspace = await workspaces.GetByIdAsync(workspaceId.Value, cancellationToken);
-            if (workspace is null || workspace.DeletedAt.HasValue || workspace.Status != WorkspaceStatus.Active)
-            {
-                return Result.Failure("Workspace not found.");
-            }
-        }
-
-        if (groupId.HasValue)
-        {
-            var group = await groups.GetByIdAsync(groupId.Value, cancellationToken);
-            if (group is null || group.DeletedAt.HasValue || group.Status != GroupStatus.Active)
-            {
-                return Result.Failure("Group not found.");
-            }
-        }
-
-        if (projectId.HasValue)
-        {
-            var project = await projects.GetProjectAsync(projectId.Value, cancellationToken);
-            if (project is null || project.DeletedAt.HasValue || project.Status == ProjectStatus.Archived)
-            {
-                return Result.Failure("Project not found.");
-            }
-        }
-
-        return Result.Success();
+        return await ScopedResourceValidation.ValidateExistingScopeAsync(
+            workspaces,
+            groups,
+            projects,
+            workspaceId,
+            groupId,
+            projectId,
+            cancellationToken);
     }
 
     private static Result ValidateQuestion(string questionText, FormQuestionType questionType, IReadOnlyList<string>? options)
@@ -814,7 +794,7 @@ public sealed class FormService(
         return currentUser.IsAuthenticated && currentUser.UserId.HasValue;
     }
 
-    private static bool HasExactlyOneScope(Guid? workspaceId, Guid? groupId, Guid? projectId)
+    private static bool ScopedResourceValidation.HasExactlyOneScope(Guid? workspaceId, Guid? groupId, Guid? projectId)
     {
         var count = 0;
         if (workspaceId.HasValue) count++;
