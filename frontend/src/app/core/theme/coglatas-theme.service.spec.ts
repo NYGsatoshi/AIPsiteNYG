@@ -19,17 +19,17 @@ describe('CoglatasThemeService', () => {
     Object.defineProperty(window, 'matchMedia', { configurable: true, value: originalMatchMedia });
   });
 
-  function setMedia(matches: boolean): void {
+  const setMedia = (matches: boolean): void => {
     Object.defineProperty(window, 'matchMedia', {
       configurable: true,
       value: vi.fn().mockReturnValue({ matches, addEventListener: vi.fn() })
     });
-  }
+  };
 
   it('uses dark as the default and exposes it on the root and vendor theme boundary', () => {
     const service = TestBed.inject(CoglatasThemeService);
     expect(service.theme()).toBe('dark');
-    expect(document.documentElement.dataset['aipTheme']).toBe('dark');
+    expect(document.documentElement.dataset['coglatasTheme']).toBe('dark');
     expect(document.documentElement.style.colorScheme).toBe('dark');
     expect(document.body.classList.contains('e-dark-mode')).toBe(true);
   });
@@ -61,10 +61,11 @@ describe('CoglatasThemeService', () => {
 
     expect(service.theme()).toBe('dark');
     expect(localStorage.getItem('coglatas.ui.theme.v1')).toBe('dark');
-    expect(document.documentElement.dataset['aipTheme']).toBe('dark');
+    expect(document.documentElement.dataset['coglatasTheme']).toBe('dark');
     expect(document.documentElement.style.colorScheme).toBe('dark');
     expect(document.body.classList.contains('e-dark-mode')).toBe(true);
     expect(service.density()).toBe('comfortable');
+    expect(document.documentElement.dataset['coglatasDensity']).toBe('comfortable');
     expect(location.pathname).toBe(path);
 
     service.toggleTheme();
