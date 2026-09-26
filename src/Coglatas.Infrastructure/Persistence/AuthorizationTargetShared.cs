@@ -79,7 +79,7 @@ internal static class AuthorizationTargetShared
             Guid.TryParse(property.GetString(), out value);
     }
 
-    internal static bool TryGetLong(JsonElement payload, string name, out long value)
+    private static bool TryGetLong(JsonElement payload, string name, out long value)
     {
         value = 0;
         return payload.ValueKind == JsonValueKind.Object &&
