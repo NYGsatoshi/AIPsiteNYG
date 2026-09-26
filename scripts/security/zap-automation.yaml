@@ -5,6 +5,12 @@ env:
         - "${COGLATAS_SECURITY_ZAP_TARGET}"
       includePaths:
         - "${COGLATAS_SECURITY_ZAP_TARGET_REGEX}/.*"
+      # OpenAPI import sends generated requests. Exclude session-mutating auth
+      # routes at the context boundary so importing the contract cannot revoke
+      # the SEC-03 session before the authenticated coverage probe/active scan.
+      excludePaths:
+        - "${COGLATAS_SECURITY_ZAP_TARGET_REGEX}/api/auth/logout(?:[/?#].*)?$"
+        - "${COGLATAS_SECURITY_ZAP_TARGET_REGEX}/api/auth/change-password(?:[/?#].*)?$"
   parameters:
     failOnError: true
     failOnWarning: false
