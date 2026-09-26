@@ -200,7 +200,7 @@ public sealed class CanonicalCurrentAuthorizationTargetResolver(
         var notifications = await dbContext.Notifications
             .AsNoTracking()
             .Where(item =>
-                requested.Contains(item.Id) &&
+                Enumerable.Contains(requested, item.Id) &&
                 item.TenantId == tenantId &&
                 item.UserId == userId &&
                 item.DeletedAt == null)
@@ -405,8 +405,7 @@ public sealed class CanonicalCurrentAuthorizationTargetResolver(
 
     private bool IsTenantInScope(Guid tenantId) =>
         tenantId != Guid.Empty &&
-        currentTenant.IsAvailable &&
-        !currentTenant.IsPlatformScope &&
+        currentTenant is { IsAvailable: true, IsPlatformScope: false } &&
         currentTenant.TenantId == tenantId;
 
     private static NotificationTargetResolution NotOwned() => new(false, false, null, 0);
