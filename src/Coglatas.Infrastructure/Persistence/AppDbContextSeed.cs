@@ -892,36 +892,8 @@ public static class AppDbContextSeed
             }
         }
 
-        async Task EnsureProjectMemberAsync(User member, ProjectRole role)
-        {
-            var existing = await dbContext.ProjectMembers.FirstOrDefaultAsync(candidate =>
-                candidate.TenantId == tenantId &&
-                candidate.ProjectId == project.Id &&
-                candidate.UserId == member.Id,
-                cancellationToken);
-            if (existing is null)
-            {
-                await dbContext.ProjectMembers.AddAsync(new ProjectMember
-                {
-                    TenantId = tenantId,
-                    ProjectId = project.Id,
-                    UserId = member.Id,
-                    Role = role,
-                    JoinedAt = now
-                }, cancellationToken);
-            }
-            else
-            {
-                existing.Role = role;
-                if (existing.JoinedAt == default)
-                {
-                    existing.JoinedAt = now;
-                }
-            }
-        }
-
-        await EnsureProjectMemberAsync(owner, ProjectRole.Owner);
-        await EnsureProjectMemberAsync(recipient, ProjectRole.Contributor);
+        await EnsureSeedProjectMemberAsync(dbContext, tenantId, project.Id, owner.Id, ProjectRole.Owner, now, cancellationToken);
+        await EnsureSeedProjectMemberAsync(dbContext, tenantId, project.Id, recipient.Id, ProjectRole.Contributor, now, cancellationToken);
 
         var task = await dbContext.TaskItems.FirstOrDefaultAsync(candidate =>
             candidate.TenantId == tenantId &&
@@ -1708,37 +1680,9 @@ public static class AppDbContextSeed
             }
         }
 
-        async Task ProjectMemberAsync(User user, ProjectRole role)
-        {
-            var member = await dbContext.ProjectMembers.FirstOrDefaultAsync(
-                candidate =>
-                    candidate.TenantId == tenantId &&
-                    candidate.ProjectId == project.Id &&
-                    candidate.UserId == user.Id,
-                cancellationToken);
-            if (member is null)
-            {
-                await dbContext.ProjectMembers.AddAsync(new ProjectMember
-                {
-                    TenantId = tenantId,
-                    ProjectId = project.Id,
-                    UserId = user.Id,
-                    Role = role,
-                    JoinedAt = now
-                }, cancellationToken);
-                return;
-            }
-
-            member.Role = role;
-            if (member.JoinedAt == default)
-            {
-                member.JoinedAt = now;
-            }
-        }
-
-        await ProjectMemberAsync(owner, ProjectRole.Owner);
-        await ProjectMemberAsync(manager, ProjectRole.Manager);
-        await ProjectMemberAsync(recipient, ProjectRole.Contributor);
+        await EnsureSeedProjectMemberAsync(dbContext, tenantId, project.Id, owner.Id, ProjectRole.Owner, now, cancellationToken);
+        await EnsureSeedProjectMemberAsync(dbContext, tenantId, project.Id, manager.Id, ProjectRole.Manager, now, cancellationToken);
+        await EnsureSeedProjectMemberAsync(dbContext, tenantId, project.Id, recipient.Id, ProjectRole.Contributor, now, cancellationToken);
 
         var workflow = await dbContext.TaskWorkflowDefinitions.FirstOrDefaultAsync(
             candidate => candidate.TenantId == tenantId && candidate.ProjectId == project.Id,
@@ -1978,37 +1922,9 @@ public static class AppDbContextSeed
             }
         }
 
-        async Task ProjectMemberAsync(User user, ProjectRole role)
-        {
-            var member = await dbContext.ProjectMembers.FirstOrDefaultAsync(
-                candidate =>
-                    candidate.TenantId == tenantId &&
-                    candidate.ProjectId == project.Id &&
-                    candidate.UserId == user.Id,
-                cancellationToken);
-            if (member is null)
-            {
-                await dbContext.ProjectMembers.AddAsync(new ProjectMember
-                {
-                    TenantId = tenantId,
-                    ProjectId = project.Id,
-                    UserId = user.Id,
-                    Role = role,
-                    JoinedAt = now
-                }, cancellationToken);
-                return;
-            }
-
-            member.Role = role;
-            if (member.JoinedAt == default)
-            {
-                member.JoinedAt = now;
-            }
-        }
-
-        await ProjectMemberAsync(owner, ProjectRole.Owner);
-        await ProjectMemberAsync(manager, ProjectRole.Manager);
-        await ProjectMemberAsync(viewer, ProjectRole.Viewer);
+        await EnsureSeedProjectMemberAsync(dbContext, tenantId, project.Id, owner.Id, ProjectRole.Owner, now, cancellationToken);
+        await EnsureSeedProjectMemberAsync(dbContext, tenantId, project.Id, manager.Id, ProjectRole.Manager, now, cancellationToken);
+        await EnsureSeedProjectMemberAsync(dbContext, tenantId, project.Id, viewer.Id, ProjectRole.Viewer, now, cancellationToken);
 
         var workflow = await dbContext.TaskWorkflowDefinitions.FirstOrDefaultAsync(
             candidate => candidate.TenantId == tenantId && candidate.ProjectId == project.Id,
