@@ -184,7 +184,7 @@ public sealed class EventService(
         activityEvent.BringItemsText = request.BringItemsText is null ? activityEvent.BringItemsText : NormalizeOptionalText(request.BringItemsText);
         activityEvent.Status = request.Status ?? activityEvent.Status;
 
-        if (activityEvent.Status == EventStatus.Archived && !activityEvent.DeletedAt.HasValue)
+        if (activityEvent is { Status: EventStatus.Archived, DeletedAt: null })
         {
             activityEvent.MarkDeleted(clock.UtcNow);
         }
