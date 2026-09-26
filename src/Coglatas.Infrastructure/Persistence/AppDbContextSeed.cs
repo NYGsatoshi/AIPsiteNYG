@@ -2556,6 +2556,148 @@ public static class AppDbContextSeed
         }
     }
 
+    private static async Task EnsureSeedProjectMemberAsync(
+        AppDbContext dbContext,
+        Guid tenantId,
+        Guid projectId,
+        Guid userId,
+        ProjectRole role,
+        DateTimeOffset joinedAt,
+        CancellationToken cancellationToken)
+    {
+        var member = await dbContext.ProjectMembers.FirstOrDefaultAsync(
+            candidate =>
+                candidate.TenantId == tenantId &&
+                candidate.ProjectId == projectId &&
+                candidate.UserId == userId,
+            cancellationToken);
+        if (member is null)
+        {
+            await dbContext.ProjectMembers.AddAsync(new ProjectMember
+            {
+                TenantId = tenantId,
+                ProjectId = projectId,
+                UserId = userId,
+                Role = role,
+                JoinedAt = joinedAt
+            }, cancellationToken);
+            return;
+        }
+
+        member.Role = role;
+        if (member.JoinedAt == default)
+        {
+            member.JoinedAt = joinedAt;
+        }
+    }
+
+    private static async Task<TaskItem> EnsureSeedTaskAsync(
+        AppDbContext dbContext,
+        Guid tenantId,
+        Guid workspaceId,
+        Guid projectId,
+        string title,
+        Guid createdByUserId,
+        CancellationToken cancellationToken)
+    {
+        var task = await dbContext.TaskItems.FirstOrDefaultAsync(
+            candidate =>
+                candidate.TenantId == tenantId &&
+                candidate.ProjectId == projectId &&
+                candidate.Title == title,
+            cancellationToken);
+        if (task is null)
+        {
+            task = new TaskItem
+            {
+                TenantId = tenantId,
+                WorkspaceId = workspaceId,
+                ProjectId = projectId,
+                Title = title,
+                CreatedByUserId = createdByUserId
+            };
+            await dbContext.TaskItems.AddAsync(task, cancellationToken);
+        }
+        else if (task.IsDeleted)
+        {
+            task.Restore();
+        }
+
+        task.WorkspaceId = workspaceId;
+        return task;
+    }
+
+    private static async Task<TaskWorkflowStage> EnsureSeedWorkflowStageAsync(
+        AppDbContext dbContext,
+        Guid tenantId,
+        Guid workspaceId,
+        Guid projectId,
+        Guid definitionId,
+        string name,
+        TaskStageCategory category,
+        long sortKey,
+        bool isInitial,
+        bool isTerminal,
+        int? wipWarningLimit,
+        bool refreshExisting,
+        bool updateWipWarningLimit,
+        long? createdVersionNo,
+        long? existingVersionNo,
+        CancellationToken cancellationToken)
+    {
+        var stage = await dbContext.TaskWorkflowStages.FirstOrDefaultAsync(
+            candidate =>
+                candidate.TenantId == tenantId &&
+                candidate.ProjectId == projectId &&
+                candidate.InternalCategory == category,
+            cancellationToken);
+        if (stage is null)
+        {
+            stage = new TaskWorkflowStage
+            {
+                TenantId = tenantId,
+                WorkspaceId = workspaceId,
+                ProjectId = projectId,
+                DefinitionId = definitionId,
+                Name = name,
+                InternalCategory = category,
+                SortKey = sortKey,
+                WipWarningLimit = wipWarningLimit,
+                IsInitialStage = isInitial,
+                IsTerminalStage = isTerminal
+            };
+            if (createdVersionNo.HasValue)
+            {
+                stage.VersionNo = createdVersionNo.Value;
+            }
+
+            await dbContext.TaskWorkflowStages.AddAsync(stage, cancellationToken);
+            return stage;
+        }
+
+        if (!refreshExisting)
+        {
+            return stage;
+        }
+
+        stage.WorkspaceId = workspaceId;
+        stage.DefinitionId = definitionId;
+        stage.Name = name;
+        stage.SortKey = sortKey;
+        stage.IsInitialStage = isInitial;
+        stage.IsTerminalStage = isTerminal;
+        if (updateWipWarningLimit)
+        {
+            stage.WipWarningLimit = wipWarningLimit;
+        }
+        if (existingVersionNo.HasValue)
+        {
+            stage.VersionNo = existingVersionNo.Value;
+        }
+
+        return stage;
+    }
+
     private static async Task SeedRadialMenusAsync(
         AppDbContext dbContext,
         IReadOnlyDictionary<string, CommandDefinition> commands,
