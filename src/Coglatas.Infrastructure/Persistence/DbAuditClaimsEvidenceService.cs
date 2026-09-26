@@ -3,6 +3,7 @@ using Coglatas.Application.Audit;
 using Coglatas.Application.Common;
 using Coglatas.Application.Common.Interfaces;
 using Coglatas.Application.Files;
+using Coglatas.Application.Tenancy;
 
 namespace Coglatas.Infrastructure.Persistence;
 
@@ -16,7 +17,7 @@ public sealed class DbAuditClaimsEvidenceService(
     IAuditAuthorizationService auditAuthorization,
     ICurrentUser currentUser) : IAuditClaimsEvidenceService
 {
-    private readonly AuditClaimsEvidenceProjectionBuilder projectionBuilder =
+    private readonly AuditClaimsEvidenceProjectionBuilder _projectionBuilder =
         new(dbContext, artifacts, evidenceRepository, artifactAuthorization, files, fileAuthorization);
 
     public async Task<Result<AuditClaimsEvidenceResponse>> GetAsync(
@@ -27,7 +28,7 @@ public sealed class DbAuditClaimsEvidenceService(
         if (!capabilities.CanView)
         {
             var denied = await auditAuthorization.AuthorizeAsync(
-                Coglatas.Application.Tenancy.CapabilityKeys.AuditView,
+                CapabilityKeys.AuditView,
                 "audit.claims-evidence.read",
                 cancellationToken);
             return AuthorizationFailure(denied);
@@ -38,7 +39,7 @@ public sealed class DbAuditClaimsEvidenceService(
             return Failure("AuthenticationRequired", "Authentication is required.");
         }
 
-        var projection = await projectionBuilder.BuildAsync(
+        var projection = await _projectionBuilder.BuildAsync(
             currentUser.UserId.Value,
             artifactVersionId,
             cancellationToken);
