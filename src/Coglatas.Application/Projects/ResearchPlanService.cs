@@ -407,7 +407,7 @@ public sealed class ResearchPlanService(
     }
 
     private static bool TryNormalizeSteps(
-        IReadOnlyList<ResearchPlanStepRequest?>? source,
+        IReadOnlyList<ResearchPlanStepRequest>? source,
         out IReadOnlyList<NormalizedStep> normalized,
         out ApplicationErrorDetail? failure)
     {
