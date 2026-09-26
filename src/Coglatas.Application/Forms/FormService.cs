@@ -788,15 +788,6 @@ public sealed class FormService(
             cancellationToken);
     }
 
-    private static bool ScopedResourceValidation.HasExactlyOneScope(Guid? workspaceId, Guid? groupId, Guid? projectId)
-    {
-        var count = 0;
-        if (workspaceId.HasValue) count++;
-        if (groupId.HasValue) count++;
-        if (projectId.HasValue) count++;
-        return count == 1;
-    }
-
     private static bool IsChoiceQuestion(FormQuestionType questionType)
     {
         return questionType is FormQuestionType.SingleChoice or FormQuestionType.MultipleChoice;
