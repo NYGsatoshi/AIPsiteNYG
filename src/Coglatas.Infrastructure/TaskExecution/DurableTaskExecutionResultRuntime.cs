@@ -303,22 +303,7 @@ public sealed partial class DurableTaskExecutionResultRuntime : ITaskExecutionRu
         TaskExecutionRun run,
         CancellationToken cancellationToken)
     {
-        var candidates = await dbContext.Set<Attachment>()
-            .AsNoTracking()
-            .Include(attachment => attachment.FileObject)
-            .Where(attachment =>
-                attachment.TenantId == run.TenantId &&
-                attachment.WorkspaceId == run.WorkspaceId &&
-                attachment.OwnerType == AttachmentOwnerType.TaskItem &&
-                attachment.OwnerId == run.TaskItemId &&
-                !attachment.DeletedAt.HasValue &&
-                attachment.ScanStatus == FileScanStatus.Clean &&
-                attachment.FileObject != null &&
-                attachment.FileObject.TenantId == run.TenantId &&
-                attachment.FileObject.WorkspaceId == run.WorkspaceId &&
-                attachment.FileObject.ProjectId == run.ProjectId &&
-                !attachment.FileObject.DeletedAt.HasValue &&
-                attachment.FileObject.Status == FileObjectStatus.Active)
+        var candidates = await TaskExecutionSourceMaterialization.CurrentTaskAttachments(dbContext, run)
             .OrderBy(attachment => attachment.CreatedAt)
             .ThenBy(attachment => attachment.Id)
             .Take(FirstPartyProjectFilesMaterializationV1.MaxSourceCount)
@@ -357,28 +342,12 @@ public sealed partial class DurableTaskExecutionResultRuntime : ITaskExecutionRu
                 continue;
             }
 
-            TaskExecutionMaterializedText? materialized;
-            try
-            {
-                await using var stream = await storage.OpenReadAsync(fileObject.StorageKey, cancellationToken);
-                materialized = await FirstPartyProjectFilesMaterializationV1.ReadUtf8Async(
-                    stream,
-                    mediaType,
-                    maximumForSource,
-                    cancellationToken);
-            }
-            catch (IOException)
-            {
-                continue;
-            }
-            catch (UnauthorizedAccessException)
-            {
-                continue;
-            }
-            catch (NotSupportedException)
-            {
-                continue;
-            }
+            var materialized = await TaskExecutionSourceMaterialization.ReadUtf8Async(
+                storage,
+                fileObject,
+                mediaType,
+                maximumForSource,
+                cancellationToken);
 
             if (materialized is null)
             {
@@ -444,24 +413,11 @@ public sealed partial class DurableTaskExecutionResultRuntime : ITaskExecutionRu
         Guid attachmentId,
         TaskExecutionRun run,
         CancellationToken cancellationToken) =>
-        dbContext.Set<Attachment>()
-            .AsNoTracking()
-            .Include(attachment => attachment.FileObject)
-            .SingleOrDefaultAsync(attachment =>
-                attachment.Id == attachmentId &&
-                attachment.TenantId == run.TenantId &&
-                attachment.WorkspaceId == run.WorkspaceId &&
-                attachment.OwnerType == AttachmentOwnerType.TaskItem &&
-                attachment.OwnerId == run.TaskItemId &&
-                !attachment.DeletedAt.HasValue &&
-                attachment.ScanStatus == FileScanStatus.Clean &&
-                attachment.FileObject != null &&
-                attachment.FileObject.TenantId == run.TenantId &&
-                attachment.FileObject.WorkspaceId == run.WorkspaceId &&
-                attachment.FileObject.ProjectId == run.ProjectId &&
-                !attachment.FileObject.DeletedAt.HasValue &&
-                attachment.FileObject.Status == FileObjectStatus.Active,
-                cancellationToken);
+        TaskExecutionSourceMaterialization.CurrentTaskAttachmentAsync(
+            dbContext,
+            attachmentId,
+            run,
+            cancellationToken);
 
     private async Task<bool> IsCurrentRunScopeAuthorizedAsync(
         TaskExecutionRun run,
