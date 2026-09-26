@@ -111,6 +111,22 @@ public sealed class ResearchPlanServiceTests
 
     [Fact]
     [Trait("Scope", "Issue364")]
+    public async Task NullStepIsRejectedAsValidationFailure()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+
+        var result = await fixture.Service.ReplaceAsync(
+            fixture.TaskItem.Id,
+            new ReplaceResearchPlanRequest(0, [null]));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("RESEARCH_PLAN_VALIDATION_FAILED", result.ErrorDetail!.Code);
+        Assert.Equal("steps[0]", result.ErrorDetail.Target);
+        Assert.Empty(await fixture.Db.ResearchPlans.ToListAsync());
+    }
+
+    [Fact]
+    [Trait("Scope", "Issue364")]
     public async Task TenantScopedRepositoriesRedactAnotherTenantsPlan()
     {
         await using var fixture = await Fixture.CreateAsync();
