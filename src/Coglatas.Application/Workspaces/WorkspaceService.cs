@@ -605,7 +605,7 @@ public sealed class WorkspaceService(
             "workspace",
             workspaceId,
             change,
-            cancellationToken) ?? Task.CompletedTask;
+            cancellationToken);
     }
 
     private static ApplicationErrorDetail AuthenticationRequiredError() =>
@@ -705,7 +705,5 @@ public sealed class WorkspaceService(
         return new WorkspaceMemberResponse(member.UserId, member.User?.DisplayName ?? string.Empty, member.User?.Email ?? string.Empty, member.Role, member.Status, member.JoinedAt);
     }
 
-    private sealed class WorkspaceRequiredInitializationException : Exception
-    {
-    }
+    private sealed class WorkspaceRequiredInitializationException : Exception;
 }
