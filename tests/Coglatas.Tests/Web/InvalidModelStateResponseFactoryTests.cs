@@ -19,8 +19,11 @@ public sealed class InvalidModelStateResponseFactoryTests
         services.AddWebServices(new ConfigurationBuilder().Build());
         using var provider = services.BuildServiceProvider();
         var options = provider.GetRequiredService<IOptions<ApiBehaviorOptions>>().Value;
-        var httpContext = new DefaultHttpContext { RequestServices = provider };
-        httpContext.Request.Path = "/api/files/00000000-0000-0000-0000-000000000001/move";
+        var httpContext = new DefaultHttpContext
+        {
+            RequestServices = provider,
+            Request = { Path = "/api/files/00000000-0000-0000-0000-000000000001/move" }
+        };
         var actionContext = new ActionContext(
             httpContext,
             new RouteData(),
@@ -44,8 +47,11 @@ public sealed class InvalidModelStateResponseFactoryTests
         services.AddWebServices(new ConfigurationBuilder().Build());
         using var provider = services.BuildServiceProvider();
         var options = provider.GetRequiredService<IOptions<ApiBehaviorOptions>>().Value;
-        var httpContext = new DefaultHttpContext { RequestServices = provider };
-        httpContext.Request.Path = "/api/communication/poll/updates";
+        var httpContext = new DefaultHttpContext
+        {
+            RequestServices = provider,
+            Request = { Path = "/api/communication/poll/updates" }
+        };
         var actionContext = new ActionContext(
             httpContext,
             new RouteData(),
