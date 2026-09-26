@@ -21,8 +21,6 @@ public sealed class DbAuditQueryService(
     private const int MaxActionLength = 160;
     private const int MaxEntityTypeLength = 80;
 
-    private readonly AppDbContext _dbContext = dbContext;
-    private readonly ICurrentTenant _currentTenant = currentTenant;
     private readonly IAuditAuthorizationService _auditAuthorization =
         auditAuthorization ?? new LegacyAuditAuthorizationService(
             currentUser,
@@ -56,7 +54,7 @@ public sealed class DbAuditQueryService(
 
         var page = Math.Max(1, query.Page);
         var pageSize = Math.Clamp(query.PageSize, 1, MaxPageSize);
-        var source = ScopeToCurrentTenant(_dbContext.AuditLogs.AsNoTracking());
+        var source = ScopeToCurrentTenant(dbContext.AuditLogs.AsNoTracking());
 
         if (!string.IsNullOrWhiteSpace(query.Action))
         {
@@ -164,7 +162,7 @@ public sealed class DbAuditQueryService(
 
         var page = Math.Max(1, query.Page);
         var pageSize = Math.Clamp(query.PageSize, 1, MaxPageSize);
-        var source = ScopeToCurrentTenant(_dbContext.AuditLogs.AsNoTracking());
+        var source = ScopeToCurrentTenant(dbContext.AuditLogs.AsNoTracking());
 
         if (!string.IsNullOrWhiteSpace(query.Action))
         {
@@ -285,7 +283,7 @@ public sealed class DbAuditQueryService(
         // invalid URL marker from receiving a different resource signal.
         var record = auditId == Guid.Empty
             ? null
-            : await ScopeToCurrentTenant(_dbContext.AuditLogs.AsNoTracking())
+            : await ScopeToCurrentTenant(dbContext.AuditLogs.AsNoTracking())
                 .Where(log => log.Id == auditId)
                 .Select(log => new AuditGridProjection(
                     log.Id,
@@ -335,7 +333,7 @@ public sealed class DbAuditQueryService(
         // one result and cannot be used as an existence oracle.
         var record = auditId == Guid.Empty
             ? null
-            : await ScopeToCurrentTenant(_dbContext.AuditLogs.AsNoTracking())
+            : await ScopeToCurrentTenant(dbContext.AuditLogs.AsNoTracking())
                 .Where(log => log.Id == auditId)
                 .Select(log => new AuditSensitiveMetadataProjection(
                     log.Id,
@@ -376,7 +374,7 @@ public sealed class DbAuditQueryService(
 
         var page = Math.Max(1, query.Page);
         var pageSize = Math.Clamp(query.PageSize, 1, MaxPageSize);
-        var source = ScopeToCurrentTenant(_dbContext.SecurityEvents.AsNoTracking());
+        var source = ScopeToCurrentTenant(dbContext.SecurityEvents.AsNoTracking());
 
         if (query.EventType.HasValue)
         {
@@ -451,21 +449,21 @@ public sealed class DbAuditQueryService(
 
     private IQueryable<AuditLog> ScopeToCurrentTenant(IQueryable<AuditLog> source)
     {
-        return _currentTenant is { IsAvailable: true, IsPlatformScope: false }
-            ? source.Where(log => log.TenantId == _currentTenant.TenantId)
+        return currentTenant is { IsAvailable: true, IsPlatformScope: false }
+            ? source.Where(log => log.TenantId == currentTenant.TenantId)
             : source;
     }
 
     private IQueryable<SecurityEvent> ScopeToCurrentTenant(IQueryable<SecurityEvent> source)
     {
-        return _currentTenant is { IsAvailable: true, IsPlatformScope: false }
-            ? source.Where(item => item.TenantId == _currentTenant.TenantId)
+        return currentTenant is { IsAvailable: true, IsPlatformScope: false }
+            ? source.Where(item => item.TenantId == currentTenant.TenantId)
             : source;
     }
 
     private Result<T>? ValidateQueryScope<T>()
     {
-        if (_currentTenant.IsPlatformScope || _currentTenant.IsAvailable)
+        if (currentTenant.IsPlatformScope || currentTenant.IsAvailable)
         {
             return null;
         }
