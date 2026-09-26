@@ -38,7 +38,7 @@ public sealed class AnnouncementPaginationSafetyTests
         Assert.Equal(100, normalized.PageSize);
         Assert.True(normalized.Page >= 1);
         Assert.True(
-            ((long)normalized.Page - 1L) * normalized.PageSize <= int.MaxValue,
+            (normalized.Page - 1L) * normalized.PageSize <= int.MaxValue,
             "Normalized announcement pagination must remain representable by EF Core Skip(int).");
     }
 
