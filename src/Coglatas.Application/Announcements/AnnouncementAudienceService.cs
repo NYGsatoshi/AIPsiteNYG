@@ -205,7 +205,12 @@ public sealed class AnnouncementAudienceService(
                 return Result<bool>.Success(false);
             }
 
-            return Result<bool>.Success(await CanCreateGroupAnnouncementAsync(actorUserId, groupId.Value, cancellationToken));
+            return Result<bool>.Success(await AnnouncementScopeAuthorization.CanCreateGroupAsync(
+                groupAuthorization,
+                actorUserId,
+                groupId.Value,
+                IsTeacherAsync,
+                cancellationToken));
         }
 
         if (workspaceId.HasValue)
@@ -216,7 +221,12 @@ public sealed class AnnouncementAudienceService(
                 return Result<bool>.Success(false);
             }
 
-            return Result<bool>.Success(await CanCreateWorkspaceAnnouncementAsync(actorUserId, workspaceId.Value, cancellationToken));
+            return Result<bool>.Success(await AnnouncementScopeAuthorization.CanCreateWorkspaceAsync(
+                workspaceAuthorization,
+                actorUserId,
+                workspaceId.Value,
+                IsTeacherAsync,
+                cancellationToken));
         }
 
         return Result<bool>.Success(isSystemAdmin);
