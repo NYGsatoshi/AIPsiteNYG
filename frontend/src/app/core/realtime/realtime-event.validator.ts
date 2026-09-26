@@ -9,14 +9,14 @@ export function validateDurableRealtimeEvent(value: unknown, expectedTenantId: s
     return null;
   }
 
-  const eventType = stringValue(value['eventType']),
-    eventId = stringValue(value['eventId']),
-    tenantId = stringValue(value['tenantId']),
+  const actor = toActor(value['actor']),
     aggregateId = stringValue(value['aggregateId']),
     aggregateType = stringValue(value['aggregateType']),
+    eventId = stringValue(value['eventId']),
+    eventType = stringValue(value['eventType']),
     occurredAt = stringValue(value['occurredAt']),
     schemaVersion = value['payloadSchemaVersion'],
-    actor = toActor(value['actor']);
+    tenantId = stringValue(value['tenantId']);
 
   if (
     !eventType ||
