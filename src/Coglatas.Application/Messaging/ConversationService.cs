@@ -1057,7 +1057,7 @@ public sealed class ConversationService(
             return await DenyAsync(userId, "ConversationReadDenied", "Conversation", conversationId, "Conversation not found.", cancellationToken, "participant_missing");
         }
 
-        if (!await ValidateReadableConversationMessageAsync(userId, conversationId, request.LastReadMessageId, "cursor_message_denied", cancellationToken))
+        if (!await ValidateReadableConversationMessageAsync(userId, conversationId, request.LastReadMessageId, cancellationToken))
         {
             return await DenyAsync(userId, "ConversationReadDenied", "Conversation", conversationId, "Message not found.", cancellationToken, "cursor_message_denied");
         }
@@ -1135,8 +1135,8 @@ public sealed class ConversationService(
             return await DenyAsync<ParticipantStateResponse>(userId, "ParticipantStateUpdateDenied", "Conversation", conversationId, "Conversation not found.", cancellationToken, "participant_removed");
         }
 
-        if (!await ValidateReadableConversationMessageAsync(userId, conversationId, request.LastReadMessageId, "cursor_message_denied", cancellationToken) ||
-            !await ValidateReadableConversationMessageAsync(userId, conversationId, request.UnreadCursorMessageId, "cursor_message_denied", cancellationToken))
+        if (!await ValidateReadableConversationMessageAsync(userId, conversationId, request.LastReadMessageId, cancellationToken) ||
+            !await ValidateReadableConversationMessageAsync(userId, conversationId, request.UnreadCursorMessageId, cancellationToken))
         {
             return await DenyAsync<ParticipantStateResponse>(userId, "ParticipantStateUpdateDenied", "Conversation", conversationId, "Message not found.", cancellationToken, "cursor_message_denied");
         }
@@ -1242,7 +1242,7 @@ public sealed class ConversationService(
         }
 
         var parent = await messaging.GetConversationAsync(request.ParentConversationId.Value, cancellationToken);
-        if (parent is null || parent.Type == ConversationType.Thread && parent.ParentConversationId is null)
+        if (parent is null || parent is { Type: ConversationType.Thread, ParentConversationId: null })
         {
             return Result<ConversationDetailResponse>.Failure("Parent conversation not found.");
         }
@@ -1484,7 +1484,7 @@ public sealed class ConversationService(
             member.UpdatedAt);
     }
 
-    private async Task<bool> ValidateReadableConversationMessageAsync(Guid actorUserId, Guid conversationId, Guid? messageId, string reasonCode, CancellationToken cancellationToken)
+    private async Task<bool> ValidateReadableConversationMessageAsync(Guid actorUserId, Guid conversationId, Guid? messageId, CancellationToken cancellationToken)
     {
         if (!messageId.HasValue)
         {
@@ -1691,7 +1691,7 @@ public sealed class ConversationService(
 
     private Task<Result<Guid>> EnqueueMessagingEventAsync(string eventType, string aggregateType, Guid aggregateId, long? aggregateVersion, Guid actorUserId, string? causationId, JsonElement payload, IReadOnlyCollection<RealtimeRoutingTarget> routingTargets, CancellationToken cancellationToken)
     {
-        var tenantId = conversationTenantId();
+        var tenantId = ConversationTenantId();
         if (tenantId == Guid.Empty)
         {
             return Task.FromResult(Result<Guid>.Failure("A matching active tenant context is required."));
@@ -1699,5 +1699,8 @@ public sealed class ConversationService(
         return outbox.EnqueueAsync(new DurableEventEnvelope(Guid.NewGuid(), eventType, RealtimeEventCatalog.PayloadSchemaVersion1, clock.UtcNow, tenantId, aggregateType, aggregateId, aggregateVersion, new RealtimeActor("User", actorUserId), null, causationId, payload), routingTargets, cancellationToken);
     }
 
-    private Guid conversationTenantId() => currentTenant.IsAvailable && !currentTenant.IsPlatformScope ? currentTenant.TenantId : Guid.Empty;
+    private Guid ConversationTenantId() =>
+        currentTenant is { IsAvailable: true, IsPlatformScope: false }
+            ? currentTenant.TenantId
+            : Guid.Empty;
 }
