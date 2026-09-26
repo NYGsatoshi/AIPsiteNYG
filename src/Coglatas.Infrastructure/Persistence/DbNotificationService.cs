@@ -42,13 +42,10 @@ public sealed class DbNotificationService(
         }
 
         var normalizedLogicalKey = NormalizeLogicalKey(logicalKey);
-        var local = FindLocalLogicalNotification(userId, normalizedLogicalKey);
-        if (local is not null)
-        {
-            return local.Id;
-        }
-
-        var existing = await FindLogicalNotificationAsync(userId, normalizedLogicalKey, cancellationToken);
+        var existing = await FindExistingLogicalNotificationIdAsync(
+            userId,
+            normalizedLogicalKey,
+            cancellationToken);
         if (existing.HasValue)
         {
             return existing.Value;
@@ -106,13 +103,10 @@ public sealed class DbNotificationService(
         }
 
         var normalizedLogicalKey = NormalizeLogicalKey(logicalKey);
-        var local = FindLocalLogicalNotification(userId, normalizedLogicalKey);
-        if (local is not null)
-        {
-            return local.Id;
-        }
-
-        var existing = await FindLogicalNotificationAsync(userId, normalizedLogicalKey, cancellationToken);
+        var existing = await FindExistingLogicalNotificationIdAsync(
+            userId,
+            normalizedLogicalKey,
+            cancellationToken);
         if (existing.HasValue)
         {
             // Logical identity includes soft-deleted rows. A retry must not
@@ -158,13 +152,10 @@ public sealed class DbNotificationService(
         }
 
         var normalizedLogicalKey = NormalizeLogicalKey(logicalKey);
-        var local = FindLocalLogicalNotification(userId, normalizedLogicalKey);
-        if (local is not null)
-        {
-            return local.Id;
-        }
-
-        var existing = await FindLogicalNotificationAsync(userId, normalizedLogicalKey, cancellationToken);
+        var existing = await FindExistingLogicalNotificationIdAsync(
+            userId,
+            normalizedLogicalKey,
+            cancellationToken);
         if (existing.HasValue)
         {
             // This intentionally includes soft-deleted rows. A recipient's
@@ -668,6 +659,17 @@ public sealed class DbNotificationService(
         notification.ReadAt,
         BuildTargetRoute(notification.RelatedEntityType, notification.RelatedEntityId),
         notification.StateVersion);
+
+    private async Task<Guid?> FindExistingLogicalNotificationIdAsync(
+        Guid userId,
+        string normalizedLogicalKey,
+        CancellationToken cancellationToken)
+    {
+        var local = FindLocalLogicalNotification(userId, normalizedLogicalKey);
+        return local is not null
+            ? local.Id
+            : await FindLogicalNotificationAsync(userId, normalizedLogicalKey, cancellationToken);
+    }
 
     private async Task<Guid?> FindLogicalNotificationAsync(
         Guid userId,
