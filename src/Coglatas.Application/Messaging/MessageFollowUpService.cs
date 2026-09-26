@@ -157,8 +157,7 @@ public sealed class MessageFollowUpService(
         userId = currentUser.UserId ?? Guid.Empty;
         return currentUser.IsAuthenticated &&
                userId != Guid.Empty &&
-               currentTenant.IsAvailable &&
-               !currentTenant.IsPlatformScope;
+               currentTenant is { IsAvailable: true, IsPlatformScope: false };
     }
 
     private Task AuditAsync(
