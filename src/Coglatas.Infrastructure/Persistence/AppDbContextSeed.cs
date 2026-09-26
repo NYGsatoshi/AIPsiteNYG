@@ -1006,36 +1006,40 @@ public static class AppDbContextSeed
             await dbContext.TaskWorkflowDefinitions.AddAsync(workflow, cancellationToken);
         }
 
-        async Task<TaskWorkflowStage> StageAsync(string name, TaskStageCategory category, long sortKey, bool initial, bool terminal)
-        {
-            var stage = await dbContext.TaskWorkflowStages.FirstOrDefaultAsync(
-                candidate =>
-                    candidate.TenantId == tenantId &&
-                    candidate.ProjectId == project.Id &&
-                    candidate.InternalCategory == category,
-                cancellationToken);
-            if (stage is null)
-            {
-                stage = new TaskWorkflowStage
-                {
-                    TenantId = tenantId,
-                    WorkspaceId = workspace.Id,
-                    ProjectId = project.Id,
-                    DefinitionId = workflow.Id,
-                    Name = name,
-                    InternalCategory = category,
-                    SortKey = sortKey,
-                    IsInitialStage = initial,
-                    IsTerminalStage = terminal
-                };
-                await dbContext.TaskWorkflowStages.AddAsync(stage, cancellationToken);
-            }
-
-            return stage;
-        }
-
-        var todo = await StageAsync("Todo", TaskStageCategory.Todo, 1024, true, false);
-        var done = await StageAsync("Done", TaskStageCategory.Done, 2048, false, true);
+        var todo = await EnsureSeedWorkflowStageAsync(
+            dbContext,
+            tenantId,
+            workspace.Id,
+            project.Id,
+            workflow.Id,
+            "Todo",
+            TaskStageCategory.Todo,
+            1024,
+            true,
+            false,
+            null,
+            false,
+            false,
+            null,
+            null,
+            cancellationToken);
+        var done = await EnsureSeedWorkflowStageAsync(
+            dbContext,
+            tenantId,
+            workspace.Id,
+            project.Id,
+            workflow.Id,
+            "Done",
+            TaskStageCategory.Done,
+            2048,
+            false,
+            true,
+            null,
+            false,
+            false,
+            null,
+            null,
+            cancellationToken);
         assignedTask.WorkflowStageId = todo.Id;
         assignedTask.PlannedEndDate = assignedTask.DueDate;
 
@@ -1381,52 +1385,40 @@ public static class AppDbContextSeed
             workflow.VersionNo = 1;
         }
 
-        async Task<TaskWorkflowStage> StageAsync(
-            string name,
-            TaskStageCategory category,
-            long sortKey,
-            bool isInitial,
-            bool isTerminal)
-        {
-            var stage = await dbContext.TaskWorkflowStages.FirstOrDefaultAsync(
-                candidate =>
-                    candidate.TenantId == tenantId &&
-                    candidate.ProjectId == project.Id &&
-                    candidate.InternalCategory == category,
-                cancellationToken);
-            if (stage is null)
-            {
-                stage = new TaskWorkflowStage
-                {
-                    TenantId = tenantId,
-                    WorkspaceId = workspace.Id,
-                    ProjectId = project.Id,
-                    DefinitionId = workflow.Id,
-                    Name = name,
-                    InternalCategory = category,
-                    SortKey = sortKey,
-                    IsInitialStage = isInitial,
-                    IsTerminalStage = isTerminal,
-                    VersionNo = 1
-                };
-                await dbContext.TaskWorkflowStages.AddAsync(stage, cancellationToken);
-            }
-            else
-            {
-                stage.WorkspaceId = workspace.Id;
-                stage.DefinitionId = workflow.Id;
-                stage.Name = name;
-                stage.SortKey = sortKey;
-                stage.IsInitialStage = isInitial;
-                stage.IsTerminalStage = isTerminal;
-                stage.VersionNo = 1;
-            }
-
-            return stage;
-        }
-
-        await StageAsync("Todo", TaskStageCategory.Todo, 1024, true, false);
-        var inProgress = await StageAsync("In progress", TaskStageCategory.InProgress, 2048, false, false);
+        await EnsureSeedWorkflowStageAsync(
+            dbContext,
+            tenantId,
+            workspace.Id,
+            project.Id,
+            workflow.Id,
+            "Todo",
+            TaskStageCategory.Todo,
+            1024,
+            true,
+            false,
+            null,
+            true,
+            false,
+            1,
+            1,
+            cancellationToken);
+        var inProgress = await EnsureSeedWorkflowStageAsync(
+            dbContext,
+            tenantId,
+            workspace.Id,
+            project.Id,
+            workflow.Id,
+            "In progress",
+            TaskStageCategory.InProgress,
+            2048,
+            false,
+            false,
+            null,
+            true,
+            false,
+            1,
+            1,
+            cancellationToken);
 
         var task = await EnsureSeedTaskAsync(
             dbContext,
@@ -1683,56 +1675,57 @@ public static class AppDbContextSeed
             workflow.VersionNo = 1;
         }
 
-        async Task<TaskWorkflowStage> StageAsync(
-            string name,
-            TaskStageCategory category,
-            long sortKey,
-            bool initial,
-            bool terminal,
-            int? wipWarningLimit)
-        {
-            var stage = await dbContext.TaskWorkflowStages.FirstOrDefaultAsync(
-                candidate =>
-                    candidate.TenantId == tenantId &&
-                    candidate.ProjectId == project.Id &&
-                    candidate.InternalCategory == category,
-                cancellationToken);
-            if (stage is null)
-            {
-                stage = new TaskWorkflowStage
-                {
-                    TenantId = tenantId,
-                    WorkspaceId = workspace.Id,
-                    ProjectId = project.Id,
-                    DefinitionId = workflow.Id,
-                    Name = name,
-                    InternalCategory = category,
-                    SortKey = sortKey,
-                    WipWarningLimit = wipWarningLimit,
-                    IsInitialStage = initial,
-                    IsTerminalStage = terminal,
-                    VersionNo = 1
-                };
-                await dbContext.TaskWorkflowStages.AddAsync(stage, cancellationToken);
-            }
-            else
-            {
-                stage.WorkspaceId = workspace.Id;
-                stage.DefinitionId = workflow.Id;
-                stage.Name = name;
-                stage.SortKey = sortKey;
-                stage.WipWarningLimit = wipWarningLimit;
-                stage.IsInitialStage = initial;
-                stage.IsTerminalStage = terminal;
-                stage.VersionNo = 1;
-            }
-
-            return stage;
-        }
-
-        var todo = await StageAsync("Todo", TaskStageCategory.Todo, 1000, true, false, 4);
-        await StageAsync("Done", TaskStageCategory.Done, 2000, false, true, null);
-        await StageAsync("Cancelled", TaskStageCategory.Cancelled, 3000, false, true, null);
+        var todo = await EnsureSeedWorkflowStageAsync(
+            dbContext,
+            tenantId,
+            workspace.Id,
+            project.Id,
+            workflow.Id,
+            "Todo",
+            TaskStageCategory.Todo,
+            1000,
+            true,
+            false,
+            4,
+            true,
+            true,
+            1,
+            1,
+            cancellationToken);
+        await EnsureSeedWorkflowStageAsync(
+            dbContext,
+            tenantId,
+            workspace.Id,
+            project.Id,
+            workflow.Id,
+            "Done",
+            TaskStageCategory.Done,
+            2000,
+            false,
+            true,
+            null,
+            true,
+            true,
+            1,
+            1,
+            cancellationToken);
+        await EnsureSeedWorkflowStageAsync(
+            dbContext,
+            tenantId,
+            workspace.Id,
+            project.Id,
+            workflow.Id,
+            "Cancelled",
+            TaskStageCategory.Cancelled,
+            3000,
+            false,
+            true,
+            null,
+            true,
+            true,
+            1,
+            1,
+            cancellationToken);
 
         async Task TaskAsync(string title, long sortKey)
         {
@@ -1908,52 +1901,57 @@ public static class AppDbContextSeed
             workflow.KanbanDefaultSwimlane = ProjectKanbanSwimlane.None;
         }
 
-        async Task<TaskWorkflowStage> StageAsync(
-            string name,
-            TaskStageCategory category,
-            long sortKey,
-            bool initial,
-            bool terminal)
-        {
-            var stage = await dbContext.TaskWorkflowStages.FirstOrDefaultAsync(
-                candidate =>
-                    candidate.TenantId == tenantId &&
-                    candidate.ProjectId == project.Id &&
-                    candidate.InternalCategory == category,
-                cancellationToken);
-            if (stage is null)
-            {
-                stage = new TaskWorkflowStage
-                {
-                    TenantId = tenantId,
-                    WorkspaceId = workspace.Id,
-                    ProjectId = project.Id,
-                    DefinitionId = workflow.Id,
-                    Name = name,
-                    InternalCategory = category,
-                    SortKey = sortKey,
-                    IsInitialStage = initial,
-                    IsTerminalStage = terminal,
-                    VersionNo = 1
-                };
-                await dbContext.TaskWorkflowStages.AddAsync(stage, cancellationToken);
-            }
-            else
-            {
-                stage.WorkspaceId = workspace.Id;
-                stage.DefinitionId = workflow.Id;
-                stage.Name = name;
-                stage.SortKey = sortKey;
-                stage.IsInitialStage = initial;
-                stage.IsTerminalStage = terminal;
-            }
-
-            return stage;
-        }
-
-        var todo = await StageAsync("Todo", TaskStageCategory.Todo, 1000, true, false);
-        var inProgress = await StageAsync("In Progress", TaskStageCategory.InProgress, 2000, false, false);
-        await StageAsync("Done", TaskStageCategory.Done, 3000, false, true);
+        var todo = await EnsureSeedWorkflowStageAsync(
+            dbContext,
+            tenantId,
+            workspace.Id,
+            project.Id,
+            workflow.Id,
+            "Todo",
+            TaskStageCategory.Todo,
+            1000,
+            true,
+            false,
+            null,
+            true,
+            false,
+            1,
+            null,
+            cancellationToken);
+        var inProgress = await EnsureSeedWorkflowStageAsync(
+            dbContext,
+            tenantId,
+            workspace.Id,
+            project.Id,
+            workflow.Id,
+            "In Progress",
+            TaskStageCategory.InProgress,
+            2000,
+            false,
+            false,
+            null,
+            true,
+            false,
+            1,
+            null,
+            cancellationToken);
+        await EnsureSeedWorkflowStageAsync(
+            dbContext,
+            tenantId,
+            workspace.Id,
+            project.Id,
+            workflow.Id,
+            "Done",
+            TaskStageCategory.Done,
+            3000,
+            false,
+            true,
+            null,
+            true,
+            false,
+            1,
+            null,
+            cancellationToken);
 
         async Task<TaskItem> TaskAsync(
             string title,
