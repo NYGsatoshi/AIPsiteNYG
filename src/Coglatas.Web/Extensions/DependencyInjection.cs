@@ -3,7 +3,6 @@ using Coglatas.Application.Common.Tenancy;
 using Coglatas.Application.Auth;
 using Coglatas.Application.Messaging;
 using Coglatas.Application.Notifications;
-using Coglatas.Application.Security.Redaction;
 using Coglatas.Infrastructure.Persistence;
 using Coglatas.Web.Audit;
 using Coglatas.Web.Configuration;
@@ -14,7 +13,6 @@ using Coglatas.Web.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Authorization.Policy;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
@@ -23,6 +21,9 @@ namespace Coglatas.Web.Extensions;
 
 public static class DependencyInjection
 {
+    // Returning IServiceCollection is intentional for standard DI fluent composition,
+    // even though the current composition root does not consume the return value.
+    // ReSharper disable once UnusedMethodReturnValue.Global
     public static IServiceCollection AddWebServices(this IServiceCollection services, IConfiguration configuration)
     {
         var security = configuration.GetSection("Security").Get<SecurityOptions>() ?? new SecurityOptions();
@@ -36,7 +37,7 @@ public static class DependencyInjection
         services.AddSingleton(provider => provider.GetRequiredService<IOptions<TenancyOptions>>().Value);
         services.AddSingleton<CsrfProtectionState>();
         services.AddCors(options => HttpSecurityPolicy.ConfigureCors(options, security));
-        services.AddHsts(options => HttpSecurityPolicy.ConfigureHsts(options));
+        services.AddHsts(HttpSecurityPolicy.ConfigureHsts);
         services.Configure<FormOptions>(options =>
         {
             options.MultipartBodyLengthLimit = security.MaxMultipartBodySizeBytes;
@@ -150,6 +151,10 @@ public static class DependencyInjection
                         // options configurator.  Capturing it here can therefore
                         // legitimately yield null, which used to turn ordinary
                         // data-annotation failures into 500 responses.
+                        // InvalidModelStateResponseFactory is annotated non-null, but this
+                        // configurator can observe it before MVC's later default configurator.
+                        // Keep the runtime fallback that prevents validation failures becoming 500s.
+                        // ReSharper disable once ConditionalAccessQualifierIsNonNullableAccordingToAPIContract
                         return defaultFactory?.Invoke(context) ??
                             new BadRequestObjectResult(new ValidationProblemDetails(context.ModelState));
                     }
