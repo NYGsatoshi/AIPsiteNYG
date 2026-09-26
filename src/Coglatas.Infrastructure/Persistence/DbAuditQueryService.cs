@@ -8,7 +8,12 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Coglatas.Infrastructure.Persistence;
 
-public sealed class DbAuditQueryService : IAuditQueryService
+public sealed class DbAuditQueryService(
+    AppDbContext dbContext,
+    ICurrentUser currentUser,
+    ICurrentTenant currentTenant,
+    ITenantRepository tenantRepository,
+    IAuditAuthorizationService? auditAuthorization = null) : IAuditQueryService
 {
     private const int MaxPageSize = 100;
     private const int MaxSearchLength = 200;
@@ -16,24 +21,13 @@ public sealed class DbAuditQueryService : IAuditQueryService
     private const int MaxActionLength = 160;
     private const int MaxEntityTypeLength = 80;
 
-    private readonly AppDbContext dbContext;
-    private readonly ICurrentTenant currentTenant;
-    private readonly IAuditAuthorizationService auditAuthorization;
-
-    public DbAuditQueryService(
-        AppDbContext dbContext,
-        ICurrentUser currentUser,
-        ICurrentTenant currentTenant,
-        ITenantRepository tenantRepository,
-        IAuditAuthorizationService? auditAuthorization = null)
-    {
-        this.dbContext = dbContext;
-        this.currentTenant = currentTenant;
-        this.auditAuthorization = auditAuthorization ?? new LegacyAuditAuthorizationService(
+    private readonly AppDbContext _dbContext = dbContext;
+    private readonly ICurrentTenant _currentTenant = currentTenant;
+    private readonly IAuditAuthorizationService _auditAuthorization =
+        auditAuthorization ?? new LegacyAuditAuthorizationService(
             currentUser,
             currentTenant,
             tenantRepository);
-    }
 
     public async Task<Result<PagedResponse<AuditLogListItemResponse>>> ListAuditLogsAsync(
         AuditLogQuery query,
@@ -47,7 +41,7 @@ public sealed class DbAuditQueryService : IAuditQueryService
 
         if (query.ActorUserId.HasValue && !capabilities.CanViewSensitiveMetadata)
         {
-            var denied = await auditAuthorization.AuthorizeAsync(
+            var denied = await _auditAuthorization.AuthorizeAsync(
                 CapabilityKeys.AuditSensitiveMetadataView,
                 "audit.logs.filter.actor",
                 cancellationToken);
@@ -62,7 +56,7 @@ public sealed class DbAuditQueryService : IAuditQueryService
 
         var page = Math.Max(1, query.Page);
         var pageSize = Math.Clamp(query.PageSize, 1, MaxPageSize);
-        var source = ScopeToCurrentTenant(dbContext.AuditLogs.AsNoTracking());
+        var source = ScopeToCurrentTenant(_dbContext.AuditLogs.AsNoTracking());
 
         if (!string.IsNullOrWhiteSpace(query.Action))
         {
@@ -145,7 +139,7 @@ public sealed class DbAuditQueryService : IAuditQueryService
         if ((query.ActorUserId.HasValue || !string.IsNullOrWhiteSpace(query.Actor)) &&
             !capabilities.CanViewSensitiveMetadata)
         {
-            var denied = await auditAuthorization.AuthorizeAsync(
+            var denied = await _auditAuthorization.AuthorizeAsync(
                 CapabilityKeys.AuditSensitiveMetadataView,
                 "audit.grid.filter.actor",
                 cancellationToken);
@@ -170,7 +164,7 @@ public sealed class DbAuditQueryService : IAuditQueryService
 
         var page = Math.Max(1, query.Page);
         var pageSize = Math.Clamp(query.PageSize, 1, MaxPageSize);
-        var source = ScopeToCurrentTenant(dbContext.AuditLogs.AsNoTracking());
+        var source = ScopeToCurrentTenant(_dbContext.AuditLogs.AsNoTracking());
 
         if (!string.IsNullOrWhiteSpace(query.Action))
         {
@@ -291,7 +285,7 @@ public sealed class DbAuditQueryService : IAuditQueryService
         // invalid URL marker from receiving a different resource signal.
         var record = auditId == Guid.Empty
             ? null
-            : await ScopeToCurrentTenant(dbContext.AuditLogs.AsNoTracking())
+            : await ScopeToCurrentTenant(_dbContext.AuditLogs.AsNoTracking())
                 .Where(log => log.Id == auditId)
                 .Select(log => new AuditGridProjection(
                     log.Id,
@@ -323,7 +317,7 @@ public sealed class DbAuditQueryService : IAuditQueryService
 
         if (!capabilities.CanViewSensitiveMetadata)
         {
-            var denied = await auditAuthorization.AuthorizeAsync(
+            var denied = await _auditAuthorization.AuthorizeAsync(
                 CapabilityKeys.AuditSensitiveMetadataView,
                 "audit.grid.sensitive-metadata.read",
                 cancellationToken);
@@ -341,7 +335,7 @@ public sealed class DbAuditQueryService : IAuditQueryService
         // one result and cannot be used as an existence oracle.
         var record = auditId == Guid.Empty
             ? null
-            : await ScopeToCurrentTenant(dbContext.AuditLogs.AsNoTracking())
+            : await ScopeToCurrentTenant(_dbContext.AuditLogs.AsNoTracking())
                 .Where(log => log.Id == auditId)
                 .Select(log => new AuditSensitiveMetadataProjection(
                     log.Id,
@@ -367,7 +361,7 @@ public sealed class DbAuditQueryService : IAuditQueryService
         if ((query.UserId.HasValue || !string.IsNullOrWhiteSpace(query.Email)) &&
             !capabilities.CanViewSensitiveMetadata)
         {
-            var denied = await auditAuthorization.AuthorizeAsync(
+            var denied = await _auditAuthorization.AuthorizeAsync(
                 CapabilityKeys.AuditSensitiveMetadataView,
                 "audit.security-events.filter.identity",
                 cancellationToken);
@@ -382,7 +376,7 @@ public sealed class DbAuditQueryService : IAuditQueryService
 
         var page = Math.Max(1, query.Page);
         var pageSize = Math.Clamp(query.PageSize, 1, MaxPageSize);
-        var source = ScopeToCurrentTenant(dbContext.SecurityEvents.AsNoTracking());
+        var source = ScopeToCurrentTenant(_dbContext.SecurityEvents.AsNoTracking());
 
         if (query.EventType.HasValue)
         {
@@ -442,13 +436,13 @@ public sealed class DbAuditQueryService : IAuditQueryService
         string operation,
         CancellationToken cancellationToken)
     {
-        var capabilities = await auditAuthorization.GetCapabilitiesAsync(cancellationToken);
+        var capabilities = await _auditAuthorization.GetCapabilitiesAsync(cancellationToken);
         if (capabilities.CanView)
         {
             return (capabilities, null);
         }
 
-        var denied = await auditAuthorization.AuthorizeAsync(
+        var denied = await _auditAuthorization.AuthorizeAsync(
             CapabilityKeys.AuditView,
             operation,
             cancellationToken);
@@ -457,21 +451,21 @@ public sealed class DbAuditQueryService : IAuditQueryService
 
     private IQueryable<AuditLog> ScopeToCurrentTenant(IQueryable<AuditLog> source)
     {
-        return currentTenant is { IsAvailable: true, IsPlatformScope: false }
-            ? source.Where(log => log.TenantId == currentTenant.TenantId)
+        return _currentTenant is { IsAvailable: true, IsPlatformScope: false }
+            ? source.Where(log => log.TenantId == _currentTenant.TenantId)
             : source;
     }
 
     private IQueryable<SecurityEvent> ScopeToCurrentTenant(IQueryable<SecurityEvent> source)
     {
-        return currentTenant is { IsAvailable: true, IsPlatformScope: false }
-            ? source.Where(item => item.TenantId == currentTenant.TenantId)
+        return _currentTenant is { IsAvailable: true, IsPlatformScope: false }
+            ? source.Where(item => item.TenantId == _currentTenant.TenantId)
             : source;
     }
 
     private Result<T>? ValidateQueryScope<T>()
     {
-        if (currentTenant.IsPlatformScope || currentTenant.IsAvailable)
+        if (_currentTenant.IsPlatformScope || _currentTenant.IsAvailable)
         {
             return null;
         }
@@ -515,7 +509,7 @@ public sealed class DbAuditQueryService : IAuditQueryService
             action?.Length > MaxActionLength || entityType?.Length > MaxEntityTypeLength ||
             (severity is not null && severity is not ("info" or "warning" or "critical")) ||
             (result is not null && result is not ("success" or "denied" or "failed")) ||
-            (query.FromDate.HasValue && query.ToDate.HasValue && query.FromDate > query.ToDate))
+            (query is { FromDate: { } fromDate, ToDate: { } toDate } && fromDate > toDate))
         {
             return Result<AuditLogQuery>.Failure(new ApplicationErrorDetail(
                 "AuditFilterInvalid",
@@ -703,7 +697,7 @@ public sealed class DbAuditQueryService : IAuditQueryService
                 return new AuditCapabilityResponse(false, false, false, false, false);
             }
 
-            if (currentUser.SystemRole is SystemRole.PlatformAdmin or SystemRole.SystemAdmin)
+            if (currentUser.SystemRole == SystemRole.PlatformAdmin)
             {
                 return new AuditCapabilityResponse(true, true, true, true, true);
             }
