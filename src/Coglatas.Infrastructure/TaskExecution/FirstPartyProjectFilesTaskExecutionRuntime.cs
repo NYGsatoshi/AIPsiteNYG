@@ -225,22 +225,7 @@ public sealed class FirstPartyProjectFilesTaskExecutionRuntime(
             .Where(id => id != Guid.Empty)
             .ToArray();
 
-        var candidatesQuery = dbContext.Set<Attachment>()
-            .AsNoTracking()
-            .Include(attachment => attachment.FileObject)
-            .Where(attachment =>
-                attachment.TenantId == run.TenantId &&
-                attachment.WorkspaceId == run.WorkspaceId &&
-                attachment.OwnerType == AttachmentOwnerType.TaskItem &&
-                attachment.OwnerId == run.TaskItemId &&
-                !attachment.DeletedAt.HasValue &&
-                attachment.ScanStatus == FileScanStatus.Clean &&
-                attachment.FileObject != null &&
-                attachment.FileObject.TenantId == run.TenantId &&
-                attachment.FileObject.WorkspaceId == run.WorkspaceId &&
-                attachment.FileObject.ProjectId == run.ProjectId &&
-                !attachment.FileObject.DeletedAt.HasValue &&
-                attachment.FileObject.Status == FileObjectStatus.Active);
+        var candidatesQuery = TaskExecutionSourceMaterialization.CurrentTaskAttachments(dbContext, run);
 
         // Item rules override the ProjectFile kind default. Filtering happens
         // before Take and, critically, before any storage.OpenReadAsync call.
@@ -279,28 +264,12 @@ public sealed class FirstPartyProjectFilesTaskExecutionRuntime(
 
             if (!await fileAuthorization.CanViewAttachment(run.RequestedByUserId, candidate, cancellationToken)) continue;
 
-            TaskExecutionMaterializedText? materialized;
-            try
-            {
-                await using var stream = await storage.OpenReadAsync(fileObject.StorageKey, cancellationToken);
-                materialized = await FirstPartyProjectFilesMaterializationV1.ReadUtf8Async(
-                    stream,
-                    mediaType,
-                    maximumForSource,
-                    cancellationToken);
-            }
-            catch (IOException)
-            {
-                continue;
-            }
-            catch (UnauthorizedAccessException)
-            {
-                continue;
-            }
-            catch (NotSupportedException)
-            {
-                continue;
-            }
+            var materialized = await TaskExecutionSourceMaterialization.ReadUtf8Async(
+                storage,
+                fileObject,
+                mediaType,
+                maximumForSource,
+                cancellationToken);
 
             if (materialized is null) continue;
 
@@ -356,25 +325,15 @@ public sealed class FirstPartyProjectFilesTaskExecutionRuntime(
     private static Guid ParseProjectFileId(string sourceId) =>
         TaskExecutionSourcePolicyV2.TryParseProjectFileSourceId(sourceId, out var id) ? id : Guid.Empty;
 
-    private Task<Attachment?> CurrentCandidateAsync(Guid attachmentId, TaskExecutionRun run, CancellationToken cancellationToken) =>
-        dbContext.Set<Attachment>()
-            .AsNoTracking()
-            .Include(attachment => attachment.FileObject)
-            .SingleOrDefaultAsync(attachment =>
-                attachment.Id == attachmentId &&
-                attachment.TenantId == run.TenantId &&
-                attachment.WorkspaceId == run.WorkspaceId &&
-                attachment.OwnerType == AttachmentOwnerType.TaskItem &&
-                attachment.OwnerId == run.TaskItemId &&
-                !attachment.DeletedAt.HasValue &&
-                attachment.ScanStatus == FileScanStatus.Clean &&
-                attachment.FileObject != null &&
-                attachment.FileObject.TenantId == run.TenantId &&
-                attachment.FileObject.WorkspaceId == run.WorkspaceId &&
-                attachment.FileObject.ProjectId == run.ProjectId &&
-                !attachment.FileObject.DeletedAt.HasValue &&
-                attachment.FileObject.Status == FileObjectStatus.Active,
-                cancellationToken);
+    private Task<Attachment?> CurrentCandidateAsync(
+        Guid attachmentId,
+        TaskExecutionRun run,
+        CancellationToken cancellationToken) =>
+        TaskExecutionSourceMaterialization.CurrentTaskAttachmentAsync(
+            dbContext,
+            attachmentId,
+            run,
+            cancellationToken);
 
     private async Task<bool> IsCurrentRunScopeAuthorizedAsync(TaskExecutionRun run, CancellationToken cancellationToken)
     {
