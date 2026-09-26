@@ -1,4 +1,3 @@
-using Coglatas.Application.Common;
 using Coglatas.Application.Forms;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
