@@ -729,15 +729,7 @@ public sealed class DbAuditQueryService(
             CancellationToken cancellationToken = default)
         {
             var capabilities = await GetCapabilitiesAsync(cancellationToken);
-            return capabilityKey switch
-            {
-                CapabilityKeys.AuditView => capabilities.CanView,
-                CapabilityKeys.AuditReview => capabilities.CanReview,
-                CapabilityKeys.AuditApprove => capabilities.CanApprove,
-                CapabilityKeys.AuditExport => capabilities.CanExport,
-                CapabilityKeys.AuditSensitiveMetadataView => capabilities.CanViewSensitiveMetadata,
-                _ => false
-            };
+            return capabilities.HasCapability(capabilityKey);
         }
 
         public async Task<Result> AuthorizeAsync(
