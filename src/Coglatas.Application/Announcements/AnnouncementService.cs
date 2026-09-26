@@ -378,7 +378,7 @@ public sealed class AnnouncementService(
         return user is { Status: UserStatus.Active, SystemRole: SystemRole.Teacher or SystemRole.Admin or SystemRole.SystemAdmin };
     }
 
-    private static Task<Result> ValidateRequestAsync(string title, string body, DateTimeOffset publishedAt, DateTimeOffset? expiresAt, CancellationToken cancellationToken)
+    private static Task<Result> ValidateRequestAsync(string title, string body, DateTimeOffset publishedAt, DateTimeOffset? expiresAt)
     {
         if (string.IsNullOrWhiteSpace(title))
         {
@@ -401,15 +401,21 @@ public sealed class AnnouncementService(
     private static int NormalizePage(int requestedPage, int pageSize)
     {
         var maxPage = Math.Min(
-            (long)int.MaxValue,
-            ((long)int.MaxValue / pageSize) + 1L);
-        return (int)Math.Clamp((long)requestedPage, 1L, maxPage);
+            2_147_483_647L,
+            (2_147_483_647L / pageSize) + 1L);
+        return (int)Math.Clamp(requestedPage, 1L, maxPage);
     }
 
     private bool TryCurrentUser(out Guid userId)
     {
-        userId = currentUser.UserId ?? Guid.Empty;
-        return currentUser.IsAuthenticated && currentUser.UserId.HasValue;
+        if (currentUser is { IsAuthenticated: true, UserId: { } authenticatedUserId })
+        {
+            userId = authenticatedUserId;
+            return true;
+        }
+
+        userId = Guid.Empty;
+        return false;
     }
 
     private async Task PublishInvalidationAsync(Announcement announcement, Guid actorUserId, string change, CancellationToken cancellationToken)
