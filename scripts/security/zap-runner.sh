@@ -6,7 +6,7 @@
 ZAP_VERSION="2.17.0"
 ZAP_PLATFORM="linux/amd64"
 ZAP_IMAGE="zaproxy/zap-stable:2.17.0@sha256:781a2bdaea47324e7bab583e2263f21d257b0aee61ed51521a5be45f5f5081ef"
-ZAP_CONTRACT="artifacts/openapi/aipportal-openapi.json"
+ZAP_CONTRACT="artifacts/openapi/coglatas-openapi.json"
 ZAP_AUTOMATION_PLAN="scripts/security/zap-automation.yaml"
 ZAP_POLICY="scripts/security/zap-policy.json"
 
@@ -117,7 +117,7 @@ security_zap_forbidden_values_json() {
   jar="$(security_scan_host_path "${role}.cookies")" || return 1
   SECURITY_ZAP_COOKIE_HEADER="$cookie_header" \
   SECURITY_ZAP_CSRF="$csrf" \
-  SECURITY_ZAP_FIXTURE_PASSWORD="${AIP_SECURITY_CI_PASSWORD:-}" \
+  SECURITY_ZAP_FIXTURE_PASSWORD="${COGLATAS_SECURITY_CI_PASSWORD:-}" \
     python3 - "$jar" <<'PY' || return 1
 from pathlib import Path
 import json
@@ -153,10 +153,10 @@ import json
 import os
 import sys
 text = sys.stdin.read()
-raw = os.environ.get("AIP_SECURITY_ZAP_FORBIDDEN_VALUES", "")
+raw = os.environ.get("COGLATAS_SECURITY_ZAP_FORBIDDEN_VALUES", "")
 values = json.loads(raw) if raw else []
 if not isinstance(values, list) or not all(isinstance(value, str) for value in values):
-    raise SystemExit("AIP_SECURITY_ZAP_FORBIDDEN_VALUES must be a JSON array of strings")
+    raise SystemExit("COGLATAS_SECURITY_ZAP_FORBIDDEN_VALUES must be a JSON array of strings")
 for value in values:
     if value:
         text = text.replace(value, "[REDACTED]")
@@ -209,19 +209,19 @@ security_zap_run_role() {
   rm -f -- "$raw_host" "$output" "$metadata"
   mkdir -p artifacts/security/zap
 
-  export AIP_SECURITY_ZAP_TARGET="$SECURITY_SCAN_TARGET"
-  export AIP_SECURITY_ZAP_TARGET_REGEX="$target_regex"
-  export AIP_SECURITY_ZAP_TENANT="$tenant"
-  export AIP_SECURITY_ZAP_COOKIE="$cookie_header"
-  export AIP_SECURITY_ZAP_CSRF_TOKEN="$SECURITY_SCAN_CSRF_TOKEN"
+  export COGLATAS_SECURITY_ZAP_TARGET="$SECURITY_SCAN_TARGET"
+  export COGLATAS_SECURITY_ZAP_TARGET_REGEX="$target_regex"
+  export COGLATAS_SECURITY_ZAP_TENANT="$tenant"
+  export COGLATAS_SECURITY_ZAP_COOKIE="$cookie_header"
+  export COGLATAS_SECURITY_ZAP_CSRF_TOKEN="$SECURITY_SCAN_CSRF_TOKEN"
   # The host state directory is mounted into the scanner container at /state.
   # Keep raw_host as the host-side path used by report processing, but direct
   # the in-container Automation Framework report job to its writable mount.
-  export AIP_SECURITY_ZAP_REPORT_DIR="/state"
-  export AIP_SECURITY_ZAP_REPORT_FILE="$report_name"
-  export AIP_SECURITY_ZAP_FORBIDDEN_VALUES="$forbidden_json"
+  export COGLATAS_SECURITY_ZAP_REPORT_DIR="/state"
+  export COGLATAS_SECURITY_ZAP_REPORT_FILE="$report_name"
+  export COGLATAS_SECURITY_ZAP_FORBIDDEN_VALUES="$forbidden_json"
 
-  role_timeout="${AIP_SECURITY_ZAP_ROLE_TIMEOUT:-15m}"
+  role_timeout="${COGLATAS_SECURITY_ZAP_ROLE_TIMEOUT:-15m}"
   container_name="sec06-zap-${role}-$$"
   printf 'SEC-06 ZAP: role=%s target=%s policy=sec06-strict-api timeout=%s\n' \
     "$role" "$SECURITY_SCAN_TARGET" "$role_timeout"
@@ -239,13 +239,13 @@ security_zap_run_role() {
       --tmpfs /tmp:rw,nosuid,nodev,size=768m \
       --workdir /work \
       -e HOME=/tmp \
-      -e AIP_SECURITY_ZAP_TARGET \
-      -e AIP_SECURITY_ZAP_TARGET_REGEX \
-      -e AIP_SECURITY_ZAP_TENANT \
-      -e AIP_SECURITY_ZAP_COOKIE \
-      -e AIP_SECURITY_ZAP_CSRF_TOKEN \
-      -e AIP_SECURITY_ZAP_REPORT_DIR \
-      -e AIP_SECURITY_ZAP_REPORT_FILE \
+      -e COGLATAS_SECURITY_ZAP_TARGET \
+      -e COGLATAS_SECURITY_ZAP_TARGET_REGEX \
+      -e COGLATAS_SECURITY_ZAP_TENANT \
+      -e COGLATAS_SECURITY_ZAP_COOKIE \
+      -e COGLATAS_SECURITY_ZAP_CSRF_TOKEN \
+      -e COGLATAS_SECURITY_ZAP_REPORT_DIR \
+      -e COGLATAS_SECURITY_ZAP_REPORT_FILE \
       -v "$PWD:/work:ro" \
       -v "$mount_root:/state" \
       --entrypoint /bin/bash \
@@ -275,10 +275,10 @@ security_zap_run_role() {
   process_status=$?
   set -e
 
-  unset AIP_SECURITY_ZAP_TARGET AIP_SECURITY_ZAP_TARGET_REGEX AIP_SECURITY_ZAP_TENANT
-  unset AIP_SECURITY_ZAP_COOKIE AIP_SECURITY_ZAP_CSRF_TOKEN
-  unset AIP_SECURITY_ZAP_REPORT_DIR AIP_SECURITY_ZAP_REPORT_FILE
-  unset AIP_SECURITY_ZAP_FORBIDDEN_VALUES
+  unset COGLATAS_SECURITY_ZAP_TARGET COGLATAS_SECURITY_ZAP_TARGET_REGEX COGLATAS_SECURITY_ZAP_TENANT
+  unset COGLATAS_SECURITY_ZAP_COOKIE COGLATAS_SECURITY_ZAP_CSRF_TOKEN
+  unset COGLATAS_SECURITY_ZAP_REPORT_DIR COGLATAS_SECURITY_ZAP_REPORT_FILE
+  unset COGLATAS_SECURITY_ZAP_FORBIDDEN_VALUES
 
   (( process_status == 0 )) || return "$process_status"
   (( status == 0 )) || security_zap_fail "role '$role' scanner exited $status" || return 1

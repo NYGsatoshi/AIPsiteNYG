@@ -5,15 +5,15 @@ Last updated: 2026-09-12.
 ## Canonical roots
 
 - Repository root: `.`.
-- Backend solution: `AipPortal.slnx`.
+- Backend solution: `Coglatas.slnx`.
 - Backend projects:
-  - `src/AipPortal.Domain/AipPortal.Domain.csproj`
-  - `src/AipPortal.Application/AipPortal.Application.csproj`
-  - `src/AipPortal.Infrastructure/AipPortal.Infrastructure.csproj`
-  - `src/AipPortal.Web/AipPortal.Web.csproj`
-  - `tests/AipPortal.Tests/AipPortal.Tests.csproj`
+  - `src/Coglatas.Domain/Coglatas.Domain.csproj`
+  - `src/Coglatas.Application/Coglatas.Application.csproj`
+  - `src/Coglatas.Infrastructure/Coglatas.Infrastructure.csproj`
+  - `src/Coglatas.Web/Coglatas.Web.csproj`
+  - `tests/Coglatas.Tests/Coglatas.Tests.csproj`
 - Active Angular workspace: `frontend/`.
-- Legacy Angular scaffold: `aipsite-frontend/`; it is inactive and excluded from Qodana analysis.
+- Legacy Angular scaffold: `coglatas-frontend/`; it is inactive and excluded from Qodana analysis.
 
 ## Required toolchain
 
@@ -44,7 +44,7 @@ The canonical .NET project model is configured in `qodana.yaml`:
 
 ```yaml
 dotnet:
-  solution: AipPortal.slnx
+  solution: Coglatas.slnx
   configuration: Release
 ```
 
@@ -57,8 +57,8 @@ Qodana runs `scripts/quality/qodana-bootstrap.sh` before inspections. For the Co
 1. Reads the required SDK from `global.json`.
 2. Installs that exact SDK if the image does not provide it.
 3. Prints the active SDK/MSBuild information.
-4. Runs `dotnet restore AipPortal.slnx --verbosity normal`.
-5. Runs `dotnet build AipPortal.slnx --configuration Release --no-restore`.
+4. Runs `dotnet restore Coglatas.slnx --verbosity normal`.
+5. Runs `dotnet build Coglatas.slnx --configuration Release --no-restore`.
 6. Skips the frontend bootstrap because `qodana-cdnet` does not analyze the active Angular/TypeScript application.
 
 Restore, build, SDK, package-resolution, solution-load and project-model failures are hard failures.
@@ -121,9 +121,9 @@ Configured exclusions include:
 - `**/dist/**`, `**/.angular/**`, `**/storybook-static/**`: frontend generated output/cache.
 - `**/coverage/**`, `**/TestResults/**`, `**/test-results/**`, `**/playwright-report/**`, `**/.playwright/**`: test/browser output.
 - `**/.qodana/**`, `.tmp`, `**/artifacts/**`: scanner and CI/local artifacts.
-- `src/AipPortal.Web/wwwroot`: hosted frontend build output; source of truth is `frontend/`.
-- `src/AipPortal.Web/data`: local runtime data.
-- `aipsite-frontend`: inactive legacy frontend scaffold.
+- `src/Coglatas.Web/wwwroot`: hosted frontend build output; source of truth is `frontend/`.
+- `src/Coglatas.Web/data`: local runtime data.
+- `coglatas-frontend`: inactive legacy frontend scaffold.
 
 Tests are not excluded.
 
@@ -132,8 +132,8 @@ Tests are not excluded.
 Backend preparation:
 
 ```powershell
-dotnet restore AipPortal.slnx
-dotnet build AipPortal.slnx --configuration Release --no-restore
+dotnet restore Coglatas.slnx
+dotnet build Coglatas.slnx --configuration Release --no-restore
 ```
 
 Run the pinned Community linter image from the repository root:
