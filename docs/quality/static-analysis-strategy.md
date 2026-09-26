@@ -43,10 +43,11 @@ This repository uses **SonarQube Server with the SonarScanner for .NET**. SonarQ
 The repository publication policy forbids repository or environment secrets in ordinary `pull_request` workflows. The SonarQube workflow therefore has no `pull_request` trigger:
 
 - pushes to `main` are analyzed automatically;
-- a trusted same-repository PR can be analyzed with `workflow_dispatch` by supplying its PR number after review;
+- a trusted same-repository PR can be analyzed with `workflow_dispatch` by supplying its PR number after review; the dispatch itself must run from the `main` workflow definition;
 - fork PRs and PRs whose base is not `main` are rejected by the privileged workflow;
 - the workflow uses read-only GitHub permissions and does not post PR comments or statuses itself;
-- the secret-bearing job runs behind the existing `syncfusion-licensed-build` protected environment, which is reused only as the repository's established trusted secret boundary.
+- the secret-bearing job runs behind the existing `syncfusion-licensed-build` protected environment, which is reused only as the repository's established trusted secret boundary;
+- the untrusted solution build step does not receive `SONAR_TOKEN`; the token is scoped to scanner validation/begin/end steps.
 
 The scanner authenticates to SonarQube Server with `SONAR_TOKEN` and `SONAR_HOST_URL`. The project key defaults to `NYGsatoshi_AIPsiteNYG` for migration continuity and can be overridden with the repository variable `SONAR_PROJECT_KEY`.
 
@@ -60,7 +61,7 @@ Analysis scope and duplication exclusions are passed directly to the scanner by 
 4. Configure the project Quality Gate for new code.
 5. After the first successful decorated analysis, require the SonarQube Quality Gate status in the GitHub `main` ruleset/branch protection if it is intended to block merges.
 
-For a trusted PR analysis, dispatch the `SonarQube` workflow from the protected repository context and set the `pr_number` input to the PR number. The workflow resolves the current same-repository PR head through the GitHub API, analyzes that exact commit, and passes explicit SonarQube pull-request parameters so the bound GitHub integration can decorate the PR.
+For a trusted PR analysis, dispatch the `SonarQube` workflow from the `main` ref in the protected repository context and set the `pr_number` input to the PR number. The workflow resolves the current same-repository PR head through the GitHub API, analyzes that exact commit, and passes explicit SonarQube pull-request parameters so the bound GitHub integration can decorate the PR.
 
 Automatic secret-bearing analysis of arbitrary `pull_request` code is intentionally not enabled. If automatic PR analysis is introduced later, it must run behind a separately reviewed trusted CI boundary rather than weakening `GOV-TRUST-001`.
 
