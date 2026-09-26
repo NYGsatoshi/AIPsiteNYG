@@ -92,7 +92,7 @@ jobs:
         shell: pwsh
         run: dotnet restore Coglatas.slnx
 
-      - name: Build and analyze
+      - name: Begin SonarQube analysis
         shell: pwsh
         env:
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
@@ -119,8 +119,15 @@ jobs:
           & $scanner @beginArgs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-          dotnet build Coglatas.slnx --configuration Release --no-restore --no-incremental
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build .NET solution
+        shell: pwsh
+        run: dotnet build Coglatas.slnx --configuration Release --no-restore --no-incremental
 
+      - name: End SonarQube analysis
+        shell: pwsh
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          $scanner = "${{ runner.temp }}\scanner\dotnet-sonarscanner.exe"
           & $scanner end "/d:sonar.token=$env:SONAR_TOKEN"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
