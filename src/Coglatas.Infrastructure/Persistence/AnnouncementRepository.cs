@@ -23,8 +23,14 @@ public sealed class AnnouncementRepository(
             .ThenByDescending(announcement => announcement.PublishedAt);
 
         var total = await source.CountAsync(cancellationToken);
+        var offset = ((long)query.Page - 1L) * query.PageSize;
+        if (offset > int.MaxValue)
+        {
+            return new PagedResponse<Announcement>([], query.Page, query.PageSize, total);
+        }
+
         var items = await source
-            .Skip((query.Page - 1) * query.PageSize)
+            .Skip((int)Math.Max(0L, offset))
             .Take(query.PageSize)
             .ToListAsync(cancellationToken);
 
