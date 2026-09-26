@@ -273,7 +273,7 @@ public sealed class WorkspacesControllerTests
     {
         public Guid? UserId => userId;
         public Guid? SessionId => Guid.NewGuid();
-        public string? Email => "workspace-test@example.invalid";
+        public string Email => "workspace-test@example.invalid";
         public SystemRole? SystemRole => Coglatas.Domain.Enums.SystemRole.NormalUser;
         public bool IsAuthenticated => true;
     }
