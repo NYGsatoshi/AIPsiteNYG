@@ -100,10 +100,14 @@ public sealed class AttachmentsController(IFileService files) : ApiResultControl
 
 public sealed class UploadAttachmentForm
 {
+    // ASP.NET Core form model binding assigns these setters via reflection.
+    // ReSharper disable once UnusedAutoPropertyAccessor.Global
     public AttachmentOwnerType OwnerType { get; set; }
 
+    // ReSharper disable once UnusedAutoPropertyAccessor.Global
     public Guid OwnerId { get; set; }
 
     [Required]
+    // ReSharper disable once UnusedAutoPropertyAccessor.Global
     public IFormFile? File { get; set; }
 }
