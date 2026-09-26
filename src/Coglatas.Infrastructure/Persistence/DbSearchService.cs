@@ -58,19 +58,18 @@ public sealed class DbSearchService(
             return Result<SearchResponse>.Failure("Author is invalid.");
         }
 
-        if (request.FromDate.HasValue && request.ToDate.HasValue && request.FromDate > request.ToDate)
+        if (request is { FromDate: { } fromDate, ToDate: { } toDate } && fromDate > toDate)
         {
             return Result<SearchResponse>.Failure("Date range is invalid.");
         }
 
-        if (request.ToDate.HasValue && request.ToDateExclusive.HasValue)
+        if (request is { ToDate: not null, ToDateExclusive: not null })
         {
             return Result<SearchResponse>.Failure("Date range is invalid.");
         }
 
-        if (request.FromDate.HasValue &&
-            request.ToDateExclusive.HasValue &&
-            request.FromDate >= request.ToDateExclusive)
+        if (request is { FromDate: { } rangeStart, ToDateExclusive: { } rangeEnd } &&
+            rangeStart >= rangeEnd)
         {
             return Result<SearchResponse>.Failure("Date range is invalid.");
         }
@@ -617,7 +616,7 @@ public sealed class DbSearchService(
         var rowIds = rows.Select(row => row.MessageId).ToArray();
         var attributedAuthors = await (
                 from message in dbContext.Messages.AsNoTracking()
-                where rowIds.Contains(message.Id)
+                where Enumerable.Contains(rowIds, message.Id)
                 join tenantUser in dbContext.TenantUsers.AsNoTracking()
                     on new { message.TenantId, UserId = message.AuthorUserId }
                     equals new { tenantUser.TenantId, tenantUser.UserId }
@@ -659,7 +658,7 @@ public sealed class DbSearchService(
                 null,
                 null,
                 row.CreatedAt,
-                authorNames.TryGetValue(row.MessageId, out var displayName) ? displayName : null))
+                authorNames.GetValueOrDefault(row.MessageId)))
             .ToList();
     }
 
