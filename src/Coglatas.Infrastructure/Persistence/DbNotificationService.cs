@@ -605,7 +605,7 @@ public sealed class DbNotificationService(
         }
 
         var resolution = await targets.ResolveAsync(currentTenant.TenantId, userId, notification.Id, cancellationToken);
-        return resolution.IsOwned && resolution.IsAvailable;
+        return resolution is { IsOwned: true, IsAvailable: true };
     }
 
     private async Task<IReadOnlySet<Guid>> FilterCurrentlyVisibleIdsAsync(
@@ -666,9 +666,8 @@ public sealed class DbNotificationService(
         CancellationToken cancellationToken)
     {
         var local = FindLocalLogicalNotification(userId, normalizedLogicalKey);
-        return local is not null
-            ? local.Id
-            : await FindLogicalNotificationAsync(userId, normalizedLogicalKey, cancellationToken);
+        return local?.Id ??
+            await FindLogicalNotificationAsync(userId, normalizedLogicalKey, cancellationToken);
     }
 
     private async Task<Guid?> FindLogicalNotificationAsync(
