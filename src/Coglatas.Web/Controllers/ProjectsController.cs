@@ -448,24 +448,18 @@ public sealed class ProjectsController(IProjectService projects, ITaskCommandSer
             "GANTT_STALE_VERSION" or "GANTT_CONFLICT" => StatusCodes.Status409Conflict,
             _ => StatusCodes.Status400BadRequest
         };
-        return StatusCode(status, new
-        {
-            requestId = HttpContext.TraceIdentifier,
-            error = new
+        return StructuredCommandError(
+            status,
+            code,
+            message,
+            code switch
             {
-                code,
-                message,
-                target = code switch
-                {
-                    "GANTT_INVALID_DATE_RANGE" => "plannedEndDate",
-                    "GANTT_INVALID_PROGRESS" => "progressPercent",
-                    "MILESTONE_DATE_REQUIRED" => "milestoneDate",
-                    _ => null
-                },
-                details = Array.Empty<object>(),
-                redactionApplied = code == "GANTT_WORK_ITEM_NOT_FOUND"
-            }
-        });
+                "GANTT_INVALID_DATE_RANGE" => "plannedEndDate",
+                "GANTT_INVALID_PROGRESS" => "progressPercent",
+                "MILESTONE_DATE_REQUIRED" => "milestoneDate",
+                _ => null
+            },
+            code == "GANTT_WORK_ITEM_NOT_FOUND");
     }
 
     private IActionResult ToDependencyActionResult<T>(Coglatas.Application.Common.Result<T> result)
@@ -497,19 +491,32 @@ public sealed class ProjectsController(IProjectService projects, ITaskCommandSer
             "TASK_STALE_VERSION" or "TASK_DEPENDENCY_CONFLICT" => StatusCodes.Status409Conflict,
             _ => StatusCodes.Status400BadRequest
         };
-        return StatusCode(status, new
+        return StructuredCommandError(
+            status,
+            code,
+            message,
+            code == "TASK_DEPENDENCY_INVALID_EXPECTED_VERSION" ? "expectedVersion" : "dependency",
+            code == "TASK_DEPENDENCY_NOT_FOUND");
+    }
+
+    private IActionResult StructuredCommandError(
+        int status,
+        string code,
+        string message,
+        string? target,
+        bool redactionApplied) =>
+        StatusCode(status, new
         {
             requestId = HttpContext.TraceIdentifier,
             error = new
             {
                 code,
                 message,
-                target = code == "TASK_DEPENDENCY_INVALID_EXPECTED_VERSION" ? "expectedVersion" : "dependency",
+                target,
                 details = Array.Empty<object>(),
-                redactionApplied = code == "TASK_DEPENDENCY_NOT_FOUND"
+                redactionApplied
             }
         });
-    }
 
     private ErrorResponse ToErrorResponse(string? message) => new("BadRequest", message ?? "The request could not be completed.", HttpContext.TraceIdentifier);
     private static CommentResponse ToLegacyComment(TaskCommentResponse comment) => new(comment.Id, CommentTargetType.TaskItem, comment.TaskId, comment.Author?.UserId ?? Guid.Empty, comment.BodyPlainText ?? string.Empty, comment.CreatedAt, comment.UpdatedAt);
