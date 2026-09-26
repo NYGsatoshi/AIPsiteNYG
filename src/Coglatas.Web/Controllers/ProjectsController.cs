@@ -1,3 +1,4 @@
+using Coglatas.Application.Common;
 using Coglatas.Application.Projects;
 using Coglatas.Application.Security.Redaction;
 using Coglatas.Domain.Enums;
@@ -256,7 +257,7 @@ public sealed class ProjectsController(IProjectService projects, ITaskCommandSer
         if (!result.IsSuccess) return ToTaskActionResult(result);
         var page = result.Value!;
         var items = page.Items.Where(item => item.BodyPlainText is not null).Select(ToLegacyComment).ToList();
-        return Ok(new Coglatas.Application.Common.PagedResponse<CommentResponse>(items, page.Page, page.PageSize, page.TotalCount));
+        return Ok(new PagedResponse<CommentResponse>(items, page.Page, page.PageSize, page.TotalCount));
     }
 
     [HttpPost("api/comments")]
@@ -286,13 +287,13 @@ public sealed class ProjectsController(IProjectService projects, ITaskCommandSer
         return ToTaskActionResult(await taskSubresources.DeleteCommentAsync(commentId, expectedVersion ?? compatibility.Value.Version, cancellationToken));
     }
 
-    private IActionResult OkOrBad(Coglatas.Application.Common.Result result) =>
+    private IActionResult OkOrBad(Result result) =>
         result.IsSuccess
             ? Ok(new { status = "OK" })
             : ProjectMutationFailure(result.ErrorDetail, result.Error);
 
     private IActionResult ToProjectReadError<T>(
-        Coglatas.Application.Common.Result<T> result,
+        Result<T> result,
         string fallbackCode)
     {
         var status = result.ErrorDetail?.Code switch
@@ -313,13 +314,13 @@ public sealed class ProjectsController(IProjectService projects, ITaskCommandSer
             fallbackCode));
     }
 
-    private IActionResult ToActionResult<T>(Coglatas.Application.Common.Result<T> result) =>
+    private IActionResult ToActionResult<T>(Result<T> result) =>
         result.IsSuccess
             ? Ok(result.Value)
             : ProjectMutationFailure(result.ErrorDetail, result.Error);
 
     private IActionResult ProjectMutationFailure(
-        Coglatas.Application.Common.ApplicationErrorDetail? detail,
+        ApplicationErrorDetail? detail,
         string? error)
     {
         if (detail?.Code is "PROJECT_CONFLICT" or "InvalidStateTransition")
@@ -345,7 +346,7 @@ public sealed class ProjectsController(IProjectService projects, ITaskCommandSer
     }
 
     private IActionResult ProjectConflict(
-        Coglatas.Application.Common.ApplicationErrorDetail detail) =>
+        ApplicationErrorDetail detail) =>
         StatusCode(
             StatusCodes.Status409Conflict,
             ApiEnvelope.Error(
@@ -356,7 +357,7 @@ public sealed class ProjectsController(IProjectService projects, ITaskCommandSer
                 detail.Target ?? (detail.Code == "InvalidStateTransition" ? "body.status" : "project")));
 
     private IActionResult MilestoneConflict(
-        Coglatas.Application.Common.ApplicationErrorDetail detail) =>
+        ApplicationErrorDetail detail) =>
         StatusCode(StatusCodes.Status409Conflict, new
         {
             requestId = HttpContext.TraceIdentifier,
@@ -370,7 +371,7 @@ public sealed class ProjectsController(IProjectService projects, ITaskCommandSer
             }
         });
 
-    private IActionResult ToTaskActionResult<T>(Coglatas.Application.Common.Result<T> result)
+    private IActionResult ToTaskActionResult<T>(Result<T> result)
     {
         if (result.IsSuccess) return Ok(result.Value);
         var parts = (result.Error ?? "TASK_TRANSITION_GUARD_FAILED|The request could not be completed.").Split('|', 2);
@@ -389,16 +390,26 @@ public sealed class ProjectsController(IProjectService projects, ITaskCommandSer
         {
             var retryAfterSeconds = Math.Max(1, result.ErrorDetail?.RetryAfterSeconds ?? 1);
             Response.Headers.RetryAfter = retryAfterSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
-            var problem = new ProblemDetails { Status = status, Title = "Comment submission is temporarily limited.", Detail = message, Type = code, Instance = HttpContext.Request.Path };
-            problem.Extensions["code"] = code;
-            problem.Extensions["retryAfterSeconds"] = retryAfterSeconds;
-            problem.Extensions["requestId"] = HttpContext.TraceIdentifier;
+            var problem = new ProblemDetails
+            {
+                Status = status,
+                Title = "Comment submission is temporarily limited.",
+                Detail = message,
+                Type = code,
+                Instance = HttpContext.Request.Path,
+                Extensions =
+                {
+                    ["code"] = code,
+                    ["retryAfterSeconds"] = retryAfterSeconds,
+                    ["requestId"] = HttpContext.TraceIdentifier
+                }
+            };
             return StatusCode(status, problem);
         }
         return StatusCode(status, new { requestId = HttpContext.TraceIdentifier, error = new { code, message, target = result.ErrorDetail?.Target, details = Array.Empty<object>(), redactionApplied = false } });
     }
 
-    private IActionResult TaskBriefValidationError(Coglatas.Application.Common.ApplicationErrorDetail detail) =>
+    private IActionResult TaskBriefValidationError(ApplicationErrorDetail detail) =>
         StatusCode(StatusCodes.Status400BadRequest, new
         {
             requestId = HttpContext.TraceIdentifier,
@@ -411,7 +422,7 @@ public sealed class ProjectsController(IProjectService projects, ITaskCommandSer
                 redactionApplied = false
             }
         });
-    private IActionResult ToTaskActionResult(Coglatas.Application.Common.Result result)
+    private IActionResult ToTaskActionResult(Result result)
     {
         if (result.IsSuccess) return Ok(new { status = "OK" });
         var parts = (result.Error ?? "TASK_TRANSITION_GUARD_FAILED|The request could not be completed.").Split('|', 2);
@@ -421,16 +432,26 @@ public sealed class ProjectsController(IProjectService projects, ITaskCommandSer
         {
             var retryAfterSeconds = Math.Max(1, result.ErrorDetail?.RetryAfterSeconds ?? 1);
             Response.Headers.RetryAfter = retryAfterSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
-            var problem = new ProblemDetails { Status = status, Title = "Comment submission is temporarily limited.", Detail = parts.Length == 2 ? parts[1] : "The request could not be completed.", Type = code, Instance = HttpContext.Request.Path };
-            problem.Extensions["code"] = code;
-            problem.Extensions["retryAfterSeconds"] = retryAfterSeconds;
-            problem.Extensions["requestId"] = HttpContext.TraceIdentifier;
+            var problem = new ProblemDetails
+            {
+                Status = status,
+                Title = "Comment submission is temporarily limited.",
+                Detail = parts.Length == 2 ? parts[1] : "The request could not be completed.",
+                Type = code,
+                Instance = HttpContext.Request.Path,
+                Extensions =
+                {
+                    ["code"] = code,
+                    ["retryAfterSeconds"] = retryAfterSeconds,
+                    ["requestId"] = HttpContext.TraceIdentifier
+                }
+            };
             return StatusCode(status, problem);
         }
         return StatusCode(status, new { requestId = HttpContext.TraceIdentifier, error = new { code, message = parts.Length == 2 ? parts[1] : "The request could not be completed.", target = (string?)null, details = Array.Empty<object>(), redactionApplied = false } });
     }
 
-    private IActionResult ToGanttCommandActionResult<T>(Coglatas.Application.Common.Result<T> result)
+    private IActionResult ToGanttCommandActionResult<T>(Result<T> result)
     {
         if (result.IsSuccess)
         {
@@ -462,14 +483,14 @@ public sealed class ProjectsController(IProjectService projects, ITaskCommandSer
             code == "GANTT_WORK_ITEM_NOT_FOUND");
     }
 
-    private IActionResult ToDependencyActionResult<T>(Coglatas.Application.Common.Result<T> result)
+    private IActionResult ToDependencyActionResult<T>(Result<T> result)
     {
         if (result.IsSuccess)
             return Ok(result.Value);
         return DependencyError(result.Error, result.ErrorDetail);
     }
 
-    private IActionResult ToDependencyActionResult(Coglatas.Application.Common.Result result)
+    private IActionResult ToDependencyActionResult(Result result)
     {
         if (result.IsSuccess)
             return Ok(new { status = "OK" });
@@ -478,7 +499,7 @@ public sealed class ProjectsController(IProjectService projects, ITaskCommandSer
 
     private IActionResult DependencyError(
         string? rawError,
-        Coglatas.Application.Common.ApplicationErrorDetail? detail)
+        ApplicationErrorDetail? detail)
     {
         var parts = (rawError ?? "TASK_DEPENDENCY_REQUEST_FAILED|The request could not be completed.").Split('|', 2);
         var code = detail?.Code ?? parts[0];
