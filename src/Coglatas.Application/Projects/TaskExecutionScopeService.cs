@@ -29,7 +29,7 @@ public sealed class TaskExecutionScopeService(
     IFileAuthorizationService? fileAuthorization = null,
     ITenantAuthorizationService? tenantAuthorization = null) : ITaskExecutionScopeService
 {
-    private readonly ProjectAuthorizationLookup authorizationLookup = new(projects, projectAuthorization, currentUser);
+    private readonly ProjectAuthorizationLookup _authorizationLookup = new(projects, projectAuthorization, currentUser);
 
     private const string RunOperation = "TaskExecution.Run.v1";
 
@@ -37,12 +37,12 @@ public sealed class TaskExecutionScopeService(
         Guid projectId,
         CancellationToken cancellationToken = default)
     {
-        var project = await authorizationLookup.VisibleProjectAsync(projectId, cancellationToken);
+        var project = await _authorizationLookup.VisibleProjectAsync(projectId, cancellationToken);
         if (project is null)
             return NotFound<ProjectExecutionScopeResponse>();
 
         var scope = await executionScopes.GetProjectScopeAsync(project.Id, cancellationToken);
-        var canManage = await authorizationLookup.CanManageAsync(project.Id, cancellationToken);
+        var canManage = await _authorizationLookup.CanManageAsync(project.Id, cancellationToken);
         var canManageConnectedApps = canManage && await CanManageTenantAsync(project.TenantId, cancellationToken);
         var policy = await ProjectPolicyAsync(scope, cancellationToken);
         return Result<ProjectExecutionScopeResponse>.Success(
@@ -60,14 +60,14 @@ public sealed class TaskExecutionScopeService(
         if (!TryRequestedPolicy(request.PolicyV2, request.WebEnabled, request.ProjectFilesEnabled, out var requestedPolicy, out var policyError))
             return Result<ProjectExecutionScopeResponse>.Failure(policyError!);
 
-        var project = await authorizationLookup.ManagedProjectAsync(projectId, cancellationToken);
+        var project = await _authorizationLookup.ManagedProjectAsync(projectId, cancellationToken);
         if (project is null)
             return NotFound<ProjectExecutionScopeResponse>();
 
         if (!await CanUseProjectItemRulesAsync(project, requestedPolicy, cancellationToken))
             return Invalid<ProjectExecutionScopeResponse>("policyV2.items", "One or more source rules are not available in the current authorization scope.");
 
-        var actor = authorizationLookup.Actor();
+        var actor = _authorizationLookup.Actor();
         var scope = await executionScopes.GetProjectScopeForUpdateAsync(project.Id, cancellationToken);
         if (scope is null)
         {
@@ -122,12 +122,12 @@ public sealed class TaskExecutionScopeService(
         Guid taskItemId,
         CancellationToken cancellationToken = default)
     {
-        var task = await authorizationLookup.VisibleTaskAsync(taskItemId, cancellationToken);
+        var task = await _authorizationLookup.VisibleTaskAsync(taskItemId, cancellationToken);
         if (task is null)
             return NotFound<TaskExecutionScopeResponse>();
 
         return Result<TaskExecutionScopeResponse>.Success(
-            await BuildTaskScopeResponseAsync(task, await authorizationLookup.CanManageAsync(task.ProjectId, cancellationToken), cancellationToken));
+            await BuildTaskScopeResponseAsync(task, await _authorizationLookup.CanManageAsync(task.ProjectId, cancellationToken), cancellationToken));
     }
 
     public async Task<Result<TaskExecutionScopeResponse>> UpdateTaskOverrideAsync(
@@ -141,14 +141,14 @@ public sealed class TaskExecutionScopeService(
         if (!TryRequestedPolicy(request.PolicyV2, request.WebEnabled, request.ProjectFilesEnabled, out var requestedPolicy, out var policyError))
             return Result<TaskExecutionScopeResponse>.Failure(policyError!);
 
-        var task = await authorizationLookup.ManagedTaskAsync(taskItemId, cancellationToken);
+        var task = await _authorizationLookup.ManagedTaskAsync(taskItemId, cancellationToken);
         if (task is null)
             return NotFound<TaskExecutionScopeResponse>();
 
         if (!await CanUseTaskItemRulesAsync(task, requestedPolicy, cancellationToken))
             return Invalid<TaskExecutionScopeResponse>("policyV2.items", "One or more source rules are not available in the current authorization scope.");
 
-        var actor = authorizationLookup.Actor();
+        var actor = _authorizationLookup.Actor();
         var overrideScope = await executionScopes.GetTaskOverrideForUpdateAsync(task.Id, cancellationToken);
         if (overrideScope is null)
         {
@@ -208,7 +208,7 @@ public sealed class TaskExecutionScopeService(
         if (request.ExpectedVersion < 0)
             return Invalid<TaskExecutionScopeResponse>("expectedVersion", "Expected version must be zero or a positive integer.");
 
-        var task = await authorizationLookup.ManagedTaskAsync(taskItemId, cancellationToken);
+        var task = await _authorizationLookup.ManagedTaskAsync(taskItemId, cancellationToken);
         if (task is null)
             return NotFound<TaskExecutionScopeResponse>();
 
@@ -225,7 +225,7 @@ public sealed class TaskExecutionScopeService(
         if (overrideScope.VersionNo != request.ExpectedVersion)
             return Stale<TaskExecutionScopeResponse>();
 
-        var actor = authorizationLookup.Actor();
+        var actor = _authorizationLookup.Actor();
         var removedVersion = overrideScope.VersionNo;
         executionScopes.RemoveTaskOverride(overrideScope);
         executionScopes.StageSourcePolicyDocumentDelete(TaskExecutionSourcePolicyOwnerType.Task, task.Id);
@@ -261,11 +261,11 @@ public sealed class TaskExecutionScopeService(
                     : "The Idempotency-Key header is invalid.",
                 Target: "header.Idempotency-Key"));
 
-        var task = await authorizationLookup.ManagedTaskAsync(taskItemId, cancellationToken);
+        var task = await _authorizationLookup.ManagedTaskAsync(taskItemId, cancellationToken);
         if (task is null)
             return NotFound<TaskExecutionRunResponse>();
 
-        var actor = authorizationLookup.Actor();
+        var actor = _authorizationLookup.Actor();
         var run = new TaskExecutionRun();
 
         IdempotentCreateResult<TaskExecutionRunResponse> result;
@@ -394,7 +394,7 @@ public sealed class TaskExecutionScopeService(
         bool canManage,
         CancellationToken cancellationToken)
     {
-        if (!canManage || !authorizationLookup.TryActor(out var actor))
+        if (!canManage || !_authorizationLookup.TryActor(out var actor))
             return [];
 
         var result = new List<TaskExecutionSourceInventoryItemResponse>();
@@ -433,7 +433,7 @@ public sealed class TaskExecutionScopeService(
         TaskExecutionSourcePolicyV2 policy,
         CancellationToken cancellationToken)
     {
-        if (!authorizationLookup.TryActor(out var actor))
+        if (!_authorizationLookup.TryActor(out var actor))
             return false;
 
         var projectFileRules = policy.Items.Where(rule => rule.Kind == TaskExecutionSourceKind.ProjectFile).ToList();
@@ -464,7 +464,7 @@ public sealed class TaskExecutionScopeService(
         TaskExecutionSourcePolicyV2 policy,
         CancellationToken cancellationToken)
     {
-        if (!authorizationLookup.TryActor(out var actor))
+        if (!_authorizationLookup.TryActor(out var actor))
             return false;
 
         var projectFileRules = policy.Items.Where(rule => rule.Kind == TaskExecutionSourceKind.ProjectFile).ToList();
@@ -511,7 +511,7 @@ public sealed class TaskExecutionScopeService(
     }
 
     private async Task<bool> CanManageTenantAsync(Guid tenantId, CancellationToken cancellationToken) =>
-        authorizationLookup.TryActor(out var actor) && tenantAuthorization is not null &&
+        _authorizationLookup.TryActor(out var actor) && tenantAuthorization is not null &&
         await tenantAuthorization.CanManageTenantAsync(actor, tenantId, cancellationToken);
 
     private async Task<TaskExecutionSourcePolicyV2> ProjectPolicyAsync(
