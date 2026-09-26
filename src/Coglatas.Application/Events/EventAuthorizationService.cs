@@ -14,12 +14,12 @@ public sealed class EventAuthorizationService(
     IGroupAuthorizationService groups,
     IProjectAuthorizationService projects) : IEventAuthorizationService
 {
-    private readonly ScopeAuthorizationEvaluator scopeAuthorization =
+    private readonly ScopeAuthorizationEvaluator _scopeAuthorization =
         new(users, workspaces, groups, projects);
 
     public Task<bool> CanCreateEvent(Guid userId, Guid? workspaceId, Guid? groupId, Guid? projectId, CancellationToken cancellationToken = default)
     {
-        return scopeAuthorization.CanManageScopeAsync(userId, workspaceId, groupId, projectId, cancellationToken);
+        return _scopeAuthorization.CanManageScopeAsync(userId, workspaceId, groupId, projectId, cancellationToken);
     }
 
     public async Task<bool> CanViewEvent(Guid userId, ActivityEvent activityEvent, CancellationToken cancellationToken = default)
@@ -27,7 +27,7 @@ public sealed class EventAuthorizationService(
         if (activityEvent.Status == EventStatus.Draft)
         {
             return activityEvent.CreatedByUserId == userId ||
-                await scopeAuthorization.CanManageScopeAsync(
+                await _scopeAuthorization.CanManageScopeAsync(
                     userId,
                     activityEvent.WorkspaceId,
                     activityEvent.GroupId,
@@ -35,7 +35,7 @@ public sealed class EventAuthorizationService(
                     cancellationToken);
         }
 
-        return await scopeAuthorization.CanViewScopeAsync(
+        return await _scopeAuthorization.CanViewScopeAsync(
             userId,
             activityEvent.WorkspaceId,
             activityEvent.GroupId,
@@ -46,7 +46,7 @@ public sealed class EventAuthorizationService(
     public async Task<bool> CanManageEvent(Guid userId, ActivityEvent activityEvent, CancellationToken cancellationToken = default)
     {
         return activityEvent.CreatedByUserId == userId ||
-            await scopeAuthorization.CanManageScopeAsync(
+            await _scopeAuthorization.CanManageScopeAsync(
                 userId,
                 activityEvent.WorkspaceId,
                 activityEvent.GroupId,
@@ -61,7 +61,7 @@ public sealed class EventAuthorizationService(
 
     public Task<bool> CanAccessScope(Guid userId, ActivityEvent activityEvent, CancellationToken cancellationToken = default)
     {
-        return scopeAuthorization.CanViewScopeAsync(
+        return _scopeAuthorization.CanViewScopeAsync(
             userId,
             activityEvent.WorkspaceId,
             activityEvent.GroupId,
