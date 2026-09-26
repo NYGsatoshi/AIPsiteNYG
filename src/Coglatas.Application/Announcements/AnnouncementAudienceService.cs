@@ -57,7 +57,7 @@ public sealed class AnnouncementAudienceService(
                 continue;
             }
 
-            if (await CanCreateWorkspaceAnnouncementAsync(userId, workspace.Id, cancellationToken))
+            if (await AnnouncementScopeAuthorization.CanCreateWorkspaceAsync(workspaceAuthorization, userId, workspace.Id, IsTeacherAsync, cancellationToken))
             {
                 options.Add(await CreateOptionAsync(
                     $"workspace:{workspace.Id:D}",
@@ -77,7 +77,7 @@ public sealed class AnnouncementAudienceService(
                     continue;
                 }
 
-                if (await CanCreateGroupAnnouncementAsync(userId, group.Id, cancellationToken))
+                if (await AnnouncementScopeAuthorization.CanCreateGroupAsync(groupAuthorization, userId, group.Id, IsTeacherAsync, cancellationToken))
                 {
                     options.Add(await CreateOptionAsync(
                         $"group:{group.Id:D}",
@@ -295,28 +295,6 @@ public sealed class AnnouncementAudienceService(
                 workspaceId,
                 cancellationToken)).Id);
     }
-
-    private Task<bool> CanCreateWorkspaceAnnouncementAsync(
-        Guid userId,
-        Guid workspaceId,
-        CancellationToken cancellationToken) =>
-        AnnouncementScopeAuthorization.CanCreateWorkspaceAsync(
-            workspaceAuthorization,
-            userId,
-            workspaceId,
-            IsTeacherAsync,
-            cancellationToken);
-
-    private Task<bool> CanCreateGroupAnnouncementAsync(
-        Guid userId,
-        Guid groupId,
-        CancellationToken cancellationToken) =>
-        AnnouncementScopeAuthorization.CanCreateGroupAsync(
-            groupAuthorization,
-            userId,
-            groupId,
-            IsTeacherAsync,
-            cancellationToken);
 
     private async Task<bool> IsSystemAdminAsync(Guid userId, CancellationToken cancellationToken)
     {
