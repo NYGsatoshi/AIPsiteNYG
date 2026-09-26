@@ -1041,27 +1041,14 @@ public static class AppDbContextSeed
 
         async Task<TaskItem> TaskAsync(string title)
         {
-            var task = await dbContext.TaskItems.FirstOrDefaultAsync(
-                candidate => candidate.TenantId == tenantId && candidate.ProjectId == project.Id && candidate.Title == title,
+            var task = await EnsureSeedTaskAsync(
+                dbContext,
+                tenantId,
+                workspace.Id,
+                project.Id,
+                title,
+                recipient.Id,
                 cancellationToken);
-            if (task is null)
-            {
-                task = new TaskItem
-                {
-                    TenantId = tenantId,
-                    WorkspaceId = workspace.Id,
-                    ProjectId = project.Id,
-                    Title = title,
-                    CreatedByUserId = recipient.Id
-                };
-                await dbContext.TaskItems.AddAsync(task, cancellationToken);
-            }
-            else if (task.IsDeleted)
-            {
-                task.Restore();
-            }
-
-            task.WorkspaceId = workspace.Id;
             task.WorkflowStageId = todo.Id;
             task.Status = TaskItemStatus.NotStarted;
             task.Priority = TaskPriority.Medium;
@@ -1441,28 +1428,14 @@ public static class AppDbContextSeed
         await StageAsync("Todo", TaskStageCategory.Todo, 1024, true, false);
         var inProgress = await StageAsync("In progress", TaskStageCategory.InProgress, 2048, false, false);
 
-        var task = await dbContext.TaskItems.FirstOrDefaultAsync(
-            candidate =>
-                candidate.TenantId == tenantId &&
-                candidate.ProjectId == project.Id &&
-                candidate.Title == U22DemoTaskTitle,
+        var task = await EnsureSeedTaskAsync(
+            dbContext,
+            tenantId,
+            workspace.Id,
+            project.Id,
+            U22DemoTaskTitle,
+            user.Id,
             cancellationToken);
-        if (task is null)
-        {
-            task = new TaskItem
-            {
-                TenantId = tenantId,
-                WorkspaceId = workspace.Id,
-                ProjectId = project.Id,
-                Title = U22DemoTaskTitle,
-                CreatedByUserId = user.Id
-            };
-            await dbContext.TaskItems.AddAsync(task, cancellationToken);
-        }
-        else if (task.IsDeleted)
-        {
-            task.Restore();
-        }
 
         // This is one current workflow state, not a fabricated execution
         // history. Keep the legacy percentage at zero so the fixture never
@@ -1763,30 +1736,14 @@ public static class AppDbContextSeed
 
         async Task TaskAsync(string title, long sortKey)
         {
-            var task = await dbContext.TaskItems.FirstOrDefaultAsync(
-                candidate =>
-                    candidate.TenantId == tenantId &&
-                    candidate.ProjectId == project.Id &&
-                    candidate.Title == title,
+            var task = await EnsureSeedTaskAsync(
+                dbContext,
+                tenantId,
+                workspace.Id,
+                project.Id,
+                title,
+                manager.Id,
                 cancellationToken);
-            if (task is null)
-            {
-                task = new TaskItem
-                {
-                    TenantId = tenantId,
-                    WorkspaceId = workspace.Id,
-                    ProjectId = project.Id,
-                    Title = title,
-                    CreatedByUserId = manager.Id
-                };
-                await dbContext.TaskItems.AddAsync(task, cancellationToken);
-            }
-            else if (task.IsDeleted)
-            {
-                task.Restore();
-            }
-
-            task.WorkspaceId = workspace.Id;
             task.WorkflowStageId = todo.Id;
             task.Kind = WorkItemKind.Task;
             task.Description = $"Synthetic {title} for PR05 real-backend browser acceptance.";
@@ -2007,30 +1964,14 @@ public static class AppDbContextSeed
             int progressPercent,
             bool blocked = false)
         {
-            var task = await dbContext.TaskItems.FirstOrDefaultAsync(
-                candidate =>
-                    candidate.TenantId == tenantId &&
-                    candidate.ProjectId == project.Id &&
-                    candidate.Title == title,
+            var task = await EnsureSeedTaskAsync(
+                dbContext,
+                tenantId,
+                workspace.Id,
+                project.Id,
+                title,
+                manager.Id,
                 cancellationToken);
-            if (task is null)
-            {
-                task = new TaskItem
-                {
-                    TenantId = tenantId,
-                    WorkspaceId = workspace.Id,
-                    ProjectId = project.Id,
-                    Title = title,
-                    CreatedByUserId = manager.Id
-                };
-                await dbContext.TaskItems.AddAsync(task, cancellationToken);
-            }
-            else if (task.IsDeleted)
-            {
-                task.Restore();
-            }
-
-            task.WorkspaceId = workspace.Id;
             task.WorkflowStageId = stage.Id;
             task.Kind = WorkItemKind.Task;
             task.MilestoneId = null;
