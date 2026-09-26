@@ -12,6 +12,7 @@ using Coglatas.Web.Security;
 using Coglatas.Web.Services;
 using Coglatas.Web.Models;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authorization.Policy;
 using Microsoft.AspNetCore.Http.Features;
@@ -88,6 +89,17 @@ public static class DependencyInjection
                             "SearchRequestInvalid",
                             "The search parameters are invalid.",
                             "query"));
+                    }
+
+                    if (IsCommunicationPollingPath(path))
+                    {
+                        // Model-binding conversion failures can embed the raw
+                        // attempted query value in ValidationProblemDetails.
+                        // The SEC-06 active scanner can then make its own test
+                        // payload look like server-side PII. Preserve field
+                        // ownership while removing attacker-controlled text.
+                        return new BadRequestObjectResult(
+                            new ValidationProblemDetails(CreateSanitizedModelState(context.ModelState)));
                     }
 
                     if (IsWpcCreatePath(path, context.HttpContext.Request.Method))
@@ -189,6 +201,29 @@ public static class DependencyInjection
         var normalized = NormalizePath(path);
         return normalized.Equals("/api/search", StringComparison.OrdinalIgnoreCase) ||
                normalized.Equals("/api/search/message-authors", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsCommunicationPollingPath(string? path) =>
+        NormalizePath(path).StartsWith("/api/communication/poll/", StringComparison.OrdinalIgnoreCase);
+
+    private static ModelStateDictionary CreateSanitizedModelState(ModelStateDictionary source)
+    {
+        var sanitized = new ModelStateDictionary();
+        foreach (var entry in source)
+        {
+            var errorCount = entry.Value?.Errors.Count ?? 0;
+            for (var index = 0; index < errorCount; index++)
+            {
+                sanitized.AddModelError(entry.Key, "The supplied value is invalid.");
+            }
+        }
+
+        if (sanitized.ErrorCount == 0)
+        {
+            sanitized.AddModelError(string.Empty, "The request parameters are invalid.");
+        }
+
+        return sanitized;
     }
 
     private static bool IsWpcCreatePath(string? path, string method) =>
