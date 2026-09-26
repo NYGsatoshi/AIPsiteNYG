@@ -296,27 +296,27 @@ public sealed class AnnouncementAudienceService(
                 cancellationToken)).Id);
     }
 
-    private async Task<bool> CanCreateWorkspaceAnnouncementAsync(Guid userId, Guid workspaceId, CancellationToken cancellationToken)
-    {
-        if (await workspaceAuthorization.CanManageWorkspace(userId, workspaceId, cancellationToken))
-        {
-            return true;
-        }
+    private Task<bool> CanCreateWorkspaceAnnouncementAsync(
+        Guid userId,
+        Guid workspaceId,
+        CancellationToken cancellationToken) =>
+        AnnouncementScopeAuthorization.CanCreateWorkspaceAsync(
+            workspaceAuthorization,
+            userId,
+            workspaceId,
+            IsTeacherAsync,
+            cancellationToken);
 
-        return await IsTeacherAsync(userId, cancellationToken) &&
-            await workspaceAuthorization.CanViewWorkspace(userId, workspaceId, cancellationToken);
-    }
-
-    private async Task<bool> CanCreateGroupAnnouncementAsync(Guid userId, Guid groupId, CancellationToken cancellationToken)
-    {
-        if (await groupAuthorization.CanManageGroup(userId, groupId, cancellationToken))
-        {
-            return true;
-        }
-
-        return await IsTeacherAsync(userId, cancellationToken) &&
-            await groupAuthorization.CanViewGroup(userId, groupId, cancellationToken);
-    }
+    private Task<bool> CanCreateGroupAnnouncementAsync(
+        Guid userId,
+        Guid groupId,
+        CancellationToken cancellationToken) =>
+        AnnouncementScopeAuthorization.CanCreateGroupAsync(
+            groupAuthorization,
+            userId,
+            groupId,
+            IsTeacherAsync,
+            cancellationToken);
 
     private async Task<bool> IsSystemAdminAsync(Guid userId, CancellationToken cancellationToken)
     {
