@@ -990,21 +990,19 @@ public static class AppDbContextSeed
             }, cancellationToken);
         }
 
-        var workflow = await dbContext.TaskWorkflowDefinitions.FirstOrDefaultAsync(
-            candidate => candidate.TenantId == tenantId && candidate.ProjectId == project.Id,
+        var workflow = await EnsureSeedWorkflowAsync(
+            dbContext,
+            tenantId,
+            workspace.Id,
+            project.Id,
+            "Browser Smoke PR04 Workflow",
+            false,
+            null,
+            false,
+            false,
+            null,
+            null,
             cancellationToken);
-        if (workflow is null)
-        {
-            workflow = new TaskWorkflowDefinition
-            {
-                TenantId = tenantId,
-                WorkspaceId = workspace.Id,
-                ProjectId = project.Id,
-                Name = "Browser Smoke PR04 Workflow",
-                ReviewEnforcementEnabled = false
-            };
-            await dbContext.TaskWorkflowDefinitions.AddAsync(workflow, cancellationToken);
-        }
 
         var todo = await EnsureSeedWorkflowStageAsync(
             dbContext,
@@ -1359,31 +1357,19 @@ public static class AppDbContextSeed
             }
         }
 
-        var workflow = await dbContext.TaskWorkflowDefinitions.FirstOrDefaultAsync(
-            candidate => candidate.TenantId == tenantId && candidate.ProjectId == project.Id,
+        var workflow = await EnsureSeedWorkflowAsync(
+            dbContext,
+            tenantId,
+            workspace.Id,
+            project.Id,
+            "U-22 Synthetic Demo Workflow",
+            false,
+            ProjectKanbanSwimlane.None,
+            true,
+            true,
+            1,
+            1,
             cancellationToken);
-        if (workflow is null)
-        {
-            workflow = new TaskWorkflowDefinition
-            {
-                TenantId = tenantId,
-                WorkspaceId = workspace.Id,
-                ProjectId = project.Id,
-                Name = "U-22 Synthetic Demo Workflow",
-                ReviewEnforcementEnabled = false,
-                KanbanDefaultSwimlane = ProjectKanbanSwimlane.None,
-                VersionNo = 1
-            };
-            await dbContext.TaskWorkflowDefinitions.AddAsync(workflow, cancellationToken);
-        }
-        else
-        {
-            workflow.WorkspaceId = workspace.Id;
-            workflow.Name = "U-22 Synthetic Demo Workflow";
-            workflow.ReviewEnforcementEnabled = false;
-            workflow.KanbanDefaultSwimlane = ProjectKanbanSwimlane.None;
-            workflow.VersionNo = 1;
-        }
 
         await EnsureSeedWorkflowStageAsync(
             dbContext,
@@ -1649,31 +1635,19 @@ public static class AppDbContextSeed
         await EnsureSeedProjectMemberAsync(dbContext, tenantId, project.Id, manager.Id, ProjectRole.Manager, now, cancellationToken);
         await EnsureSeedProjectMemberAsync(dbContext, tenantId, project.Id, recipient.Id, ProjectRole.Contributor, now, cancellationToken);
 
-        var workflow = await dbContext.TaskWorkflowDefinitions.FirstOrDefaultAsync(
-            candidate => candidate.TenantId == tenantId && candidate.ProjectId == project.Id,
+        var workflow = await EnsureSeedWorkflowAsync(
+            dbContext,
+            tenantId,
+            workspace.Id,
+            project.Id,
+            "PR05 Browser Acceptance Workflow",
+            false,
+            ProjectKanbanSwimlane.None,
+            true,
+            true,
+            1,
+            1,
             cancellationToken);
-        if (workflow is null)
-        {
-            workflow = new TaskWorkflowDefinition
-            {
-                TenantId = tenantId,
-                WorkspaceId = workspace.Id,
-                ProjectId = project.Id,
-                Name = "PR05 Browser Acceptance Workflow",
-                ReviewEnforcementEnabled = false,
-                KanbanDefaultSwimlane = ProjectKanbanSwimlane.None,
-                VersionNo = 1
-            };
-            await dbContext.TaskWorkflowDefinitions.AddAsync(workflow, cancellationToken);
-        }
-        else
-        {
-            workflow.WorkspaceId = workspace.Id;
-            workflow.Name = "PR05 Browser Acceptance Workflow";
-            workflow.ReviewEnforcementEnabled = false;
-            workflow.KanbanDefaultSwimlane = ProjectKanbanSwimlane.None;
-            workflow.VersionNo = 1;
-        }
 
         var todo = await EnsureSeedWorkflowStageAsync(
             dbContext,
@@ -1876,30 +1850,19 @@ public static class AppDbContextSeed
         await EnsureSeedProjectMemberAsync(dbContext, tenantId, project.Id, manager.Id, ProjectRole.Manager, now, cancellationToken);
         await EnsureSeedProjectMemberAsync(dbContext, tenantId, project.Id, viewer.Id, ProjectRole.Viewer, now, cancellationToken);
 
-        var workflow = await dbContext.TaskWorkflowDefinitions.FirstOrDefaultAsync(
-            candidate => candidate.TenantId == tenantId && candidate.ProjectId == project.Id,
+        var workflow = await EnsureSeedWorkflowAsync(
+            dbContext,
+            tenantId,
+            workspace.Id,
+            project.Id,
+            "PR06 Browser Acceptance Workflow",
+            false,
+            ProjectKanbanSwimlane.None,
+            true,
+            true,
+            1,
+            null,
             cancellationToken);
-        if (workflow is null)
-        {
-            workflow = new TaskWorkflowDefinition
-            {
-                TenantId = tenantId,
-                WorkspaceId = workspace.Id,
-                ProjectId = project.Id,
-                Name = "PR06 Browser Acceptance Workflow",
-                ReviewEnforcementEnabled = false,
-                KanbanDefaultSwimlane = ProjectKanbanSwimlane.None,
-                VersionNo = 1
-            };
-            await dbContext.TaskWorkflowDefinitions.AddAsync(workflow, cancellationToken);
-        }
-        else
-        {
-            workflow.WorkspaceId = workspace.Id;
-            workflow.Name = "PR06 Browser Acceptance Workflow";
-            workflow.ReviewEnforcementEnabled = false;
-            workflow.KanbanDefaultSwimlane = ProjectKanbanSwimlane.None;
-        }
 
         var todo = await EnsureSeedWorkflowStageAsync(
             dbContext,
@@ -2480,6 +2443,66 @@ public static class AppDbContextSeed
 
         task.WorkspaceId = workspaceId;
         return task;
+    }
+
+    private static async Task<TaskWorkflowDefinition> EnsureSeedWorkflowAsync(
+        AppDbContext dbContext,
+        Guid tenantId,
+        Guid workspaceId,
+        Guid projectId,
+        string name,
+        bool reviewEnforcementEnabled,
+        ProjectKanbanSwimlane? kanbanDefaultSwimlane,
+        bool refreshExisting,
+        bool updateKanbanDefaultSwimlane,
+        long? createdVersionNo,
+        long? existingVersionNo,
+        CancellationToken cancellationToken)
+    {
+        var workflow = await dbContext.TaskWorkflowDefinitions.FirstOrDefaultAsync(
+            candidate => candidate.TenantId == tenantId && candidate.ProjectId == projectId,
+            cancellationToken);
+        if (workflow is null)
+        {
+            workflow = new TaskWorkflowDefinition
+            {
+                TenantId = tenantId,
+                WorkspaceId = workspaceId,
+                ProjectId = projectId,
+                Name = name,
+                ReviewEnforcementEnabled = reviewEnforcementEnabled
+            };
+            if (kanbanDefaultSwimlane.HasValue)
+            {
+                workflow.KanbanDefaultSwimlane = kanbanDefaultSwimlane.Value;
+            }
+            if (createdVersionNo.HasValue)
+            {
+                workflow.VersionNo = createdVersionNo.Value;
+            }
+
+            await dbContext.TaskWorkflowDefinitions.AddAsync(workflow, cancellationToken);
+            return workflow;
+        }
+
+        if (!refreshExisting)
+        {
+            return workflow;
+        }
+
+        workflow.WorkspaceId = workspaceId;
+        workflow.Name = name;
+        workflow.ReviewEnforcementEnabled = reviewEnforcementEnabled;
+        if (updateKanbanDefaultSwimlane && kanbanDefaultSwimlane.HasValue)
+        {
+            workflow.KanbanDefaultSwimlane = kanbanDefaultSwimlane.Value;
+        }
+        if (existingVersionNo.HasValue)
+        {
+            workflow.VersionNo = existingVersionNo.Value;
+        }
+
+        return workflow;
     }
 
     private static async Task<TaskWorkflowStage> EnsureSeedWorkflowStageAsync(
