@@ -184,7 +184,7 @@ public sealed class FormService(
         form.ClosesAt = nextClosesAt;
         form.IsAnonymous = request.IsAnonymous ?? form.IsAnonymous;
 
-        if (form.Status == FormStatus.Archived && !form.DeletedAt.HasValue)
+        if (form is { Status: FormStatus.Archived, DeletedAt: null })
         {
             form.MarkDeleted(clock.UtcNow);
         }
@@ -595,7 +595,7 @@ public sealed class FormService(
         var answersByQuestionId = new Dictionary<Guid, SubmitFormAnswerRequest>();
         foreach (var answer in submittedAnswers)
         {
-            if (!questions.Any(question => question.Id == answer.FormQuestionId))
+            if (questions.All(question => question.Id != answer.FormQuestionId))
             {
                 return Result<IReadOnlyList<ValidatedAnswer>>.Failure("An answer references an unknown question.");
             }
