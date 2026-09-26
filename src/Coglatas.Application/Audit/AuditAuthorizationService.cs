@@ -27,10 +27,6 @@ public interface IAuditAuthorizationService
 {
     Task<AuditCapabilityResponse> GetCapabilitiesAsync(CancellationToken cancellationToken = default);
 
-    Task<bool> HasCapabilityAsync(
-        string capabilityKey,
-        CancellationToken cancellationToken = default);
-
     Task<Result> AuthorizeAsync(
         string capabilityKey,
         string operation,
@@ -59,7 +55,7 @@ public sealed class AuditAuthorizationService(
             return None();
         }
 
-        if (currentUser.SystemRole is SystemRole.PlatformAdmin or SystemRole.SystemAdmin)
+        if (currentUser.SystemRole == SystemRole.PlatformAdmin)
         {
             return All();
         }
@@ -115,20 +111,13 @@ public sealed class AuditAuthorizationService(
             canViewSensitiveMetadata);
     }
 
-    public async Task<bool> HasCapabilityAsync(
-        string capabilityKey,
-        CancellationToken cancellationToken = default)
-    {
-        var capabilities = await GetCapabilitiesAsync(cancellationToken);
-        return capabilities.HasCapability(capabilityKey);
-    }
-
     public async Task<Result> AuthorizeAsync(
         string capabilityKey,
         string operation,
         CancellationToken cancellationToken = default)
     {
-        if (await HasCapabilityAsync(capabilityKey, cancellationToken))
+        var capabilities = await GetCapabilitiesAsync(cancellationToken);
+        if (capabilities.HasCapability(capabilityKey))
         {
             return Result.Success();
         }
