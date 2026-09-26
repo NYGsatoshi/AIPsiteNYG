@@ -31,15 +31,15 @@ class AdapterShellHostComponent {
 
 describe('Coglatas complex adapter shells', () => {
   it('renders stable Coglatas selectors and consumes theme/density context without vendor DOM', async () => {
-    document.documentElement.dataset['aipTheme'] = 'light';
-    document.documentElement.dataset['aipDensity'] = 'comfortable';
+    document.documentElement.dataset['coglatasTheme'] = 'light';
+    document.documentElement.dataset['coglatasDensity'] = 'comfortable';
     await TestBed.configureTestingModule({ imports: [AdapterShellHostComponent] }).compileComponents();
     const fixture = TestBed.createComponent(AdapterShellHostComponent);
     fixture.detectChanges();
 
     const shell = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>('[data-testid="coglatas-data-grid-adapter"]');
-    expect(shell?.dataset['aipPresentation']).toBe('narrow');
-    expect(shell?.dataset['aipState']).toBe('degraded');
+    expect(shell?.dataset['coglatasPresentation']).toBe('narrow');
+    expect(shell?.dataset['coglatasState']).toBe('degraded');
     expect(shell?.getAttribute('aria-label')).toBe('Members');
     expect(shell?.querySelector('ejs-grid')).toBeNull();
   });
