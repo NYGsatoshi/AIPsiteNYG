@@ -1,5 +1,4 @@
 using Coglatas.Application.Admin;
-using Coglatas.Application.Common;
 using Coglatas.Web.Configuration;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
