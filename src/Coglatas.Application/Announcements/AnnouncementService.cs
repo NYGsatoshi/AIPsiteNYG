@@ -54,7 +54,7 @@ public sealed class AnnouncementService(
             return Result<AnnouncementDetailResponse>.Failure("Authentication is required.");
         }
 
-        var validation = await ValidateRequestAsync(request.Title, request.Body, request.PublishedAt ?? clock.UtcNow, request.ExpiresAt, cancellationToken);
+        var validation = await ValidateRequestAsync(request.Title, request.Body, request.PublishedAt ?? clock.UtcNow, request.ExpiresAt);
         if (!validation.IsSuccess)
         {
             return Result<AnnouncementDetailResponse>.Failure(validation.Error!);
@@ -130,7 +130,7 @@ public sealed class AnnouncementService(
 
         var nextPublished = request.PublishedAt ?? announcement.PublishedAt;
         var nextExpires = request.ExpiresAt ?? announcement.ExpiresAt;
-        var validation = await ValidateRequestAsync(request.Title ?? announcement.Title, request.Body ?? announcement.Body, nextPublished, nextExpires, cancellationToken);
+        var validation = await ValidateRequestAsync(request.Title ?? announcement.Title, request.Body ?? announcement.Body, nextPublished, nextExpires);
         if (!validation.IsSuccess)
         {
             return Result<AnnouncementDetailResponse>.Failure(validation.Error!);
