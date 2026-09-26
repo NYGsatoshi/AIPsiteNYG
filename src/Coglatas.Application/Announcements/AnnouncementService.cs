@@ -34,8 +34,8 @@ public sealed class AnnouncementService(
             return Result<PagedResponse<AnnouncementListItemResponse>>.Failure("Authentication is required.");
         }
 
-        var page = Math.Max(1, query.Page);
         var pageSize = Math.Clamp(query.PageSize, 1, MaxPageSize);
+        var page = NormalizePage(query.Page, pageSize);
         var normalizedQuery = query with { Page = page, PageSize = pageSize };
         var result = await announcements.ListVisibleAsync(userId, await IsSystemAdminAsync(userId, cancellationToken), normalizedQuery, cancellationToken);
         var items = new List<AnnouncementListItemResponse>();
@@ -396,6 +396,14 @@ public sealed class AnnouncementService(
         }
 
         return Task.FromResult(Result.Success());
+    }
+
+    private static int NormalizePage(int requestedPage, int pageSize)
+    {
+        var maxPage = Math.Min(
+            (long)int.MaxValue,
+            ((long)int.MaxValue / pageSize) + 1L);
+        return (int)Math.Clamp((long)requestedPage, 1L, maxPage);
     }
 
     private bool TryCurrentUser(out Guid userId)
