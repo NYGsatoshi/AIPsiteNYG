@@ -407,7 +407,7 @@ public sealed class ResearchPlanService(
     }
 
     private static bool TryNormalizeSteps(
-        IReadOnlyList<ResearchPlanStepRequest>? source,
+        IReadOnlyList<ResearchPlanStepRequest?>? source,
         out IReadOnlyList<NormalizedStep> normalized,
         out ApplicationErrorDetail? failure)
     {
@@ -426,6 +426,11 @@ public sealed class ResearchPlanService(
         for (var index = 0; index < source.Count; index++)
         {
             var step = source[index];
+            if (step is null)
+            {
+                failure = InvalidStep(index, "A step is required.");
+                return false;
+            }
 
             if (step.BaseStepId == Guid.Empty)
             {
