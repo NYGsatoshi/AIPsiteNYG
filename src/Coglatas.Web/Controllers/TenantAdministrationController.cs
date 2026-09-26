@@ -1,7 +1,7 @@
-using Coglatas.Application.Common;
 using Coglatas.Application.TenantAdministration;
 using Coglatas.Application.Tenancy;
 using Coglatas.Web.Configuration;
+using Coglatas.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
@@ -66,13 +66,13 @@ public sealed class TenantAdministrationController(
     [HttpPost("api/tenant/users/{userId:guid}/suspend")]
     public async Task<IActionResult> SuspendTenantUser(Guid userId, CancellationToken cancellationToken)
     {
-        return ToActionResult(await tenantService.UpdateCurrentTenantUserAsync(userId, new UpdateTenantUserRequest(null, Coglatas.Domain.Enums.TenantUserStatus.Suspended), cancellationToken));
+        return ToActionResult(await tenantService.UpdateCurrentTenantUserAsync(userId, new UpdateTenantUserRequest(null, TenantUserStatus.Suspended), cancellationToken));
     }
 
     [HttpPost("api/tenant/users/{userId:guid}/activate")]
     public async Task<IActionResult> ActivateTenantUser(Guid userId, CancellationToken cancellationToken)
     {
-        return ToActionResult(await tenantService.UpdateCurrentTenantUserAsync(userId, new UpdateTenantUserRequest(null, Coglatas.Domain.Enums.TenantUserStatus.Active), cancellationToken));
+        return ToActionResult(await tenantService.UpdateCurrentTenantUserAsync(userId, new UpdateTenantUserRequest(null, TenantUserStatus.Active), cancellationToken));
     }
 
     [HttpDelete("api/tenant/users/{userId:guid}")]
