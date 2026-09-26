@@ -776,7 +776,7 @@ public sealed class DbSearchService(
                 member.Status == MembershipStatus.Active &&
                 (member.Role == WorkspaceRole.Owner || member.Role == WorkspaceRole.Admin),
                 cancellationToken);
-        var effectiveGrants = EffectiveFileAccessGrants();
+        var effectiveGrants = EffectiveFileAccessGrantQuery.For(dbContext);
         var effectiveRecipientFileIds = effectiveGrants
             .Where(grant => grant.WorkspaceId == workspaceId && grant.RecipientUserId == userId)
             .Select(grant => grant.FileObjectId);
@@ -859,60 +859,6 @@ public sealed class DbSearchService(
             .ToListAsync(cancellationToken);
     }
 
-    private IQueryable<Coglatas.Domain.Entities.FileAccessGrant> EffectiveFileAccessGrants()
-    {
-        return dbContext.FileAccessGrants
-            .AsNoTracking()
-            .Where(grant =>
-                grant.RevokedAt == null &&
-                dbContext.FileObjects.Any(file =>
-                    file.Id == grant.FileObjectId &&
-                    file.TenantId == grant.TenantId &&
-                    file.WorkspaceId == grant.WorkspaceId &&
-                    file.DeletedAt == null &&
-                    file.Status != FileObjectStatus.Deleted) &&
-                dbContext.Attachments.Any(attachment =>
-                    attachment.FileObjectId == grant.FileObjectId &&
-                    attachment.WorkspaceId == grant.WorkspaceId &&
-                    attachment.OwnerType == AttachmentOwnerType.Workspace &&
-                    attachment.OwnerId == grant.WorkspaceId &&
-                    attachment.DeletedAt == null) &&
-                dbContext.Workspaces.Any(workspace =>
-                    workspace.Id == grant.WorkspaceId &&
-                    workspace.TenantId == grant.TenantId &&
-                    workspace.DeletedAt == null &&
-                    workspace.Status == WorkspaceStatus.Active) &&
-                dbContext.TenantUsers.Any(tenantUser =>
-                    tenantUser.TenantId == grant.TenantId &&
-                    tenantUser.UserId == grant.RecipientUserId &&
-                    tenantUser.Status == TenantUserStatus.Active) &&
-                dbContext.Users.Any(user =>
-                    user.Id == grant.RecipientUserId &&
-                    user.Status == UserStatus.Active &&
-                    user.DeletedAt == null) &&
-                ((grant.RecipientKind == FileAccessGrantRecipientKind.WorkspaceMember &&
-                  dbContext.WorkspaceMembers.Any(member =>
-                      member.TenantId == grant.TenantId &&
-                      member.WorkspaceId == grant.WorkspaceId &&
-                      member.UserId == grant.RecipientUserId &&
-                      member.Status == MembershipStatus.Active)) ||
-                 (grant.RecipientKind == FileAccessGrantRecipientKind.ExternalProjectMember &&
-                  !dbContext.WorkspaceMembers.Any(member =>
-                      member.TenantId == grant.TenantId &&
-                      member.WorkspaceId == grant.WorkspaceId &&
-                      member.UserId == grant.RecipientUserId &&
-                      member.Status == MembershipStatus.Active) &&
-                  dbContext.ProjectMembers.Any(member =>
-                      member.TenantId == grant.TenantId &&
-                      member.UserId == grant.RecipientUserId &&
-                      dbContext.Projects.Any(project =>
-                          project.Id == member.ProjectId &&
-                          project.TenantId == grant.TenantId &&
-                          project.WorkspaceId == grant.WorkspaceId &&
-                          project.DeletedAt == null &&
-                          project.Status != ProjectStatus.Archived &&
-                          project.Status != ProjectStatus.Deleted)))));
-    }
 
     private static IQueryable<Coglatas.Domain.Entities.Attachment> ApplyFileKindFilter(
         IQueryable<Coglatas.Domain.Entities.Attachment> query,
