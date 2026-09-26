@@ -1504,30 +1504,16 @@ public static class AppDbContextSeed
             dbContext.GroupMembers.Remove(managerGroupMember);
         }
 
-        var managerWorkspaceMember = await dbContext.WorkspaceMembers.FirstOrDefaultAsync(
-            candidate =>
-                candidate.TenantId == tenantId &&
-                candidate.WorkspaceId == workspace.Id &&
-                candidate.UserId == manager.Id,
+        await EnsureSeedWorkspaceMemberAsync(
+            dbContext,
+            tenantId,
+            workspace.Id,
+            manager.Id,
+            WorkspaceRole.Member,
+            MembershipStatus.Active,
+            now,
+            false,
             cancellationToken);
-        if (managerWorkspaceMember is null)
-        {
-            await dbContext.WorkspaceMembers.AddAsync(new WorkspaceMember
-            {
-                TenantId = tenantId,
-                WorkspaceId = workspace.Id,
-                UserId = manager.Id,
-                Role = WorkspaceRole.Member,
-                Status = MembershipStatus.Active,
-                JoinedAt = now
-            }, cancellationToken);
-        }
-        else
-        {
-            managerWorkspaceMember.Role = WorkspaceRole.Member;
-            managerWorkspaceMember.Status = MembershipStatus.Active;
-            managerWorkspaceMember.JoinedAt ??= now;
-        }
 
         var project = await EnsureSeedProjectAsync(
             dbContext,
@@ -1705,35 +1691,16 @@ public static class AppDbContextSeed
                     candidate.Slug == groupSlug,
                 cancellationToken);
 
-        var managerWorkspaceMember = dbContext.WorkspaceMembers.Local.FirstOrDefault(
-            candidate =>
-                candidate.TenantId == tenantId &&
-                candidate.WorkspaceId == workspace.Id &&
-                candidate.UserId == manager.Id)
-            ?? await dbContext.WorkspaceMembers.FirstOrDefaultAsync(
-                candidate =>
-                    candidate.TenantId == tenantId &&
-                    candidate.WorkspaceId == workspace.Id &&
-                    candidate.UserId == manager.Id,
-                cancellationToken);
-        if (managerWorkspaceMember is null)
-        {
-            await dbContext.WorkspaceMembers.AddAsync(new WorkspaceMember
-            {
-                TenantId = tenantId,
-                WorkspaceId = workspace.Id,
-                UserId = manager.Id,
-                Role = WorkspaceRole.Member,
-                Status = MembershipStatus.Active,
-                JoinedAt = now
-            }, cancellationToken);
-        }
-        else
-        {
-            managerWorkspaceMember.Role = WorkspaceRole.Member;
-            managerWorkspaceMember.Status = MembershipStatus.Active;
-            managerWorkspaceMember.JoinedAt ??= now;
-        }
+        await EnsureSeedWorkspaceMemberAsync(
+            dbContext,
+            tenantId,
+            workspace.Id,
+            manager.Id,
+            WorkspaceRole.Member,
+            MembershipStatus.Active,
+            now,
+            true,
+            cancellationToken);
 
         var project = await EnsureSeedProjectAsync(
             dbContext,
@@ -2294,6 +2261,49 @@ public static class AppDbContextSeed
                 CreatedAt = now
             }, cancellationToken);
         }
+    }
+
+    private static async Task EnsureSeedWorkspaceMemberAsync(
+        AppDbContext dbContext,
+        Guid tenantId,
+        Guid workspaceId,
+        Guid userId,
+        WorkspaceRole role,
+        MembershipStatus status,
+        DateTimeOffset joinedAt,
+        bool checkLocalFirst,
+        CancellationToken cancellationToken)
+    {
+        var member = checkLocalFirst
+            ? dbContext.WorkspaceMembers.Local.FirstOrDefault(candidate =>
+                candidate.TenantId == tenantId &&
+                candidate.WorkspaceId == workspaceId &&
+                candidate.UserId == userId)
+            : null;
+        member ??= await dbContext.WorkspaceMembers.FirstOrDefaultAsync(
+            candidate =>
+                candidate.TenantId == tenantId &&
+                candidate.WorkspaceId == workspaceId &&
+                candidate.UserId == userId,
+            cancellationToken);
+
+        if (member is null)
+        {
+            await dbContext.WorkspaceMembers.AddAsync(new WorkspaceMember
+            {
+                TenantId = tenantId,
+                WorkspaceId = workspaceId,
+                UserId = userId,
+                Role = role,
+                Status = status,
+                JoinedAt = joinedAt
+            }, cancellationToken);
+            return;
+        }
+
+        member.Role = role;
+        member.Status = status;
+        member.JoinedAt ??= joinedAt;
     }
 
     private static async Task<Project> EnsureSeedProjectAsync(
