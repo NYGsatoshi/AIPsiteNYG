@@ -851,27 +851,33 @@ public sealed class DbSearchService(
     }
 
 
-    private async Task<IReadOnlyList<SearchResultItemResponse>> SearchTasksAsync(Guid userId, string? q, SearchRequest request, CancellationToken cancellationToken)
+    private IQueryable<Guid> ScopedVisibleProjectIds(Guid userId, SearchRequest request)
     {
-        var visibleProjectIds = dbContext.VisibleProjectsFor(userId).Select(project => project.Id);
-        var query = dbContext.TaskItems.AsNoTracking()
-            .Where(task => task.DeletedAt == null && visibleProjectIds.Contains(task.ProjectId))
-            .Join(dbContext.Projects, task => task.ProjectId, project => project.Id, (task, project) => new { task, project });
-
+        var projects = dbContext.VisibleProjectsFor(userId);
         if (request.WorkspaceId.HasValue)
         {
-            query = query.Where(item => item.project.WorkspaceId == request.WorkspaceId);
+            projects = projects.Where(project => project.WorkspaceId == request.WorkspaceId);
         }
 
         if (request.GroupId.HasValue)
         {
-            query = query.Where(item => item.project.GroupId == request.GroupId);
+            projects = projects.Where(project => project.GroupId == request.GroupId);
         }
 
         if (request.ProjectId.HasValue)
         {
-            query = query.Where(item => item.project.Id == request.ProjectId);
+            projects = projects.Where(project => project.Id == request.ProjectId);
         }
+
+        return projects.Select(project => project.Id);
+    }
+
+    private async Task<IReadOnlyList<SearchResultItemResponse>> SearchTasksAsync(Guid userId, string? q, SearchRequest request, CancellationToken cancellationToken)
+    {
+        var visibleProjectIds = ScopedVisibleProjectIds(userId, request);
+        var query = dbContext.TaskItems.AsNoTracking()
+            .Where(task => task.DeletedAt == null && visibleProjectIds.Contains(task.ProjectId))
+            .Join(dbContext.Projects, task => task.ProjectId, project => project.Id, (task, project) => new { task, project });
 
         if (!string.IsNullOrWhiteSpace(q))
         {
@@ -890,25 +896,10 @@ public sealed class DbSearchService(
 
     private async Task<IReadOnlyList<SearchResultItemResponse>> SearchArtifactsAsync(Guid userId, string? q, SearchRequest request, CancellationToken cancellationToken)
     {
-        var visibleProjectIds = dbContext.VisibleProjectsFor(userId).Select(project => project.Id);
+        var visibleProjectIds = ScopedVisibleProjectIds(userId, request);
         var query = dbContext.Artifacts.AsNoTracking()
             .Where(artifact => artifact.DeletedAt == null && visibleProjectIds.Contains(artifact.ProjectId))
             .Join(dbContext.Projects, artifact => artifact.ProjectId, project => project.Id, (artifact, project) => new { artifact, project });
-
-        if (request.WorkspaceId.HasValue)
-        {
-            query = query.Where(item => item.project.WorkspaceId == request.WorkspaceId);
-        }
-
-        if (request.GroupId.HasValue)
-        {
-            query = query.Where(item => item.project.GroupId == request.GroupId);
-        }
-
-        if (request.ProjectId.HasValue)
-        {
-            query = query.Where(item => item.project.Id == request.ProjectId);
-        }
 
         if (!string.IsNullOrWhiteSpace(q))
         {
@@ -927,25 +918,10 @@ public sealed class DbSearchService(
 
     private async Task<IReadOnlyList<SearchResultItemResponse>> SearchActivityLogsAsync(Guid userId, string? q, SearchRequest request, CancellationToken cancellationToken)
     {
-        var visibleProjectIds = dbContext.VisibleProjectsFor(userId).Select(project => project.Id);
+        var visibleProjectIds = ScopedVisibleProjectIds(userId, request);
         var query = dbContext.ActivityLogs.AsNoTracking()
             .Where(log => visibleProjectIds.Contains(log.ProjectId))
             .Join(dbContext.Projects, log => log.ProjectId, project => project.Id, (log, project) => new { log, project });
-
-        if (request.WorkspaceId.HasValue)
-        {
-            query = query.Where(item => item.project.WorkspaceId == request.WorkspaceId);
-        }
-
-        if (request.GroupId.HasValue)
-        {
-            query = query.Where(item => item.project.GroupId == request.GroupId);
-        }
-
-        if (request.ProjectId.HasValue)
-        {
-            query = query.Where(item => item.project.Id == request.ProjectId);
-        }
 
         if (request.AuthorUserId.HasValue)
         {
@@ -969,7 +945,7 @@ public sealed class DbSearchService(
 
     private async Task<IReadOnlyList<SearchResultItemResponse>> SearchCommentsAsync(Guid userId, string? q, SearchRequest request, CancellationToken cancellationToken)
     {
-        var visibleProjectIds = dbContext.VisibleProjectsFor(userId).Select(project => project.Id);
+        var visibleProjectIds = ScopedVisibleProjectIds(userId, request);
         var query = dbContext.Comments.AsNoTracking()
             .Where(comment => comment.DeletedAt == null &&
                 ((comment.TargetType == CommentTargetType.Project && visibleProjectIds.Contains(comment.TargetId)) ||
