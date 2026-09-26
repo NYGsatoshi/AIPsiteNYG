@@ -724,20 +724,13 @@ public sealed class DbAuditQueryService(
                 : new AuditCapabilityResponse(false, false, false, false, false);
         }
 
-        public async Task<bool> HasCapabilityAsync(
-            string capabilityKey,
-            CancellationToken cancellationToken = default)
-        {
-            var capabilities = await GetCapabilitiesAsync(cancellationToken);
-            return capabilities.HasCapability(capabilityKey);
-        }
-
         public async Task<Result> AuthorizeAsync(
             string capabilityKey,
             string operation,
             CancellationToken cancellationToken = default)
         {
-            if (await HasCapabilityAsync(capabilityKey, cancellationToken))
+            var capabilities = await GetCapabilitiesAsync(cancellationToken);
+            if (capabilities.HasCapability(capabilityKey))
             {
                 return Result.Success();
             }
