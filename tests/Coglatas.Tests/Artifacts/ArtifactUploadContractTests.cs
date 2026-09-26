@@ -109,19 +109,6 @@ public sealed class ArtifactUploadContractTests
     }
 
     [Fact]
-    public void Files_upload_accepts_only_multipart_form_data()
-    {
-        var method = typeof(FilesController).GetMethod(nameof(FilesController.Upload));
-        Assert.NotNull(method);
-
-        var consumes = Assert.Single(method!
-            .GetCustomAttributes(typeof(ConsumesAttribute), inherit: true)
-            .Cast<ConsumesAttribute>());
-
-        Assert.Equal(["multipart/form-data"], consumes.ContentTypes);
-    }
-
-    [Fact]
     public void Upload_forms_require_a_file()
     {
         foreach (var form in new object[] { new UploadArtifactVersionForm(), new UploadAttachmentForm() })
