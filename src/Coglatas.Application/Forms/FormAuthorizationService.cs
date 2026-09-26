@@ -14,12 +14,12 @@ public sealed class FormAuthorizationService(
     IGroupAuthorizationService groups,
     IProjectAuthorizationService projects) : IFormAuthorizationService
 {
-    private readonly ScopeAuthorizationEvaluator scopeAuthorization =
+    private readonly ScopeAuthorizationEvaluator _scopeAuthorization =
         new(users, workspaces, groups, projects);
 
     public Task<bool> CanCreateForm(Guid userId, Guid? workspaceId, Guid? groupId, Guid? projectId, CancellationToken cancellationToken = default)
     {
-        return scopeAuthorization.CanManageScopeAsync(userId, workspaceId, groupId, projectId, cancellationToken);
+        return _scopeAuthorization.CanManageScopeAsync(userId, workspaceId, groupId, projectId, cancellationToken);
     }
 
     public async Task<bool> CanViewForm(Guid userId, InternalForm form, CancellationToken cancellationToken = default)
@@ -32,7 +32,7 @@ public sealed class FormAuthorizationService(
         if (form.Status == FormStatus.Draft)
         {
             return form.CreatedByUserId == userId ||
-                await scopeAuthorization.CanManageScopeAsync(
+                await _scopeAuthorization.CanManageScopeAsync(
                     userId,
                     form.WorkspaceId,
                     form.GroupId,
@@ -40,7 +40,7 @@ public sealed class FormAuthorizationService(
                     cancellationToken);
         }
 
-        return await scopeAuthorization.CanViewScopeAsync(
+        return await _scopeAuthorization.CanViewScopeAsync(
             userId,
             form.WorkspaceId,
             form.GroupId,
@@ -52,7 +52,7 @@ public sealed class FormAuthorizationService(
     {
         return form.CreatedByUserId == userId
             ? Task.FromResult(true)
-            : scopeAuthorization.CanManageScopeAsync(
+            : _scopeAuthorization.CanManageScopeAsync(
                 userId,
                 form.WorkspaceId,
                 form.GroupId,
@@ -62,7 +62,7 @@ public sealed class FormAuthorizationService(
 
     public Task<bool> CanAccessScope(Guid userId, InternalForm form, CancellationToken cancellationToken = default)
     {
-        return scopeAuthorization.CanViewScopeAsync(
+        return _scopeAuthorization.CanViewScopeAsync(
             userId,
             form.WorkspaceId,
             form.GroupId,
