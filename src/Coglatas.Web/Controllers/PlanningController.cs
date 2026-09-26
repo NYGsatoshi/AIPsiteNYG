@@ -1,3 +1,4 @@
+using Coglatas.Application.Common;
 using Coglatas.Application.Planning;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -31,7 +32,7 @@ public sealed class PlanningController(IPlanningService planning) : ApiResultCon
     [HttpGet("api/projects/{projectId:guid}/workload")]
     public async Task<IActionResult> Workload(Guid projectId, CancellationToken cancellationToken) => ToActionResult(await planning.GetWorkloadAsync(projectId, cancellationToken));
 
-    private IActionResult ToGanttActionResult<T>(Coglatas.Application.Common.Result<T> result)
+    private IActionResult ToGanttActionResult<T>(Result<T> result)
     {
         if (result.IsSuccess)
         {
@@ -64,7 +65,7 @@ public sealed class PlanningController(IPlanningService planning) : ApiResultCon
         });
     }
 
-    private IActionResult ToMyTasksActionResult<T>(Coglatas.Application.Common.Result<T> result)
+    private IActionResult ToMyTasksActionResult<T>(Result<T> result)
     {
         if (result.IsSuccess)
         {
