@@ -39,14 +39,10 @@ public sealed class DbAuditQueryService : IAuditQueryService
         AuditLogQuery query,
         CancellationToken cancellationToken = default)
     {
-        var capabilities = await auditAuthorization.GetCapabilitiesAsync(cancellationToken);
-        if (!capabilities.CanView)
+        var (capabilities, viewDenied) = await GetViewCapabilitiesAsync("audit.logs.list", cancellationToken);
+        if (viewDenied is not null)
         {
-            var denied = await auditAuthorization.AuthorizeAsync(
-                CapabilityKeys.AuditView,
-                "audit.logs.list",
-                cancellationToken);
-            return AuthorizationFailure<PagedResponse<AuditLogListItemResponse>>(denied);
+            return AuthorizationFailure<PagedResponse<AuditLogListItemResponse>>(viewDenied);
         }
 
         if (query.ActorUserId.HasValue && !capabilities.CanViewSensitiveMetadata)
@@ -140,14 +136,10 @@ public sealed class DbAuditQueryService : IAuditQueryService
         AuditLogQuery query,
         CancellationToken cancellationToken = default)
     {
-        var capabilities = await auditAuthorization.GetCapabilitiesAsync(cancellationToken);
-        if (!capabilities.CanView)
+        var (capabilities, viewDenied) = await GetViewCapabilitiesAsync("audit.grid.list", cancellationToken);
+        if (viewDenied is not null)
         {
-            var denied = await auditAuthorization.AuthorizeAsync(
-                CapabilityKeys.AuditView,
-                "audit.grid.list",
-                cancellationToken);
-            return AuthorizationFailure<PagedResponse<AuditGridRowResponse>>(denied);
+            return AuthorizationFailure<PagedResponse<AuditGridRowResponse>>(viewDenied);
         }
 
         if ((query.ActorUserId.HasValue || !string.IsNullOrWhiteSpace(query.Actor)) &&
@@ -281,14 +273,10 @@ public sealed class DbAuditQueryService : IAuditQueryService
         Guid auditId,
         CancellationToken cancellationToken = default)
     {
-        var capabilities = await auditAuthorization.GetCapabilitiesAsync(cancellationToken);
-        if (!capabilities.CanView)
+        var (capabilities, viewDenied) = await GetViewCapabilitiesAsync("audit.grid.row.read", cancellationToken);
+        if (viewDenied is not null)
         {
-            var denied = await auditAuthorization.AuthorizeAsync(
-                CapabilityKeys.AuditView,
-                "audit.grid.row.read",
-                cancellationToken);
-            return AuthorizationFailure<AuditGridRowResponse>(denied);
+            return AuthorizationFailure<AuditGridRowResponse>(viewDenied);
         }
 
         var scopeError = ValidateQueryScope<AuditGridRowResponse>();
@@ -327,14 +315,10 @@ public sealed class DbAuditQueryService : IAuditQueryService
         Guid auditId,
         CancellationToken cancellationToken = default)
     {
-        var capabilities = await auditAuthorization.GetCapabilitiesAsync(cancellationToken);
-        if (!capabilities.CanView)
+        var (capabilities, viewDenied) = await GetViewCapabilitiesAsync("audit.grid.sensitive-metadata.read", cancellationToken);
+        if (viewDenied is not null)
         {
-            var denied = await auditAuthorization.AuthorizeAsync(
-                CapabilityKeys.AuditView,
-                "audit.grid.sensitive-metadata.read",
-                cancellationToken);
-            return AuthorizationFailure<AuditSensitiveMetadataResponse>(denied);
+            return AuthorizationFailure<AuditSensitiveMetadataResponse>(viewDenied);
         }
 
         if (!capabilities.CanViewSensitiveMetadata)
@@ -374,14 +358,10 @@ public sealed class DbAuditQueryService : IAuditQueryService
         SecurityEventQuery query,
         CancellationToken cancellationToken = default)
     {
-        var capabilities = await auditAuthorization.GetCapabilitiesAsync(cancellationToken);
-        if (!capabilities.CanView)
+        var (capabilities, viewDenied) = await GetViewCapabilitiesAsync("audit.security-events.list", cancellationToken);
+        if (viewDenied is not null)
         {
-            var denied = await auditAuthorization.AuthorizeAsync(
-                CapabilityKeys.AuditView,
-                "audit.security-events.list",
-                cancellationToken);
-            return AuthorizationFailure<PagedResponse<SecurityEventListItemResponse>>(denied);
+            return AuthorizationFailure<PagedResponse<SecurityEventListItemResponse>>(viewDenied);
         }
 
         if ((query.UserId.HasValue || !string.IsNullOrWhiteSpace(query.Email)) &&
@@ -456,6 +436,23 @@ public sealed class DbAuditQueryService : IAuditQueryService
 
         return Result<PagedResponse<SecurityEventListItemResponse>>.Success(
             new PagedResponse<SecurityEventListItemResponse>(items, page, pageSize, total));
+    }
+
+    private async Task<(AuditCapabilityResponse Capabilities, Result? Denied)> GetViewCapabilitiesAsync(
+        string operation,
+        CancellationToken cancellationToken)
+    {
+        var capabilities = await auditAuthorization.GetCapabilitiesAsync(cancellationToken);
+        if (capabilities.CanView)
+        {
+            return (capabilities, null);
+        }
+
+        var denied = await auditAuthorization.AuthorizeAsync(
+            CapabilityKeys.AuditView,
+            operation,
+            cancellationToken);
+        return (capabilities, denied);
     }
 
     private IQueryable<AuditLog> ScopeToCurrentTenant(IQueryable<AuditLog> source)
