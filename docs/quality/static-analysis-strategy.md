@@ -4,7 +4,7 @@
 
 | Tool | Role | Execution |
 | --- | --- | --- |
-| SonarQube Cloud | Repository-wide quality gate across C#, JavaScript, TypeScript, HTML, CSS and SCSS | Automatic Analysis on every PR update and every push to `main` |
+| SonarQube Server | Repository-wide quality gate across C#, JavaScript, TypeScript, HTML, CSS and SCSS | Automatic analysis on pushes to `main`; trusted same-repository PRs are analyzed by explicit manual dispatch and decorated in GitHub |
 | ESLint + angular-eslint | JavaScript, TypeScript and Angular template policy | `Frontend Static Analysis` on every PR and `main` push; blocking |
 | Stylelint | CSS and SCSS policy | `Frontend Static Analysis` on every PR and `main` push; blocking |
 | Qodana Community for .NET | JetBrains/ReSharper second-opinion and deep .NET inspection | Every PR, `main`, weekly schedule and manual dispatch; blocking for changed-code findings on PRs, Critical findings, scanner failure and project-model failure |
@@ -36,23 +36,32 @@ Apply the following constraints:
 
 This policy preserves the baseline as a monotonic debt ceiling while allowing normal product work to retire findings incrementally.
 
-## SonarQube Cloud mode
+## SonarQube Server mode
 
-This repository uses **SonarQube Cloud Automatic Analysis**, not a token-bearing GitHub Actions scanner.
+This repository uses **SonarQube Server with the SonarScanner for .NET**. SonarQube Cloud Automatic Analysis is not used.
 
-The repository publication policy forbids secrets in `pull_request` workflows. Automatic Analysis reads the bound GitHub repository directly, so PR analysis does not require `SONAR_TOKEN` in an untrusted PR workflow.
+The repository publication policy forbids repository or environment secrets in ordinary `pull_request` workflows. The SonarQube workflow therefore has no `pull_request` trigger:
 
-Repository-side scope configuration is stored in `.sonarcloud.properties`.
+- pushes to `main` are analyzed automatically;
+- a trusted same-repository PR can be analyzed with `workflow_dispatch` by supplying its PR number after review;
+- fork PRs and PRs whose base is not `main` are rejected by the privileged workflow;
+- the workflow uses read-only GitHub permissions and does not post PR comments or statuses itself.
 
-### One-time SonarQube Cloud setup
+The scanner authenticates to SonarQube Server with `SONAR_TOKEN` and `SONAR_HOST_URL`. The project key defaults to `NYGsatoshi_AIPsiteNYG` for migration continuity and can be overridden with the repository variable `SONAR_PROJECT_KEY`.
 
-1. Import `NYGsatoshi/Coglatas` into SonarQube Cloud through the GitHub integration.
-2. In the project, open **Administration > Analysis Method** and enable **Automatic Analysis**.
-3. Keep CI-based Sonar scanning disabled for this project; Automatic Analysis and CI-based analysis must not run together.
+Analysis scope and duplication exclusions are passed directly to the scanner by `.github/workflows/sonarqube.yml`; the former SonarQube Cloud-only `.sonarcloud.properties` file is removed.
+
+### One-time SonarQube Server setup
+
+1. Configure the SonarQube Server GitHub App / DevOps Platform integration and bind the SonarQube project to `NYGsatoshi/Coglatas`.
+2. Configure the repository secrets `SONAR_HOST_URL` and `SONAR_TOKEN`. Use a project-scoped analysis token where possible.
+3. If the migrated SonarQube project key differs from `NYGsatoshi_AIPsiteNYG`, set the repository variable `SONAR_PROJECT_KEY` to the actual key.
 4. Configure the project Quality Gate for new code.
-5. In the GitHub `main` ruleset/branch protection, require the SonarQube Quality Gate status after its first successful report.
+5. After the first successful decorated analysis, require the SonarQube Quality Gate status in the GitHub `main` ruleset/branch protection if it is intended to block merges.
 
-Automatic Analysis should then run on each push to `main` and on each update to a pull-request branch.
+For a trusted PR analysis, dispatch the `SonarQube` workflow from the protected repository context and set the `pull_request` input to the PR number. The workflow resolves the current same-repository PR head through the GitHub API, analyzes that exact commit, and passes explicit SonarQube pull-request parameters so the bound GitHub integration can decorate the PR.
+
+Automatic secret-bearing analysis of arbitrary `pull_request` code is intentionally not enabled. If automatic PR analysis is introduced later, it must run behind a separately reviewed trusted CI boundary rather than weakening `GOV-TRUST-001`.
 
 ## Pull-request merge gates
 
@@ -68,7 +77,7 @@ The PR-stage gates include:
 - Qodana Community / .NET
 - CodeQL semantic/data-flow analysis
 
-The SonarQube Quality Gate is supplied by the SonarQube Cloud GitHub integration rather than by a secret-bearing workflow in this repository.
+For PRs that receive a trusted SonarQube analysis, the SonarQube Quality Gate is supplied by the SonarQube Server GitHub integration. The SonarQube workflow itself keeps GitHub permissions read-only; PR decoration is performed by the configured SonarQube GitHub App.
 
 ## Qodana policy
 
