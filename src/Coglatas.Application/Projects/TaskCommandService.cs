@@ -49,8 +49,11 @@ public sealed class TaskCommandService(
         if (description?.Length > 8000) return Fail<CanonicalTaskResponse>("TASK_INVALID_DESCRIPTION", "Task description must be 8000 characters or fewer.");
         if (!request.Priority.HasValue || !Enum.IsDefined(request.Priority.Value)) return Fail<CanonicalTaskResponse>("TASK_INVALID_PRIORITY", "Task priority is invalid.");
         if (!request.ProgressPercent.HasValue || request.ProgressPercent is < 0 or > 100) return Fail<CanonicalTaskResponse>("TASK_INVALID_PROGRESS", "Task progress must be between 0 and 100.");
-        if (request.PlannedStartDate.HasValue && request.PlannedEndDate.HasValue && request.PlannedStartDate.Value > request.PlannedEndDate.Value)
+        if (request is { PlannedStartDate: { } plannedStartDate, PlannedEndDate: { } plannedEndDate } &&
+            plannedStartDate > plannedEndDate)
+        {
             return Fail<CanonicalTaskResponse>("TASK_INVALID_DATE_RANGE", "Planned start date must not be after planned end date.");
+        }
         var briefValidation = TaskBriefText.Validate(
             request.Goal.IsSpecified ? request.Goal.Value : null,
             request.Deliverable.IsSpecified ? request.Deliverable.Value : null,
@@ -168,9 +171,8 @@ public sealed class TaskCommandService(
                 return Fail<GanttEditCommandResponse>(authorization.Error.Value.Code, authorization.Error.Value.Message);
             if (request.MilestoneDate.HasValue)
                 return Fail<GanttEditCommandResponse>("GANTT_INVALID_SCHEDULE_TARGET", "Milestone date is not applicable to a Task.");
-            if (request.PlannedStartDate.HasValue &&
-                request.PlannedEndDate.HasValue &&
-                request.PlannedEndDate.Value < request.PlannedStartDate.Value)
+            if (request is { PlannedStartDate: { } plannedStartDate, PlannedEndDate: { } plannedEndDate } &&
+                plannedEndDate < plannedStartDate)
             {
                 return Fail<GanttEditCommandResponse>("GANTT_INVALID_DATE_RANGE", "Planned end date must not precede planned start date.");
             }
@@ -234,8 +236,8 @@ public sealed class TaskCommandService(
     {
         if (!TryActor(out var actor))
             return Fail<GanttEditCommandResponse>("GANTT_AUTHENTICATION_REQUIRED", "Authentication is required.");
-        if (request.ProgressPercent is not int progressPercent
-            || progressPercent is < 0 or > 100)
+        if (request.ProgressPercent is not { } progressPercent ||
+            progressPercent is < 0 or > 100)
             return Fail<GanttEditCommandResponse>("GANTT_INVALID_PROGRESS", "Progress must be an integer between 0 and 100.");
 
         var task = await projects.GetTaskAsync(taskId, cancellationToken);
@@ -481,7 +483,7 @@ public sealed class TaskCommandService(
             effectiveCollaboratorUserIds: effectiveCollaborators,
             options: new TaskCommitOptions(
                 AssignmentChange: "collaboratorChanged",
-                AssignmentAffectedUserIds: effectiveCollaborators.Append(collaboratorUserId).ToArray(),
+                AssignmentAffectedUserIds: [.. effectiveCollaborators, collaboratorUserId],
                 ChangedFields: ["collaborators"]));
     }
 
@@ -703,7 +705,7 @@ public sealed class TaskCommandService(
 
     private async Task<Result<TaskCommandResponse>> ResolveReviewAsync(Guid taskId, TaskReviewRequest request, TaskReviewStatus outcome, CancellationToken cancellationToken)
     {
-        var result = await AuthorizedTaskAsync(taskId, true, false, false, cancellationToken: cancellationToken, requireReview: true);
+        var result = await AuthorizedTaskAsync(taskId, true, cancellationToken: cancellationToken, requireReview: true);
         if (result.Error is not null) return Fail<TaskCommandResponse>(result.Error.Value.Code, result.Error.Value.Message);
         var task = result.Value!; var stale = EnsureVersion(task, request.ExpectedVersion); if (stale is not null) return Fail<TaskCommandResponse>(stale.Value.Code, stale.Value.Message);
         if (task.ReviewStatus != TaskReviewStatus.Submitted) return Fail<TaskCommandResponse>("TASK_TRANSITION_GUARD_FAILED", "Task has not been submitted for review.");
@@ -1048,7 +1050,7 @@ public sealed class TaskCommandService(
         string targetType,
         Guid targetId,
         string? field) =>
-        new(code, message, severity, targetType, targetId, field, false);
+        new(code, message, severity, targetType, targetId, field);
 
     private static IReadOnlyList<GanttWarningResponse> OrderedGanttWarnings(IEnumerable<GanttWarningResponse> warnings) =>
         warnings
