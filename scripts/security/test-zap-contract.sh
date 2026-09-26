@@ -210,6 +210,36 @@ command -v ruby >/dev/null 2>&1 || test_fail "Ruby is required to parse the SEC-
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
+# The real ZAP job parser leaves job placeholders untouched. Verify that the
+# private rendered plan is valid YAML and preserves escaped credential values.
+export COGLATAS_SECURITY_ZAP_TARGET='http://app:8080'
+export COGLATAS_SECURITY_ZAP_TARGET_REGEX='http://app:8080'
+export COGLATAS_SECURITY_ZAP_TENANT='security-alpha'
+export COGLATAS_SECURITY_ZAP_COOKIE='session=contract-"quoted"'
+export COGLATAS_SECURITY_ZAP_CSRF_TOKEN='contract-token'
+export COGLATAS_SECURITY_ZAP_REPORT_DIR='/state'
+export COGLATAS_SECURITY_ZAP_REPORT_FILE='zap-contract.json'
+python3 scripts/security/render-zap-plan.py "$plan" "$tmp/private-plan.yaml"
+python3 - "$tmp/private-plan.yaml" <<'PY'
+import os
+import stat
+import sys
+from pathlib import Path
+path = Path(sys.argv[1])
+assert stat.S_IMODE(path.stat().st_mode) == 0o600
+assert b"${COGLATAS_SECURITY_ZAP_" not in path.read_bytes()
+PY
+ruby - "$tmp/private-plan.yaml" <<'RUBY'
+require "yaml"
+plan = YAML.safe_load(File.read(ARGV.fetch(0)), aliases: false)
+replacer = plan.fetch("jobs").find { |job| job["type"] == "replacer" }
+abort "SEC-06 rendered cookie changed" unless replacer.fetch("rules")[1]["replacementString"] == ENV.fetch("COGLATAS_SECURITY_ZAP_COOKIE")
+abort "SEC-06 rendered URL changed" unless replacer.fetch("rules")[0]["url"] == "http://app:8080/.*"
+RUBY
+unset COGLATAS_SECURITY_ZAP_TARGET COGLATAS_SECURITY_ZAP_TARGET_REGEX COGLATAS_SECURITY_ZAP_TENANT
+unset COGLATAS_SECURITY_ZAP_COOKIE COGLATAS_SECURITY_ZAP_CSRF_TOKEN
+unset COGLATAS_SECURITY_ZAP_REPORT_DIR COGLATAS_SECURITY_ZAP_REPORT_FILE
+
 python3 - "$policy" "$required_active_rule_ids" <<'PY'
 import json
 import re
