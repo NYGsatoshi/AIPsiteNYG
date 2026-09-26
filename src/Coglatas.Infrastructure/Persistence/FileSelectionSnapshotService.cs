@@ -3,7 +3,6 @@ using Coglatas.Application.Common.Interfaces;
 using Coglatas.Application.Files;
 using Coglatas.Application.Search;
 using Coglatas.Domain.Entities;
-using Coglatas.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 
 namespace Coglatas.Infrastructure.Persistence;
@@ -20,7 +19,7 @@ public sealed class FileSelectionSnapshotService(
     IFileAuthorizationService authorization,
     IFileObjectService files) : IFileSelectionSnapshotService
 {
-    public const int MaximumSelectionCount = 100;
+    private const int MaximumSelectionCount = 100;
     private static readonly TimeSpan SnapshotLifetime = TimeSpan.FromMinutes(5);
 
     public async Task<Result<FileSelectionSnapshotCaptureResponse>> CaptureAsync(
@@ -39,9 +38,7 @@ public sealed class FileSelectionSnapshotService(
 
         var normalizedQuery = request.Q?.Trim() ?? string.Empty;
         if (normalizedQuery.Length == 0 &&
-            request.FileKind == FileSearchKind.All &&
-            !request.FromDate.HasValue &&
-            !request.OnlyMyUploads)
+            request is { FileKind: FileSearchKind.All, FromDate: null, OnlyMyUploads: false })
         {
             return Result<FileSelectionSnapshotCaptureResponse>.Failure("Choose a search or filter before selecting all results.");
         }
@@ -200,8 +197,7 @@ public sealed class FileSelectionSnapshotService(
         actorUserId = currentUser.UserId ?? Guid.Empty;
         return currentUser.IsAuthenticated &&
             actorUserId != Guid.Empty &&
-            currentTenant.IsAvailable &&
-            !currentTenant.IsPlatformScope;
+            currentTenant is { IsAvailable: true, IsPlatformScope: false };
     }
 
     private IQueryable<Attachment> MatchingWorkspaceFiles(
