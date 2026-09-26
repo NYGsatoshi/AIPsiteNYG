@@ -80,6 +80,20 @@ public sealed class WorkspacesControllerTests
     }
 
     [Fact]
+    public void CreateDocumentsCreatedSuccessEnvelope()
+    {
+        var method = typeof(WorkspacesController).GetMethod(nameof(WorkspacesController.Create));
+        Assert.NotNull(method);
+
+        var response = Assert.Single(
+            method.GetCustomAttributes(typeof(ProducesResponseTypeAttribute), inherit: false)
+                .Cast<ProducesResponseTypeAttribute>(),
+            attribute => attribute.StatusCode == StatusCodes.Status201Created);
+
+        Assert.Equal(typeof(ApiSuccessEnvelope<WorkspaceDetailResponse>), response.Type);
+    }
+
+    [Fact]
     public async Task CreateForwardsIdempotencyIdentityAndReturnsCreatedResult()
     {
         var value = new WorkspaceDetailResponse(
