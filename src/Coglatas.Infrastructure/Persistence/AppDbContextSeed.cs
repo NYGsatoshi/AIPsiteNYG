@@ -10,7 +10,7 @@ namespace Coglatas.Infrastructure.Persistence;
 
 public static class AppDbContextSeed
 {
-    public static readonly Guid DefaultTenantId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+    private static readonly Guid DefaultTenantId = Guid.Parse("11111111-1111-1111-1111-111111111111");
 
     // These values belong only to the explicitly opted-in Test-environment
     // browser-smoke fixture. They are deliberately synthetic and are not a
@@ -2143,10 +2143,7 @@ public static class AppDbContextSeed
                 member.Status = MembershipStatus.Active;
             }
 
-            if (!member.JoinedAt.HasValue)
-            {
-                member.JoinedAt = DateTimeOffset.UtcNow;
-            }
+            member.JoinedAt ??= DateTimeOffset.UtcNow;
         }
     }
 
@@ -2552,8 +2549,8 @@ public static class AppDbContextSeed
         DateTimeOffset now,
         CancellationToken cancellationToken)
     {
-        await SeedProfileAsync(dbContext, commands, "default.project", "Default Project", CommandContextType.Project, new[]
-        {
+        await SeedProfileAsync(dbContext, commands, "default.project", "Default Project", CommandContextType.Project,
+        [
             (RadialMenuDirection.Up, "project.open"),
             (RadialMenuDirection.UpRight, "project.members"),
             (RadialMenuDirection.Right, "dm.open"),
@@ -2562,10 +2559,10 @@ public static class AppDbContextSeed
             (RadialMenuDirection.DownLeft, "activityLog.create"),
             (RadialMenuDirection.Left, "artifact.upload"),
             (RadialMenuDirection.UpLeft, "gantt.open")
-        }, tenantId, now, cancellationToken);
+        ], tenantId, now, cancellationToken);
 
-        await SeedProfileAsync(dbContext, commands, "default.task", "Default Task", CommandContextType.TaskItem, new[]
-        {
+        await SeedProfileAsync(dbContext, commands, "default.task", "Default Task", CommandContextType.TaskItem,
+        [
             (RadialMenuDirection.Up, "task.changeStatus"),
             (RadialMenuDirection.UpRight, "task.assignUser"),
             (RadialMenuDirection.Right, "task.addComment"),
@@ -2574,7 +2571,7 @@ public static class AppDbContextSeed
             (RadialMenuDirection.DownLeft, "activityLog.create"),
             (RadialMenuDirection.Left, "project.open"),
             (RadialMenuDirection.UpLeft, "gantt.open")
-        }, tenantId, now, cancellationToken);
+        ], tenantId, now, cancellationToken);
     }
 
     private static async Task SeedProfileAsync(
