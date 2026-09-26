@@ -270,14 +270,17 @@ public sealed class EventRepository(AppDbContext dbContext) : IEventRepository
 
     private static IQueryable<ActivityEvent> ApplyDateRange(IQueryable<ActivityEvent> source, DateTimeOffset? fromDate, DateTimeOffset? toDate)
     {
-        if (fromDate.HasValue)
+        // PostgreSQL timestamptz parameters require a zero UTC offset.
+        var utcFrom = fromDate?.ToUniversalTime();
+        var utcTo = toDate?.ToUniversalTime();
+        if (utcFrom.HasValue)
         {
-            source = source.Where(activityEvent => activityEvent.EndsAt >= fromDate.Value);
+            source = source.Where(activityEvent => activityEvent.EndsAt >= utcFrom.Value);
         }
 
-        if (toDate.HasValue)
+        if (utcTo.HasValue)
         {
-            source = source.Where(activityEvent => activityEvent.StartsAt <= toDate.Value);
+            source = source.Where(activityEvent => activityEvent.StartsAt <= utcTo.Value);
         }
 
         return source;
