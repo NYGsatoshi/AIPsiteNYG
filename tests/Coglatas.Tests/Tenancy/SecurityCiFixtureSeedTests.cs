@@ -57,7 +57,7 @@ public sealed class SecurityCiFixtureSeedTests
             Assert.Equal(SecurityCiFixtureSeed.TenantARestrictedUserId, alphaRestricted.Id);
             Assert.Equal(SecurityCiFixtureSeed.TenantBOwnerUserId, betaOwner.Id);
             Assert.All(
-                new[] { alphaOwner.Id, alphaMember.Id, alphaRestricted.Id, betaOwner.Id },
+                [alphaOwner.Id, alphaMember.Id, alphaRestricted.Id, betaOwner.Id],
                 userId => Assert.DoesNotMatch(@"\d{12,}", userId.ToString("D")));
 
             Assert.Equal(TenantUserRole.Owner, (await dbContext.TenantUsers.SingleAsync(item => item.TenantId == alpha.Id && item.UserId == alphaOwner.Id)).Role);
