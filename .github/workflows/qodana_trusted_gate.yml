@@ -67,7 +67,7 @@ jobs:
           for path in \
             .editorconfig \
             global.json \
-            AipPortal.slnx \
+            Coglatas.slnx \
             qodana.yaml \
             scripts/quality/qodana-bootstrap.sh \
             scripts/quality/check-qodana-project-model.mjs \
