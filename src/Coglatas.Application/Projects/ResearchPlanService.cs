@@ -23,7 +23,7 @@ public sealed class ResearchPlanService(
     IBusinessInvalidationPublisher invalidations,
     ITaskCommandUnitOfWork unitOfWork) : IResearchPlanService
 {
-    private readonly ProjectAuthorizationLookup authorizationLookup = new(projects, projectAuthorization, currentUser);
+    private readonly ProjectAuthorizationLookup _authorizationLookup = new(projects, projectAuthorization, currentUser);
 
     private const int MaximumSteps = 100;
     private const int MaximumTitleLength = 240;
@@ -34,12 +34,12 @@ public sealed class ResearchPlanService(
         Guid taskItemId,
         CancellationToken cancellationToken = default)
     {
-        var task = await authorizationLookup.VisibleTaskAsync(taskItemId, cancellationToken);
+        var task = await _authorizationLookup.VisibleTaskAsync(taskItemId, cancellationToken);
         if (task is null)
             return NotFound<ResearchPlanResponse>();
 
         var plan = await researchPlans.GetForTaskAsync(task.Id, cancellationToken);
-        var canManage = await authorizationLookup.CanManageAsync(task.ProjectId, cancellationToken);
+        var canManage = await _authorizationLookup.CanManageAsync(task.ProjectId, cancellationToken);
         return Result<ResearchPlanResponse>.Success(
             await BuildResponseAsync(plan, canManage, cancellationToken));
     }
@@ -49,7 +49,7 @@ public sealed class ResearchPlanService(
         PreviewResearchPlanRequest request,
         CancellationToken cancellationToken = default)
     {
-        var task = await authorizationLookup.ManagedTaskAsync(taskItemId, cancellationToken);
+        var task = await _authorizationLookup.ManagedTaskAsync(taskItemId, cancellationToken);
         if (task is null)
             return NotFound<ResearchPlanPreviewResponse>();
 
@@ -73,7 +73,7 @@ public sealed class ResearchPlanService(
         ReplaceResearchPlanRequest request,
         CancellationToken cancellationToken = default)
     {
-        var task = await authorizationLookup.ManagedTaskAsync(taskItemId, cancellationToken);
+        var task = await _authorizationLookup.ManagedTaskAsync(taskItemId, cancellationToken);
         if (task is null)
             return NotFound<ResearchPlanResponse>();
 
@@ -107,7 +107,7 @@ public sealed class ResearchPlanService(
             }
         }
 
-        var actor = authorizationLookup.Actor();
+        var actor = _authorizationLookup.Actor();
         if (plan is null)
         {
             plan = new ResearchPlan
@@ -426,11 +426,6 @@ public sealed class ResearchPlanService(
         for (var index = 0; index < source.Count; index++)
         {
             var step = source[index];
-            if (step is null)
-            {
-                failure = InvalidStep(index, "A step is required.");
-                return false;
-            }
 
             if (step.BaseStepId == Guid.Empty)
             {
