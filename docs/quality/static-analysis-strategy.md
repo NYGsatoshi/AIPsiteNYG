@@ -40,6 +40,8 @@ This policy preserves the baseline as a monotonic debt ceiling while allowing no
 
 This repository uses **SonarQube Server with the SonarScanner for .NET**. SonarQube Cloud Automatic Analysis is not used.
 
+Pull-request analysis and GitHub pull-request decoration require a SonarQube Server edition that supports PR analysis (Developer Edition or higher). Community Build can use this workflow for `main` analysis, but the `pr_number` dispatch path is not available there.
+
 The repository publication policy forbids repository or environment secrets in ordinary `pull_request` workflows. The SonarQube workflow therefore has no `pull_request` trigger:
 
 - pushes to `main` are analyzed automatically;
