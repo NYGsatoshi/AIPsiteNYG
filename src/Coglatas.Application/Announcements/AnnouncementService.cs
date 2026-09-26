@@ -326,12 +326,22 @@ public sealed class AnnouncementService(
 
         if (announcement.GroupId.HasValue)
         {
-            return await CanCreateGroupAnnouncementAsync(userId, announcement.GroupId.Value, cancellationToken);
+            return await AnnouncementScopeAuthorization.CanCreateGroupAsync(
+                groupAuthorization,
+                userId,
+                announcement.GroupId.Value,
+                IsTeacherAsync,
+                cancellationToken);
         }
 
         if (announcement.WorkspaceId.HasValue)
         {
-            return await CanCreateWorkspaceAnnouncementAsync(userId, announcement.WorkspaceId.Value, cancellationToken);
+            return await AnnouncementScopeAuthorization.CanCreateWorkspaceAsync(
+                workspaceAuthorization,
+                userId,
+                announcement.WorkspaceId.Value,
+                IsTeacherAsync,
+                cancellationToken);
         }
 
         return false;
