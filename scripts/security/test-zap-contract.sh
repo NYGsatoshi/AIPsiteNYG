@@ -88,11 +88,18 @@ require_blocking_stats_test(
 
 requestor = only_job(jobs, "requestor")
 requests = hash_array(requestor["requests"], "requestor requests must be an array of mappings")
+required_probe_headers = [
+  "X-Tenant-Slug:${COGLATAS_SECURITY_ZAP_TENANT}",
+  "Cookie:${COGLATAS_SECURITY_ZAP_COOKIE}",
+  "X-CSRF-Token:${COGLATAS_SECURITY_ZAP_CSRF_TOKEN}",
+]
 unless requests.any? { |request|
   request["url"] == "${COGLATAS_SECURITY_ZAP_TARGET}/api/announcements/audiences" &&
-    request["responseCode"] == 200
+    request["responseCode"] == 200 &&
+    request["headers"].is_a?(Array) &&
+    (required_probe_headers - request["headers"]).empty?
 }
-  fail!("Automation plan authenticated request/response probe is missing")
+  fail!("Automation plan authenticated request/response probe is missing or lacks explicit auth headers")
 end
 
 unless jobs.any? { |job| job["type"] == "passiveScan-wait" }
@@ -103,8 +110,8 @@ policy_job = only_job(jobs, "activeScan-policy")
 policy_definition = policy_job["policyDefinition"]
 fail!("Automation plan activeScan policyDefinition is missing") unless policy_definition.is_a?(Hash)
 default_threshold = policy_definition["defaultThreshold"]
-unless default_threshold == "Off" || default_threshold == false
-  fail!("Automation plan defaultThreshold must remain Off")
+unless default_threshold == "Off"
+  fail!("Automation plan defaultThreshold must remain the string Off")
 end
 rules = hash_array(policy_definition["rules"], "Automation plan activeScan rules must be an array of mappings")
 plan_rule_ids = rules.map { |rule| rule["id"] }.compact.map(&:to_s)
@@ -117,6 +124,10 @@ unless plan_rule_ids.length == required_active_rule_ids.length &&
 end
 
 active_scan = only_job(jobs, "activeScan")
+active_parameters = active_scan["parameters"]
+unless active_parameters.is_a?(Hash) && active_parameters["scanHeadersAllRequests"] == true
+  fail!("Active scan must scan headers on all requests so required parameter-oriented rules receive work")
+end
 active_tests = hash_array(active_scan["tests"], "activeScan tests must be an array of mappings")
 statistics = active_tests.map { |test| test["statistic"] }.compact.map(&:to_s)
 fail!("Active scan forced-stop invariant is missing") unless statistics.include?("stats.ascan.stopped")
@@ -233,8 +244,13 @@ ruby - "$tmp/private-plan.yaml" <<'RUBY'
 require "yaml"
 plan = YAML.safe_load(File.read(ARGV.fetch(0)), aliases: false)
 replacer = plan.fetch("jobs").find { |job| job["type"] == "replacer" }
+requestor = plan.fetch("jobs").find { |job| job["type"] == "requestor" }
+probe_headers = requestor.fetch("requests").first.fetch("headers")
 abort "SEC-06 rendered cookie changed" unless replacer.fetch("rules")[1]["replacementString"] == ENV.fetch("COGLATAS_SECURITY_ZAP_COOKIE")
 abort "SEC-06 rendered URL changed" unless replacer.fetch("rules")[0]["url"] == "http://app:8080/.*"
+abort "SEC-06 requestor cookie header changed" unless probe_headers.include?("Cookie:#{ENV.fetch("COGLATAS_SECURITY_ZAP_COOKIE")}")
+abort "SEC-06 requestor tenant header changed" unless probe_headers.include?("X-Tenant-Slug:#{ENV.fetch("COGLATAS_SECURITY_ZAP_TENANT")}")
+abort "SEC-06 requestor CSRF header changed" unless probe_headers.include?("X-CSRF-Token:#{ENV.fetch("COGLATAS_SECURITY_ZAP_CSRF_TOKEN")}")
 RUBY
 unset COGLATAS_SECURITY_ZAP_TARGET COGLATAS_SECURITY_ZAP_TARGET_REGEX COGLATAS_SECURITY_ZAP_TENANT
 unset COGLATAS_SECURITY_ZAP_COOKIE COGLATAS_SECURITY_ZAP_CSRF_TOKEN
@@ -310,11 +326,15 @@ for invariant in \
   'operator: ">"' \
   '- type: requestor' \
   'url: "${COGLATAS_SECURITY_ZAP_TARGET}/api/announcements/audiences"' \
+  '- "X-Tenant-Slug:${COGLATAS_SECURITY_ZAP_TENANT}"' \
+  '- "Cookie:${COGLATAS_SECURITY_ZAP_COOKIE}"' \
+  '- "X-CSRF-Token:${COGLATAS_SECURITY_ZAP_CSRF_TOKEN}"' \
   'responseCode: 200' \
   '- type: passiveScan-wait' \
   '- type: activeScan-policy' \
-  'defaultThreshold: Off' \
+  'defaultThreshold: "Off"' \
   '- type: activeScan' \
+  'scanHeadersAllRequests: true' \
   'statistic: stats.ascan.stopped' \
   'template: traditional-json' \
   '- type: exitStatus' \
