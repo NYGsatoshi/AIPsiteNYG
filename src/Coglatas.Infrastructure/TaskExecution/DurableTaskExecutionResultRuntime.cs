@@ -1,5 +1,3 @@
-using System.Data;
-using System.Data.Common;
 using Coglatas.Application.Common.Interfaces;
 using Coglatas.Application.Files;
 using Coglatas.Application.Projects;
@@ -7,7 +5,6 @@ using Coglatas.Domain.Entities;
 using Coglatas.Domain.Enums;
 using Coglatas.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Storage;
 
 namespace Coglatas.Infrastructure.TaskExecution;
 
@@ -17,33 +14,15 @@ namespace Coglatas.Infrastructure.TaskExecution;
 /// source materialization is in progress. Materialized bytes remain process-local
 /// until a final locked transaction confirms that the Run is still Running.
 /// </summary>
-public sealed partial class DurableTaskExecutionResultRuntime : ITaskExecutionRuntime
+public sealed partial class DurableTaskExecutionResultRuntime(
+    AppDbContext dbContext,
+    ICurrentTenant currentTenant,
+    IProjectAuthorizationService projectAuthorization,
+    IFileAuthorizationService fileAuthorization,
+    IFileStorageService storage,
+    IClock clock,
+    IAuditLogger audit) : ITaskExecutionRuntime
 {
-    private readonly AppDbContext dbContext;
-    private readonly ICurrentTenant currentTenant;
-    private readonly IProjectAuthorizationService projectAuthorization;
-    private readonly IFileAuthorizationService fileAuthorization;
-    private readonly IFileStorageService storage;
-    private readonly IClock clock;
-    private readonly IAuditLogger audit;
-
-    public DurableTaskExecutionResultRuntime(
-        AppDbContext dbContext,
-        ICurrentTenant currentTenant,
-        IProjectAuthorizationService projectAuthorization,
-        IFileAuthorizationService fileAuthorization,
-        IFileStorageService storage,
-        IClock clock,
-        IAuditLogger audit)
-    {
-        this.dbContext = dbContext;
-        this.currentTenant = currentTenant;
-        this.projectAuthorization = projectAuthorization;
-        this.fileAuthorization = fileAuthorization;
-        this.storage = storage;
-        this.clock = clock;
-        this.audit = audit;
-    }
 
     private const string GenericFailureCode = "TASK_EXECUTION_RESULT_PERSISTENCE_FAILED";
     private const string MissingSourceFailureCode = "TASK_EXECUTION_NO_AUTHORIZED_TEXT_SOURCES";
