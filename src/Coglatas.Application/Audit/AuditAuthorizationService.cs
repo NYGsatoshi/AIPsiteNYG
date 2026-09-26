@@ -10,7 +10,18 @@ public sealed record AuditCapabilityResponse(
     bool CanReview,
     bool CanApprove,
     bool CanExport,
-    bool CanViewSensitiveMetadata);
+    bool CanViewSensitiveMetadata)
+{
+    public bool HasCapability(string capabilityKey) => capabilityKey switch
+    {
+        CapabilityKeys.AuditView => CanView,
+        CapabilityKeys.AuditReview => CanReview,
+        CapabilityKeys.AuditApprove => CanApprove,
+        CapabilityKeys.AuditExport => CanExport,
+        CapabilityKeys.AuditSensitiveMetadataView => CanViewSensitiveMetadata,
+        _ => false
+    };
+}
 
 public interface IAuditAuthorizationService
 {
@@ -109,15 +120,7 @@ public sealed class AuditAuthorizationService(
         CancellationToken cancellationToken = default)
     {
         var capabilities = await GetCapabilitiesAsync(cancellationToken);
-        return capabilityKey switch
-        {
-            CapabilityKeys.AuditView => capabilities.CanView,
-            CapabilityKeys.AuditReview => capabilities.CanReview,
-            CapabilityKeys.AuditApprove => capabilities.CanApprove,
-            CapabilityKeys.AuditExport => capabilities.CanExport,
-            CapabilityKeys.AuditSensitiveMetadataView => capabilities.CanViewSensitiveMetadata,
-            _ => false
-        };
+        return capabilities.HasCapability(capabilityKey);
     }
 
     public async Task<Result> AuthorizeAsync(
