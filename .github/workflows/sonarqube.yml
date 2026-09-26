@@ -1,10 +1,23 @@
 name: SonarQube
+
 on:
   push:
     branches:
       - main
-  pull_request:
-    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+    inputs:
+      pull_request:
+        description: Optional same-repository PR number to analyze after trust review
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+
+env:
+  SONAR_SCANNER_VERSION: '11.3.0'
+
 jobs:
   build:
     name: Build and analyze
@@ -14,34 +27,119 @@ jobs:
         uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4.8.0
         with:
           java-version: 21
-          distribution: 'zulu' # Alternative distribution options are available.
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+          distribution: zulu
+
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
-      - name: Cache SonarQube Cloud packages
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve trusted pull request
+        if: github.event_name == 'workflow_dispatch' && inputs.pull_request != ''
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pull_request }}
+        run: |
+          if ($env:PR_NUMBER -notmatch '^\d+$') {
+            throw 'pull_request must be a numeric pull request number.'
+          }
+
+          $pr = gh api "repos/${{ github.repository }}/pulls/$env:PR_NUMBER" | ConvertFrom-Json
+          if ($pr.state -ne 'open') {
+            throw "PR #$env:PR_NUMBER is not open."
+          }
+          if ($pr.head.repo.full_name -ne '${{ github.repository }}') {
+            throw 'Only same-repository pull requests may be analyzed by this privileged workflow.'
+          }
+          if ($pr.base.ref -ne 'main') {
+            throw "PR #$env:PR_NUMBER targets '$($pr.base.ref)', not 'main'."
+          }
+
+          git fetch --no-tags origin $pr.head.sha
+          git checkout --detach $pr.head.sha
+
+          "SONAR_PR_KEY=$($pr.number)" >> $env:GITHUB_ENV
+          "SONAR_PR_BRANCH=$($pr.head.ref)" >> $env:GITHUB_ENV
+          "SONAR_PR_BASE=$($pr.base.ref)" >> $env:GITHUB_ENV
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          global-json-file: global.json
+
+      - name: Cache SonarQube packages
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
-          path: ~\sonar\cache
-          key: ${{ runner.os }}-sonar
-          restore-keys: ${{ runner.os }}-sonar
-      - name: Cache SonarQube Cloud scanner
+          path: ~\.sonar\cache
+          key: ${{ runner.os }}-sonar-cache
+          restore-keys: ${{ runner.os }}-sonar-cache
+
+      - name: Cache SonarScanner for .NET
         id: cache-sonar-scanner
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ runner.temp }}\scanner
-          key: ${{ runner.os }}-sonar-scanner
-          restore-keys: ${{ runner.os }}-sonar-scanner
-      - name: Install SonarQube Cloud scanner
+          key: ${{ runner.os }}-sonarscanner-${{ env.SONAR_SCANNER_VERSION }}
+
+      - name: Install SonarScanner for .NET
         if: steps.cache-sonar-scanner.outputs.cache-hit != 'true'
-        shell: powershell
+        shell: pwsh
         run: |
-          New-Item -Path ${{ runner.temp }}\scanner -ItemType Directory
-          dotnet tool update dotnet-sonarscanner --tool-path ${{ runner.temp }}\scanner
-      - name: Build and analyze
+          New-Item -Path "${{ runner.temp }}\scanner" -ItemType Directory -Force | Out-Null
+          dotnet tool install dotnet-sonarscanner --tool-path "${{ runner.temp }}\scanner" --version "$env:SONAR_SCANNER_VERSION"
+
+      - name: Validate SonarQube configuration
+        shell: pwsh
         env:
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        shell: powershell
+          SONAR_PROJECT_KEY: ${{ vars.SONAR_PROJECT_KEY || 'NYGsatoshi_AIPsiteNYG' }}
         run: |
-          ${{ runner.temp }}\scanner\dotnet-sonarscanner begin /k:"NYGsatoshi_AIPsiteNYG" /o:"nygsatoshi" /d:sonar.token="${{ secrets.SONAR_TOKEN }}"
-          dotnet build
-          ${{ runner.temp }}\scanner\dotnet-sonarscanner end /d:sonar.token="${{ secrets.SONAR_TOKEN }}"
+          if ([string]::IsNullOrWhiteSpace($env:SONAR_HOST_URL)) {
+            throw 'SONAR_HOST_URL secret is required for SonarQube Server.'
+          }
+          if ([string]::IsNullOrWhiteSpace($env:SONAR_TOKEN)) {
+            throw 'SONAR_TOKEN secret is required for SonarQube Server.'
+          }
+          if ([string]::IsNullOrWhiteSpace($env:SONAR_PROJECT_KEY)) {
+            throw 'SONAR_PROJECT_KEY repository variable is empty.'
+          }
+
+      - name: Restore .NET solution
+        shell: pwsh
+        run: dotnet restore Coglatas.slnx
+
+      - name: Build and analyze
+        shell: pwsh
+        env:
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_PROJECT_KEY: ${{ vars.SONAR_PROJECT_KEY || 'NYGsatoshi_AIPsiteNYG' }}
+        run: |
+          $scanner = "${{ runner.temp }}\scanner\dotnet-sonarscanner.exe"
+          $beginArgs = @(
+            'begin',
+            "/k:$env:SONAR_PROJECT_KEY",
+            "/d:sonar.host.url=$env:SONAR_HOST_URL",
+            "/d:sonar.token=$env:SONAR_TOKEN",
+            '/d:sonar.sourceEncoding=UTF-8',
+            '/d:sonar.exclusions=**/bin/**,**/obj/**,**/node_modules/**,**/dist/**,**/.angular/**,**/coverage/**,**/TestResults/**,**/test-results/**,**/playwright-report/**,**/.playwright/**,**/storybook-static/**,**/artifacts/**,src/Coglatas.Web/wwwroot/**,src/Coglatas.Web/data/**,coglatas-frontend/**',
+            '/d:sonar.cpd.exclusions=**/bin/**,**/obj/**,**/node_modules/**,**/dist/**,**/artifacts/**,src/Coglatas.Web/wwwroot/**,coglatas-frontend/**'
+          )
+
+          if (-not [string]::IsNullOrWhiteSpace($env:SONAR_PR_KEY)) {
+            $beginArgs += "/d:sonar.pullrequest.key=$env:SONAR_PR_KEY"
+            $beginArgs += "/d:sonar.pullrequest.branch=$env:SONAR_PR_BRANCH"
+            $beginArgs += "/d:sonar.pullrequest.base=$env:SONAR_PR_BASE"
+          }
+
+          & $scanner @beginArgs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          dotnet build Coglatas.slnx --configuration Release --no-restore --no-incremental
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          & $scanner end "/d:sonar.token=$env:SONAR_TOKEN"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
