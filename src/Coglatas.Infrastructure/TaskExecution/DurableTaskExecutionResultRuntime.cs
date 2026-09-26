@@ -194,86 +194,84 @@ public sealed partial class DurableTaskExecutionResultRuntime : ITaskExecutionRu
         return run;
     }
 
-    private async Task FinalizeFailureAsync(
+    private Task FinalizeFailureAsync(
         TaskExecutionRuntimeHandle handle,
         string failureCode,
-        CancellationToken cancellationToken)
-    {
-        dbContext.ChangeTracker.Clear();
-        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
-        var run = await LockRunAsync(handle.RunId, cancellationToken);
-        if (!MatchesHandle(run, handle) || run!.Status != TaskExecutionRunStatus.Running)
-        {
-            await transaction.CommitAsync(cancellationToken);
-            return;
-        }
+        CancellationToken cancellationToken) =>
+        FinalizeRunningAsync(
+            handle,
+            (run, token) => FailRunAsync(run, failureCode, token),
+            cancellationToken);
 
-        await FailRunAsync(run, failureCode, cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
-    }
-
-    private async Task FinalizeExistingResultAsync(
+    private Task FinalizeExistingResultAsync(
         TaskExecutionRuntimeHandle handle,
         Guid resultId,
-        CancellationToken cancellationToken)
-    {
-        dbContext.ChangeTracker.Clear();
-        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
-        var run = await LockRunAsync(handle.RunId, cancellationToken);
-        if (!MatchesHandle(run, handle) || run!.Status != TaskExecutionRunStatus.Running)
-        {
-            await transaction.CommitAsync(cancellationToken);
-            return;
-        }
+        CancellationToken cancellationToken) =>
+        FinalizeRunningAsync(
+            handle,
+            async (run, token) =>
+            {
+                if (await CountResultSourcesAsync(resultId, token) <= 0)
+                {
+                    await FailRunAsync(run, IncompleteFailureCode, token);
+                }
+                else
+                {
+                    await SucceedRunAsync(run, resultId, null, token);
+                }
+            },
+            cancellationToken);
 
-        if (await CountResultSourcesAsync(resultId, cancellationToken) <= 0)
-        {
-            await FailRunAsync(run, IncompleteFailureCode, cancellationToken);
-        }
-        else
-        {
-            await SucceedRunAsync(run, resultId, null, cancellationToken);
-        }
-
-        await transaction.CommitAsync(cancellationToken);
-    }
-
-    private async Task FinalizeExistingProvenanceAsync(
+    private Task FinalizeExistingProvenanceAsync(
         TaskExecutionRuntimeHandle handle,
         IReadOnlyList<RuntimeSource> sources,
-        CancellationToken cancellationToken)
-    {
-        dbContext.ChangeTracker.Clear();
-        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
-        var run = await LockRunAsync(handle.RunId, cancellationToken);
-        if (!MatchesHandle(run, handle) || run!.Status != TaskExecutionRunStatus.Running)
-        {
-            await transaction.CommitAsync(cancellationToken);
-            return;
-        }
+        CancellationToken cancellationToken) =>
+        FinalizeRunningAsync(
+            handle,
+            async (run, token) =>
+            {
+                if (!await ReauthorizeExistingProvenanceAsync(run, sources, token))
+                {
+                    await FailRunAsync(run, GenericFailureCode, token);
+                    return;
+                }
 
-        if (!await ReauthorizeExistingProvenanceAsync(run, sources, cancellationToken))
-        {
-            await FailRunAsync(run, GenericFailureCode, cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
-            return;
-        }
+                var completedAt = clock.UtcNow;
+                var report = FirstPartyProjectFilesReportV1.Build(
+                    sources.Select(item => item.ReportSource).ToArray(),
+                    completedAt);
+                var resultId = await InsertResultAsync(run, report, completedAt, token);
+                await InsertResultLinksAsync(run, resultId, sources, token);
+                await SucceedRunAsync(run, resultId, report, token);
+            },
+            cancellationToken);
 
-        var completedAt = clock.UtcNow;
-        var report = FirstPartyProjectFilesReportV1.Build(
-            sources.Select(item => item.ReportSource).ToArray(),
-            completedAt);
-        var resultId = await InsertResultAsync(run, report, completedAt, cancellationToken);
-        await InsertResultLinksAsync(run, resultId, sources, cancellationToken);
-        await SucceedRunAsync(run, resultId, report, cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
-    }
-
-    private async Task FinalizeMaterializedAsync(
+    private Task FinalizeMaterializedAsync(
         TaskExecutionRuntimeHandle handle,
         IReadOnlyList<RuntimeSource> sources,
         TaskExecutionReportDocument document,
         DateTimeOffset completionTime,
+        CancellationToken cancellationToken) =>
+        FinalizeRunningAsync(
+            handle,
+            async (run, token) =>
+            {
+                if (!await ReauthorizeExistingProvenanceAsync(run, sources, token))
+                {
+                    await FailRunAsync(run, GenericFailureCode, token);
+                    return;
+                }
+
+                await InsertProvenanceAsync(run, sources, token);
+                var resultId = await InsertResultAsync(run, document, completionTime, token);
+                await InsertResultLinksAsync(run, resultId, sources, token);
+                await SucceedRunAsync(run, resultId, document, token);
+            },
+            cancellationToken);
+
+    private async Task FinalizeRunningAsync(
+        TaskExecutionRuntimeHandle handle,
+        Func<TaskExecutionRun, CancellationToken, Task> finalize,
         CancellationToken cancellationToken)
     {
         dbContext.ChangeTracker.Clear();
@@ -285,17 +283,7 @@ public sealed partial class DurableTaskExecutionResultRuntime : ITaskExecutionRu
             return;
         }
 
-        if (!await ReauthorizeExistingProvenanceAsync(run, sources, cancellationToken))
-        {
-            await FailRunAsync(run, GenericFailureCode, cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
-            return;
-        }
-
-        await InsertProvenanceAsync(run, sources, cancellationToken);
-        var resultId = await InsertResultAsync(run, document, completionTime, cancellationToken);
-        await InsertResultLinksAsync(run, resultId, sources, cancellationToken);
-        await SucceedRunAsync(run, resultId, document, cancellationToken);
+        await finalize(run, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }
 
