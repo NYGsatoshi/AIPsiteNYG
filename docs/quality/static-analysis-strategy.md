@@ -49,7 +49,7 @@ The repository publication policy forbids repository or environment secrets in o
 - the secret-bearing job runs behind the existing `syncfusion-licensed-build` protected environment, which is reused only as the repository's established trusted secret boundary;
 - the untrusted solution build step does not receive `SONAR_TOKEN`; the token is scoped to scanner validation/begin/end steps.
 
-The scanner authenticates to SonarQube Server with `SONAR_TOKEN` and `SONAR_HOST_URL`. The project key defaults to `NYGsatoshi_AIPsiteNYG` for migration continuity and can be overridden with the repository variable `SONAR_PROJECT_KEY`.
+The scanner authenticates to SonarQube Server with `SONAR_TOKEN` and `SONAR_HOST_URL`. The project key defaults to `NYGsatoshi_Coglatas` and can be overridden with the repository variable `SONAR_PROJECT_KEY`.
 
 Analysis scope and duplication exclusions are passed directly to the scanner by `.github/workflows/sonarqube.yml`; the former SonarQube Cloud-only `.sonarcloud.properties` file is removed.
 
@@ -57,7 +57,7 @@ Analysis scope and duplication exclusions are passed directly to the scanner by 
 
 1. Configure the SonarQube Server GitHub App / DevOps Platform integration and bind the SonarQube project to `NYGsatoshi/Coglatas`.
 2. Configure `SONAR_HOST_URL` and `SONAR_TOKEN` so they are available to the `syncfusion-licensed-build` protected environment. Use a project-scoped analysis token where possible.
-3. If the migrated SonarQube project key differs from `NYGsatoshi_AIPsiteNYG`, set the repository variable `SONAR_PROJECT_KEY` to the actual key.
+3. If the SonarQube Server project key differs from `NYGsatoshi_Coglatas`, set the repository variable `SONAR_PROJECT_KEY` to the actual key.
 4. Configure the project Quality Gate for new code.
 5. After the first successful decorated analysis, require the SonarQube Quality Gate status in the GitHub `main` ruleset/branch protection if it is intended to block merges.
 
