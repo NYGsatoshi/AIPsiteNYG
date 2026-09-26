@@ -33,10 +33,9 @@ public sealed class GlobalExceptionHandlingMiddleware(
                 context.TraceIdentifier);
             await WriteClientRequestErrorAsync(context, exception.StatusCode);
         }
-        catch (InvalidDataException exception) when (IsFormRequest(context.Request))
+        catch (InvalidDataException) when (IsFormRequest(context.Request))
         {
             logger.LogWarning(
-                exception,
                 "Rejected malformed form request body. TraceId: {TraceId}",
                 context.TraceIdentifier);
             await WriteClientRequestErrorAsync(context, StatusCodes.Status400BadRequest);
