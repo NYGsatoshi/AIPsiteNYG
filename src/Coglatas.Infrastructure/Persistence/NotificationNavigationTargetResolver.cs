@@ -208,8 +208,7 @@ public sealed class NotificationNavigationTargetResolver(
     private static bool IsSameAuthorizedTarget(
         NotificationTargetResolution initial,
         NotificationTargetResolution current) =>
-        current.IsOwned &&
-        current.IsAvailable &&
+        current is { IsOwned: true, IsAvailable: true } &&
         string.Equals(initial.Route, current.Route, StringComparison.Ordinal);
 
     private static bool TryParseGuidRoute(string route, string prefix, out Guid id)
