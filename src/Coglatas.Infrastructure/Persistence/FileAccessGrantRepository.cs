@@ -40,7 +40,7 @@ public sealed class FileAccessGrantRepository(AppDbContext dbContext) : IFileAcc
             return new Dictionary<Guid, FileAccessGrantSummary>();
         }
 
-        var summaries = await EffectiveGrants()
+        var summaries = await EffectiveFileAccessGrantQuery.For(dbContext)
             .Where(grant => ids.Contains(grant.FileObjectId))
             .GroupBy(grant => grant.FileObjectId)
             .Select(group => new
@@ -65,7 +65,7 @@ public sealed class FileAccessGrantRepository(AppDbContext dbContext) : IFileAcc
         Guid userId,
         CancellationToken cancellationToken = default)
     {
-        return EffectiveGrants().AnyAsync(grant =>
+        return EffectiveFileAccessGrantQuery.For(dbContext).AnyAsync(grant =>
             grant.FileObjectId == fileObjectId &&
             grant.RecipientUserId == userId,
             cancellationToken);
@@ -75,7 +75,7 @@ public sealed class FileAccessGrantRepository(AppDbContext dbContext) : IFileAcc
         Guid fileObjectId,
         CancellationToken cancellationToken = default)
     {
-        return await EffectiveGrants()
+        return await EffectiveFileAccessGrantQuery.For(dbContext)
             .Where(grant => grant.FileObjectId == fileObjectId)
             .OrderBy(grant => grant.RecipientUser!.DisplayName)
             .ThenBy(grant => grant.RecipientUserId)
@@ -189,58 +189,4 @@ public sealed class FileAccessGrantRepository(AppDbContext dbContext) : IFileAcc
     public Task AddAsync(FileAccessGrant grant, CancellationToken cancellationToken = default) =>
         dbContext.FileAccessGrants.AddAsync(grant, cancellationToken).AsTask();
 
-    private IQueryable<FileAccessGrant> EffectiveGrants()
-    {
-        return dbContext.FileAccessGrants
-            .AsNoTracking()
-            .Where(grant =>
-                grant.RevokedAt == null &&
-                dbContext.FileObjects.Any(file =>
-                    file.Id == grant.FileObjectId &&
-                    file.TenantId == grant.TenantId &&
-                    file.WorkspaceId == grant.WorkspaceId &&
-                    file.DeletedAt == null &&
-                    file.Status != FileObjectStatus.Deleted) &&
-                dbContext.Attachments.Any(attachment =>
-                    attachment.FileObjectId == grant.FileObjectId &&
-                    attachment.WorkspaceId == grant.WorkspaceId &&
-                    attachment.OwnerType == AttachmentOwnerType.Workspace &&
-                    attachment.OwnerId == grant.WorkspaceId &&
-                    attachment.DeletedAt == null) &&
-                dbContext.Workspaces.Any(workspace =>
-                    workspace.Id == grant.WorkspaceId &&
-                    workspace.TenantId == grant.TenantId &&
-                    workspace.DeletedAt == null &&
-                    workspace.Status == WorkspaceStatus.Active) &&
-                dbContext.TenantUsers.Any(tenantUser =>
-                    tenantUser.TenantId == grant.TenantId &&
-                    tenantUser.UserId == grant.RecipientUserId &&
-                    tenantUser.Status == TenantUserStatus.Active) &&
-                dbContext.Users.Any(user =>
-                    user.Id == grant.RecipientUserId &&
-                    user.Status == UserStatus.Active &&
-                    user.DeletedAt == null) &&
-                ((grant.RecipientKind == FileAccessGrantRecipientKind.WorkspaceMember &&
-                  dbContext.WorkspaceMembers.Any(member =>
-                      member.TenantId == grant.TenantId &&
-                      member.WorkspaceId == grant.WorkspaceId &&
-                      member.UserId == grant.RecipientUserId &&
-                      member.Status == MembershipStatus.Active)) ||
-                 (grant.RecipientKind == FileAccessGrantRecipientKind.ExternalProjectMember &&
-                  !dbContext.WorkspaceMembers.Any(member =>
-                      member.TenantId == grant.TenantId &&
-                      member.WorkspaceId == grant.WorkspaceId &&
-                      member.UserId == grant.RecipientUserId &&
-                      member.Status == MembershipStatus.Active) &&
-                  dbContext.ProjectMembers.Any(member =>
-                      member.TenantId == grant.TenantId &&
-                      member.UserId == grant.RecipientUserId &&
-                      dbContext.Projects.Any(project =>
-                          project.Id == member.ProjectId &&
-                          project.TenantId == grant.TenantId &&
-                          project.WorkspaceId == grant.WorkspaceId &&
-                          project.DeletedAt == null &&
-                          project.Status != ProjectStatus.Archived &&
-                          project.Status != ProjectStatus.Deleted)))));
-    }
 }
