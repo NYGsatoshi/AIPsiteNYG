@@ -11,7 +11,7 @@ namespace Coglatas.Web.Controllers;
 [Authorize(Roles = "PlatformAdmin,SystemAdmin")]
 [EnableRateLimiting(HttpSecurityPolicy.AdminRateLimitPolicy)]
 [Route("api/admin")]
-public sealed class AdminController(IAdminService adminService) : ControllerBase
+public sealed class AdminController(IAdminService adminService) : ApiResultControllerBase
 {
     [HttpGet("users")]
     public async Task<IActionResult> ListUsers([FromQuery] int page = 1, [FromQuery] int pageSize = 50, CancellationToken cancellationToken = default)
@@ -146,11 +146,6 @@ public sealed class AdminController(IAdminService adminService) : ControllerBase
     public async Task<IActionResult> Dashboard(CancellationToken cancellationToken)
     {
         return ToActionResult(await adminService.GetDashboardAsync(cancellationToken));
-    }
-
-    private IActionResult ToActionResult<T>(Result<T> result)
-    {
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(new { error = result.Error });
     }
 
     private IActionResult ToStatusResult(Result result)
