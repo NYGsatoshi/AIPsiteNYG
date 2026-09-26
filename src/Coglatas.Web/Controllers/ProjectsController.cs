@@ -286,31 +286,10 @@ public sealed class ProjectsController(IProjectService projects, ITaskCommandSer
         return ToTaskActionResult(await taskSubresources.DeleteCommentAsync(commentId, expectedVersion ?? compatibility.Value.Version, cancellationToken));
     }
 
-    private IActionResult OkOrBad(Coglatas.Application.Common.Result result)
-    {
-        if (result.IsSuccess)
-            return Ok(new { status = "OK" });
-        if (result.ErrorDetail?.Code is "PROJECT_CONFLICT" or "InvalidStateTransition")
-            return ProjectConflict(result.ErrorDetail);
-        if (result.ErrorDetail?.Code is "MILESTONE_STALE_VERSION" or "MILESTONE_CONFLICT")
-            return MilestoneConflict(result.ErrorDetail);
-        if (result.ErrorDetail?.Code == "NotFound")
-            return StatusCode(StatusCodes.Status404NotFound, ApiEnvelope.Error(
-                HttpContext,
-                StatusCodes.Status404NotFound,
-                "NotFound",
-                "The requested resource was not found.",
-                redactionApplied: true));
-        if (result.ErrorDetail?.Code == "DependencyUnavailable")
-            return StatusCode(StatusCodes.Status503ServiceUnavailable, ApiEnvelope.Error(
-                HttpContext,
-                StatusCodes.Status503ServiceUnavailable,
-                "DependencyUnavailable",
-                "Project creation is temporarily unavailable."));
-        if (result.ErrorDetail?.Code == "TASK_BRIEF_FIELD_TOO_LONG")
-            return TaskBriefValidationError(result.ErrorDetail);
-        return BadRequest(ToErrorResponse(result.Error));
-    }
+    private IActionResult OkOrBad(Coglatas.Application.Common.Result result) =>
+        result.IsSuccess
+            ? Ok(new { status = "OK" })
+            : ProjectMutationFailure(result.ErrorDetail, result.Error);
 
     private IActionResult ToProjectReadError<T>(
         Coglatas.Application.Common.Result<T> result,
@@ -334,30 +313,35 @@ public sealed class ProjectsController(IProjectService projects, ITaskCommandSer
             fallbackCode));
     }
 
-    private IActionResult ToActionResult<T>(Coglatas.Application.Common.Result<T> result)
+    private IActionResult ToActionResult<T>(Coglatas.Application.Common.Result<T> result) =>
+        result.IsSuccess
+            ? Ok(result.Value)
+            : ProjectMutationFailure(result.ErrorDetail, result.Error);
+
+    private IActionResult ProjectMutationFailure(
+        Coglatas.Application.Common.ApplicationErrorDetail? detail,
+        string? error)
     {
-        if (result.IsSuccess)
-            return Ok(result.Value);
-        if (result.ErrorDetail?.Code is "PROJECT_CONFLICT" or "InvalidStateTransition")
-            return ProjectConflict(result.ErrorDetail);
-        if (result.ErrorDetail?.Code is "MILESTONE_STALE_VERSION" or "MILESTONE_CONFLICT")
-            return MilestoneConflict(result.ErrorDetail);
-        if (result.ErrorDetail?.Code == "NotFound")
+        if (detail?.Code is "PROJECT_CONFLICT" or "InvalidStateTransition")
+            return ProjectConflict(detail);
+        if (detail?.Code is "MILESTONE_STALE_VERSION" or "MILESTONE_CONFLICT")
+            return MilestoneConflict(detail);
+        if (detail?.Code == "NotFound")
             return StatusCode(StatusCodes.Status404NotFound, ApiEnvelope.Error(
                 HttpContext,
                 StatusCodes.Status404NotFound,
                 "NotFound",
                 "The requested resource was not found.",
                 redactionApplied: true));
-        if (result.ErrorDetail?.Code == "DependencyUnavailable")
+        if (detail?.Code == "DependencyUnavailable")
             return StatusCode(StatusCodes.Status503ServiceUnavailable, ApiEnvelope.Error(
                 HttpContext,
                 StatusCodes.Status503ServiceUnavailable,
                 "DependencyUnavailable",
                 "Project creation is temporarily unavailable."));
-        if (result.ErrorDetail?.Code == "TASK_BRIEF_FIELD_TOO_LONG")
-            return TaskBriefValidationError(result.ErrorDetail);
-        return BadRequest(ToErrorResponse(result.Error));
+        if (detail?.Code == "TASK_BRIEF_FIELD_TOO_LONG")
+            return TaskBriefValidationError(detail);
+        return BadRequest(ToErrorResponse(error));
     }
 
     private IActionResult ProjectConflict(
