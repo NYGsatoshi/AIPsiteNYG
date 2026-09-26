@@ -34,10 +34,10 @@ public static class SecurityCiFixtureSeed
 
     public const string TenantATaskTitle = "SEC02 ALPHA PRIVATE TASK CANARY";
     public const string TenantBTaskTitle = "SEC02 BETA PRIVATE TASK CANARY";
-    public const string TenantAFileName = "sec02-alpha-private.txt";
-    public const string TenantBFileName = "sec02-beta-private.txt";
-    public const string TenantAConversationTitle = "SEC02 ALPHA PRIVATE CONVERSATION CANARY";
-    public const string TenantBConversationTitle = "SEC02 BETA PRIVATE CONVERSATION CANARY";
+    private const string TenantAFileName = "sec02-alpha-private.txt";
+    private const string TenantBFileName = "sec02-beta-private.txt";
+    private const string TenantAConversationTitle = "SEC02 ALPHA PRIVATE CONVERSATION CANARY";
+    private const string TenantBConversationTitle = "SEC02 BETA PRIVATE CONVERSATION CANARY";
 
     private const string TenantAFileBody = "SEC02_ALPHA_FILE_CANARY_DO_NOT_LEAK\n";
     private const string TenantBFileBody = "SEC02_BETA_FILE_CANARY_DO_NOT_LEAK\n";
