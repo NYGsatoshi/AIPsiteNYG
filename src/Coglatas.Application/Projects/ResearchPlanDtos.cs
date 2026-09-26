@@ -14,13 +14,13 @@ public sealed record ResearchPlanStepRequest(
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record ReplaceResearchPlanRequest(
     long ExpectedVersion,
-    IReadOnlyList<ResearchPlanStepRequest?>? Steps,
+    IReadOnlyList<ResearchPlanStepRequest>? Steps,
     string? PreviewFingerprint = null);
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record PreviewResearchPlanRequest(
     long ExpectedVersion,
-    IReadOnlyList<ResearchPlanStepRequest?>? Steps);
+    IReadOnlyList<ResearchPlanStepRequest>? Steps);
 
 public sealed record ResearchPlanStepResponse(
     Guid Id,
