@@ -76,7 +76,7 @@ jobs:
         env:
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_PROJECT_KEY: ${{ vars.SONAR_PROJECT_KEY || 'NYGsatoshi_AIPsiteNYG' }}
+          SONAR_PROJECT_KEY: ${{ vars.SONAR_PROJECT_KEY || 'NYGsatoshi_Coglatas' }}
         run: |
           if ([string]::IsNullOrWhiteSpace($env:SONAR_HOST_URL)) {
             throw 'SONAR_HOST_URL secret is required for SonarQube Server.'
@@ -97,7 +97,7 @@ jobs:
         env:
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_PROJECT_KEY: ${{ vars.SONAR_PROJECT_KEY || 'NYGsatoshi_AIPsiteNYG' }}
+          SONAR_PROJECT_KEY: ${{ vars.SONAR_PROJECT_KEY || 'NYGsatoshi_Coglatas' }}
         run: |
           $scanner = "${{ runner.temp }}\scanner\dotnet-sonarscanner.exe"
           $beginArgs = @(
