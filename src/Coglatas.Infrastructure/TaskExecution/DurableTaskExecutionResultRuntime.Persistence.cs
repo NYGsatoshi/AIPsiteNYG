@@ -311,19 +311,20 @@ public sealed partial class DurableTaskExecutionResultRuntime
             }), cancellationToken);
 
     private bool IsCurrentTenant(TaskExecutionRuntimeHandle handle) =>
-        currentTenant.IsAvailable &&
-        !currentTenant.IsPlatformScope &&
+        currentTenant is { IsAvailable: true, IsPlatformScope: false } &&
         currentTenant.TenantId != Guid.Empty &&
         currentTenant.TenantId == handle.TenantId;
 
     private static bool MatchesHandle(
         TaskExecutionRun? run,
         TaskExecutionRuntimeHandle handle) =>
-        run is not null &&
+        run is
+        {
+            RuntimeProvider: FirstPartyProjectFilesRuntimeV1.Provider,
+            RuntimeContractVersion: FirstPartyProjectFilesRuntimeV1.ContractVersion
+        } &&
         run.Id == handle.RunId &&
         run.TenantId == handle.TenantId &&
-        run.RuntimeProvider == FirstPartyProjectFilesRuntimeV1.Provider &&
-        run.RuntimeContractVersion == FirstPartyProjectFilesRuntimeV1.ContractVersion &&
         handle.RuntimeContractVersion == FirstPartyProjectFilesRuntimeV1.ContractVersion;
 
     private sealed record RuntimeSource(
