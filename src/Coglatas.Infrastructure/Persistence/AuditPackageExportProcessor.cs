@@ -27,7 +27,7 @@ public sealed class AuditPackageExportProcessor(
     IUnitOfWork unitOfWork,
     IClock clock) : IAuditPackageExportProcessor
 {
-    private readonly AuditClaimsEvidenceProjectionBuilder claimsEvidenceProjection =
+    private readonly AuditClaimsEvidenceProjectionBuilder _claimsEvidenceProjection =
         new(dbContext, artifacts, evidenceRepository, artifactAuthorization, files, fileAuthorization);
 
     private const int MaxPackageBytes = 25 * 1024 * 1024;
@@ -138,7 +138,7 @@ public sealed class AuditPackageExportProcessor(
                 return;
             }
 
-            var projection = await claimsEvidenceProjection.BuildAsync(
+            var projection = await _claimsEvidenceProjection.BuildAsync(
                 job.RequestedByUserId,
                 artifactVersionId,
                 cancellationToken);
