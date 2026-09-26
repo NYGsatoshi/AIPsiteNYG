@@ -13,7 +13,7 @@ namespace Coglatas.Web.Controllers;
 [EnableRateLimiting(HttpSecurityPolicy.AdminRateLimitPolicy)]
 public sealed class TenantAdministrationController(
     ITenantAdministrationService tenantAdministration,
-    ITenantService tenantService) : ControllerBase
+    ITenantService tenantService) : ApiResultControllerBase
 {
     [HttpGet("api/tenant/overview")]
     public async Task<IActionResult> GetTenantOverview(CancellationToken cancellationToken)
@@ -144,7 +144,4 @@ public sealed class TenantAdministrationController(
         return ToActionResult(await tenantAdministration.GetPlatformUsageAsync(cancellationToken));
     }
 
-    private IActionResult OkOrBad(Result result) => result.IsSuccess ? Ok(new { status = "OK" }) : BadRequest(new { error = result.Error });
-
-    private IActionResult ToActionResult<T>(Result<T> result) => result.IsSuccess ? Ok(result.Value) : BadRequest(new { error = result.Error });
 }
