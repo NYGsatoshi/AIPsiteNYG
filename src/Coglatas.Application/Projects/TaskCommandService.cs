@@ -159,15 +159,13 @@ public sealed class TaskCommandService(
         var task = await projects.GetTaskAsync(taskId, cancellationToken);
         if (task is not null)
         {
-            if (task.DeletedAt.HasValue || task.Kind != WorkItemKind.Task)
-                return Fail<GanttEditCommandResponse>("GANTT_WORK_ITEM_NOT_FOUND", "Work item not found.");
-            var authorization = await AuthorizeGanttTaskMutationAsync(task, actor, cancellationToken);
+            var authorization = await AuthorizeGanttTaskVersionAsync(
+                task,
+                actor,
+                request.ExpectedVersion,
+                cancellationToken);
             if (authorization.Error is not null)
                 return Fail<GanttEditCommandResponse>(authorization.Error.Value.Code, authorization.Error.Value.Message);
-            if (request.ExpectedVersion <= 0)
-                return Fail<GanttEditCommandResponse>("GANTT_INVALID_EXPECTED_VERSION", "Expected version must be a positive integer.");
-            if (task.VersionNo != request.ExpectedVersion)
-                return Fail<GanttEditCommandResponse>("GANTT_STALE_VERSION", "Work item has changed. Refetch and retry.");
             if (request.MilestoneDate.HasValue)
                 return Fail<GanttEditCommandResponse>("GANTT_INVALID_SCHEDULE_TARGET", "Milestone date is not applicable to a Task.");
             if (request.PlannedStartDate.HasValue &&
@@ -243,15 +241,13 @@ public sealed class TaskCommandService(
         var task = await projects.GetTaskAsync(taskId, cancellationToken);
         if (task is not null)
         {
-            if (task.DeletedAt.HasValue || task.Kind != WorkItemKind.Task)
-                return Fail<GanttEditCommandResponse>("GANTT_WORK_ITEM_NOT_FOUND", "Work item not found.");
-            var authorization = await AuthorizeGanttTaskMutationAsync(task, actor, cancellationToken);
+            var authorization = await AuthorizeGanttTaskVersionAsync(
+                task,
+                actor,
+                request.ExpectedVersion,
+                cancellationToken);
             if (authorization.Error is not null)
                 return Fail<GanttEditCommandResponse>(authorization.Error.Value.Code, authorization.Error.Value.Message);
-            if (request.ExpectedVersion <= 0)
-                return Fail<GanttEditCommandResponse>("GANTT_INVALID_EXPECTED_VERSION", "Expected version must be a positive integer.");
-            if (task.VersionNo != request.ExpectedVersion)
-                return Fail<GanttEditCommandResponse>("GANTT_STALE_VERSION", "Work item has changed. Refetch and retry.");
 
             if (await GanttItemLimitExceededAsync(task.ProjectId, cancellationToken))
                 return GanttItemLimitFailure();
@@ -732,6 +728,36 @@ public sealed class TaskCommandService(
                     ? new TaskNotificationRecipientRequest(task, TaskNotificationEventKind.ReviewReturned, ActorUserId: Actor())
                     : null,
                 ChangedFields: ["reviewStatus"]));
+    }
+
+    private async Task<(Project? Project, (string Code, string Message)? Error)> AuthorizeGanttTaskVersionAsync(
+        TaskItem task,
+        Guid actor,
+        long expectedVersion,
+        CancellationToken cancellationToken)
+    {
+        if (task.DeletedAt.HasValue || task.Kind != WorkItemKind.Task)
+        {
+            return (null, ("GANTT_WORK_ITEM_NOT_FOUND", "Work item not found."));
+        }
+
+        var authorization = await AuthorizeGanttTaskMutationAsync(task, actor, cancellationToken);
+        if (authorization.Error is not null)
+        {
+            return authorization;
+        }
+
+        if (expectedVersion <= 0)
+        {
+            return (null, ("GANTT_INVALID_EXPECTED_VERSION", "Expected version must be a positive integer."));
+        }
+
+        if (task.VersionNo != expectedVersion)
+        {
+            return (null, ("GANTT_STALE_VERSION", "Work item has changed. Refetch and retry."));
+        }
+
+        return authorization;
     }
 
     private async Task<(Project? Project, (string Code, string Message)? Error)> AuthorizeGanttTaskMutationAsync(
