@@ -62,7 +62,7 @@
       "purpose": "Trusted NuGet dependency snapshot submission",
       "privilegedAllowed": true
     },
-    "NYGsatoshi/AIPsiteNYG": {
+    "NYGsatoshi/Coglatas": {
       "sha": "05833d4b0b5a4f9fb468c0db48c76f1bc723a872",
       "version": "qodana-gate-v1",
       "purpose": "Immutable same-repository reusable Qodana gate pinned to the main-reachable #724 snapshot",

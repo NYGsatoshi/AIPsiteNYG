@@ -212,7 +212,7 @@ function classifyUnresolved(result) {
     return 'backend-platform';
   }
 
-  if (/AipPortal|Application|Infrastructure|Domain/i.test(combined)) {
+  if (/Coglatas|Application|Infrastructure|Domain/i.test(combined)) {
     return 'internal-project';
   }
 
