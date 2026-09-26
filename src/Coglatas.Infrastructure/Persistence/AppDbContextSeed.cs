@@ -508,51 +508,22 @@ public static class AppDbContextSeed
             true,
             cancellationToken);
 
-        var projectMember = await dbContext.ProjectMembers.FirstOrDefaultAsync(
-            candidate => candidate.TenantId == tenantId && candidate.ProjectId == project.Id && candidate.UserId == user.Id,
+        await EnsureSeedProjectMemberAsync(
+            dbContext,
+            tenantId,
+            project.Id,
+            user.Id,
+            ProjectRole.Owner,
+            now,
             cancellationToken);
-        if (projectMember is null)
-        {
-            await dbContext.ProjectMembers.AddAsync(new ProjectMember
-            {
-                TenantId = tenantId,
-                ProjectId = project.Id,
-                UserId = user.Id,
-                Role = ProjectRole.Owner,
-                JoinedAt = now
-            }, cancellationToken);
-        }
-        else
-        {
-            projectMember.Role = ProjectRole.Owner;
-            if (projectMember.JoinedAt == default)
-            {
-                projectMember.JoinedAt = now;
-            }
-        }
-
-        var recipientProjectMember = await dbContext.ProjectMembers.FirstOrDefaultAsync(
-            candidate => candidate.TenantId == tenantId && candidate.ProjectId == project.Id && candidate.UserId == recipient.Id,
+        await EnsureSeedProjectMemberAsync(
+            dbContext,
+            tenantId,
+            project.Id,
+            recipient.Id,
+            ProjectRole.Contributor,
+            now,
             cancellationToken);
-        if (recipientProjectMember is null)
-        {
-            await dbContext.ProjectMembers.AddAsync(new ProjectMember
-            {
-                TenantId = tenantId,
-                ProjectId = project.Id,
-                UserId = recipient.Id,
-                Role = ProjectRole.Contributor,
-                JoinedAt = now
-            }, cancellationToken);
-        }
-        else
-        {
-            recipientProjectMember.Role = ProjectRole.Contributor;
-            if (recipientProjectMember.JoinedAt == default)
-            {
-                recipientProjectMember.JoinedAt = now;
-            }
-        }
 
         var task = await dbContext.TaskItems.FirstOrDefaultAsync(
             candidate => candidate.TenantId == tenantId && candidate.ProjectId == project.Id && candidate.Title == taskTitle,
@@ -1315,31 +1286,14 @@ public static class AppDbContextSeed
         projectScope.VersionNo = 1;
         projectScope.UpdatedByUserId = user.Id;
 
-        var projectMember = await dbContext.ProjectMembers.FirstOrDefaultAsync(
-            candidate =>
-                candidate.TenantId == tenantId &&
-                candidate.ProjectId == project.Id &&
-                candidate.UserId == user.Id,
+        await EnsureSeedProjectMemberAsync(
+            dbContext,
+            tenantId,
+            project.Id,
+            user.Id,
+            ProjectRole.Owner,
+            U22DemoActivityOccurredAt,
             cancellationToken);
-        if (projectMember is null)
-        {
-            await dbContext.ProjectMembers.AddAsync(new ProjectMember
-            {
-                TenantId = tenantId,
-                ProjectId = project.Id,
-                UserId = user.Id,
-                Role = ProjectRole.Owner,
-                JoinedAt = U22DemoActivityOccurredAt
-            }, cancellationToken);
-        }
-        else
-        {
-            projectMember.Role = ProjectRole.Owner;
-            if (projectMember.JoinedAt == default)
-            {
-                projectMember.JoinedAt = U22DemoActivityOccurredAt;
-            }
-        }
 
         var workflow = await EnsureSeedWorkflowAsync(
             dbContext,
