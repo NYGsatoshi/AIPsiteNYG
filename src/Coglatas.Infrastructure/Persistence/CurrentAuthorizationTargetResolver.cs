@@ -191,7 +191,7 @@ public sealed class CurrentAuthorizationTargetResolver(
             recipientUserId,
             envelope.AggregateId,
             cancellationToken);
-        return resolution.IsOwned && resolution.IsAvailable;
+        return resolution is { IsOwned: true, IsAvailable: true };
     }
 
     public async Task<bool> CanDeliverReadStateAsync(
@@ -260,7 +260,7 @@ public sealed class CurrentAuthorizationTargetResolver(
         var resolution = change == "deleted"
             ? await ResolveNotificationTargetAsync(notification, tenantId, recipientUserId, cancellationToken)
             : await ResolveAsync(tenantId, recipientUserId, notificationId.Value, cancellationToken);
-        return resolution.IsOwned && resolution.IsAvailable;
+        return resolution is { IsOwned: true, IsAvailable: true };
     }
 
     public async Task<IReadOnlySet<Guid>> FilterAvailableNotificationIdsAsync(
@@ -281,7 +281,7 @@ public sealed class CurrentAuthorizationTargetResolver(
         var notifications = await dbContext.Notifications
             .AsNoTracking()
             .Where(item =>
-                requestedIds.Contains(item.Id) &&
+                Enumerable.Contains(requestedIds, item.Id) &&
                 item.TenantId == tenantId &&
                 item.UserId == userId &&
                 item.DeletedAt == null)
@@ -303,7 +303,7 @@ public sealed class CurrentAuthorizationTargetResolver(
             var visibleProjectIds = dbContext.VisibleProjectsFor(userId).Select(project => project.Id);
             var visibleArtifactIds = await dbContext.Artifacts
                 .AsNoTracking()
-                .Where(item => artifactIds.Contains(item.Id) && item.TenantId == tenantId && item.DeletedAt == null)
+                .Where(item => Enumerable.Contains(artifactIds, item.Id) && item.TenantId == tenantId && item.DeletedAt == null)
                 .Where(item => visibleProjectIds.Contains(item.ProjectId))
                 .Select(item => item.Id)
                 .ToListAsync(cancellationToken);
@@ -325,7 +325,7 @@ public sealed class CurrentAuthorizationTargetResolver(
             var messageIds = messageNotifications.Select(item => item.RelatedEntityId!.Value).Distinct().ToArray();
             var messages = await dbContext.Messages
                 .AsNoTracking()
-                .Where(item => messageIds.Contains(item.Id) && item.TenantId == tenantId && item.DeletedAt == null)
+                .Where(item => Enumerable.Contains(messageIds, item.Id) && item.TenantId == tenantId && item.DeletedAt == null)
                 .Where(item => item.WorkspaceId == item.Conversation!.WorkspaceId)
                 .Select(item => new { item.Id, item.ConversationId })
                 .ToListAsync(cancellationToken);
@@ -350,7 +350,7 @@ public sealed class CurrentAuthorizationTargetResolver(
                      item.RelatedEntityType != "Artifact" && item.RelatedEntityType != "Message"))
         {
             var resolution = await ResolveAsync(tenantId, userId, notification.Id, cancellationToken);
-            if (resolution.IsOwned && resolution.IsAvailable)
+            if (resolution is { IsOwned: true, IsAvailable: true })
             {
                 available.Add(notification.Id);
             }
