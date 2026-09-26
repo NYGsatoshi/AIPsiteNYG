@@ -74,6 +74,19 @@ rescue Psych::Exception => e
   fail!("Automation plan YAML is invalid: #{e.message}")
 end
 fail!("Automation plan root must be a mapping") unless document.is_a?(Hash)
+env = document["env"]
+fail!("Automation plan env must be a mapping") unless env.is_a?(Hash)
+contexts = hash_array(env["contexts"], "Automation plan contexts must be an array of mappings")
+fail!("Automation plan must contain exactly one SEC-06 context") unless contexts.length == 1
+context = contexts.first
+required_auth_exclusions = [
+  "${COGLATAS_SECURITY_ZAP_TARGET_REGEX}/api/auth/logout(?:[/?#].*)?$",
+  "${COGLATAS_SECURITY_ZAP_TARGET_REGEX}/api/auth/change-password(?:[/?#].*)?$",
+]
+exclude_paths = context["excludePaths"]
+unless exclude_paths.is_a?(Array) && (required_auth_exclusions - exclude_paths).empty?
+  fail!("SEC-06 context must exclude session-mutating auth routes before OpenAPI import")
+end
 jobs = hash_array(document["jobs"], "Automation plan jobs must be an array of mappings")
 
 openapi = only_job(jobs, "openapi")
@@ -321,6 +334,8 @@ expect_plan_comment_rejected() {
 }
 
 for invariant in \
+  '- "${COGLATAS_SECURITY_ZAP_TARGET_REGEX}/api/auth/logout(?:[/?#].*)?$"' \
+  '- "${COGLATAS_SECURITY_ZAP_TARGET_REGEX}/api/auth/change-password(?:[/?#].*)?$"' \
   '- type: openapi' \
   'statistic: openapi.urls.added' \
   'operator: ">"' \
