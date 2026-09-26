@@ -103,7 +103,7 @@ public sealed class AnnouncementPaginationSafetyTests
         public Guid? UserId => userId;
         public Guid? SessionId => null;
         public string? Email => null;
-        public SystemRole? SystemRole => Domain.Enums.SystemRole.User;
+        public SystemRole? SystemRole => Coglatas.Domain.Enums.SystemRole.User;
         public bool IsAuthenticated => true;
     }
 }
