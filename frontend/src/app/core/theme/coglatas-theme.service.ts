@@ -48,8 +48,8 @@ export class CoglatasThemeService {
   private apply(): void {
     const root = this.document.documentElement;
     const theme = this.themeValue();
-    root.dataset['aipTheme'] = theme;
-    root.dataset['aipDensity'] = this.densityValue();
+    root.dataset['coglatasTheme'] = theme;
+    root.dataset['coglatasDensity'] = this.densityValue();
     root.style.colorScheme = theme;
 
     // Syncfusion's modern Material theme switches its CSS-variable palette
