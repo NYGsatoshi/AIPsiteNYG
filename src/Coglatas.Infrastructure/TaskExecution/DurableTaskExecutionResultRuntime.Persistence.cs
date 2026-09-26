@@ -169,23 +169,12 @@ public sealed partial class DurableTaskExecutionResultRuntime
                 return;
             }
 
-            if (run.Status == TaskExecutionRunStatus.Accepted)
-            {
-                run.Status = TaskExecutionRunStatus.Queued;
-                run.QueuedAtUtc = clock.UtcNow;
-                run.VersionNo++;
-                await AuditLifecycleAsync(run, "TaskExecutionRunQueued", cancellationToken);
-                await dbContext.SaveChangesAsync(cancellationToken);
-            }
-
-            if (run.Status == TaskExecutionRunStatus.Queued)
-            {
-                run.Status = TaskExecutionRunStatus.Running;
-                run.StartedAtUtc = clock.UtcNow;
-                run.VersionNo++;
-                await AuditLifecycleAsync(run, "TaskExecutionRunStarted", cancellationToken);
-                await dbContext.SaveChangesAsync(cancellationToken);
-            }
+            await TaskExecutionRunStateTransitions.AdvanceToRunningAsync(
+                run,
+                dbContext,
+                clock,
+                AuditLifecycleAsync,
+                cancellationToken);
 
             if (run.Status == TaskExecutionRunStatus.Running)
             {
