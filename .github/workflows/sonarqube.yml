@@ -6,7 +6,7 @@ on:
       - main
   workflow_dispatch:
     inputs:
-      pull_request:
+      pr_number:
         description: Optional same-repository PR number to analyze after trust review
         required: false
         type: string
@@ -22,6 +22,7 @@ jobs:
   build:
     name: Build and analyze
     runs-on: windows-latest
+    environment: syncfusion-licensed-build
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -30,14 +31,14 @@ jobs:
           persist-credentials: false
 
       - name: Resolve trusted pull request
-        if: github.event_name == 'workflow_dispatch' && inputs.pull_request != ''
+        if: github.event_name == 'workflow_dispatch' && inputs.pr_number != ''
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ inputs.pull_request }}
+          PR_NUMBER: ${{ inputs.pr_number }}
         run: |
           if ($env:PR_NUMBER -notmatch '^\d+$') {
-            throw 'pull_request must be a numeric pull request number.'
+            throw 'pr_number must be a numeric pull request number.'
           }
 
           $pr = gh api "repos/${{ github.repository }}/pulls/$env:PR_NUMBER" | ConvertFrom-Json
