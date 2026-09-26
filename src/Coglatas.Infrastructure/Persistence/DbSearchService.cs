@@ -206,21 +206,9 @@ public sealed class DbSearchService(
                     conversation.TenantId == message.TenantId &&
                     conversation.WorkspaceId == message.WorkspaceId));
 
-        var readableConversationIds = messaging.QueryReadableConversationIds(userId);
-        if (readableConversationIds is not null)
-        {
-            var authorizedConversationIds = await readableConversationIds
-                .ToArrayAsync(cancellationToken);
-            if (authorizedConversationIds.Length == 0)
-            {
-                return Result<MessageAuthorOptionsResponse>.Success(new MessageAuthorOptionsResponse([]));
-            }
-
-            messages = messages.Where(message => authorizedConversationIds.Contains(message.ConversationId));
-        }
-        else
-        {
-            var candidateConversationIds = await messages
+        var authorizedConversationIds = await ResolveReadableConversationIdsAsync(
+            userId,
+            async token => await messages
                 .GroupBy(message => message.ConversationId)
                 .Select(group => new
                 {
@@ -231,19 +219,14 @@ public sealed class DbSearchService(
                 .ThenBy(item => item.ConversationId)
                 .Take(100)
                 .Select(item => item.ConversationId)
-                .ToListAsync(cancellationToken);
-            var authorizedConversationIds = await messaging.FilterReadableConversationIdsAsync(
-                userId,
-                candidateConversationIds,
-                cancellationToken);
-
-            if (authorizedConversationIds.Count == 0)
-            {
-                return Result<MessageAuthorOptionsResponse>.Success(new MessageAuthorOptionsResponse([]));
-            }
-
-            messages = messages.Where(message => authorizedConversationIds.Contains(message.ConversationId));
+                .ToListAsync(token),
+            cancellationToken);
+        if (authorizedConversationIds.Count == 0)
+        {
+            return Result<MessageAuthorOptionsResponse>.Success(new MessageAuthorOptionsResponse([]));
         }
+
+        messages = messages.Where(message => authorizedConversationIds.Contains(message.ConversationId));
 
         var tenantAuthors = dbContext.TenantUsers
             .AsNoTracking()
@@ -585,30 +568,9 @@ public sealed class DbSearchService(
                                 file.DeletedAt == null))));
         }
 
-        var readableConversationIds = messaging.QueryReadableConversationIds(userId);
-        if (readableConversationIds is not null)
-        {
-            // Resolve the authoritative recursive relation as its own set.
-            // Composing its full Project/Workspace authorization graph into
-            // every optional Message predicate produces a pathological
-            // PostgreSQL plan once From is present. Materializing only the
-            // authorized IDs keeps authorization before ordering/limiting and
-            // lets the bounded Message query use an indexed ANY predicate.
-            var authorizedConversationIds = await readableConversationIds
-                .ToArrayAsync(cancellationToken);
-            if (authorizedConversationIds.Length == 0)
-            {
-                return [];
-            }
-
-            query = query.Where(item => authorizedConversationIds.Contains(item.conversation.Id));
-        }
-        else
-        {
-            // Non-relational test providers cannot compose the recursive CTE.
-            // Keep their existing fail-closed bound, but make candidate choice
-            // deterministic and recency-first before the bounded recursive check.
-            var candidateConversationIds = await query
+        var authorizedConversationIds = await ResolveReadableConversationIdsAsync(
+            userId,
+            async token => await query
                 .GroupBy(item => item.conversation.Id)
                 .Select(group => new
                 {
@@ -619,19 +581,14 @@ public sealed class DbSearchService(
                 .ThenBy(item => item.ConversationId)
                 .Take(100)
                 .Select(item => item.ConversationId)
-                .ToListAsync(cancellationToken);
-            var authorizedConversationIds = await messaging.FilterReadableConversationIdsAsync(
-                userId,
-                candidateConversationIds,
-                cancellationToken);
-
-            if (authorizedConversationIds.Count == 0)
-            {
-                return [];
-            }
-
-            query = query.Where(item => authorizedConversationIds.Contains(item.conversation.Id));
+                .ToListAsync(token),
+            cancellationToken);
+        if (authorizedConversationIds.Count == 0)
+        {
+            return [];
         }
+
+        query = query.Where(item => authorizedConversationIds.Contains(item.conversation.Id));
 
         var rows = await query
             .OrderByDescending(item => item.message.CreatedAt)
@@ -850,6 +807,24 @@ public sealed class DbSearchService(
             .ToListAsync(cancellationToken);
     }
 
+
+    private async Task<IReadOnlyCollection<Guid>> ResolveReadableConversationIdsAsync(
+        Guid userId,
+        Func<CancellationToken, Task<List<Guid>>> fallbackCandidateIds,
+        CancellationToken cancellationToken)
+    {
+        var readableConversationIds = messaging.QueryReadableConversationIds(userId);
+        if (readableConversationIds is not null)
+        {
+            return await readableConversationIds.ToArrayAsync(cancellationToken);
+        }
+
+        var candidateConversationIds = await fallbackCandidateIds(cancellationToken);
+        return await messaging.FilterReadableConversationIdsAsync(
+            userId,
+            candidateConversationIds,
+            cancellationToken);
+    }
 
     private IQueryable<Guid> ScopedVisibleProjectIds(Guid userId, SearchRequest request)
     {
