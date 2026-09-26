@@ -1,7 +1,6 @@
 using Coglatas.Application.Common.Interfaces;
 using Coglatas.Application.Notifications;
 using Coglatas.Application.Realtime;
-using Coglatas.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 
 namespace Coglatas.Infrastructure.Persistence;
