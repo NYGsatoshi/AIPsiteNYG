@@ -518,15 +518,6 @@ public sealed class EventService(
         // TODO: add scheduled attendance deadline reminders when background jobs are introduced.
     }
 
-    private static bool ScopedResourceValidation.HasExactlyOneScope(Guid? workspaceId, Guid? groupId, Guid? projectId)
-    {
-        var count = 0;
-        if (workspaceId.HasValue) count++;
-        if (groupId.HasValue) count++;
-        if (projectId.HasValue) count++;
-        return count == 1;
-    }
-
     private static string? NormalizeOptionalText(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
