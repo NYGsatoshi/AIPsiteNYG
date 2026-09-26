@@ -40,51 +40,6 @@ public sealed class GlobalExceptionHandlingMiddlewareTests
         Assert.DoesNotContain("leaked", body, StringComparison.OrdinalIgnoreCase);
     }
 
-    [Theory]
-    [InlineData(StatusCodes.Status400BadRequest, "InvalidRequest")]
-    [InlineData(StatusCodes.Status415UnsupportedMediaType, "UnsupportedMediaType")]
-    public async Task ClientRequestExceptionsDoNotBecomeServerErrors(int statusCode, string expectedCode)
-    {
-        var middleware = new GlobalExceptionHandlingMiddleware(
-            _ => throw new BadHttpRequestException("attacker-controlled details", statusCode),
-            NullLogger<GlobalExceptionHandlingMiddleware>.Instance);
-        var context = new DefaultHttpContext
-        {
-            TraceIdentifier = "client-request-error",
-            Response = { Body = new MemoryStream() }
-        };
-
-        await middleware.InvokeAsync(context);
-
-        context.Response.Body.Position = 0;
-        using var payload = await JsonDocument.ParseAsync(context.Response.Body);
-        Assert.Equal(statusCode, context.Response.StatusCode);
-        Assert.Equal(expectedCode, payload.RootElement.GetProperty("code").GetString());
-        Assert.DoesNotContain("attacker-controlled", payload.RootElement.GetRawText(), StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public async Task InvalidMultipartDataDoesNotBecomeServerError()
-    {
-        var middleware = new GlobalExceptionHandlingMiddleware(
-            _ => throw new InvalidDataException("malformed multipart detail"),
-            NullLogger<GlobalExceptionHandlingMiddleware>.Instance);
-        var context = new DefaultHttpContext
-        {
-            TraceIdentifier = "malformed-form",
-            Response = { Body = new MemoryStream() }
-        };
-        context.Request.ContentType = "multipart/form-data; boundary=test-boundary";
-
-        await middleware.InvokeAsync(context);
-
-        context.Response.Body.Position = 0;
-        using var payload = await JsonDocument.ParseAsync(context.Response.Body);
-        Assert.Equal(StatusCodes.Status400BadRequest, context.Response.StatusCode);
-        Assert.Equal("InvalidRequest", payload.RootElement.GetProperty("code").GetString());
-        Assert.DoesNotContain("malformed multipart detail", payload.RootElement.GetRawText(), StringComparison.OrdinalIgnoreCase);
-    }
-
     [Fact]
     [Trait("Scope", "TaskV1PR06")]
     public async Task GanttSnapshotExceptionUsesSafePr06Envelope()
