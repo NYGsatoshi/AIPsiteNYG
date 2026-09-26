@@ -426,7 +426,7 @@ public sealed class EventService(
         int? capacity,
         CancellationToken cancellationToken)
     {
-        if (!HasExactlyOneScope(workspaceId, groupId, projectId))
+        if (!ScopedResourceValidation.HasExactlyOneScope(workspaceId, groupId, projectId))
         {
             return Result.Failure("Exactly one of WorkspaceId, GroupId, or ProjectId must be set.");
         }
@@ -451,34 +451,14 @@ public sealed class EventService(
             return Result.Failure("Capacity must be greater than or equal to 0.");
         }
 
-        if (workspaceId.HasValue)
-        {
-            var workspace = await workspaces.GetByIdAsync(workspaceId.Value, cancellationToken);
-            if (workspace is null || workspace.DeletedAt.HasValue || workspace.Status != WorkspaceStatus.Active)
-            {
-                return Result.Failure("Workspace not found.");
-            }
-        }
-
-        if (groupId.HasValue)
-        {
-            var group = await groups.GetByIdAsync(groupId.Value, cancellationToken);
-            if (group is null || group.DeletedAt.HasValue || group.Status != GroupStatus.Active)
-            {
-                return Result.Failure("Group not found.");
-            }
-        }
-
-        if (projectId.HasValue)
-        {
-            var project = await projects.GetProjectAsync(projectId.Value, cancellationToken);
-            if (project is null || project.DeletedAt.HasValue || project.Status == ProjectStatus.Archived)
-            {
-                return Result.Failure("Project not found.");
-            }
-        }
-
-        return Result.Success();
+        return await ScopedResourceValidation.ValidateExistingScopeAsync(
+            workspaces,
+            groups,
+            projects,
+            workspaceId,
+            groupId,
+            projectId,
+            cancellationToken);
     }
 
     private bool TryCurrentUser(out Guid userId)
@@ -544,7 +524,7 @@ public sealed class EventService(
         // TODO: add scheduled attendance deadline reminders when background jobs are introduced.
     }
 
-    private static bool HasExactlyOneScope(Guid? workspaceId, Guid? groupId, Guid? projectId)
+    private static bool ScopedResourceValidation.HasExactlyOneScope(Guid? workspaceId, Guid? groupId, Guid? projectId)
     {
         var count = 0;
         if (workspaceId.HasValue) count++;
