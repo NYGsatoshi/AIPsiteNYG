@@ -478,12 +478,12 @@ public static class AppDbContextSeed
             .ToListAsync(cancellationToken);
         dbContext.AnnouncementReads.RemoveRange(smokeUserAnnouncementReads);
 
-        var project = await dbContext.Projects.FirstOrDefaultAsync(
-            candidate => candidate.TenantId == tenantId && candidate.WorkspaceId == workspace.Id && candidate.Slug == projectSlug,
-            cancellationToken);
-        if (project is null)
-        {
-            project = new Project
+        var project = await EnsureSeedProjectAsync(
+            dbContext,
+            tenantId,
+            workspace.Id,
+            projectSlug,
+            () => new Project
             {
                 TenantId = tenantId,
                 WorkspaceId = workspace.Id,
@@ -495,27 +495,18 @@ public static class AppDbContextSeed
                 Status = ProjectStatus.Active,
                 StartDate = DateOnly.FromDateTime(now.UtcDateTime.Date),
                 DueDate = DateOnly.FromDateTime(now.UtcDateTime.Date.AddDays(14))
-            };
-            await dbContext.Projects.AddAsync(project, cancellationToken);
-            await dbContext.SaveChangesAsync(cancellationToken);
-        }
-        else
-        {
-            project.OwnerUserId = user.Id;
-            project.CreatedByUserId = user.Id;
-            project.Name = "Browser Smoke Project";
-            project.Description = "Synthetic project for the real-backend browser smoke test.";
-            // Test fixture refresh must not activate an existing Project. A
-            // slug collision with a never-activated fixture remains in its
-            // current lifecycle state; only the explicit activation command
-            // may make a persisted Project Active.
-            project.StartDate = DateOnly.FromDateTime(now.UtcDateTime.Date);
-            project.DueDate = DateOnly.FromDateTime(now.UtcDateTime.Date.AddDays(14));
-            if (project.IsDeleted)
+            },
+            existing =>
             {
-                project.Restore();
-            }
-        }
+                existing.OwnerUserId = user.Id;
+                existing.CreatedByUserId = user.Id;
+                existing.Name = "Browser Smoke Project";
+                existing.Description = "Synthetic project for the real-backend browser smoke test.";
+                existing.StartDate = DateOnly.FromDateTime(now.UtcDateTime.Date);
+                existing.DueDate = DateOnly.FromDateTime(now.UtcDateTime.Date.AddDays(14));
+            },
+            true,
+            cancellationToken);
 
         var projectMember = await dbContext.ProjectMembers.FirstOrDefaultAsync(
             candidate => candidate.TenantId == tenantId && candidate.ProjectId == project.Id && candidate.UserId == user.Id,
@@ -855,14 +846,12 @@ public static class AppDbContextSeed
         const string taskTitle = "PR07 authorized notification task";
         var today = DateOnly.FromDateTime(now.UtcDateTime.Date);
 
-        var project = await dbContext.Projects.FirstOrDefaultAsync(candidate =>
-            candidate.TenantId == tenantId &&
-            candidate.WorkspaceId == workspace.Id &&
-            candidate.Slug == projectSlug,
-            cancellationToken);
-        if (project is null)
-        {
-            project = new Project
+        var project = await EnsureSeedProjectAsync(
+            dbContext,
+            tenantId,
+            workspace.Id,
+            projectSlug,
+            () => new Project
             {
                 TenantId = tenantId,
                 WorkspaceId = workspace.Id,
@@ -874,23 +863,18 @@ public static class AppDbContextSeed
                 Status = ProjectStatus.Active,
                 StartDate = today,
                 DueDate = today.AddDays(7)
-            };
-            await dbContext.Projects.AddAsync(project, cancellationToken);
-        }
-        else
-        {
-            project.OwnerUserId = owner.Id;
-            project.CreatedByUserId = owner.Id;
-            project.Name = projectTitle;
-            project.Description = "Synthetic isolated Project for PR07-D notification delivery acceptance.";
-            // Preserve the existing lifecycle state on fixture refresh.
-            project.StartDate = today;
-            project.DueDate = today.AddDays(7);
-            if (project.IsDeleted)
+            },
+            existing =>
             {
-                project.Restore();
-            }
-        }
+                existing.OwnerUserId = owner.Id;
+                existing.CreatedByUserId = owner.Id;
+                existing.Name = projectTitle;
+                existing.Description = "Synthetic isolated Project for PR07-D notification delivery acceptance.";
+                existing.StartDate = today;
+                existing.DueDate = today.AddDays(7);
+            },
+            false,
+            cancellationToken);
 
         await EnsureSeedProjectMemberAsync(dbContext, tenantId, project.Id, owner.Id, ProjectRole.Owner, now, cancellationToken);
         await EnsureSeedProjectMemberAsync(dbContext, tenantId, project.Id, recipient.Id, ProjectRole.Contributor, now, cancellationToken);
@@ -1591,15 +1575,12 @@ public static class AppDbContextSeed
             managerWorkspaceMember.JoinedAt ??= now;
         }
 
-        var project = await dbContext.Projects.FirstOrDefaultAsync(
-            candidate =>
-                candidate.TenantId == tenantId &&
-                candidate.WorkspaceId == workspace.Id &&
-                candidate.Slug == projectSlug,
-            cancellationToken);
-        if (project is null)
-        {
-            project = new Project
+        var project = await EnsureSeedProjectAsync(
+            dbContext,
+            tenantId,
+            workspace.Id,
+            projectSlug,
+            () => new Project
             {
                 TenantId = tenantId,
                 WorkspaceId = workspace.Id,
@@ -1612,24 +1593,19 @@ public static class AppDbContextSeed
                 Status = ProjectStatus.Active,
                 StartDate = DateOnly.FromDateTime(now.UtcDateTime.Date),
                 DueDate = DateOnly.FromDateTime(now.UtcDateTime.Date.AddDays(14))
-            };
-            await dbContext.Projects.AddAsync(project, cancellationToken);
-        }
-        else
-        {
-            project.GroupId = group.Id;
-            project.OwnerUserId = owner.Id;
-            project.CreatedByUserId = owner.Id;
-            project.Name = "PR05 Browser Acceptance Project";
-            project.Description = "Synthetic Project Kanban data for PR05 real-backend browser acceptance.";
-            // Preserve the existing lifecycle state on fixture refresh.
-            project.StartDate = DateOnly.FromDateTime(now.UtcDateTime.Date);
-            project.DueDate = DateOnly.FromDateTime(now.UtcDateTime.Date.AddDays(14));
-            if (project.IsDeleted)
+            },
+            existing =>
             {
-                project.Restore();
-            }
-        }
+                existing.GroupId = group.Id;
+                existing.OwnerUserId = owner.Id;
+                existing.CreatedByUserId = owner.Id;
+                existing.Name = "PR05 Browser Acceptance Project";
+                existing.Description = "Synthetic Project Kanban data for PR05 real-backend browser acceptance.";
+                existing.StartDate = DateOnly.FromDateTime(now.UtcDateTime.Date);
+                existing.DueDate = DateOnly.FromDateTime(now.UtcDateTime.Date.AddDays(14));
+            },
+            false,
+            cancellationToken);
 
         await EnsureSeedProjectMemberAsync(dbContext, tenantId, project.Id, owner.Id, ProjectRole.Owner, now, cancellationToken);
         await EnsureSeedProjectMemberAsync(dbContext, tenantId, project.Id, manager.Id, ProjectRole.Manager, now, cancellationToken);
@@ -1805,15 +1781,12 @@ public static class AppDbContextSeed
             managerWorkspaceMember.JoinedAt ??= now;
         }
 
-        var project = await dbContext.Projects.FirstOrDefaultAsync(
-            candidate =>
-                candidate.TenantId == tenantId &&
-                candidate.WorkspaceId == workspace.Id &&
-                candidate.Slug == projectSlug,
-            cancellationToken);
-        if (project is null)
-        {
-            project = new Project
+        var project = await EnsureSeedProjectAsync(
+            dbContext,
+            tenantId,
+            workspace.Id,
+            projectSlug,
+            () => new Project
             {
                 TenantId = tenantId,
                 WorkspaceId = workspace.Id,
@@ -1827,24 +1800,19 @@ public static class AppDbContextSeed
                 StartDate = today,
                 DueDate = today.AddDays(45),
                 VersionNo = 1
-            };
-            await dbContext.Projects.AddAsync(project, cancellationToken);
-        }
-        else
-        {
-            project.GroupId = group.Id;
-            project.OwnerUserId = owner.Id;
-            project.CreatedByUserId = owner.Id;
-            project.Name = "PR06 Browser Acceptance Project";
-            project.Description = "Synthetic canonical Gantt data for PR06 real-backend browser acceptance.";
-            // Preserve the existing lifecycle state on fixture refresh.
-            project.StartDate = today;
-            project.DueDate = today.AddDays(45);
-            if (project.IsDeleted)
+            },
+            existing =>
             {
-                project.Restore();
-            }
-        }
+                existing.GroupId = group.Id;
+                existing.OwnerUserId = owner.Id;
+                existing.CreatedByUserId = owner.Id;
+                existing.Name = "PR06 Browser Acceptance Project";
+                existing.Description = "Synthetic canonical Gantt data for PR06 real-backend browser acceptance.";
+                existing.StartDate = today;
+                existing.DueDate = today.AddDays(45);
+            },
+            false,
+            cancellationToken);
 
         await EnsureSeedProjectMemberAsync(dbContext, tenantId, project.Id, owner.Id, ProjectRole.Owner, now, cancellationToken);
         await EnsureSeedProjectMemberAsync(dbContext, tenantId, project.Id, manager.Id, ProjectRole.Manager, now, cancellationToken);
@@ -2372,6 +2340,43 @@ public static class AppDbContextSeed
                 CreatedAt = now
             }, cancellationToken);
         }
+    }
+
+    private static async Task<Project> EnsureSeedProjectAsync(
+        AppDbContext dbContext,
+        Guid tenantId,
+        Guid workspaceId,
+        string slug,
+        Func<Project> create,
+        Action<Project> refresh,
+        bool saveAfterCreate,
+        CancellationToken cancellationToken)
+    {
+        var project = await dbContext.Projects.FirstOrDefaultAsync(
+            candidate =>
+                candidate.TenantId == tenantId &&
+                candidate.WorkspaceId == workspaceId &&
+                candidate.Slug == slug,
+            cancellationToken);
+        if (project is null)
+        {
+            project = create();
+            await dbContext.Projects.AddAsync(project, cancellationToken);
+            if (saveAfterCreate)
+            {
+                await dbContext.SaveChangesAsync(cancellationToken);
+            }
+
+            return project;
+        }
+
+        refresh(project);
+        if (project.IsDeleted)
+        {
+            project.Restore();
+        }
+
+        return project;
     }
 
     private static async Task EnsureSeedProjectMemberAsync(
