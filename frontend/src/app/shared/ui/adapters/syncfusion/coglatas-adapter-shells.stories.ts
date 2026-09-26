@@ -91,8 +91,8 @@ type Story = StoryObj;
 export const DarkCompact: Story = {};
 export const LightComfortable: Story = {
   decorators: [(story) => {
-    document.documentElement.dataset['aipTheme'] = 'light';
-    document.documentElement.dataset['aipDensity'] = 'comfortable';
+    document.documentElement.dataset['coglatasTheme'] = 'light';
+    document.documentElement.dataset['coglatasDensity'] = 'comfortable';
     return story();
   }]
 };
