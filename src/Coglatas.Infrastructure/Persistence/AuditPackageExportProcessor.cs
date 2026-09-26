@@ -153,7 +153,7 @@ public sealed class AuditPackageExportProcessor(
                 ? Array.Empty<ArtifactFinding>()
                 : await dbContext.Set<ArtifactFinding>()
                     .AsNoTracking()
-                    .Where(finding => claimIds.Contains(finding.ArtifactClaimId))
+                    .Where(finding => Enumerable.Contains(claimIds, finding.ArtifactClaimId))
                     .OrderBy(finding => finding.CreatedAt)
                     .ThenBy(finding => finding.Id)
                     .ToListAsync(cancellationToken);
@@ -163,7 +163,7 @@ public sealed class AuditPackageExportProcessor(
                 ? Array.Empty<AuditFindingDecision>()
                 : await dbContext.Set<AuditFindingDecision>()
                     .AsNoTracking()
-                    .Where(decision => findingIds.Contains(decision.ArtifactFindingId))
+                    .Where(decision => Enumerable.Contains(findingIds, decision.ArtifactFindingId))
                     .OrderBy(decision => decision.CreatedAt)
                     .ThenBy(decision => decision.Id)
                     .ToListAsync(cancellationToken);
