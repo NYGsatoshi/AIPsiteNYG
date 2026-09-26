@@ -24,7 +24,7 @@ Last updated: 2026-09-12.
 - Community linter image: `jetbrains/qodana-cdnet:2026.2-privileged@sha256:21bbbfeac0e61fe8790cc27d5754b87d57b8032c0c32f84ddeb887027f83ec4f`.
 - Reusable Qodana gate: `.github/workflows/qodana_trusted_gate.yml` pinned through main-reachable commit `05833d4b0b5a4f9fb468c0db48c76f1bc723a872`.
 
-Qodana Community for .NET is intentionally the .NET lane. Frontend policy is enforced independently by SonarQube Cloud, ESLint/angular-eslint and Stylelint, so the Qodana bootstrap sets `QODANA_SKIP_FRONTEND_BOOTSTRAP=true` in CI instead of spending Community-linter time building an unsupported frontend analysis surface.
+Qodana Community for .NET is intentionally the .NET lane. Frontend policy is enforced independently by SonarQube Server, ESLint/angular-eslint and Stylelint, so the Qodana bootstrap sets `QODANA_SKIP_FRONTEND_BOOTSTRAP=true` in CI instead of spending Community-linter time building an unsupported frontend analysis surface.
 
 ## Inspection policy
 
